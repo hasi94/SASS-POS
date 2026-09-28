@@ -1,0 +1,31 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: 6
+
+    # Analysis paths are listed literally (no globs): the host application itself,
+    # every packages/*/src and every services/*/src. Adding a new shared package or a
+    # new, permanent service package means adding one line here.
+    paths:
+        # services/host
+        - app
+        - bootstrap/app.php
+        - bootstrap/providers.php
+        - config
+        - database
+        - routes
+        # services/*
+        - ../demo/src
+        # packages/*
+        - ../../packages/auth/src
+        - ../../packages/contracts/src
+        - ../../packages/eventbus/src
+        # Str::studly('http-client') === 'HttpClient'; the directory stays kebab-case.
+        - ../../packages/http-client/src
+        - ../../packages/kernel/src
+        # Str::studly('plugin-sdk') === 'PluginSdk'; the directory stays kebab-case.
+        - ../../packages/plugin-sdk/src
+        - ../../packages/testing/src
+
+    tmpDir: storage/framework/cache/phpstan

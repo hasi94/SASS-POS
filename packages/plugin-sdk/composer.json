@@ -1,0 +1,20 @@
+{
+    "name": "flexipos/plugin-sdk",
+    "description": "FlexiPOS plugin SDK: extension gateway, plugin base classes and manifest validation.",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.2"
+    },
+    "autoload": {
+        "psr-4": {
+            "Flexipos\\PluginSdk\\": "src/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

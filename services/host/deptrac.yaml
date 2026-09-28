@@ -1,0 +1,96 @@
+deptrac:
+  # Analysed source. Listed literally (no globs): the host application, every
+  # packages/*/src and every services/*/src. Adding a new, permanent service package
+  # means adding one path, one layer and one ruleset entry here.
+  paths:
+    - app
+    - ../demo/src
+    - ../../packages/auth/src
+    - ../../packages/contracts/src
+    - ../../packages/eventbus/src
+    # Str::studly('http-client') === 'HttpClient'; the directory stays kebab-case.
+    - ../../packages/http-client/src
+    - ../../packages/kernel/src
+    # Str::studly('plugin-sdk') === 'PluginSdk'; the directory stays kebab-case.
+    - ../../packages/plugin-sdk/src
+    - ../../packages/testing/src
+
+  layers:
+    - name: HostApp
+      collectors:
+        - type: classLike
+          value: ^App\\.*
+
+    # One layer per service package, so a dependency from one service onto
+    # another is a violation instead of an internal edge of a shared layer.
+    - name: Service_Demo
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Service\\Demo\\.*
+
+    - name: Package_Auth
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Auth\\.*
+
+    - name: Package_Contracts
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Contracts\\.*
+
+    - name: Package_Eventbus
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Eventbus\\.*
+
+    # Str::studly('http-client') === 'HttpClient' — the namespace is not a literal
+    # transliteration of the hyphenated package directory name.
+    - name: Package_HttpClient
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\HttpClient\\.*
+
+    - name: Package_Kernel
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Kernel\\.*
+
+    # Str::studly('plugin-sdk') === 'PluginSdk' — see the note above.
+    - name: Package_PluginSdk
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\PluginSdk\\.*
+
+    - name: Package_Testing
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Testing\\.*
+
+  # A service layer may depend only on shared packages/* layers — never on another
+  # service layer. packages/* layers depend on nothing (`~`).
+  ruleset:
+    HostApp:
+      - Package_Auth
+      - Package_Contracts
+      - Package_Eventbus
+      - Package_HttpClient
+      - Package_Kernel
+      - Package_PluginSdk
+      - Package_Testing
+
+    Service_Demo:
+      - Package_Auth
+      - Package_Contracts
+      - Package_Eventbus
+      - Package_HttpClient
+      - Package_Kernel
+      - Package_PluginSdk
+      - Package_Testing
+
+    Package_Auth: ~
+    Package_Contracts: ~
+    Package_Eventbus: ~
+    Package_HttpClient: ~
+    Package_Kernel: ~
+    Package_PluginSdk: ~
+    Package_Testing: ~

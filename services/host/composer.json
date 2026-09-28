@@ -1,0 +1,121 @@
+{
+    "$schema": "https://getcomposer.org/schema.json",
+    "name": "flexipos/host",
+    "type": "project",
+    "description": "FlexiPOS service host: boots the service packages named in the SERVICES environment variable.",
+    "keywords": ["flexipos", "laravel", "service-host"],
+    "license": "proprietary",
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../../packages/*"
+        },
+        {
+            "type": "path",
+            "url": "../*"
+        }
+    ],
+    "require": {
+        "php": "^8.2",
+        "flexipos/auth": "*",
+        "flexipos/contracts": "*",
+        "flexipos/eventbus": "*",
+        "flexipos/http-client": "*",
+        "flexipos/kernel": "*",
+        "flexipos/plugin-sdk": "*",
+        "laravel/framework": "^12.0",
+        "laravel/tinker": "^2.10.1"
+    },
+    "require-dev": {
+        "fakerphp/faker": "^1.23",
+        "flexipos/service-demo": "*",
+        "flexipos/testing": "*",
+        "larastan/larastan": "^3.0",
+        "laravel/pail": "^1.2.2",
+        "laravel/pint": "^1.24",
+        "laravel/sail": "^1.41",
+        "mockery/mockery": "^1.6",
+        "nunomaduro/collision": "^8.6",
+        "pestphp/pest": "^3.8",
+        "pestphp/pest-plugin-laravel": "^3.2",
+        "phpunit/phpunit": "^11.5.50",
+        "qossmic/deptrac": "^2.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/",
+            "Database\\Factories\\": "database/factories/",
+            "Database\\Seeders\\": "database/seeders/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "setup": [
+            "composer install",
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
+            "@php artisan key:generate",
+            "@php artisan migrate --force",
+            "npm install",
+            "npm run build"
+        ],
+        "dev": [
+            "Composer\\Config::disableProcessTimeout",
+            "npx concurrently -c \"#93c5fd,#c4b5fd,#fb7185,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1 --timeout=0\" \"php artisan pail --timeout=0\" \"npm run dev\" --names=server,queue,logs,vite --kill-others"
+        ],
+        "lint": "@php vendor/bin/pint --test .. ../../packages",
+        "lint:fix": "@php vendor/bin/pint .. ../../packages",
+        "stan": "@php vendor/bin/phpstan analyse --no-progress --memory-limit=1G",
+        "deptrac": "@php vendor/bin/deptrac analyse --config-file=deptrac.yaml --cache-file=storage/framework/cache/.deptrac.cache --no-progress",
+        "test": [
+            "@php artisan config:clear --ansi",
+            "@php vendor/bin/pest"
+        ],
+        "check": [
+            "@lint",
+            "@stan",
+            "@deptrac",
+            "@test"
+        ],
+        "post-autoload-dump": [
+            "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
+            "@php artisan package:discover --ansi"
+        ],
+        "post-update-cmd": [
+            "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
+        ],
+        "post-root-package-install": [
+            "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
+        ],
+        "pre-package-uninstall": [
+            "Illuminate\\Foundation\\ComposerScripts::prePackageUninstall"
+        ]
+    },
+    "scripts-descriptions": {
+        "lint": "Check formatting with Pint (no files changed).",
+        "lint:fix": "Fix formatting with Pint.",
+        "stan": "Run PHPStan (level 6) static analysis.",
+        "deptrac": "Enforce service/package boundary rules with Deptrac.",
+        "test": "Run the Pest test suite.",
+        "check": "Run lint, stan, deptrac and test in sequence (CI gate)."
+    },
+    "extra": {
+        "laravel": {
+            "dont-discover": []
+        }
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "preferred-install": "dist",
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true,
+            "php-http/discovery": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

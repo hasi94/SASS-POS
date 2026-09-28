@@ -1,0 +1,20 @@
+{
+    "name": "flexipos/kernel",
+    "description": "FlexiPOS kernel: tenant context, scopes, settings, idempotency, audit and correlation ids.",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.2"
+    },
+    "autoload": {
+        "psr-4": {
+            "Flexipos\\Kernel\\": "src/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

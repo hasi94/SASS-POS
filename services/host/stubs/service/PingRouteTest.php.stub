@@ -1,0 +1,38 @@
+<?php
+
+use App\Support\ServiceHost\ServiceRegistry;
+use Tests\TestCase;
+
+/*
+ * This package may not be listed in SERVICES yet, so the test boots it into the
+ * host itself. That is the same code path the host uses at boot, which is why
+ * this test passes straight after generation with no further edits.
+ */
+
+uses(TestCase::class);
+
+beforeEach(function () {
+    app(ServiceRegistry::class)->bootAll('{{name}}');
+});
+
+it('answers the {{name}} ping route under its own prefix', function () {
+    $this->get('/{{prefix}}/ping')
+        ->assertOk()
+        ->assertJson([
+            'service' => '{{name}}',
+            'status' => 'ok',
+        ]);
+});
+
+it('registers the {{connection}} database connection', function () {
+    expect(config('database.connections.{{connection}}'))->toBeArray()
+        ->and(config('database.connections.{{connection}}.database'))->toBe('{{schema}}');
+});
+
+it('is reported by the readiness endpoint once booted', function () {
+    expect(app(ServiceRegistry::class)->booted())->toContain('{{name}}');
+
+    $this->get('/health/ready')
+        ->assertOk()
+        ->assertJsonPath('status', 'ok');
+});

@@ -1,0 +1,29 @@
+<?php
+
+namespace Flexipos\Service\{{studly}};
+
+use Illuminate\Support\ServiceProvider;
+
+class {{studly}}ServiceProvider extends ServiceProvider
+{
+    /**
+     * The database connection this service owns. No other service may use it.
+     */
+    public const CONNECTION = '{{connection}}';
+
+    /**
+     * The route prefix every endpoint of this service is mounted under.
+     */
+    public const PREFIX = '{{prefix}}';
+
+    public function register(): void
+    {
+        $this->mergeConfigFrom(__DIR__.'/../config/connection.php', 'database.connections');
+    }
+
+    public function boot(): void
+    {
+        $this->loadRoutesFrom(__DIR__.'/../routes/api.php');
+        $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
+    }
+}

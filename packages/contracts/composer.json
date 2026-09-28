@@ -1,0 +1,20 @@
+{
+    "name": "flexipos/contracts",
+    "description": "FlexiPOS shared contracts: DTOs, client interfaces, event classes and error codes.",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.2"
+    },
+    "autoload": {
+        "psr-4": {
+            "Flexipos\\Contracts\\": "src/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

@@ -12,6 +12,32 @@ Streams: **BE** backend services, **FE** frontend, **PA** print agent (C#/.NET),
 
 ---
 
+## Active build (AI dev team)
+
+| ID | Title | Covers | Branch | Status |
+|---|---|---|---|---|
+| T-001 | Monorepo, backend toolchain and service host skeleton | FP-003, FP-004, FP-005 | `ai/T-001-monorepo-service-host` | **DONE** — QA PASS 32/32, review APPROVE |
+
+FP-001 and FP-002 (product-owner approval and open questions) were satisfied by the owner invoking the build with the v0.3 design in place. Remaining Phase 0 rows are queued after T-001.
+
+### Follow-ups raised during builds
+
+| ID | Title | Raised by | Detail | Status |
+|---|---|---|---|---|
+| FP-143 | Migrate Deptrac to the maintained package | architect, T-001 | Composer reports `qossmic/deptrac` abandoned upstream in favour of `deptrac/deptrac` (4.7.2, same `php:^8.2` constraint, installs cleanly here). Kept as-is during T-001 so an upgrade was not bundled into a bug fix. | TODO |
+| FP-144 | Decide ERP scope questions Q-1 to Q-6 | lead, from `Refference/ERP.md` | [gap-analysis-erp.md](gap-analysis-erp.md) §6: database-per-service vs one schema, restaurant core vs plugin, warehouses, batch/serial, employee vs user, and whether ERP is in 1.0. Five of these are cheap now and expensive once the schema has data. | TODO (product owner) |
+| FP-145 | Reserve ERP extension points while the schema is empty | lead, from `Refference/ERP.md` | Employee attribution on sales and sale lines, accounting-ready event payloads, stock keyed by location rather than branch, nullable batch and serial columns on movements, tax rates with effective dates. Blocked on FP-144. | BLOCKED |
+| FP-146 | Harden service registry manifest trust | reviewer, T-001 (M-1, M-2, M-3) | Provider must be an `Illuminate\Support\ServiceProvider`; declared namespace must equal `Flexipos\Service\<Studly>\` and the provider must start with it; register the PSR-4 prefix only after validation; add the `D` modifier to `NAME_PATTERN` (PCRE `$` matches before a trailing newline, so the generator accepts a name the registry can never boot). | TODO — before Phase 1 |
+| FP-147 | Make `svc:make` generation atomic | reviewer, T-001 (M-4) | A failure part-way through the write loop leaves a half-made package, and the retry then refuses with "already exists. Nothing was created or modified", which is untrue. Roll back the target directory on any throwable, or render to a temp directory and move on success. | TODO — before Phase 1 |
+| FP-148 | Move health endpoints out of the web middleware group | reviewer, T-001 (M-5) | They inherit session middleware, so with the shipped database session driver `/health/live` opens a database connection and returns 500 when the database is down, causing an orchestrator to kill a healthy process. Add a no-database liveness test. | TODO — before FP-015/FP-019 |
+| FP-149 | Define the host's cache and autoloader contract | reviewer, T-001 (M-6, M-9) | `config:cache` silently freezes `SERVICES`, defeating the one guarantee the host exists for; `mergeConfigFrom` is a no-op under a cached config; `route:cache` freezes routes and currently throws on a closure route; `--classmap-authoritative` breaks runtime PSR-4 registration entirely. Add a boot-time guard and document all four. | TODO — with FP-015/FP-019 |
+| FP-150 | Collect every host test directory | reviewer, T-001 (M-7) | With the host's tests excluded from the only globbed suite, a future host test directory would be collected by nothing and never run — BUG-1 relocated to the host. Single `tests` suite, or assert collection in the guard test. | TODO — cheap |
+| FP-151 | Documentation accuracy in the skeleton | reviewer, T-001 (M-8) | The root README says no file inside `services/host/` needs changing, which is false for a real service and contradicts what `svc:make` prints. Also replace the stock Laravel README, whose MIT statement contradicts the proprietary licence in the manifest. | TODO — cheap |
+| FP-152 | Extend analysis coverage to test code, narrow the guard's skip rule | reviewer, T-001 (minors) | Test directories are in neither the static analysis nor the boundary configuration, so a service's tests may import another service freely. The coverage guard skips any package whose name contains `fixture`, which a legitimate service could match. | TODO — before Phase 1 |
+| FP-153 | Regression-test the demo package against a fresh generation | reviewer, T-001 (minor) | QA proved by hand that regenerating `services/demo` is byte-identical to the committed tree. Automate it so stub edits cannot drift from the committed reference. | TODO — nice to have |
+
+---
+
 ## Milestones
 
 | Milestone | Phases | Outcome | Indicative |
@@ -36,9 +62,9 @@ Gate rule (spec §51): the product owner approves Phase 0 deliverables before Ph
 |---|---|---|---|---|---|
 | FP-001 | Approve architecture v0.3, database v0.3, VPS deployment plan and this backlog | PO | Written approval or change list in docs/decisions | — | TODO |
 | FP-002 | Close open questions (architecture §25) | PO | docs/decisions/0001-launch-scope.md | FP-001 | TODO |
-| FP-003 | Monorepo skeleton | OPS | Folders per architecture §5, root README, project CLAUDE.md (commands, stack, conventions), .editorconfig, conventional commits, `git init` | FP-001 | TODO |
-| FP-004 | Backend toolchain | BE | Composer workspace, PHP 8.2+ (XAMPP) and 8.3 (Docker) verified, Pint, PHPStan level 6, Deptrac boundary rules (service ↔ packages only), Pest | FP-003 | TODO |
-| FP-005 | Service host and service package template | BE | `services/host` Laravel app booting packages from `SERVICES`; `php artisan svc:make <name>` generates a service package (provider, routes prefix, connection, migrations dir, consumers dir, tests) | FP-004 | TODO |
+| FP-003 | Monorepo skeleton | OPS | Folders per architecture §5, root README, project CLAUDE.md (commands, stack, conventions), .editorconfig, conventional commits, `git init` | FP-001 | DONE (T-001) |
+| FP-004 | Backend toolchain | BE | Composer workspace, PHP 8.2+ (XAMPP) and 8.3 (Docker) verified, Pint, PHPStan level 6, Deptrac boundary rules (service ↔ packages only), Pest | FP-003 | DONE (T-001) |
+| FP-005 | Service host and service package template | BE | `services/host` Laravel app booting packages from `SERVICES`; `php artisan svc:make <name>` generates a service package (provider, routes prefix, connection, migrations dir, consumers dir, tests) | FP-004 | DONE (T-001) |
 | FP-006 | `packages/kernel` | BE | TenantContext, TenantModel + scope, tenant/branch refs consumers, settings client, correlation ids, audit writer, idempotency middleware | FP-005 | TODO |
 | FP-007 | `packages/contracts` | BE | DTO base, client interface conventions, error-code catalogue, event envelope + JSON Schema loader, hook payload contracts, code generation for HTTP routes from interfaces | FP-005 | TODO |
 | FP-008 | `packages/eventbus` | BE | `EventBus` interface, Redis Streams adapter (XADD, consumer groups, claim, ack), outbox relay command, inbox dedupe, consumer runner `svc:consume`, retry schedule, DLQ + replay command, lag metrics | FP-007 | TODO |
