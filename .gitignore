@@ -1,0 +1,64 @@
+# Dependencies
+/node_modules
+**/node_modules
+/vendor
+**/vendor
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+!**/testing/*.key
+/keys
+
+# Laravel / PHP
+**/storage/*.key
+**/storage/framework/cache/*
+**/storage/framework/sessions/*
+**/storage/framework/views/*
+**/storage/logs/*
+**/bootstrap/cache/*
+!**/.gitignore
+.phpunit.result.cache
+.phpunit.cache
+.php-cs-fixer.cache
+/services/host/public/hot
+/services/host/public/storage
+
+# Installed plugin packages (runtime)
+/services/host/plugins/*
+!/services/host/plugins/.gitkeep
+
+# Angular / Node
+/frontend/dist
+/frontend/.angular
+**/.angular/cache
+*.tsbuildinfo
+
+# .NET
+**/bin/
+**/obj/
+*.user
+*.suo
+/print-agent/**/publish/
+
+# Editors and OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+*.swp
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Build and test output
+/coverage
+**/coverage
+*.log
+/tmp
+/.scratch
