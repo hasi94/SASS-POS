@@ -1,12 +1,18 @@
 # FlexiPOS — project guide
 
-Multi-tenant SaaS POS platform. Service-oriented Laravel backend, Angular POS/admin, C#/.NET Print Agent.
+Multi-tenant SaaS POS **and ERP** platform. Modular Laravel monolith, Angular POS/admin, C#/.NET Print Agent.
 
-**Read before any design or code:** [docs/architecture.md](docs/architecture.md) (services, contracts, events, sagas), [docs/database.md](docs/database.md) (schema per service), [docs/backlog.md](docs/backlog.md) (task queue), [docs/deployment-vps.md](docs/deployment-vps.md).
+**Read before any design or code:** [docs/architecture.md](docs/architecture.md) v0.4 (master and tenant databases, modules, login flow), [docs/database.md](docs/database.md) v0.4 (master schema, tenant schema), [docs/backlog.md](docs/backlog.md) (task queue), [docs/deployment-vps.md](docs/deployment-vps.md). `Refference/ARCH.md` is the product owner's authoritative decision document and outranks anything that contradicts it.
+
+## The architecture in one paragraph
+
+**One master database** holds the login identity, tenants, subscriptions, licensing and the mapping from tenant to database. **One database per shop** holds all of that shop's business data, with no tenant column, because the database itself is the boundary. A user logs in against the master, which resolves which tenant they may use and where its database lives; the backend then builds the tenant connection from server-side configuration. The frontend never names a database. Many tenant databases share a MySQL server, and the mapping carries host and port so they can spread across servers.
 
 ## Tech stack
 
-Backend PHP 8.2+ / Laravel (service packages booted by `services/host`) · MySQL 8.4 in Docker and CI, MariaDB 10.4 in XAMPP mode · Redis 7 (cache, queues, Streams event bus) · Angular 21 PWA (`frontend/`) · .NET 8 Worker Service (`print-agent/`) · Traefik gateway · Docker Compose.
+Backend PHP 8.2+ / Laravel, one application with modules booted from configuration · MySQL 8.4 in Docker and CI, MariaDB 10.4 in XAMPP mode · Redis 7 (cache, queues, Streams event bus) · Angular 21 PWA (`frontend/`) · .NET 8 Worker Service (`print-agent/`) · Docker Compose.
+
+**Vocabulary note:** the code still says `services/` and `svc:make` from the pre-v0.4 design. The rename to `modules/` and `module:make` is backlog row FP-202. Until it lands, the paths below are correct as written.
 
 ## Local environment (Windows 11, this machine)
 
@@ -42,6 +48,8 @@ Run from the repo root unless stated otherwise. `composer` below means the full 
 
 ## Conventions
 
-- Services are Composer path packages under `services/<name>/`, booted by `services/host` from the `SERVICES` env var. A service owns its own database schema; **never** query another service's tables. Cross-service calls go through interfaces in `packages/contracts`; everything else is an event on Redis Streams.
+- Modules are Composer path packages booted by the host from the `SERVICES` environment variable. Module boundaries are enforced by the boundary check: a module may use the kernel and another module's published contracts, never its internals.
+- All modules share the **tenant** connection; there is no connection per module. Foreign keys across modules inside a tenant database are normal. Financial documents still snapshot what they need to be reprinted exactly.
+- Every schema change runs against **every tenant database**. Use the per-tenant migration runner, follow expand-and-contract, and never assume one database.
 - Branches `ai/<ID>-<slug>`; commits `<ID>: <title>`; conventional-commit prefixes for non-task work.
 - Never commit `.env`, real secrets or `vendor/`. Never push, merge, deploy or delete branches.

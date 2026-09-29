@@ -1,191 +1,419 @@
-# FlexiPOS — Database Structure (database-per-service)
+# FlexiPOS — Database Structure (master DB + one database per tenant)
 
 | | |
 |---|---|
-| Status | **DRAFT v0.3** — companion to [architecture.md](architecture.md) §6, §8, §9, §12 |
-| Date | 2026-09-28 |
-| Engine | MySQL 8.4 LTS (Docker dev, VPS, cloud). XAMPP mode uses MariaDB 10.4 with the compatibility notes in §8. InnoDB, `utf8mb4_0900_ai_ci`; id columns `ascii_bin` |
-| Change log | v0.3: one schema and one DB user per service; cross-service foreign keys removed; projections, outbox/inbox, idempotency and saga tables added; reporting read models; plugin schema. v0.1 tables kept where unchanged |
+| Status | **DRAFT v0.4** — companion to [architecture.md](architecture.md) v0.4. Supersedes the v0.3 database-per-service design in full |
+| Date | 2026-09-29 |
+| Decision source | [`Refference/ARCH.md`](../Refference/ARCH.md) (product owner, authoritative) §2, §3, §8, §23 · ERP scope from [`Refference/ERP.md`](../Refference/ERP.md) §31 · gaps closed: [gap-analysis-erp.md](gap-analysis-erp.md) Q-1 … Q-6, G-1 … G-18 |
+| Engine | MySQL 8.4 LTS (Docker dev, VPS, cloud). XAMPP mode uses MariaDB 10.4 with the notes in §14. InnoDB, `utf8mb4_0900_ai_ci`; id columns `ascii_bin` |
+| Change log | **v0.4**: thirteen service schemas replaced by **one master database + one database per tenant**; `tenant_id` **removed from every tenant table**; cross-module foreign keys allowed and encouraged; projections, `*_refs` tables, inbox events and saga tables deleted; ERP domains added (double-entry accounting, AR/AP, cash & bank, expenses, HR, payroll, commission, warehouses, batch/serial, workflow engine); identity split between master login and tenant employee; tenant→database mapping, provisioning and per-tenant migration runner designed. v0.3 column design carried over wherever it still fits |
 
-Contents: 1 Conventions · 2 Ownership map · 3 Cross-service reference rules · 4 Schemas per service (ERDs + tables) · 5 Standard tables in every schema · 6 Index and partition strategy · 7 Write paths (online sale saga, offline sale) · 8 Migrations, users and grants, XAMPP notes
+**Contents**
+1 [What changed and why](#1-what-changed-and-why) ·
+2 [Topology and naming](#2-topology-and-naming) ·
+3 [Conventions](#3-conventions) ·
+4 [Master database](#4-master-database) ·
+5 [Identity split](#5-identity-split-master-login-vs-tenant-employee) ·
+6 [Tenant database](#6-tenant-database) ·
+7 [Accounting posting rules](#7-accounting-posting-rules) ·
+8 [Tenant provisioning](#8-tenant-provisioning) ·
+9 [Per-tenant migrations](#9-per-tenant-migrations-and-schema-versioning) ·
+10 [Capacity per MySQL server](#10-capacity-how-many-tenants-fit-on-one-mysql-server) ·
+11 [Index and partition strategy](#11-index-and-partition-strategy) ·
+12 [Write paths](#12-write-paths) ·
+13 [Backup, restore, export, move](#13-backup-restore-export-and-move) ·
+14 [Local, CI and MariaDB notes](#14-local-ci-and-mariadb-notes) ·
+15 [Deleted from v0.3](#15-deleted-from-v03) ·
+16 [Open questions](#16-open-questions)
 
 ---
 
-## 1. Conventions
+## 1. What changed and why
 
-### 1.1 Column sets (tags used below)
+v0.3 split the data into thirteen schemas, one per service, with no foreign keys between them. Every schema carried `tenant_id` on every table, every cross-service reference was a bare id plus an event-fed projection table, and the accounting module — had it existed — would have had to rebuild a general ledger from an event stream because it could not join sales, purchases, payroll and inventory.
+
+The product owner has decided (`Refference/ARCH.md`) on **master database + one database per tenant**. That decision resolves gap-analysis questions Q-1 to Q-6 at once:
+
+| v0.3 | v0.4 | Consequence |
+|---|---|---|
+| 13 schemas, one per service | 1 master DB + 1 DB per tenant | the database, not a column, is the tenancy boundary |
+| `tenant_id` on every table, first column of every index | **no `tenant_id` in tenant tables at all** | shorter keys, smaller indexes, no class of "forgot the tenant scope" bug, no accidental cross-tenant read |
+| no cross-service FKs | foreign keys across modules are normal | referential integrity is the database's job again |
+| projections (`product_refs`, `tenant_refs`, …) rebuilt from events | **deleted** — join the real table | ~20 tables and a whole drift-detection job disappear |
+| snapshot endpoints, inbox events, saga steps for the online sale | **deleted** — one local transaction | the online sale is one `BEGIN … COMMIT` |
+| accounting impossible without event replay | ledger joins the subledgers directly | double-entry accounting becomes tractable (§7) |
+| one migration run per schema | **one migration run per tenant database** | the single biggest new operational cost — designed in §9, not later |
+
+What is **kept** from v0.3 because it still fits: ULID primary keys; the money, quantity and rate types; soft deletes and audit timestamps; the append-only **stock ledger**; **snapshot columns** on financial documents (a five-year-old receipt must still reprint exactly, so `sale_items.product_name`, `unit_price` and `tax_breakdown` stay even though the product row is now one join away); the offline **sync inbox** and **POS replica**; the custom-field mechanism; and the index/partition thinking — revised in §11, because per-tenant databases change the arithmetic (partitions are files, and files are the scarce resource now).
+
+What is **new** because ERP is in scope: finance with double-entry accounting, AR/AP, cash & bank and reconciliation; expenses; HR with attendance and leave; payroll; a commission engine; warehouses as locations distinct from branches; batch, serial and expiry tracking; and one workflow/approval engine driving expenses, purchase orders, leave, payroll and discounts.
+
+---
+
+## 2. Topology and naming
+
+```text
+                       MASTER DATABASE  (flexipos_master)
+             who you are · which tenants you may open · where their database lives
+                                        │
+             ┌──────────────────────────┼──────────────────────────┐
+             ▼                          ▼                          ▼
+      db-01:3306                 db-01:3306                 db-02:3306
+      flx_t_000001               flx_t_000002               flx_t_000917
+      "ABC Pharmacy"             "XYZ Grocery"              enterprise tenant, dedicated server
+```
+
+| Thing | Rule | Example |
+|---|---|---|
+| Master database | one per platform installation | `flexipos_master` |
+| Tenant identifier | `tenants.code`, immutable, human-visible, used in activation codes and support | `TEN000123` |
+| Tenant database name | `flx_t_` + zero-padded `tenants.sequence` (6 digits, widens at 1 M) | `flx_t_000123` |
+| Tenant app DB user | `flx_t000123_app` — DML only (`SELECT, INSERT, UPDATE, DELETE, EXECUTE`) on its own database | |
+| Tenant migrate DB user | `flx_t000123_mig` — the above plus `CREATE, ALTER, DROP, INDEX, REFERENCES, CREATE VIEW, TRIGGER` on its own database | used only by `tenant:migrate` |
+| Provisioner DB user | one per **server**, `CREATE`/`DROP DATABASE`, `CREATE USER`, `GRANT`; never used to serve a request | `flx_provisioner` |
+| Laravel connection names | `master` (always configured) and `tenant` (built at runtime per request) | `DB::connection('master')`, `DB::connection('tenant')` |
+
+Rules that follow from the topology, and that the code must enforce:
+
+1. **The frontend never names a database.** It sends a tenant code; the backend verifies the authenticated user may open it, reads the mapping from master, and builds the connection server-side (`Refference/ARCH.md` §5, golden rule).
+2. **No query ever joins across databases.** Cross-database SQL (`flx_t_000001.sales JOIN flexipos_master.users`) is forbidden and blocked by the per-tenant grant: the app user has rights on exactly one schema and nothing else. Master-side facts needed inside a tenant request (the acting user's e-mail, plan limits) travel in the request context, not in SQL.
+3. **The master holds exactly three references into tenant data** — `tenant_users.employee_id`, `tenant_usage_metrics` counters, and `tenant_backups` — and all three are plain ULIDs/numbers with no foreign key, reconciled by a nightly checker (§4.9).
+4. **Persistent PDO connections stay off.** With one DB user per tenant, a pooled connection is bound to one tenant and cannot be reused, so persistence only inflates `max_connections`. See §10.
+
+---
+
+## 3. Conventions
+
+### 3.1 Column sets (tags used in the tables below)
 
 | Tag | Columns | Notes |
 |---|---|---|
-| `[ID]` | `id CHAR(26) PK` | ULID; generated on the POS for offline entities, on the server otherwise |
-| `[TENANT]` | `tenant_id CHAR(26) NOT NULL` | on every table in every service schema; first column of composite indexes |
+| `[ID]` | `id CHAR(26) PK` | ULID, `ascii_bin`. Generated on the POS for entities created offline, on the server otherwise. Still globally unique, so an exported row keeps its identity |
 | `[TS]` | `created_at DATETIME(3)`, `updated_at DATETIME(3)` | UTC |
 | `[SOFT]` | `deleted_at DATETIME(3) NULL` | soft delete |
-| `[BY]` | `created_by CHAR(26) NULL`, `updated_by CHAR(26) NULL` | user id, plain column (identity owns users) |
-| `[CF]` | `custom_fields JSON NULL` | validated against the tenant service's definitions (projection) |
-| `[SYNC]` | `origin ENUM('online','offline')`, `terminal_id CHAR(26) NULL`, `device_id CHAR(26) NULL`, `client_seq BIGINT NULL`, `client_created_at DATETIME(3) NULL`, `sync_status ENUM('synced','conflict','review')`, `synced_at DATETIME(3) NULL` | entities the POS creates offline |
-| `[REF:x]` | `x_id CHAR(26)` indexed, **no foreign key** | reference to an entity owned by another service |
+| `[BY]` | `created_by CHAR(26) NULL`, `updated_by CHAR(26) NULL` | **employee id**, FK to `employees` (was a bare column in v0.3) |
+| `[CF]` | `custom_fields JSON NULL` | validated against `custom_field_definitions` in the same database |
+| `[SYNC]` | `origin ENUM('online','offline')`, `terminal_id CHAR(26) NULL`, `device_id CHAR(26) NULL`, `client_seq BIGINT NULL`, `client_created_at DATETIME(3) NULL`, `sync_status ENUM('synced','conflict','review')`, `synced_at DATETIME(3) NULL` | only on entities the POS can create offline |
+| `[BR]` | `branch_id CHAR(26) NOT NULL` FK `branches` | on every branch-scoped business row |
+| `[GL]` | `journal_entry_id CHAR(26) NULL` FK `journal_entries` | on documents that post to the ledger; null until posted |
 
-### 1.2 Types
+**There is no `[TENANT]` tag.** Nothing in a tenant database carries `tenant_id`. If a table needs to know which tenant it belongs to, it is in the wrong database.
 
-Money `DECIMAL(18,4)` · quantity `DECIMAL(18,4)` · rate `DECIMAL(9,4)` · codes `VARCHAR(50)` · names `VARCHAR(150)` · enumerations `VARCHAR(30)` with application enums (shown as `enum(...)`) · `JSON` with application schemas · business dates `DATE` in the branch timezone.
+### 3.2 Types
 
-### 1.3 Rules
+Money `DECIMAL(18,4)` · quantity `DECIMAL(18,4)` · rate/percentage `DECIMAL(9,4)` · exchange rate `DECIMAL(18,8)` · codes `VARCHAR(50)` · names `VARCHAR(150)` · enumerations `VARCHAR(30)` with application enums (written `enum(...)` below) · `JSON` with application schemas · business dates `DATE` in the branch timezone · all `DATETIME(3)` in UTC.
 
-- Foreign keys **only inside a schema** (`RESTRICT` for financial rows, `CASCADE` for pure children). Across services: `[REF:x]` columns and snapshots.
-- Every unique key starts with `tenant_id`.
-- Financial rows are immutable after posting; corrections are new rows.
-- Plugin tables live in `pos_plugin` and are prefixed `plg_<plugin>_`.
-- Every schema has the standard tables of §5.
+### 3.3 Rules
 
----
-
-## 2. Ownership map
-
-```text
-MySQL instance (one in Phase 0; any schema can move to its own instance later)
-├── pos_identity      user svc_identity      users, roles, permissions, tokens, terminal credentials, login history
-├── pos_tenant        user svc_tenant        tenants, plans, subscriptions, branches, terminals, devices, settings, custom-field definitions
-├── pos_catalog       user svc_catalog       products, variants, barcodes, categories, brands, units, modifiers
-├── pos_pricing       user svc_pricing       taxes, tax groups, price lists, assignments, discounts
-├── pos_inventory     user svc_inventory     stock levels, ledger, adjustments, transfers, conflicts, purchasing
-├── pos_sales         user svc_sales         sales, items, tenders, shifts, approvals, saga steps, restaurant
-├── pos_payment       user svc_payment       payment methods, payments, gateway transactions
-├── pos_customer      user svc_customer      customers, groups, ledger, loyalty
-├── pos_sync          user svc_sync          inbox, batches, POS replica, terminal sync state
-├── pos_notification  user svc_notification  templates, deliveries, in-app notifications, webhooks
-├── pos_reporting     user svc_reporting     facts, dimensions, daily summaries, audit read model, exports
-├── pos_plugin        user svc_plugin        registry, versions, tenant plugins, settings, hook registrations, workflows, plg_* tables
-└── pos_print         user svc_print         printers, routes, kitchen stations, templates, print jobs, agent heartbeats
-```
-
-Each user has `ALL PRIVILEGES` on its own schema and nothing else. A migration user per schema (same grants) is used by `svc:migrate`. `platform:init-databases` creates schemas and users from `.env`.
+- **Foreign keys everywhere inside a database.** `RESTRICT` for anything financial or referenced by a document; `CASCADE` only for pure children (`sale_items` under `sales`, `journal_lines` under `journal_entries`). Deliberate exception: append-only ledgers (`stock_movements`, `customer_ledger`, `journal_lines`) reference documents by `reference_type` + `reference_id` polymorphically and therefore carry **no** FK on that pair.
+- Financial rows are **immutable after posting**. A correction is a new row (a reversal plus a new entry), never an `UPDATE`.
+- Unique keys no longer start with `tenant_id`: `products.sku` is simply unique, `sales.number` is simply unique.
+- Snapshot columns stay on documents. A document must reprint identically after the master data behind it changes.
+- Plugin tables live in the tenant database, prefixed `plg_<plugin>_`, and may hold foreign keys to core tables but must never alter them.
+- Every tenant database has the system tables of §6.21; the master has its own set in §4.10.
 
 ---
 
-## 3. Cross-service reference rules
+## 4. Master database
 
-| Need | Pattern | Example |
-|---|---|---|
-| Reproduce a document exactly | **snapshot** columns on the document | `sale_items.product_name`, `unit_price`, `tax_breakdown`; `sales.customer_name` |
-| Validate or display a foreign id repeatedly | **projection table** fed by events, rebuildable from the owner's snapshot endpoint | `inventory.product_refs`, `catalog.tax_group_refs`, every schema's `tenant_refs` |
-| Authoritative check at write time | **contract call** | `sales → inventory.reserveAndDecrement`, `sales → customer.creditCheck` |
-| Reporting across domains | **read models** in `pos_reporting` | `sales_facts` joined to `product_dims` |
-| POS needs everything offline | **`pos_sync.pos_replica`** | one document per POS entity |
+Small and slow-changing: ~30 tables, a few hundred thousand rows at 1 000 tenants. One database, one connection (`master`), backed up far more often than any tenant.
 
-Projections carry `source_version` and `synced_at`; a nightly job compares counts with the owner and rebuilds on drift.
-
----
-
-## 4. Schemas per service
-
-### 4.1 `pos_identity` (identity service)
+### 4.1 Tenancy and identity
 
 ```mermaid
 erDiagram
-  USERS ||--o{ USER_ROLES : has
-  ROLES ||--o{ USER_ROLES : grants
-  ROLES ||--o{ ROLE_PERMISSIONS : includes
-  PERMISSIONS ||--o{ ROLE_PERMISSIONS : key
-  USERS ||--o{ USER_BRANCHES : assigned
-  USERS ||--o{ USER_PERMISSIONS : overrides
-  USERS ||--o{ REFRESH_TOKENS : holds
-  TERMINAL_CREDENTIALS ||--o{ REFRESH_TOKENS : holds
-  SIGNING_KEYS ||--o{ REFRESH_TOKENS : signed_by
-  USERS {
-    ulid id PK
-    ulid tenant_id
-    string email
-    string phone
-    string password
-    string pin_hash
-    bool is_tenant_admin
-    string status
-    int perm_version
-  }
-  TERMINAL_CREDENTIALS {
-    ulid terminal_id PK
-    ulid tenant_id
-    ulid branch_id
-    string secret_hash
-    string device_fingerprint
-    string status
-  }
-```
-
-| Table | Columns / notes |
-|---|---|
-| platform_users | `[ID]` `[TS]` `[SOFT]`, name, email (unique), password, role enum(super_admin, support, billing), two_factor_secret (encrypted), status, last_login_at |
-| users | `[ID]` `[TENANT]` `[TS]` `[SOFT]` `[CF]` `[BY]`, employee_code, name, email (unique per tenant, nullable), phone, password (Argon2id, nullable), pin_hash (Argon2id, nullable), is_tenant_admin, status enum(active, inactive, locked), locale, avatar_path, failed_attempts, locked_until, last_login_at, perm_version INT (bumped on any role change; becomes `perm_hash` in tokens). Index (tenant_id, email), (tenant_id, phone) |
-| permissions | key VARCHAR(80) PK, module VARCHAR(50), plugin_name VARCHAR(100) NULL, description, is_branch_scoped BOOL. Core rows seeded; plugin rows from `plugin.permissions_registered` |
-| roles | `[ID]` `[TENANT]` `[TS]`, key (unique per tenant), name, description, is_system, plugin_name NULL |
-| role_permissions | role_id FK, permission_key FK; PK (role_id, permission_key) |
-| user_roles | `[ID]` `[TENANT]`, user_id FK, role_id FK, branch_id `[REF:branch]` NULL (null = tenant-wide); unique (tenant_id, user_id, role_id, branch_id) |
-| user_branches | user_id FK, branch_id `[REF:branch]`, is_default; PK (user_id, branch_id) |
-| user_permissions | user_id FK, permission_key FK, branch_id NULL, allowed BOOL; PK (user_id, permission_key, branch_id) |
-| terminal_credentials | terminal_id `[REF:terminal]` PK, tenant_id, branch_id, secret_hash, device_fingerprint CHAR(64), device_id, status enum(active, revoked), activated_at, revoked_at, revoked_by |
-| refresh_tokens | `[ID]` `[TENANT]`, principal_type enum(user, terminal, platform_user), principal_id, token_hash CHAR(64) unique, family_id (rotation chain), expires_at, used_at, revoked_at, ip VARBINARY(16), user_agent. Index (principal_type, principal_id) |
-| signing_keys | kid VARCHAR(40) PK, algorithm, public_key TEXT, private_key_ref VARCHAR(255) (path or KMS ref), status enum(active, retiring, retired), created_at, retired_at |
-| service_clients | name VARCHAR(50) PK (`sales`, `inventory`, …), secret_hash, allowed_audiences JSON, status |
-| login_history | id BIGINT AUTO, tenant_id NULL, principal_type, principal_id, email, success, failure_reason, ip, user_agent, device_id, created_at. Index (tenant_id, created_at), (email, created_at) |
-| projections | `tenant_refs`, `branch_refs`, `terminal_refs` (terminal_id, tenant_id, branch_id, code, status) |
-
-Note: with users of all tenants in one schema, login by e-mail resolves the tenant directly; if identity is ever sharded, add a `user_directory` (email → tenant, shard) table.
-
-### 4.2 `pos_tenant` (tenant service)
-
-```mermaid
-erDiagram
+  TENANTS ||--o{ TENANT_USERS : grants
+  USERS ||--o{ TENANT_USERS : holds
+  TENANTS ||--o{ TENANT_DOMAINS : reachable_at
+  TENANTS ||--|| TENANT_DATABASES : lives_in
+  DATABASE_SERVERS ||--o{ TENANT_DATABASES : hosts
+  TENANTS ||--o{ SUBSCRIPTIONS : buys
   PLANS ||--o{ SUBSCRIPTIONS : priced_by
-  TENANTS ||--o{ SUBSCRIPTIONS : has
-  TENANTS ||--o{ BRANCHES : has
-  BRANCHES ||--o{ TERMINALS : has
-  TERMINALS ||--o{ DEVICES : history
-  TENANTS ||--o{ SETTINGS : scope
-  TENANTS ||--o{ CUSTOM_FIELD_DEFINITIONS : defines
-  TENANTS ||--o{ TENANT_FEATURE_FLAGS : overrides
-  FEATURE_FLAGS ||--o{ TENANT_FEATURE_FLAGS : flag
-  TENANTS ||--o{ PROVISIONING_STATUS : tracked
+  USERS ||--o{ REFRESH_TOKENS : holds
+  USERS ||--o{ MFA_FACTORS : secured_by
   TENANTS {
     ulid id PK
+    int sequence UK
     string code UK
-    string slug UK
     string name
     string status
     ulid plan_id FK
+    string country
     string timezone
     string currency
-    string business_type
   }
-  TERMINALS {
+  USERS {
     ulid id PK
-    ulid tenant_id
-    ulid branch_id FK
-    string code
+    string email UK
+    string password_hash
     string status
-    string activation_code
-    string invoice_prefix
-    datetime last_seen_at
+    bool is_platform_staff
+    datetime last_login_at
+  }
+  TENANT_USERS {
+    ulid id PK
+    ulid tenant_id FK
+    ulid user_id FK
+    ulid employee_id
+    string access_level
+    string status
+    bool is_default
+  }
+  TENANT_DATABASES {
+    ulid tenant_id PK
+    ulid server_id FK
+    string database_name UK
+    string app_credential_ref
+    string status
+    bigint schema_version
   }
 ```
 
 | Table | Columns / notes |
 |---|---|
-| tenants | `[ID]` `[TS]` `[SOFT]`, code VARCHAR(30) unique, slug VARCHAR(63) unique, name, legal_name, status enum(trial, active, suspended, closed), plan_id FK, country, timezone, currency, locale, business_type enum(retail, restaurant, both), settings JSON, trial_ends_at, activated_at, suspended_at |
-| plans | `[ID]` `[TS]`, code unique, name, price, billing_cycle enum(monthly, yearly), limits JSON, features JSON, is_active |
-| subscriptions | `[ID]` `[TS]`, tenant_id FK, plan_id FK, status enum(trial, active, past_due, cancelled), starts_at, ends_at, trial_ends_at, cancelled_at, external_ref. Index (tenant_id, status) |
-| feature_flags / tenant_feature_flags | key PK, description, default_enabled · tenant_id FK, flag_key FK, enabled; PK (tenant_id, flag_key) |
-| branches | `[ID]` `[TENANT]` `[TS]` `[SOFT]` `[BY]`, code VARCHAR(10) (unique per tenant), name, address JSON, phone, email, timezone, currency, tax_registration_no, business_type, is_active |
-| terminals | `[ID]` `[TENANT]` `[TS]` `[SOFT]`, branch_id FK, code VARCHAR(10) (unique per branch), name, status enum(pending, active, inactive, revoked), activation_code, activation_expires_at, current_device_id, invoice_prefix VARCHAR(20), last_seen_at, last_sync_at, offline_since, app_version, agent_version, settings JSON |
-| devices | `[ID]` `[TENANT]` `[TS]`, terminal_id FK, fingerprint CHAR(64), platform, browser, os, registered_at, last_seen_at, revoked_at, revoked_by |
-| settings | `[ID]` `[TENANT]` `[TS]`, scope_type enum(tenant, branch, terminal, user), scope_id NULL, key VARCHAR(120), value JSON, updated_by; unique (tenant_id, scope_type, scope_id, key) |
-| settings_registry | key PK, service VARCHAR(30), type, default_value JSON, validation JSON, sync_to_pos BOOL, plugin_name NULL (declared by services and plugins at boot/registration) |
-| custom_field_definitions | `[ID]` `[TENANT]` `[TS]` `[SOFT]`, entity_type enum(product, customer, sale, supplier, purchase_order, order), key, label, type enum(text, number, date, boolean, dropdown, multi_select, currency, barcode), options JSON, is_required, default_value JSON, validation JSON, is_indexed, show_in_pos, sort_order, plugin_name NULL; unique (tenant_id, entity_type, key) |
-| provisioning_status | tenant_id FK, service VARCHAR(30), status enum(pending, done, failed), attempts, updated_at; PK (tenant_id, service) |
-| core_releases | version PK, deployed_at, git_sha, min_client_version, notes |
-| projections | `user_counts` (tenant_id, users, active_terminals — for plan limits, from identity events) |
+| tenants | `[ID]` `[TS]` `[SOFT]`, sequence INT UNSIGNED AUTO-assigned unique (drives the database name), code VARCHAR(30) unique, slug VARCHAR(63) unique, name, legal_name, status enum(pending, provisioning, trial, active, past_due, suspended, read_only, closed, archived), plan_id FK plans, country CHAR(2), timezone, currency CHAR(3), locale, business_type enum(retail, restaurant, both), industry, contact_name, contact_email, contact_phone, trial_ends_at, activated_at, suspended_at, suspension_reason, closed_at, data_region VARCHAR(20), notes. Index (status), (plan_id) |
+| tenant_domains | `[ID]` `[TS]`, tenant_id FK, host VARCHAR(191) unique, type enum(subdomain, custom), is_primary, verified_at, tls_status. Resolves a request to a tenant before login when the deployment is host-based |
+| users | `[ID]` `[TS]` `[SOFT]`, name, email VARCHAR(191) **globally unique**, email_verified_at, phone, password_hash (Argon2id), status enum(invited, active, disabled, locked), is_platform_staff BOOL, platform_role enum(super_admin, support, billing, readonly) NULL, locale, timezone, avatar_path, failed_attempts, locked_until, must_change_password, password_changed_at, last_login_at, last_login_ip VARBINARY(16). One row per human who logs in, tenant customer or platform staff alike, so there is one login endpoint, one token issuer and one MFA path |
+| tenant_users | `[ID]` `[TS]` `[SOFT]`, tenant_id FK, user_id FK, **employee_id CHAR(26) NULL** (the `employees.id` inside the tenant database — the one deliberate cross-database reference, no FK possible), access_level enum(owner, admin, member) (coarse, used only before the tenant DB is open; real permissions live in the tenant DB), status enum(invited, active, suspended), is_default BOOL, invited_by FK users NULL, invited_at, accepted_at, last_accessed_at; unique (tenant_id, user_id), unique (tenant_id, employee_id) where not null. Index (user_id, status) |
+| mfa_factors | `[ID]` `[TS]`, user_id FK, type enum(totp, recovery_codes, webauthn), secret TEXT (encrypted at rest with the app key), confirmed_at, last_used_at |
+| refresh_tokens | `[ID]` `[TS]`, principal_type enum(user, terminal, service), principal_id CHAR(26), tenant_id FK NULL (tenant-scoped tokens), token_hash CHAR(64) unique, family_id (rotation chain), expires_at, used_at, revoked_at, ip VARBINARY(16), user_agent. Index (principal_type, principal_id) |
+| signing_keys | kid VARCHAR(40) PK, algorithm, public_key TEXT, private_key_ref VARCHAR(255) (secret reference, never the key), status enum(active, retiring, retired), created_at, retired_at |
+| service_clients | name VARCHAR(50) PK, secret_hash, allowed_audiences JSON, status. Internal machine-to-machine callers (print agent relay, analytics feeder) |
+| login_history | id BIGINT AUTO PK, user_id NULL, tenant_id NULL, email, principal_type, success BOOL, failure_reason, ip VARBINARY(16), user_agent, device_id, created_at. Index (email, created_at), (user_id, created_at). 180-day retention |
+| security_events | id BIGINT AUTO PK, type enum(lockout, password_reset, mfa_enrolled, mfa_failed, token_reuse, impersonation, grant_changed, credential_rotated), user_id NULL, tenant_id NULL, actor_id NULL, detail JSON, ip, created_at |
 
-### 4.3 `pos_catalog` (catalog service)
+Terminal activation needs no master directory table: an activation code is issued as `TEN000123-XXXX-XXXX`, so the tenant is resolvable from the code itself, and every terminal token thereafter carries a signed `tenant_id`.
+
+### 4.2 Plans, subscriptions, billing
+
+| Table | Columns / notes |
+|---|---|
+| plans | `[ID]` `[TS]` `[SOFT]`, code unique, name, description, price DECIMAL(18,4), currency, billing_cycle enum(monthly, quarterly, yearly), trial_days, is_public, is_active, sort_order |
+| plan_features | plan_id FK, feature_key VARCHAR(60) FK feature_flags, value JSON (boolean, number or config); PK (plan_id, feature_key) |
+| plan_limits | plan_id FK, limit_key enum(branches, locations, terminals, users, employees, products, monthly_sales, storage_mb, api_calls_per_day), value INT; PK (plan_id, limit_key) |
+| subscriptions | `[ID]` `[TS]`, tenant_id FK, plan_id FK, status enum(trial, active, past_due, paused, cancelled, expired), quantity INT (seats/terminals), unit_price, currency, starts_at, current_period_start, current_period_end, trial_ends_at, cancel_at, cancelled_at, cancellation_reason, external_ref VARCHAR(100) (gateway subscription id). Index (tenant_id, status), (current_period_end) |
+| billing_invoices | `[ID]` `[TS]`, tenant_id FK, subscription_id FK NULL, number unique, status enum(draft, open, paid, void, uncollectible), issue_date, due_date, currency, subtotal, tax_total, total, amount_paid, amount_due, pdf_path, external_ref. Index (tenant_id, status, due_date) |
+| billing_invoice_lines | `[ID]`, invoice_id FK CASCADE, description, period_start, period_end, quantity, unit_price, amount, tax_rate, tax_amount, metric_key NULL (usage-based lines) |
+| billing_payments | `[ID]` `[TS]`, tenant_id FK, invoice_id FK NULL, amount, currency, method enum(card, bank_transfer, cash, credit), status enum(pending, succeeded, failed, refunded), gateway, gateway_ref, paid_at, failure_reason |
+| licences | `[ID]` `[TS]`, tenant_id FK, type enum(platform, plugin, module), subject VARCHAR(100) (plugin name or module key), licence_key CHAR(64) unique, seats INT NULL, terminals INT NULL, valid_from, valid_until, status enum(active, expired, revoked, suspended), issued_by FK users, signature TEXT (detached signature so an offline installation can verify the licence), revoked_at, revoked_reason. Index (tenant_id, status), (valid_until) |
+| feature_flags | key VARCHAR(60) PK, description, default_enabled BOOL, owner_module VARCHAR(40), is_plugin_flag BOOL |
+| tenant_feature_flags | tenant_id FK, flag_key FK, enabled BOOL, reason, set_by FK users, `[TS]`; PK (tenant_id, flag_key). Overrides the plan |
+| tenant_usage_metrics | tenant_id FK, metric_date DATE, sales_count, sales_value, active_terminals, active_users, employees, products, database_bytes, table_count, api_calls, storage_bytes, collected_at; PK (tenant_id, metric_date). Written nightly by a collector that connects to each tenant database once, so plan-limit enforcement and platform analytics never fan out queries at request time (`Refference/ARCH.md` §17) |
+
+### 4.3 Plugin licensing and enablement
+
+Master decides **whether** a plugin may run; the tenant database holds the plugin's settings and data (`Refference/ARCH.md` §12).
+
+| Table | Columns / notes |
+|---|---|
+| plugins | `[ID]` `[TS]` `[SOFT]`, name VARCHAR(100) unique, display_name, type enum(module, integration, theme, report, vertical), author, description, visibility enum(official, private, third_party), status enum(uploaded, validated, published, deprecated, withdrawn), latest_version_id, signature_key_id, requires_licence BOOL |
+| plugin_versions | `[ID]` `[TS]`, plugin_id FK, version VARCHAR(20), core_constraint VARCHAR(40), manifest JSON, package_path, checksum CHAR(64), signature TEXT, migration_count INT, status enum(available, deprecated, yanked), released_at; unique (plugin_id, version) |
+| plugin_dependencies | plugin_version_id FK, depends_on_plugin VARCHAR(100), version_constraint; PK (plugin_version_id, depends_on_plugin) |
+| plugin_tenant_access | plugin_id FK, tenant_id FK, granted_by FK users, `[TS]`; PK (plugin_id, tenant_id). Private plugins only |
+| tenant_plugins | `[ID]` `[TS]`, tenant_id FK, plugin_id FK, plugin_version_id FK, status enum(installing, enabled, disabled, updating, error), **schema_version BIGINT** (how far this plugin's per-tenant migrations have run inside that tenant database), licence_id FK licences NULL, installed_at, enabled_at, disabled_at, installed_by FK users, failure_count, tripped_at, last_error; unique (tenant_id, plugin_id) |
+
+### 4.4 The mapping — `database_servers` and `tenant_databases`
+
+This is the heart of the architecture. Everything else can be rebuilt; a wrong or lost mapping row means a tenant's data is unreachable.
+
+| Table | Columns / notes |
+|---|---|
+| database_servers | `[ID]` `[TS]`, code VARCHAR(30) unique (`db-01`), name, **host VARCHAR(191)**, **port SMALLINT UNSIGNED DEFAULT 3306**, read_host NULL, read_port NULL (replica for reporting), engine enum(mysql, mariadb), engine_version, tls_mode enum(disabled, preferred, required, verify_ca), tls_ca_ref VARCHAR(255) NULL, provisioner_credential_ref VARCHAR(255), region VARCHAR(20), tier enum(shared, dedicated), **max_tenants SMALLINT** (capacity cap, §10), tenant_count SMALLINT (maintained by provisioning, verified nightly), max_connections SMALLINT (mirror of the server setting, for placement arithmetic), status enum(active, draining, read_only, maintenance, retired), accepts_new_tenants BOOL, notes |
+| **tenant_databases** | **tenant_id CHAR(26) PK** FK tenants, server_id FK database_servers, read_server_id FK NULL (override when this tenant reports off a different replica), **database_identifier** VARCHAR(30) unique (`TEN000123`, mirrors `tenants.code`), **database_name** VARCHAR(64), **app_username** VARCHAR(32), **app_credential_ref** VARCHAR(255), **migrate_username** VARCHAR(32), **migrate_credential_ref** VARCHAR(255), credential_version INT, credential_rotated_at, charset, collation, **status** enum(provisioning, active, migrating, read_only, suspended, moving, restoring, archived, failed), status_reason, **schema_version BIGINT**, target_schema_version BIGINT, last_migrated_at, last_migration_error TEXT NULL, profile enum(standard, large) (drives partitioning, §11), size_bytes BIGINT, table_count SMALLINT, row_estimate BIGINT, measured_at, provisioned_at, last_opened_at, archived_at, `[TS]`; unique (server_id, database_name), index (status), **index (schema_version)**, index (server_id, status) |
+
+**Credentials are never stored in plain text and never stored as ciphertext next to the mapping unless there is nowhere better.** The mapping holds a *reference*, resolved at connect time by a `SecretResolver` with one driver per scheme:
+
+| Scheme | Resolves to | Where it is used |
+|---|---|---|
+| `vault://kv/flexipos/tenant/000123/app` | HashiCorp Vault KV v2, versioned | cloud (stage 2) |
+| `awssm://flexipos/tenant/000123/app` · `azkv://flexipos-tenant-000123-app` | AWS Secrets Manager / Azure Key Vault | cloud |
+| `file:///run/secrets/tenant_000123_app` | Docker/Compose secret or systemd credential, file mode 0400 | VPS (stage 0/1) — **the default for this project today** |
+| `env://TENANT_000123_APP_PASSWORD` | process environment | local XAMPP development only, refused when `APP_ENV=production` |
+| `enc://<ulid>` | row in `tenant_credential_blobs` (see below) | fallback when no secret store exists |
+
+| Table | Columns / notes |
+|---|---|
+| tenant_credential_blobs | `[ID]` `[TS]`, tenant_id FK, role enum(app, migrate), ciphertext BLOB (AES-256-GCM via Laravel's encrypter), key_id VARCHAR(40) (which key encrypted it), version INT, rotated_at; unique (tenant_id, role, version). **Only used by the `enc://` driver.** The encryption key lives in `DB_CREDENTIAL_KEY`, which is deliberately **not** `APP_KEY` and is supplied to the process from outside the database — a dump of the master database must not be enough to open a tenant database |
+
+Resolution and caching:
+
+- `TenantConnectionResolver` reads `tenant_databases` + `database_servers` (single joined query, cached in Redis for 300 s under key `tenant:conn:<tenant_id>:<credential_version>`), resolves the secret (cached in memory for the process lifetime only, never in Redis), and calls `config()->set('database.connections.tenant', …)` + `DB::purge('tenant')`.
+- Any write to `tenant_databases` bumps `credential_version` or `updated_at` and publishes `tenant.mapping.changed`, which evicts the cache on every node.
+- Status gates the connection: `active` → read/write; `read_only` and `archived` → connection forced `read-only` and writes rejected at the repository layer; `migrating`, `provisioning`, `moving`, `restoring`, `suspended`, `failed` → HTTP 503 for that tenant with `Retry-After`, everyone else unaffected.
+- Rotation: generate a new password → write the new secret version → `ALTER USER … IDENTIFIED BY` → bump `credential_version` → evict caches. Old connections finish their request; new ones use the new secret. Failure at any step leaves the old secret valid, so rotation is safe to retry.
+
+### 4.5 Schema versioning catalogue
+
+| Table | Columns / notes |
+|---|---|
+| schema_versions | version BIGINT PK (monotonic ordinal, assigned in CI in migration order), migration VARCHAR(191) unique (the Laravel migration file name), release VARCHAR(20) (app version that introduced it), phase enum(expand, backfill, contract), checksum CHAR(64) (of the migration file, so a rewritten migration is detected), is_destructive BOOL, requires_offline BOOL, estimated_seconds INT, notes, released_at. Seeded from the migration directory by `schema:publish` in CI, committed as a fixture, and compared against the directory on every boot |
+
+`app_required_schema_version` is a constant in the application. On boot and on every tenant connection the host asserts `tenant_databases.schema_version >= app_required_schema_version`; a tenant behind that line is refused with 503 rather than allowed to run queries against columns that do not exist yet.
+
+### 4.6 Migration runs
+
+| Table | Columns / notes |
+|---|---|
+| tenant_migration_runs | `[ID]` `[TS]`, target_version BIGINT, initiated_by FK users NULL, mode enum(all, canary, selected, retry), selector JSON (tenant ids, server ids, filters), concurrency SMALLINT, status enum(planned, running, paused, completed, completed_with_failures, aborted), total, pending, running, done, failed, skipped, started_at, finished_at, aborted_reason |
+| tenant_migration_jobs | `[ID]`, run_id FK CASCADE, tenant_id FK, server_id FK, from_version BIGINT, to_version BIGINT, status enum(pending, claimed, running, done, failed, skipped, cancelled), attempts SMALLINT, claimed_by VARCHAR(64) (worker id), claimed_at, lock_expires_at, started_at, finished_at, duration_ms, error_class, error_message TEXT, error_migration VARCHAR(191), log_path; unique (run_id, tenant_id), index (run_id, status), index (status, lock_expires_at) |
+| tenant_backfill_jobs | `[ID]` `[TS]`, key VARCHAR(100) (backfill name), tenant_id FK, status enum(pending, running, done, failed), cursor VARCHAR(64) (last id processed), processed BIGINT, total BIGINT, chunk_size INT, attempts, last_error, finished_at; unique (key, tenant_id) |
+
+### 4.7 Provisioning
+
+| Table | Columns / notes |
+|---|---|
+| tenant_provisioning_runs | `[ID]` `[TS]`, tenant_id FK, type enum(create, restore, clone, move, deprovision), source_tenant_id NULL, target_server_id FK NULL, status enum(running, completed, failed, rolled_back), current_step, started_at, finished_at, error TEXT, initiated_by FK users |
+| tenant_provisioning_steps | `[ID]`, run_id FK CASCADE, step VARCHAR(40), sequence SMALLINT, status enum(pending, running, done, failed, skipped, compensated), attempts, started_at, finished_at, output JSON, error TEXT; unique (run_id, step) |
+
+### 4.8 Backup catalogue
+
+| Table | Columns / notes |
+|---|---|
+| tenant_backups | `[ID]` `[TS]`, tenant_id FK, type enum(nightly, pre_migration, pre_move, on_demand, export, final), trigger_ref VARCHAR(64) NULL (migration run id, provisioning run id), schema_version BIGINT, started_at, finished_at, status enum(running, succeeded, failed, expired, deleted), size_bytes, location VARCHAR(500) (path or object-store URI), checksum CHAR(64), encrypted BOOL, retention_until DATE, restore_tested_at NULL, notes; index (tenant_id, created_at), (retention_until) |
+
+### 4.9 Platform settings, audit and consistency
+
+| Table | Columns / notes |
+|---|---|
+| platform_settings | key VARCHAR(120) PK, value JSON, type, description, is_secret BOOL, updated_by FK users, updated_at |
+| platform_audit_logs | id BIGINT AUTO PK, actor_type enum(user, service, system), actor_id NULL, actor_email, tenant_id NULL, action VARCHAR(80) (`tenant.created`, `mapping.updated`, `credential.rotated`, `plan.changed`, `impersonation.started`, `plugin.enabled`, `migration.run`), subject_type, subject_id, before JSON, after JSON, ip, user_agent, request_id, created_at. Index (tenant_id, created_at), (action, created_at). **Never pruned below 7 years** — it is the record of who changed a tenant's database mapping |
+| consistency_checks | `[ID]` `[TS]`, check VARCHAR(60) (`tenant_users.employee_id`, `tenant_count`, `schema_version_drift`, `orphan_database`, `unmapped_database`), tenant_id NULL, status enum(ok, warn, fail), detail JSON, checked_at. Written nightly. `orphan_database` = a database on a server with no mapping row; `unmapped_database` = a mapping row pointing at a database that does not exist — both are pages-someone incidents |
+
+### 4.10 Master system tables
+
+`migrations` (Laravel, for the master schema itself), `jobs`, `job_batches`, `failed_jobs`, `cache`/`cache_locks` (only if Redis is unavailable), `password_reset_tokens`, `personal_access_tokens` (platform API).
+
+**Master table count: 34.**
+
+---
+
+## 5. Identity split (master login vs tenant employee)
+
+This is settled here, because it is the one place where the master/tenant line runs through a single business concept.
+
+| Concept | Lives in | Why |
+|---|---|---|
+| Login identity: e-mail, password hash, MFA, account status, last login | **master** `users` | one person, one login, across every tenant they may access (`Refference/ARCH.md` §6). Password reset, lockout and MFA are platform functions |
+| Which tenants a person may open, and at what coarse level | **master** `tenant_users` | it must be answerable *before* any tenant database is opened |
+| Employees: name, NIC, department, designation, joining date, salary, bank details, documents | **tenant** `employees` | business data. Payroll, commission, attendance and leave all key off the employee |
+| Roles, permissions, role assignments, branch scoping | **tenant** `roles`, `permissions`, `employee_roles` | permission sets are business-specific and differ per tenant; a platform-level role table would force every tenant into one vocabulary |
+| Cashier / waiter PIN | **tenant** `employees.pin_hash` | a till must verify a PIN **offline**, so the hash has to reach the POS replica; it can only come from the tenant database |
+| Terminal credentials | **tenant** `terminal_credentials` | a terminal belongs to a branch, which is business data. The activation code carries the tenant code so the first contact still resolves |
+
+Three consequences the design must honour:
+
+1. **A cashier or waiter may have no master login at all.** `employees.user_id` is nullable. Such a person exists only in the tenant database, signs in to the till with a PIN, appears on the roster and the payslip, and can never reach the web application. Creating a login for them is a separate, explicit act that inserts a `users` row and a `tenant_users` row and back-fills `employees.user_id`.
+2. **Payroll and commission attach to `employee_id`, never `user_id`.** Every financial and HR table below references `employees`. `sales.employee_id` and `sale_items.employee_id` exist from day one (gap analysis §6, item 1) so commission by product category is computable without a backfill.
+3. **The link is checked, not enforced.** `employees.user_id` → master `users.id` and `tenant_users.employee_id` → tenant `employees.id` are cross-database references with no foreign key. They are written together in an application-level two-step (tenant row first, then master row, with a compensating delete), and the nightly `consistency_checks` job reports dangling pairs in both directions.
+
+Login and tenant resolution:
+
+```text
+POST /auth/login  {email, password}
+  master: users → verify password, status, MFA
+  master: tenant_users JOIN tenants → the tenant list (id, code, name, status, is_default)
+  issue PLATFORM token  {sub: user_id, scope: platform, tenants: [...]}      ← opens no tenant DB
+
+POST /auth/tenant   {tenant_code}                       (or implied by tenant_domains host)
+  master: tenant_users(user_id, tenant_id).status = active AND tenants.status in (trial, active, past_due)
+  master: tenant_databases.status = active AND schema_version >= app_required_schema_version
+  resolve connection, open tenant DB
+  tenant: employees WHERE id = tenant_users.employee_id → roles, permissions, branches, perm_hash
+  issue TENANT token  {sub: user_id, tenant: tenant_id, employee: employee_id, branch: branch_id, perm_hash}
+
+POS terminal
+  activation code TEN000123-XXXX-XXXX → tenant resolved from the code
+  tenant: terminal_credentials → terminal token {tenant, terminal_id, branch_id}
+  offline: employees.pin_hash arrives in pos_replica; the till verifies the PIN locally
+```
+
+`perm_hash` in the token is a hash of the employee's effective permission set plus `employees.perm_version`; bumping `perm_version` in the tenant database invalidates every issued token for that employee at the next request without a master round-trip.
+
+---
+
+## 6. Tenant database
+
+One per shop. **No `tenant_id` anywhere.** Foreign keys across module boundaries are normal. ≈190 tables at full ERP scope (≈95 after Phase 2, before finance and HR land) — see §10 for what that count costs on a shared server.
+
+| § | Domain (= Laravel module) | Tables |
+|---|---|---|
+| 6.1 | Organisation and locations | 9 |
+| 6.2 | Access control | 8 |
+| 6.3 | Catalog | 12 |
+| 6.4 | Pricing and tax | 9 |
+| 6.5 | Inventory | 13 |
+| 6.6 | Purchasing | 14 |
+| 6.7 | Sales and POS (incl. restaurant) | 15 |
+| 6.8 | Payments | 6 |
+| 6.9 | Customers and CRM | 8 |
+| 6.10 | Finance (GL, AR, AP, cash & bank) | 19 |
+| 6.11 | Expenses | 5 |
+| 6.12 | HR | 15 |
+| 6.13 | Payroll | 10 |
+| 6.14 | Commission | 7 |
+| 6.15 | Workflow and approvals | 5 |
+| 6.16 | Notifications | 6 |
+| 6.17 | Printing | 6 |
+| 6.18 | Offline sync | 5 |
+| 6.19 | Reporting | 6 |
+| 6.20 | Plugins (tenant side) | 3 + plugin-owned |
+| 6.21 | System | 8 |
+
+### 6.1 Organisation and locations
+
+```mermaid
+erDiagram
+  COMPANY_PROFILE ||--o{ BRANCHES : operates
+  BRANCHES ||--o{ LOCATIONS : contains
+  BRANCHES ||--o{ TERMINALS : hosts
+  TERMINALS ||--o{ DEVICES : history
+  BRANCHES ||--o{ NUMBER_SEQUENCES : numbers
+  SETTINGS_REGISTRY ||--o{ SETTINGS : declares
+  BRANCHES {
+    ulid id PK
+    string code UK
+    string name
+    string timezone
+    string currency
+    bool is_active
+  }
+  LOCATIONS {
+    ulid id PK
+    ulid branch_id FK
+    string code UK
+    string name
+    string type
+    bool allow_negative_stock
+    bool is_sellable_from
+  }
+```
+
+| Table | Columns / notes |
+|---|---|
+| **company_profile** | single row (`id` fixed `'COMPANY'`): name, legal_name, registration_no, tax_registration_no, address JSON, phone, email, website, logo_path, currency CHAR(3), timezone, locale, fiscal_year_start_month TINYINT, date_format, number_format, decimal_places, rounding_rule, business_type, `[TS]`. The tenant-level attributes that used to hang off the `tenants` row now that `tenant_id` is gone. Mirrored from master at provisioning, then owned by the tenant |
+| branches | `[ID]` `[TS]` `[SOFT]` `[BY]` `[CF]`, code VARCHAR(10) unique, name, address JSON, phone, email, timezone, currency, tax_registration_no, business_type, opening_date, default_location_id FK locations NULL, cost_centre_account_id FK accounts NULL, is_active, sort_order |
+| **locations** | `[ID]` `[TS]` `[SOFT]` `[BY]`, branch_id FK **NULL** (a central warehouse belongs to no branch), code unique, name, type enum(**branch_store**, **warehouse**, transit, consignment, damaged, virtual), address JSON, manager_employee_id FK employees NULL, allow_negative_stock BOOL, is_sellable_from BOOL, is_purchasable_to BOOL, is_active, sort_order. **Stock is keyed by `location_id`, not `branch_id`** (closes gap G-7). Every branch gets one `branch_store` location at provisioning, so single-shop tenants never see the distinction |
+| terminals | `[ID]` `[TS]` `[SOFT]`, branch_id FK, location_id FK (what it sells from), code VARCHAR(10), name, status enum(pending, active, inactive, revoked), activation_code, activation_expires_at, current_device_id FK devices NULL, invoice_prefix VARCHAR(20), default_price_list_id FK NULL, last_seen_at, last_sync_at, offline_since, app_version, agent_version, settings JSON; unique (branch_id, code) |
+| devices | `[ID]` `[TS]`, terminal_id FK, fingerprint CHAR(64), platform, browser, os, screen, registered_at, last_seen_at, revoked_at, revoked_by FK employees NULL |
+| settings | `[ID]` `[TS]`, scope_type enum(company, branch, terminal, employee), scope_id CHAR(26) NULL, key VARCHAR(120) FK settings_registry, value JSON, updated_by FK employees NULL; unique (scope_type, scope_id, key). Effective value = terminal → branch → company → registry default |
+| settings_registry | key VARCHAR(120) PK, module VARCHAR(40), type, default_value JSON, validation JSON, sync_to_pos BOOL, is_secret BOOL, plugin_name NULL. Declared by modules and plugins at boot |
+| custom_field_definitions | `[ID]` `[TS]` `[SOFT]`, entity_type enum(product, customer, supplier, sale, purchase_order, order, employee, expense), key, label, type enum(text, number, date, boolean, dropdown, multi_select, currency, barcode), options JSON, is_required, default_value JSON, validation JSON, is_indexed, show_in_pos, sort_order, plugin_name NULL; unique (entity_type, key) |
+| number_sequences | `[ID]`, branch_id FK NULL, document_type enum(sale, refund, quotation, sales_order, purchase_request, purchase_order, grn, purchase_return, supplier_invoice, supplier_payment, customer_payment, stock_adjustment, stock_transfer, stock_count, expense, journal_entry, payslip, commission_payout), prefix, next_number BIGINT, padding TINYINT, suffix, reset_period enum(never, yearly, monthly, daily), last_reset_at, `[TS]`; unique (branch_id, document_type). Allocated with `UPDATE … SET next_number = LAST_INSERT_ID(next_number + 1)` inside the document transaction |
+
+### 6.2 Access control
+
+| Table | Columns / notes |
+|---|---|
+| permissions | key VARCHAR(80) PK, module VARCHAR(40), plugin_name NULL, group VARCHAR(40), description, is_branch_scoped BOOL. Seeded at provisioning from the application's registry; plugin rows added when a plugin is enabled |
+| roles | `[ID]` `[TS]` `[SOFT]`, key unique, name, description, is_system BOOL (cannot be deleted), plugin_name NULL, sort_order |
+| role_permissions | role_id FK CASCADE, permission_key FK; PK (role_id, permission_key) |
+| employee_roles | `[ID]`, employee_id FK, role_id FK, branch_id FK NULL (null = all branches), granted_by FK employees NULL, granted_at; unique (employee_id, role_id, branch_id) |
+| employee_permissions | employee_id FK CASCADE, permission_key FK, branch_id FK NULL, allowed BOOL; PK (employee_id, permission_key, branch_id). Per-person grant or explicit deny on top of roles |
+| employee_branches | employee_id FK CASCADE, branch_id FK, is_default BOOL, `[TS]`; PK (employee_id, branch_id) |
+| terminal_credentials | terminal_id CHAR(26) PK FK terminals, secret_hash, device_fingerprint CHAR(64) NULL, status enum(active, revoked), activated_at, activated_by FK employees NULL, revoked_at, revoked_by, rotated_at |
+| access_log | id BIGINT AUTO PK, employee_id FK NULL, terminal_id FK NULL, type enum(pin_login, pin_failed, terminal_login, permission_denied, override_used), permission_key NULL, branch_id NULL, detail JSON, ip, created_at. Index (employee_id, created_at). 180-day retention. Distinct from master `login_history`, which records web logins |
+
+### 6.3 Catalog
 
 ```mermaid
 erDiagram
@@ -195,417 +423,829 @@ erDiagram
   UNITS ||--o{ PRODUCTS : measured_in
   PRODUCTS ||--o{ PRODUCTS : variant_of
   PRODUCTS ||--o{ PRODUCT_BARCODES : scanned_by
-  PRODUCTS ||--o{ PRODUCT_BRANCHES : availability
+  PRODUCTS ||--o{ PRODUCT_LOCATIONS : stocked_at
+  PRODUCTS ||--o{ PRODUCT_SUPPLIERS : sourced_from
+  PRODUCTS ||--o{ PRODUCT_COMPONENTS : made_of
+  TAX_GROUPS ||--o{ PRODUCTS : taxed_by
   MODIFIER_GROUPS ||--o{ MODIFIERS : options
   PRODUCTS ||--o{ PRODUCT_MODIFIER_GROUPS : offers
-  MODIFIER_GROUPS ||--o{ PRODUCT_MODIFIER_GROUPS : attached
-  TAX_GROUP_REFS ||--o{ PRODUCTS : taxed_by_ref
   PRODUCTS {
     ulid id PK
-    ulid tenant_id
-    string sku
+    string sku UK
     string name
     string type
-    ulid parent_id
-    ulid tax_group_id
-    ulid kitchen_station_id
+    ulid parent_id FK
+    ulid category_id FK
+    ulid tax_group_id FK
     decimal cost_price
     decimal selling_price
     bool track_stock
-    json custom_fields
-    bigint version
+    string tracking_mode
+    ulid income_account_id FK
+    ulid cogs_account_id FK
+    ulid inventory_account_id FK
   }
 ```
 
 | Table | Columns / notes |
 |---|---|
-| categories | `[ID]` `[TENANT]` `[TS]` `[SOFT]`, parent_id FK NULL, code, name, image_path, sort_order, kitchen_station_id `[REF:kitchen_station]` NULL, color, is_active, version BIGINT; unique (tenant_id, code) |
-| brands / units | brands: `[ID]` `[TENANT]` `[TS]` `[SOFT]`, name, logo_path · units: `[ID]` `[TENANT]` `[TS]`, code, name, precision, base_unit_id FK NULL, factor DECIMAL(18,6) |
-| products | `[ID]` `[TENANT]` `[TS]` `[SOFT]` `[BY]` `[CF]`, type enum(simple, variant_parent, variant, service, combo), parent_id FK NULL, sku (unique per tenant), name, short_name VARCHAR(40), description, category_id FK, brand_id FK NULL, unit_id FK, tax_group_id `[REF:tax_group]`, kitchen_station_id `[REF:kitchen_station]` NULL, cost_price, selling_price, min_selling_price, track_stock, is_sellable, is_purchasable, is_active, allow_price_override, allow_discount, variant_options JSON, variant_values JSON, combo_items JSON, image_path, sort_order, version BIGINT. Indexes (tenant_id, category_id), (tenant_id, name), (tenant_id, is_active, is_sellable), (tenant_id, parent_id), FULLTEXT (name, short_name, sku) |
-| product_barcodes | `[ID]` `[TENANT]`, product_id FK, barcode VARCHAR(64), unit_id FK NULL, quantity DECIMAL DEFAULT 1, is_primary; unique (tenant_id, barcode) |
-| product_branches | product_id FK, branch_id `[REF:branch]`, is_available, selling_price NULL (branch override), bin_location, `[TS]`; PK (product_id, branch_id) + tenant_id. Reorder levels moved to `pos_inventory.stock_levels` |
-| modifier_groups / modifiers / product_modifier_groups | as v0.1 (name, min/max select, required · name, price_delta, kitchen_note, sort · links) |
-| projections | `tax_group_refs` (id, code, name, is_inclusive), `kitchen_station_refs` (id, branch_id, name, type), `custom_field_defs` (entity_type=product rows) |
+| categories | `[ID]` `[TS]` `[SOFT]`, parent_id FK NULL, code unique, name, path VARCHAR(500) (materialised for reporting roll-ups), depth, image_path, kitchen_station_id FK NULL, colour, income_account_id FK accounts NULL, sort_order, is_active |
+| brands | `[ID]` `[TS]` `[SOFT]`, code, name unique, logo_path, is_active |
+| units | `[ID]` `[TS]`, code unique, name, precision TINYINT, base_unit_id FK NULL, factor DECIMAL(18,6), is_active |
+| unit_conversions | `[ID]`, product_id FK NULL (null = global), from_unit_id FK, to_unit_id FK, factor DECIMAL(18,6); unique (product_id, from_unit_id, to_unit_id). Buy in cases, sell in units |
+| products | `[ID]` `[TS]` `[SOFT]` `[BY]` `[CF]`, type enum(simple, variant_parent, variant, service, bundle, composite), parent_id FK NULL, sku VARCHAR(50) unique, name, short_name VARCHAR(40), description, category_id FK, brand_id FK NULL, unit_id FK, purchase_unit_id FK NULL, tax_group_id FK, purchase_tax_group_id FK NULL, kitchen_station_id FK NULL, cost_price, selling_price, min_selling_price, msrp, **track_stock** BOOL, **tracking_mode** enum(none, quantity, batch, serial) (closes G-8), shelf_life_days INT NULL, is_sellable, is_purchasable, is_active, allow_price_override, allow_discount, weight, dimensions JSON, variant_options JSON, variant_values JSON, image_path, sort_order, **income_account_id / cogs_account_id / inventory_account_id** FK accounts NULL (override the category and company defaults for posting, §7), version BIGINT. Indexes (category_id), (brand_id), (is_active, is_sellable), (parent_id), FULLTEXT (name, short_name, sku) |
+| product_barcodes | `[ID]`, product_id FK CASCADE, barcode VARCHAR(64) unique, unit_id FK NULL, quantity DECIMAL DEFAULT 1, is_primary |
+| product_locations | product_id FK, location_id FK, is_available BOOL, reorder_level, reorder_qty, max_level, bin_location VARCHAR(40), `[TS]`; PK (product_id, location_id) |
+| product_branches | product_id FK, branch_id FK, is_available BOOL, selling_price NULL (branch override), `[TS]`; PK (product_id, branch_id) |
+| product_suppliers | `[ID]`, product_id FK, supplier_id FK, supplier_sku, lead_time_days, min_order_qty, last_cost, is_preferred; unique (product_id, supplier_id). Feeds purchase suggestions and the price-history report |
+| product_components | `[ID]`, parent_product_id FK, component_product_id FK, quantity, unit_id FK, wastage_percent, is_optional, sort_order; unique (parent_product_id, component_product_id). One table serves **bundles, kits, composites and restaurant recipes** (closes G-13). `products.type` decides whether selling the parent depletes components (composite/recipe) or the components sell as a set (bundle) |
+| modifier_groups | `[ID]` `[TS]` `[SOFT]`, name, min_select, max_select, is_required, sort_order |
+| modifiers | `[ID]`, group_id FK CASCADE, name, price_delta, cost_delta, linked_product_id FK NULL (depletes stock), kitchen_note, sort_order, is_active |
+| product_modifier_groups | product_id FK, group_id FK, sort_order; PK (product_id, group_id) |
 
-### 4.4 `pos_pricing` (pricing service)
+### 6.4 Pricing and tax
 
 | Table | Columns / notes |
 |---|---|
-| taxes | `[ID]` `[TENANT]` `[TS]` `[SOFT]`, code, name, rate DECIMAL(9,4), type enum(percentage, fixed), is_compound, applies_to enum(sale, purchase, both), is_active, version |
-| tax_groups / tax_group_taxes | `[ID]` `[TENANT]` `[TS]`, code, name, is_inclusive, is_default, version · tax_group_id FK, tax_id FK, sequence; PK (tax_group_id, tax_id) |
-| price_lists | `[ID]` `[TENANT]` `[TS]` `[SOFT]`, code, name, type enum(standard, customer_group, promotion), currency, priority, starts_at, ends_at, is_active, version |
-| price_list_items | `[ID]` `[TENANT]`, price_list_id FK, product_id `[REF:product]`, min_qty DEFAULT 1, price; unique (price_list_id, product_id, min_qty) |
-| price_list_assignments | `[ID]` `[TENANT]`, price_list_id FK, scope_type enum(branch, customer_group), scope_id `[REF]`, priority; unique (tenant_id, scope_type, scope_id, price_list_id) |
-| discounts | `[ID]` `[TENANT]` `[TS]` `[SOFT]`, code, name, type enum(percentage, fixed), value, scope enum(item, bill), applies_to JSON, min_amount, max_amount, requires_approval, approval_threshold, starts_at, ends_at, usage_limit, used_count, is_active, version |
-| projections | `product_refs` (id, sku, name, category_id, is_active), `customer_group_refs` (id, name) |
+| tax_authorities | `[ID]` `[TS]`, code unique, name, country CHAR(2), registration_no, filing_frequency enum(monthly, quarterly, yearly), payable_account_id FK accounts, receivable_account_id FK accounts NULL. Closes G-14's "tax authority" |
+| taxes | `[ID]` `[TS]` `[SOFT]`, authority_id FK, code unique, name, tax_code VARCHAR(20) (the code printed on invoices), type enum(percentage, fixed), is_compound, applies_to enum(sale, purchase, both), is_recoverable BOOL, is_withholding BOOL, is_active |
+| **tax_rates** | `[ID]` `[TS]`, tax_id FK, rate DECIMAL(9,4), **effective_from DATE**, effective_to DATE NULL, note; unique (tax_id, effective_from). **Rates are effective-dated** so an invoice reprinted years later resolves the rate that applied on its document date (closes G-14). Documents also snapshot the resolved rate in `tax_breakdown` |
+| tax_groups | `[ID]` `[TS]`, code unique, name, is_inclusive BOOL, is_default, is_active |
+| tax_group_taxes | tax_group_id FK CASCADE, tax_id FK, sequence TINYINT; PK (tax_group_id, tax_id) |
+| price_lists | `[ID]` `[TS]` `[SOFT]`, code unique, name, type enum(standard, customer_group, promotion, branch), currency, priority SMALLINT, starts_at, ends_at, is_active |
+| price_list_items | `[ID]`, price_list_id FK CASCADE, product_id FK, min_qty DECIMAL DEFAULT 1, price, discount_percent NULL; unique (price_list_id, product_id, min_qty) |
+| price_list_assignments | `[ID]`, price_list_id FK, scope_type enum(branch, customer_group, customer), scope_id CHAR(26), priority; unique (scope_type, scope_id, price_list_id) |
+| discounts | `[ID]` `[TS]` `[SOFT]` `[BY]`, code unique, name, type enum(percentage, fixed, buy_x_get_y), value, scope enum(item, bill), applies_to JSON (products, categories, brands), min_amount, max_discount, requires_approval BOOL, approval_threshold, workflow_definition_id FK NULL, starts_at, ends_at, usage_limit, used_count, is_active, sales_discount_account_id FK accounts NULL |
 
-Resolution order implemented by `pricing.quote` and mirrored in the POS engine: customer-group list → active promotion lists by priority → branch list → `product_branches.selling_price` → `products.selling_price`.
+Price resolution (server `pricing.quote` and the POS engine use the same order): customer price list → customer-group list → active promotion lists by priority → branch list → `product_branches.selling_price` → `products.selling_price`.
 
-### 4.5 `pos_inventory` (inventory service, includes purchasing)
+### 6.5 Inventory
 
 ```mermaid
 erDiagram
-  PRODUCT_REFS ||--o{ STOCK_LEVELS : per_branch
-  PRODUCT_REFS ||--o{ STOCK_MOVEMENTS : ledger
+  LOCATIONS ||--o{ STOCK_LEVELS : holds
+  PRODUCTS ||--o{ STOCK_LEVELS : of
+  PRODUCTS ||--o{ BATCHES : lots
+  BATCHES ||--o{ STOCK_BATCH_LEVELS : per_location
+  PRODUCTS ||--o{ SERIALS : units
+  STOCK_LEVELS ||--o{ STOCK_MOVEMENTS : ledger
+  BATCHES ||--o{ STOCK_MOVEMENTS : lot_of
   STOCK_ADJUSTMENTS ||--o{ STOCK_ADJUSTMENT_ITEMS : lines
   STOCK_TRANSFERS ||--o{ STOCK_TRANSFER_ITEMS : lines
-  STOCK_MOVEMENTS }o--|| STOCK_CONFLICTS : may_open
-  SUPPLIERS ||--o{ PURCHASE_ORDERS : receives
-  PURCHASE_ORDERS ||--o{ PURCHASE_ORDER_ITEMS : lines
-  PURCHASE_ORDERS ||--o{ GRNS : fulfilled_by
-  GRNS ||--o{ GRN_ITEMS : lines
-  GRNS ||--o{ PURCHASE_RETURNS : returned_against
-  SUPPLIERS ||--o{ SUPPLIER_PAYMENTS : paid
-  SUPPLIER_PAYMENTS ||--o{ SUPPLIER_PAYMENT_ALLOCATIONS : settles
-  STOCK_LEVELS {
-    ulid id PK
-    ulid tenant_id
-    ulid branch_id
-    ulid product_id
-    decimal quantity_on_hand
-    decimal avg_cost
-    decimal reorder_level
-  }
+  STOCK_COUNTS ||--o{ STOCK_COUNT_ITEMS : lines
+  STOCK_MOVEMENTS }o--o| STOCK_CONFLICTS : may_open
   STOCK_MOVEMENTS {
     ulid id PK
-    ulid tenant_id
-    ulid branch_id
-    ulid product_id
+    ulid location_id FK
+    ulid product_id FK
+    ulid batch_id FK
+    ulid serial_id FK
     string type
     decimal quantity
+    decimal unit_cost
     decimal balance_after
     string reference_type
     ulid reference_id
+    ulid journal_entry_id
   }
 ```
 
 | Table | Columns / notes |
 |---|---|
-| stock_levels | `[ID]` `[TENANT]` `[TS]`, branch_id `[REF:branch]`, product_id `[REF:product]`, quantity_on_hand, quantity_reserved, avg_cost, reorder_level, reorder_qty, last_movement_at; unique (tenant_id, branch_id, product_id). Updated only inside the same transaction as a movement (`SELECT … FOR UPDATE`) |
-| **stock_movements** (append-only) | `[ID]` `[TENANT]` `[SYNC]`, branch_id, product_id, type enum(opening, sale, sale_refund, sale_void, grn, grn_return, purchase_return, adjustment, transfer_out, transfer_in, wastage, production, correction, reservation_release), quantity (signed), unit_cost, balance_after, reference_type VARCHAR(40), reference_id CHAR(26), user_id, notes, created_at. Indexes (tenant_id, branch_id, product_id, created_at), (tenant_id, reference_type, reference_id) **unique per (reference_type, reference_id, product_id, type)** = idempotency for reserve-and-decrement, (tenant_id, created_at). Partition by month |
-| stock_adjustments / _items | as v0.1: number, type enum(count, adjustment, opening, wastage), reason, status, posted_at · product_id, system_qty, counted_qty, difference, unit_cost |
-| stock_transfers / _items | as v0.1: number, from/to branch, status, sent/received · qty_sent, qty_received, variance_reason |
-| stock_conflicts | `[ID]` `[TENANT]` `[TS]`, branch_id, product_id, sale_id `[REF:sale]`, terminal_id, movement_id FK, expected_qty, resulting_qty, status enum(open, resolved, ignored), resolution, resolved_by, resolved_at, notes. Index (tenant_id, branch_id, status) |
-| suppliers | `[ID]` `[TENANT]` `[TS]` `[SOFT]` `[CF]` `[BY]`, code, name, contact_name, phone, email, address JSON, tax_no, payment_terms_days, credit_limit, balance, is_active |
-| purchase_orders / _items | as v0.1 (status lifecycle, totals, `[CF]`) · product_id `[REF:product]`, quantity, received_quantity, unit_cost, tax_id `[REF:tax]` NULL, tax_amount, line_total |
-| grns / grn_items | as v0.1; posting writes `grn` movements and updates `avg_cost` |
-| purchase_returns / _items | as v0.1; type enum(grn_return, purchase_return); original GRN never modified |
-| supplier_payments / _allocations | as v0.1 |
-| number_sequences | `[ID]` `[TENANT]`, branch_id NULL, document_type enum(purchase_order, grn, purchase_return, stock_adjustment, stock_transfer), prefix, next_number, padding, reset_period, last_reset_at; unique (tenant_id, branch_id, document_type) |
-| projections | `product_refs` (id, sku, name, unit_code, track_stock, cost_price, category_id, is_active, version), `custom_field_defs` (supplier, purchase_order) |
+| stock_levels | `[ID]` `[TS]`, location_id FK, product_id FK, quantity_on_hand, quantity_reserved, quantity_incoming, avg_cost, total_value (= on_hand × avg_cost, maintained), last_movement_at, last_counted_at; unique (location_id, product_id). Only ever updated inside the same transaction as a movement, under `SELECT … FOR UPDATE` |
+| **stock_movements** (append-only) | `[ID]` `[SYNC]` `[GL]`, location_id FK, product_id FK, batch_id FK NULL, serial_id FK NULL, type enum(opening, sale, sale_refund, sale_void, grn, grn_return, purchase_return, adjustment, count, transfer_out, transfer_in, wastage, expiry, production_in, production_out, correction, reservation, reservation_release), quantity DECIMAL signed, unit_cost, value signed, balance_after, reference_type VARCHAR(40), reference_id CHAR(26), employee_id FK NULL, notes, created_at; **unique (reference_type, reference_id, product_id, batch_id, type)** = the idempotency key that makes replaying a sale harmless; indexes (location_id, product_id, created_at), (reference_type, reference_id), (created_at), (batch_id) |
+| batches | `[ID]` `[TS]`, product_id FK, batch_no VARCHAR(60), mfg_date DATE NULL, **expiry_date DATE NULL**, supplier_id FK NULL, grn_item_id FK NULL, unit_cost, initial_quantity, status enum(active, quarantined, expired, recalled, depleted), notes; unique (product_id, batch_no), index (expiry_date, status) — drives the expiring-stock report and FEFO picking |
+| stock_batch_levels | location_id FK, product_id FK, batch_id FK, quantity_on_hand, quantity_reserved, `[TS]`; PK (location_id, batch_id). Kept in step with `stock_levels` in the same transaction; the sum over batches must equal the level, checked nightly |
+| serials | `[ID]` `[TS]`, product_id FK, serial_no VARCHAR(80), batch_id FK NULL, location_id FK NULL, status enum(in_stock, reserved, sold, returned, in_repair, scrapped, transferred), grn_item_id FK NULL, sale_item_id FK NULL, sold_at, warranty_until DATE NULL, notes; unique (product_id, serial_no), index (status, location_id) |
+| stock_reservations | `[ID]` `[TS]`, location_id FK, product_id FK, batch_id FK NULL, quantity, reference_type enum(sales_order, quotation, transfer, order), reference_id, expires_at, status enum(active, consumed, released, expired); index (reference_type, reference_id), (expires_at, status) |
+| stock_adjustments / stock_adjustment_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, location_id FK, type enum(increase, decrease, wastage, opening, revaluation), reason_code, reason, status enum(draft, pending_approval, approved, posted, cancelled), workflow_instance_id FK NULL, total_value, posted_at, posted_by · item `[ID]`, adjustment_id FK CASCADE, product_id FK, batch_id FK NULL, serial_id FK NULL, quantity signed, unit_cost, value, notes |
+| stock_counts / stock_count_items | header `[ID]` `[TS]` `[BY]`, number unique, location_id FK, type enum(full, cycle, spot), scope JSON (categories, bins), status enum(draft, counting, review, posted, cancelled), frozen_at, posted_at, adjustment_id FK NULL (the adjustment it generated) · item `[ID]`, count_id FK CASCADE, product_id FK, batch_id FK NULL, system_qty, counted_qty, difference, unit_cost, variance_value, counted_by FK employees NULL, counted_at, recount_of_item_id FK NULL |
+| stock_transfers / stock_transfer_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, from_location_id FK, to_location_id FK, status enum(draft, pending_approval, approved, in_transit, partially_received, received, cancelled), workflow_instance_id FK NULL, shipped_at, shipped_by, received_at, received_by, carrier, tracking_ref, notes · item `[ID]`, transfer_id FK CASCADE, product_id FK, batch_id FK NULL, qty_sent, qty_received, qty_variance, unit_cost, variance_reason. Goods in transit hit the `transit` location so they are never invisible |
+| stock_conflicts | `[ID]` `[TS]`, location_id FK, product_id FK, movement_id FK, reference_type, reference_id, terminal_id FK NULL, expected_qty, resulting_qty, status enum(open, resolved, ignored), resolution, resolved_by FK employees NULL, resolved_at, notes. Raised when an offline sale lands and drives stock negative at a location that forbids it |
 
-### 4.6 `pos_sales` (sales service, includes restaurant)
+**Valuation** is weighted average per (location, product), maintained on `stock_levels.avg_cost` at every inbound movement. Batches carry `unit_cost` for traceability and expiry, not for valuation; FIFO/FEFO *picking* uses batches, FIFO *costing* is out of scope for 1.0 (§16 Q-3).
+
+### 6.6 Purchasing
+
+```mermaid
+erDiagram
+  SUPPLIERS ||--o{ PURCHASE_ORDERS : receives
+  PURCHASE_REQUESTS ||--o{ PURCHASE_REQUEST_ITEMS : lines
+  PURCHASE_REQUESTS ||--o{ PURCHASE_ORDERS : becomes
+  PURCHASE_ORDERS ||--o{ PURCHASE_ORDER_ITEMS : lines
+  PURCHASE_ORDERS ||--o{ GRNS : fulfilled_by
+  GRNS ||--o{ GRN_ITEMS : lines
+  GRNS ||--o{ SUPPLIER_INVOICES : invoiced_by
+  SUPPLIER_INVOICES ||--o{ SUPPLIER_INVOICE_ITEMS : lines
+  SUPPLIER_INVOICES ||--o{ AP_DOCUMENTS : posts_to
+  SUPPLIER_PAYMENTS ||--o{ SUPPLIER_PAYMENT_ALLOCATIONS : settles
+  GRNS ||--o{ PURCHASE_RETURNS : returned_against
+```
+
+| Table | Columns / notes |
+|---|---|
+| suppliers | `[ID]` `[TS]` `[SOFT]` `[BY]` `[CF]`, code unique, name, legal_name, contact_name, phone, email, address JSON, tax_no, currency, payment_terms_days, credit_limit, opening_balance, payable_account_id FK accounts NULL, default_expense_account_id FK NULL, bank_details JSON, is_active, notes |
+| purchase_requests / purchase_request_items | header `[ID]` `[TS]` `[BY]`, number unique, branch_id FK, location_id FK, requested_by FK employees, required_date, status enum(draft, pending_approval, approved, rejected, converted, cancelled), workflow_instance_id FK NULL, notes · item `[ID]`, request_id FK CASCADE, product_id FK, quantity, estimated_cost, supplier_id FK NULL, purchase_order_item_id FK NULL. Closes G-9 |
+| purchase_orders / purchase_order_items | header `[ID]` `[TS]` `[BY]` `[CF]`, number unique, supplier_id FK, branch_id FK, location_id FK (delivery target), request_id FK NULL, order_date, expected_date, status enum(draft, pending_approval, approved, sent, partially_received, received, closed, cancelled), workflow_instance_id FK NULL, currency, exchange_rate, subtotal, discount_total, tax_total, shipping, total, received_value, terms, notes · item `[ID]`, order_id FK CASCADE, product_id FK, description, quantity, received_quantity, unit_id FK, unit_cost, discount_percent, tax_group_id FK, tax_amount, line_total, expected_date |
+| grns / grn_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, supplier_id FK, order_id FK NULL (direct receipts allowed), location_id FK, received_date, status enum(draft, posted, cancelled), supplier_dn_no, currency, exchange_rate, subtotal, tax_total, other_charges, total, posted_at, posted_by, notes · item `[ID]`, grn_id FK CASCADE, order_item_id FK NULL, product_id FK, quantity, free_quantity, unit_id FK, unit_cost, landed_cost (after apportioning other charges), tax_group_id FK, tax_amount, line_total, **batch_no, expiry_date, mfg_date** (create/find the `batches` row), serial_numbers JSON (create `serials` rows), notes. Posting writes `grn` movements, updates `avg_cost`, and creates the journal entry of §7.2 |
+| purchase_returns / purchase_return_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, supplier_id FK, grn_id FK NULL, location_id FK, return_date, reason, status enum(draft, posted, cancelled), totals, debit_note_no · item `[ID]`, return_id FK CASCADE, grn_item_id FK NULL, product_id FK, batch_id FK NULL, quantity, unit_cost, tax_amount, line_total. The original GRN is never modified |
+| supplier_invoices / supplier_invoice_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique (internal), supplier_invoice_no, supplier_id FK, invoice_date, due_date, status enum(draft, pending_approval, approved, posted, partially_paid, paid, disputed, cancelled), workflow_instance_id FK NULL, currency, exchange_rate, subtotal, tax_total, other_charges, total, amount_paid, balance_due, ap_document_id FK NULL, notes · item `[ID]`, invoice_id FK CASCADE, grn_item_id FK NULL, product_id FK NULL, expense_account_id FK accounts NULL (non-stock lines), description, quantity, unit_cost, tax_group_id FK, tax_amount, line_total. **A distinct entity from the GRN** (closes G-9): goods can arrive before the invoice, and the price on the invoice may differ — the difference posts to purchase price variance |
+| supplier_payments / supplier_payment_allocations | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, supplier_id FK, payment_date, financial_account_id FK (which cash/bank account paid), method enum(cash, bank_transfer, cheque, card, other), reference, currency, exchange_rate, amount, unallocated_amount, status enum(draft, posted, cancelled, bounced), cheque_no, cheque_date, notes · allocation `[ID]`, payment_id FK CASCADE, ap_document_id FK, amount, discount_taken, `[TS]`; unique (payment_id, ap_document_id) |
+| purchase_price_history | id BIGINT AUTO PK, product_id FK, supplier_id FK, grn_item_id FK NULL, unit_cost, currency, quantity, effective_date, source enum(grn, invoice, quote, manual), created_at; index (product_id, effective_date). Closes G-12's price-change report without scanning GRN lines |
+
+### 6.7 Sales and POS
 
 ```mermaid
 erDiagram
   SALES ||--o{ SALE_ITEMS : lines
   SALES ||--o{ SALE_TENDERS : paid_with
   SALES ||--o{ SALES : refund_of
-  SALE_ITEMS ||--o{ SALE_ITEMS : refund_of_item
   CASH_SHIFTS ||--o{ SALES : during
   CASH_SHIFTS ||--o{ CASH_MOVEMENTS : contains
-  SALES ||--o{ APPROVAL_REQUESTS : gated_by
-  SALES ||--o{ SAGA_STEPS : compensations
+  CUSTOMERS ||--o{ SALES : buys
+  EMPLOYEES ||--o{ SALES : sold_by
+  SALES ||--o| JOURNAL_ENTRIES : posts
+  SALES ||--o| AR_DOCUMENTS : receivable
+  QUOTATIONS ||--o{ SALES_ORDERS : becomes
+  SALES_ORDERS ||--o{ SALES : invoiced_as
   ORDERS ||--o{ SALES : billed_as
   ORDERS ||--o{ ORDER_ITEMS : lines
   ORDERS ||--o{ KOTS : tickets
-  TABLES ||--o{ ORDERS : seated
-  FLOOR_AREAS ||--o{ TABLES : contains
+  RESTAURANT_TABLES ||--o{ ORDERS : seated
+  FLOOR_AREAS ||--o{ RESTAURANT_TABLES : contains
   SALES {
     ulid id PK
-    ulid tenant_id
-    ulid branch_id
-    ulid terminal_id
+    ulid branch_id FK
+    ulid location_id FK
+    ulid terminal_id FK
     ulid shift_id FK
-    ulid user_id
-    ulid customer_id
-    string number
+    ulid employee_id FK
+    ulid customer_id FK
+    string number UK
     string type
     string status
     date business_date
     decimal total
-    decimal paid_total
     decimal balance_due
-    string origin
     bool stock_applied
-    bigint client_seq
-  }
-  SALE_TENDERS {
-    ulid id PK
-    ulid sale_id FK
-    ulid payment_method_id
-    string method_type
-    decimal amount
-    decimal tendered
-    string reference
-    string payment_status
+    ulid journal_entry_id FK
   }
 ```
 
-#### sales
-| Column | Type | Notes |
-|---|---|---|
-| `[ID]` `[TENANT]` `[TS]` `[SYNC]` `[CF]` | | id generated on the terminal |
-| branch_id, terminal_id, user_id | `[REF]` | cashier = user_id |
-| shift_id | FK cash_shifts NULL | |
-| customer_id | `[REF:customer]` NULL | plus snapshot `customer_name`, `customer_phone` |
-| order_id | FK orders NULL | restaurant bill |
-| number | VARCHAR(30) | unique (tenant_id, number) |
-| type | enum(sale, refund) | refunds are separate rows |
-| reference_sale_id | FK sales NULL | |
-| status | enum(draft, held, pending_payment, completed, voided, refunded, partially_refunded, failed) | `pending_payment` only during gateway authorisation |
-| business_date, business_date_source | DATE, enum(client, server, clamped) | |
-| price_list_id | `[REF:price_list]` NULL | |
-| subtotal, discount_total, tax_total, service_charge, rounding, total, paid_total, change_due, balance_due | DECIMAL(18,4) | |
-| currency | CHAR(3) | |
-| bill_discount_id, bill_discount_value, discount_reason | `[REF:discount]`, DECIMAL, VARCHAR | |
-| approval_request_id | FK NULL | |
-| stock_applied | BOOL | true when inventory decremented synchronously (online) |
-| credit_checked | BOOL | |
-| notes, voided_by, void_reason, voided_at, completed_at, receipt_print_count | | |
-Indexes: (tenant_id, branch_id, business_date), (tenant_id, customer_id, completed_at), (tenant_id, terminal_id, client_seq), (tenant_id, status), (tenant_id, shift_id). Partition by month on `completed_at` from stage 1.
+| Table | Columns / notes |
+|---|---|
+| quotations / quotation_items | header `[ID]` `[TS]` `[BY]` `[CF]`, number unique, customer_id FK NULL, branch_id FK, employee_id FK, quote_date, valid_until, status enum(draft, sent, accepted, rejected, expired, converted), currency, totals, converted_to_order_id FK NULL, terms, notes · item `[ID]`, quotation_id FK CASCADE, product_id FK, snapshots, quantity, unit_price, discount, tax, line_total. Closes G-10 |
+| sales_orders / sales_order_items | header `[ID]` `[TS]` `[BY]` `[CF]`, number unique, customer_id FK, branch_id FK, location_id FK, quotation_id FK NULL, order_date, required_date, status enum(draft, confirmed, partially_delivered, delivered, invoiced, cancelled), currency, totals, advance_paid, notes · item `[ID]`, order_id FK CASCADE, product_id FK, quantity, delivered_quantity, invoiced_quantity, unit_price, discount, tax, line_total, reservation_id FK NULL |
+| **sales** | `[ID]` `[TS]` `[SYNC]` `[CF]` `[GL]`, branch_id FK, location_id FK (stock source), terminal_id FK NULL, shift_id FK cash_shifts NULL, **employee_id FK employees** (the cashier/salesperson — commission and payroll key off this), sales_order_id FK NULL, order_id FK orders NULL (restaurant bill), customer_id FK NULL + snapshots customer_name, customer_phone, customer_tax_no, number VARCHAR(30) unique, type enum(sale, refund, exchange), reference_sale_id FK NULL, status enum(draft, held, pending_payment, completed, voided, refunded, partially_refunded, failed), business_date DATE, business_date_source enum(client, server, clamped), price_list_id FK NULL, currency, exchange_rate, subtotal, discount_total, tax_total, service_charge, rounding, total, paid_total, change_due, balance_due, bill_discount_id FK NULL, bill_discount_value, discount_reason, approval_request_id FK NULL, **stock_applied** BOOL, **cost_total** (COGS snapshot at completion, needed for P&L and profit-based commission), credit_checked BOOL, ar_document_id FK NULL, notes, voided_by FK employees NULL, void_reason, voided_at, completed_at, receipt_print_count. Indexes (branch_id, business_date), (customer_id, completed_at), (terminal_id, client_seq), (status), (shift_id), (employee_id, business_date), (journal_entry_id) |
+| sale_items | `[ID]`, sale_id FK CASCADE, line_no, product_id FK, **product_name, sku, unit_code, category_id, brand_id** (snapshots — a receipt reprints identically even after the product is renamed or recategorised), quantity, unit_id FK, unit_price, list_price, **unit_cost** (COGS at the moment of sale), discount_id FK NULL, discount_percent, discount_amount, tax_group_id FK, tax_amount, **tax_breakdown JSON** (resolved rate per tax, snapshotted), line_total, line_cost, batch_id FK NULL, serial_id FK NULL, **employee_id FK NULL** (line-level salesperson for category-based commission), kitchen_station_id FK NULL, modifiers JSON, notes, refunded_quantity, refund_of_item_id FK NULL, price_overridden_by FK employees NULL, sort_order. Indexes (sale_id), (product_id), (employee_id) |
+| sale_tenders | `[ID]`, sale_id FK CASCADE, payment_method_id FK, method_code, method_type enum(cash, card, digital, credit, voucher, bank, loyalty, other) (snapshots), amount signed, tendered, change_given, reference VARCHAR(100), gateway_transaction_id FK NULL, payment_id FK payments NULL, payment_status enum(pending, recorded, failed, refunded), paid_at. Index (sale_id), (method_type, paid_at) |
+| cash_shifts | `[ID]` `[TS]` `[SYNC]`, branch_id FK, terminal_id FK, employee_id FK (opened by), number, status enum(open, closing, closed, reconciled), opened_at, closed_at, opening_cash, expected_cash, counted_cash, variance, totals_by_method JSON, sales_count, refunds_count, gross, discounts, tax, net, closed_by FK employees NULL, reconciled_by NULL, `[GL]`, notes; index (branch_id, opened_at), (terminal_id, status) |
+| cash_movements | `[ID]` `[SYNC]`, shift_id FK CASCADE, type enum(cash_in, cash_out, float_in, float_out, drop, petty_cash, bank_deposit), amount, reason, reference, financial_account_id FK NULL (where a drop/deposit went), employee_id FK, approved_by FK NULL, created_at |
+| approval_requests | `[ID]` `[TS]` `[SYNC]`, branch_id FK, terminal_id FK NULL, type enum(discount, refund, void, price_override, credit_limit, negative_stock, custom), reference_type, reference_id, requested_by FK employees, payload JSON, status enum(pending, approved, rejected, expired), decided_by FK employees NULL, decided_at, **decision_method enum(pin_local, remote)**, reason, plugin_name NULL. The **in-till, synchronous, offline-capable** override path — deliberately separate from the asynchronous multi-step `workflow_*` engine of §6.15, because a supervisor PIN at the till must work with no network |
+| floor_areas | `[ID]` `[TS]` `[SOFT]`, branch_id FK, name, sort_order, layout JSON |
+| restaurant_tables | `[ID]` `[TS]` `[SOFT]`, floor_area_id FK, code, name, seats, status enum(free, occupied, reserved, billed, cleaning), current_order_id FK NULL, position JSON, version |
+| orders | `[ID]` `[TS]` `[SYNC]`, branch_id FK, table_id FK NULL, number, order_type enum(dine_in, takeaway, delivery), status enum(open, in_kitchen, ready, billed, closed, cancelled, merged), waiter_employee_id FK NULL, covers, customer_id FK NULL, opened_at, closed_at, merged_into_order_id FK NULL, split_group, notes |
+| order_items (append-only) | `[ID]` `[SYNC]`, order_id FK CASCADE, product_id FK, product_name, quantity, unit_price, modifiers JSON, notes, status enum(pending, sent, preparing, ready, served, voided), kitchen_station_id FK NULL, kot_id FK NULL, course, seat_no, added_by FK employees, added_at, voided_by, void_reason, voided_at |
+| kots | `[ID]` `[TS]` `[SYNC]`, branch_id FK, order_id FK, type enum(kot, bot), number, kitchen_station_id FK, status enum(created, printed, failed, acknowledged, reprinted), items_snapshot JSON, printed_at, print_job_id FK NULL |
 
-#### sale_items
-`[ID]` `[TENANT]`, sale_id FK CASCADE, product_id `[REF:product]`, product_name, sku, unit_code (snapshots), quantity, unit_price, list_price, unit_cost, discount_id `[REF]` NULL, discount_amount, tax_group_id `[REF]`, tax_amount, tax_breakdown JSON, line_total, kitchen_station_id `[REF]` NULL, modifiers JSON, notes, refunded_quantity, refund_of_item_id FK NULL, price_overridden_by, sort_order. Indexes (sale_id), (tenant_id, product_id).
+Split bill: several `sales` sharing `order_id` and `split_group`. Merge: source order `merged`, items re-added referencing the source item in `modifiers.meta`, originals voided with reason `merged`. Exchange (closes G-10): one `sales` row of `type = exchange` with negative lines for the returned goods and positive lines for the replacements, so stock and the ledger both move once.
 
-#### sale_tenders (tender snapshot owned by sales; payment lifecycle owned by payment)
-`[ID]` `[TENANT]`, sale_id FK CASCADE, payment_method_id `[REF:payment_method]`, method_code, method_type enum(cash, card, digital, credit, voucher, bank, other) (snapshots), amount (signed), tendered, change_given, reference VARCHAR(100), gateway_auth_id `[REF]` NULL, payment_status enum(pending, recorded, failed, refunded) (updated from `payment.recorded/failed`), paid_at. Index (tenant_id, sale_id), (tenant_id, method_type, paid_at).
+### 6.8 Payments
 
 | Table | Columns / notes |
 |---|---|
-| cash_shifts / cash_movements | as v0.1 (`[SYNC]`, opening/expected/counted cash, totals_by_method JSON) · type enum(cash_in, cash_out, float, drop), amount, reason |
-| approval_requests | `[ID]` `[TENANT]` `[TS]` `[SYNC]`, branch_id, terminal_id, type enum(discount, refund, void, price_override, credit_limit, custom), reference_type, reference_id, requested_by, payload JSON, status enum(pending, approved, rejected, expired), decided_by, decided_at, decision_method enum(pin_local, remote), reason, plugin_name NULL |
-| saga_steps | `[ID]` `[TENANT]`, saga enum(online_sale, refund), sale_id FK, step enum(inventory_reserve, inventory_release, payment_authorize, payment_void, payment_capture, payment_refund), status enum(pending, done, failed, compensated), attempts, last_error, next_retry_at, `[TS]`. Index (status, next_retry_at) |
-| terminal_numbering | terminal_id `[REF]` PK, tenant_id, prefix, last_seq BIGINT, updated_at (server mirror; reuse rejected) |
-| number_sequences | order and refund numbers (same shape as inventory's) |
-| floor_areas / tables | as v0.1; tables.current_order_id FK NULL, status, position JSON, version |
-| orders | `[ID]` `[TENANT]` `[TS]` `[SYNC]`, branch_id, table_id FK NULL, number, order_type enum(dine_in, takeaway, delivery), status enum(open, in_kitchen, ready, billed, closed, cancelled, merged), waiter_id, covers, customer_id `[REF]` NULL, opened_at, closed_at, merged_into_order_id FK NULL, split_group, notes |
-| order_items (append-only) | `[ID]` `[TENANT]` `[SYNC]`, order_id FK, product_id `[REF]`, product_name, quantity, unit_price, modifiers JSON, notes, status enum(pending, sent, preparing, ready, served, voided), kitchen_station_id `[REF]`, kot_id FK NULL, course, seat_no, added_by, added_at, voided_by, void_reason, voided_at |
-| kots | `[ID]` `[TENANT]` `[TS]` `[SYNC]`, branch_id, order_id FK, type enum(kot, bot), number, kitchen_station_id `[REF]`, status enum(created, printed, failed, acknowledged, reprinted), items_snapshot JSON, printed_at, print_job_id `[REF]` NULL |
-| projections | `payment_method_refs` (id, code, type, is_active, allows_change, opens_drawer), `hook_registry` (tenant_id, point, has_before, has_filter, has_override, updated_at), `custom_field_defs` (sale) |
+| payment_methods | `[ID]` `[TS]` `[SOFT]`, code unique, name, type enum(cash, card, digital, credit, voucher, bank, loyalty, other), **financial_account_id FK financial_accounts** (which cash/bank account this tender lands in — the bridge from POS to the ledger), is_active, opens_drawer, requires_reference, allows_change, allows_refund, allows_partial, rounding_rule, surcharge_percent, gateway VARCHAR(50) NULL, settings JSON, sort_order, version |
+| payments | `[ID]` `[TS]` `[SYNC]` `[GL]`, number, type enum(sale, refund, credit_settlement, deposit, advance), sale_id FK NULL, customer_id FK NULL, branch_id FK, terminal_id FK NULL, shift_id FK NULL, employee_id FK, payment_method_id FK, financial_account_id FK, amount signed, tendered, change_given, currency, exchange_rate, reference, status enum(completed, pending, failed, reversed, bounced), gateway, gateway_transaction_id FK NULL, ar_document_id FK NULL, unallocated_amount, paid_at. The row `id` equals the POS tender ULID, so replay is idempotent. Indexes (sale_id), (shift_id, payment_method_id), (customer_id, paid_at) |
+| payment_allocations | `[ID]`, payment_id FK CASCADE, ar_document_id FK, amount, discount_taken, `[TS]`; unique (payment_id, ar_document_id). Closes G-11's payment allocation |
+| gateway_configs | `[ID]` `[TS]`, gateway VARCHAR(50), branch_id FK NULL, credentials TEXT (encrypted with the tenant app key), settings JSON, is_active; unique (gateway, branch_id) |
+| gateway_transactions | `[ID]` `[TS]`, gateway, type enum(authorize, capture, void, refund, status), sale_id FK NULL, payment_id FK NULL, amount, currency, external_ref, status, request JSON (masked), response JSON (masked), idempotency_key VARCHAR(80) unique, attempts, next_retry_at, error. The **only** remaining place that needs retry/compensation machinery, because the gateway is the only party outside the database transaction |
+| settlements | `[ID]` `[TS]`, gateway, settlement_date, financial_account_id FK, gross, fees, net, transaction_count, status enum(expected, received, reconciled, disputed), statement_ref, reconciled_at |
 
-Split bill: several `sales` with the same `order_id` and `split_group`. Merge: source order `merged`, new `order_items` referencing `source_item_id` in `modifiers.meta`, originals voided with reason `merged`.
-
-### 4.7 `pos_payment` (payment service)
+### 6.9 Customers and CRM
 
 | Table | Columns / notes |
 |---|---|
-| payment_methods | `[ID]` `[TENANT]` `[TS]` `[SOFT]`, code, name, type enum(cash, card, digital, credit, voucher, bank, other), is_active, opens_drawer, requires_reference, allows_change, allows_refund, rounding_rule, gateway VARCHAR(50) NULL, settings JSON, sort_order, version; unique (tenant_id, code) |
-| payments | `[ID]` `[TENANT]` `[TS]` `[SYNC]`, sale_id `[REF:sale]` NULL, customer_id `[REF]` NULL, branch_id, terminal_id, shift_id `[REF]`, user_id, payment_method_id FK, type enum(sale, refund, credit_settlement, deposit), amount (signed), tendered, change_given, currency, reference, status enum(completed, pending, failed, reversed), gateway, gateway_transaction_id FK NULL, paid_at. Indexes (tenant_id, sale_id), (tenant_id, shift_id, payment_method_id), (tenant_id, customer_id). The `id` equals the POS tender ULID, so recording from `sale.completed` is idempotent |
-| gateway_configs | `[ID]` `[TENANT]` `[TS]`, gateway VARCHAR(50), branch_id NULL, credentials TEXT (encrypted), settings JSON, is_active; unique (tenant_id, gateway, branch_id) |
-| gateway_transactions | `[ID]` `[TENANT]` `[TS]`, gateway, type enum(authorize, capture, void, refund), sale_id `[REF]`, amount, currency, external_ref, status, request JSON (masked), response JSON (masked), idempotency_key; index (tenant_id, sale_id) |
-| settlements (later) | batch reconciliation per gateway/day |
+| customer_groups | `[ID]` `[TS]` `[SOFT]`, code, name, discount_percent, credit_allowed BOOL, default_credit_limit, default_payment_terms_days, is_default, loyalty_multiplier, version |
+| customers | `[ID]` `[TS]` `[SOFT]` `[SYNC]` `[CF]` `[BY]`, group_id FK NULL, code unique (nullable), name, phone, email, address JSON, dob, gender, tax_no, company_name, currency, credit_allowed, credit_limit, **credit_balance** (maintained from `customer_ledger`), payment_terms_days, receivable_account_id FK accounts NULL, loyalty_points, loyalty_tier, opening_balance, status enum(active, blocked, inactive), blocked_reason, possible_duplicate_of FK NULL, merged_into_id FK NULL, first_sale_at, last_sale_at, lifetime_value, notes, client_updated_at, version. Indexes (phone), (email), (name), (group_id) |
+| customer_addresses | `[ID]` `[TS]`, customer_id FK CASCADE, type enum(billing, delivery, other), label, address JSON, is_default, geo JSON |
+| customer_ledger (append-only) | `[ID]`, customer_id FK, branch_id FK NULL, type enum(opening, credit_sale, payment, refund, credit_note, debit_note, adjustment, write_off), reference_type, reference_id, ar_document_id FK NULL, debit, credit, balance_after, currency, employee_id FK NULL, notes, created_at; **unique (reference_type, reference_id, type)** for idempotent replay; index (customer_id, created_at) |
+| loyalty_programs | `[ID]` `[TS]`, name, earn_rule JSON (points per currency unit, per category), redeem_rule JSON (value per point, minimum, maximum share of a bill), tier_rules JSON, expiry_months, is_active |
+| loyalty_transactions | `[ID]` `[SYNC]`, customer_id FK, program_id FK, sale_id FK NULL, type enum(earn, redeem, adjust, expire, transfer), points signed, value, balance_after, expires_at, employee_id FK NULL, notes, created_at; unique (sale_id, type) where sale_id not null |
+| customer_notes | `[ID]` `[TS]` `[BY]`, customer_id FK CASCADE, note TEXT, pinned BOOL, follow_up_date NULL |
+| customer_communications | `[ID]` `[TS]`, customer_id FK, channel enum(call, email, sms, whatsapp, visit, campaign), direction enum(in, out), subject, body, campaign_ref, employee_id FK NULL, occurred_at, delivery_id FK NULL |
 
-### 4.8 `pos_customer` (customer service)
+### 6.10 Finance — general ledger, AR, AP, cash and bank
+
+This is the domain that the v0.3 split made impractical and that one database makes ordinary: the ledger joins the subledgers.
 
 ```mermaid
 erDiagram
-  CUSTOMER_GROUPS ||--o{ CUSTOMERS : groups
-  CUSTOMERS ||--o{ CUSTOMER_LEDGER : credit_history
-  CUSTOMERS ||--o{ LOYALTY_TRANSACTIONS : points
-  CUSTOMERS ||--o{ CUSTOMERS : duplicate_of
-  CUSTOMERS {
+  ACCOUNTS ||--o{ ACCOUNTS : parent
+  ACCOUNTS ||--o{ JOURNAL_LINES : posted_to
+  FISCAL_YEARS ||--o{ FISCAL_PERIODS : divides
+  FISCAL_PERIODS ||--o{ JOURNAL_ENTRIES : contains
+  JOURNAL_ENTRIES ||--o{ JOURNAL_LINES : balanced_by
+  JOURNAL_ENTRIES ||--o| JOURNAL_ENTRIES : reverses
+  ACCOUNTS ||--o{ ACCOUNT_BALANCES : rolled_up
+  ACCOUNTS ||--o{ FINANCIAL_ACCOUNTS : backed_by
+  FINANCIAL_ACCOUNTS ||--o{ BANK_TRANSACTIONS : moves
+  BANK_STATEMENTS ||--o{ BANK_STATEMENT_LINES : lines
+  BANK_RECONCILIATIONS ||--o{ BANK_RECONCILIATION_LINES : matches
+  CUSTOMERS ||--o{ AR_DOCUMENTS : owes
+  AR_DOCUMENTS ||--o{ AR_ALLOCATIONS : settled_by
+  SUPPLIERS ||--o{ AP_DOCUMENTS : owed
+  AP_DOCUMENTS ||--o{ AP_ALLOCATIONS : settled_by
+  ACCOUNTS {
     ulid id PK
-    ulid tenant_id
-    ulid group_id FK
-    string code
+    string code UK
     string name
-    string phone
-    decimal credit_limit
-    decimal credit_balance
-    int loyalty_points
-    ulid possible_duplicate_of
-    json custom_fields
-    bigint version
+    string type
+    string subtype
+    ulid parent_id FK
+    string normal_balance
+    bool is_postable
+    string control_type
   }
-```
-
-| Table | Columns / notes |
-|---|---|
-| customer_groups | `[ID]` `[TENANT]` `[TS]` `[SOFT]`, name, discount_percent, credit_allowed, default_credit_limit, is_default, version (price-list link lives in `pos_pricing.price_list_assignments`) |
-| customers | `[ID]` `[TENANT]` `[TS]` `[SOFT]` `[SYNC]` `[CF]` `[BY]`, group_id FK NULL, code, name, phone, email, address JSON, dob, gender, tax_no, credit_allowed, credit_limit, credit_balance, loyalty_points, notes, status enum(active, blocked), possible_duplicate_of FK NULL, merged_into_id FK NULL, client_updated_at, version. Indexes (tenant_id, phone), (tenant_id, email), (tenant_id, name), unique (tenant_id, code) where code not null |
-| customer_ledger (append-only) | `[ID]` `[TENANT]`, customer_id FK, branch_id, type enum(credit_sale, payment, refund, adjustment, opening), reference_type, reference_id `[REF]`, debit, credit, balance_after, user_id, notes, created_at; unique (tenant_id, reference_type, reference_id, type) for idempotent consumption |
-| loyalty_transactions | `[ID]` `[TENANT]` `[SYNC]`, customer_id FK, sale_id `[REF]` NULL, type enum(earn, redeem, adjust, expire), points (signed), balance_after, rule_ref, expires_at, user_id, created_at; unique (tenant_id, sale_id, type) where sale_id not null |
-| projections | `custom_field_defs` (customer) |
-
-### 4.9 `pos_sync` (sync service)
-
-```mermaid
-erDiagram
-  SYNC_BATCHES ||--o{ SYNC_INBOX : contains
-  TERMINAL_SYNC_STATE ||--o{ SYNC_BATCHES : pushes
-  REPLICA_VERSIONS ||--o{ POS_REPLICA : versions
-  SYNC_INBOX {
-    bigint id PK
-    ulid tenant_id
-    ulid terminal_id
-    ulid item_id UK
-    string entity_type
-    bigint client_seq
-    json payload
-    string status
-    json result
-  }
-  POS_REPLICA {
-    ulid tenant_id
-    string entity_type
-    ulid entity_id
-    bigint version
-    json payload
-    bool deleted
-  }
-```
-
-| Table | Columns / notes |
-|---|---|
-| sync_batches | `[ID]` `[TENANT]`, terminal_id, device_id, item_count, accepted, rejected, conflicts, waiting, received_at, processed_at, status |
-| **sync_inbox** | id BIGINT AUTO PK, tenant_id, branch_id, terminal_id, device_id, batch_id FK, item_id CHAR(26) **unique (tenant_id, item_id)**, entity_type enum(sale, order, order_item, kot, cash_shift, cash_movement, approval_request, customer, loyalty_transaction), client_seq, client_created_at, received_at, processed_at, payload JSON, status enum(accepted, duplicate, rejected, conflict, waiting_dependency, failed), result JSON, error_code, error_detail, depends_on_item_id NULL, attempts. Indexes (tenant_id, terminal_id, client_seq), (tenant_id, status, received_at). Partition by month; payload nulled after 90 days |
-| pos_replica | tenant_id, entity_type VARCHAR(40), entity_id CHAR(26), version BIGINT, branch_id NULL (branch-specific docs), payload JSON, deleted BOOL, source_event_id, updated_at; PK (tenant_id, entity_type, entity_id); index (tenant_id, version), (tenant_id, branch_id, version) |
-| replica_versions | tenant_id PK, last_version BIGINT (per-tenant monotonic counter, incremented under lock when a replica document changes) |
-| terminal_sync_state | terminal_id `[REF]`, tenant_id, entity_type, last_pulled_version, last_pushed_client_seq, last_full_sync_at, last_pull_at, last_push_at, pending_count, rejected_count; PK (terminal_id, entity_type) |
-
-Replica entity types: product, category, modifier_group, unit, brand, tax, tax_group, price_list (+items), discount, customer, customer_group, payment_method, setting (effective per branch/terminal), printer, printer_route, kitchen_station, print_template, pos_user (PIN hash + permissions), enabled_plugin, stock_snapshot (advisory).
-
-### 4.10 `pos_notification` (notification service)
-
-| Table | Columns / notes |
-|---|---|
-| notification_templates | `[ID]` `[TENANT]` `[TS]`, key, channel enum(email, sms, in_app, whatsapp, webhook), locale, subject, body, is_active, plugin_name NULL; unique (tenant_id, key, channel, locale) |
-| channel_configs | `[ID]` `[TENANT]` `[TS]`, channel, provider VARCHAR(50), credentials TEXT (encrypted), settings JSON, is_active |
-| notifications (in-app) | `[ID]` `[TENANT]` `[TS]`, recipient_user_id `[REF]`, type, title, body, data JSON, read_at |
-| deliveries | id BIGINT AUTO, tenant_id, channel, template_key, recipient, provider, status enum(queued, sent, failed, bounced), provider_ref, error, source_event_id, created_at, sent_at. Index (tenant_id, created_at), (status, created_at) |
-| webhook_endpoints / webhook_deliveries | `[ID]` `[TENANT]`, url, secret (encrypted), events JSON, is_active · endpoint_id FK, event_id, status, attempts, response_code, created_at |
-
-### 4.11 `pos_reporting` (reporting service, read models)
-
-| Table | Columns / notes |
-|---|---|
-| sales_facts | sale_id PK, tenant_id, branch_id, terminal_id, cashier_id, customer_id, customer_group_id, business_date, completed_at, type, status, origin, subtotal, discount_total, tax_total, total, cost_total, profit, tender_summary JSON, source_event_id. Indexes (tenant_id, business_date), (tenant_id, branch_id, business_date), (tenant_id, customer_id) |
-| sale_item_facts | id PK, sale_id, tenant_id, branch_id, business_date, product_id, category_id, brand_id, quantity, net_amount, tax_amount, cost_amount, discount_amount |
-| tender_facts | tender_id PK, sale_id, tenant_id, branch_id, business_date, shift_id, method_type, method_code, amount |
-| stock_movement_facts | movement_id PK, tenant_id, branch_id, product_id, type, quantity, unit_cost, balance_after, created_at |
-| purchase_facts | grn_id PK, tenant_id, branch_id, supplier_id, received_date, total, tax_total |
-| customer_facts | customer_id PK, tenant_id, first_sale_at, last_sale_at, sales_count, lifetime_value, credit_balance, loyalty_points |
-| daily_summaries | `[ID]` `[TENANT]`, branch_id, terminal_id NULL, business_date, sales_count, refunds_count, gross, discounts, tax, net, cost, profit, by_payment_method JSON, by_category JSON, by_cashier JSON, rebuilt_at; unique (tenant_id, branch_id, terminal_id, business_date) |
-| audit_facts | id BIGINT AUTO, tenant_id, service, actor_type, actor_id, action, subject_type, subject_id, before JSON, after JSON, request_id, occurred_at. Index (tenant_id, occurred_at), (tenant_id, subject_type, subject_id) |
-| dimensions | `product_dims`, `category_dims`, `branch_dims`, `user_dims`, `supplier_dims`, `payment_method_dims` (id, tenant_id, current attributes, version) |
-| report_definitions | key PK, name, service_or_plugin, params_schema JSON, permission_key, is_active |
-| report_exports | `[ID]` `[TENANT]` `[TS]`, user_id, report_key, params JSON, format enum(csv, xlsx, pdf), status, file_path, expires_at |
-| rebuild_jobs | id, tenant_id NULL, model, from_date, to_date, status, progress (replay from owners' snapshot endpoints or the outbox) |
-
-### 4.12 `pos_plugin` (plugin service and Plugin Runtime)
-
-```mermaid
-erDiagram
-  PLUGINS ||--o{ PLUGIN_VERSIONS : releases
-  PLUGIN_VERSIONS ||--o{ PLUGIN_DEPENDENCIES : requires
-  PLUGIN_VERSIONS ||--o{ HOOK_REGISTRATIONS : declares
-  PLUGINS ||--o{ PLUGIN_TENANT_ACCESS : visible_to
-  PLUGINS ||--o{ TENANT_PLUGINS : installed_as
-  PLUGIN_VERSIONS ||--o{ TENANT_PLUGINS : at_version
-  TENANT_PLUGINS ||--o{ TENANT_PLUGIN_SETTINGS : configured_by
-  PLUGINS ||--o{ PLUGIN_EXECUTION_LOGS : logs
-  WORKFLOW_DEFINITIONS }o--|| PLUGINS : optional_owner
-  TENANT_PLUGINS {
+  JOURNAL_ENTRIES {
     ulid id PK
-    ulid tenant_id
-    ulid plugin_id FK
-    ulid plugin_version_id FK
+    string number UK
+    date entry_date
+    ulid period_id FK
+    string source_type
+    ulid source_id
     string status
-    int failure_count
-    datetime tripped_at
+    decimal total_debit
+    decimal total_credit
+  }
+  JOURNAL_LINES {
+    ulid id PK
+    ulid entry_id FK
+    smallint line_no
+    ulid account_id FK
+    decimal debit
+    decimal credit
+    ulid branch_id
+    ulid employee_id
+    ulid customer_id
+    ulid supplier_id
   }
 ```
 
 | Table | Columns / notes |
 |---|---|
-| plugins | `[ID]` `[TS]` `[SOFT]`, name unique, display_name, type enum(module, integration, theme, report), author, description, visibility enum(official, private, third_party), status enum(uploaded, validated, installed, enabled, disabled, uninstalled, failed), latest_version_id, signature_key_id |
-| plugin_versions | `[ID]` `[TS]`, plugin_id FK, version, core_constraint, manifest JSON, package_path, checksum, signature, status enum(available, deprecated, yanked), released_at; unique (plugin_id, version) |
-| plugin_dependencies | plugin_version_id FK, depends_on_plugin, constraint; PK |
-| hook_registrations | `[ID]`, plugin_version_id FK, point VARCHAR(60), mode enum(before, after, filter, override), priority, handler_class, timeout_ms NULL; unique (plugin_version_id, point, mode, handler_class) |
-| plugin_tenant_access | plugin_id FK, tenant_id, granted_by, `[TS]`; PK |
-| tenant_plugins | `[ID]` `[TS]`, tenant_id, plugin_id FK, plugin_version_id FK, status enum(enabled, disabled, updating, error), installed_at, enabled_at, disabled_at, installed_by, failure_count, tripped_at; unique (tenant_id, plugin_id) |
-| tenant_plugin_settings | tenant_id, plugin_id, key, value TEXT (encrypted when secret), is_secret, updated_by, `[TS]`; PK (tenant_id, plugin_id, key) |
-| plugin_migrations | plugin_id, migration, batch, ran_at; PK (plugin_id, migration) (one schema, so no per-shard tracking until sharded) |
-| plugin_execution_logs | id BIGINT AUTO, plugin_id, tenant_id, point, mode, duration_ms, status enum(ok, veto, error, timeout), error, request_id, created_at. Partition by month, 30-day retention |
-| workflow_definitions | `[ID]` `[TENANT]` `[TS]` `[SOFT]` `[BY]`, name, trigger_point, conditions JSON, steps JSON, branch_ids JSON NULL, is_active, priority, plugin_name NULL, version |
-| plg_<plugin>_* | plugin-owned tables, always with `tenant_id`; e.g. `plg_loyalty_rules`, `plg_loyalty_accounts` (customer_id `[REF]`), `plg_loyalty_transactions`, `plg_loyalty_tiers`, `plg_commission_rates`, `plg_commission_entries` |
+| **accounts** (chart of accounts) | `[ID]` `[TS]` `[SOFT]` `[BY]`, code VARCHAR(20) unique, name, description, **type enum(asset, liability, equity, revenue, expense)**, subtype enum(current_asset, fixed_asset, inventory, receivable, cash, bank, current_liability, payable, tax, long_term_liability, capital, retained_earnings, sales, other_income, cogs, operating_expense, payroll_expense, other_expense), parent_id FK NULL, path VARCHAR(500), depth, **normal_balance enum(debit, credit)**, **is_postable BOOL** (only leaves take postings), is_system BOOL (cannot be deleted or recoded), **control_type enum(none, ar, ap, inventory, cash, bank, tax_payable, tax_receivable, grni, payroll_payable, retained_earnings)** (marks the account the application posts subledgers into; unique per control_type where it must be single), currency CHAR(3) NULL (null = company currency), is_active, sort_order, opening_balance, opening_balance_date. Seeded at provisioning with the structure of `Refference/ERP.md` §11 (1000 Assets / 2000 Liabilities / 3000 Equity / 4000 Revenue / 5000 COGS / 6000 Expenses) |
+| account_mappings | `[ID]` `[TS]`, event_key VARCHAR(60) (`sale.revenue`, `sale.tax_output`, `sale.cogs`, `sale.inventory`, `sale.discount`, `sale.rounding`, `grn.inventory`, `grn.grni`, `invoice.ap`, `invoice.ppv`, `expense.default`, `payroll.gross`, `payroll.net_payable`, `payroll.epf_employee`, …), scope_type enum(company, branch, category, product, tax, payment_method, expense_category, pay_component), scope_id CHAR(26) NULL, account_id FK accounts, priority; unique (event_key, scope_type, scope_id). **Posting is configurable, not hard-coded** — the resolver walks product → category → branch → company |
+| fiscal_years | `[ID]` `[TS]`, name, start_date, end_date, status enum(open, closing, closed), closed_at, closed_by FK employees NULL, retained_earnings_entry_id FK NULL; unique (start_date) |
+| fiscal_periods | `[ID]`, fiscal_year_id FK CASCADE, sequence TINYINT, name, start_date, end_date, **status enum(open, soft_closed, closed)**, closed_at, closed_by FK NULL; unique (fiscal_year_id, sequence), unique (start_date). `soft_closed` blocks ordinary users but allows a finance role to post adjustments; `closed` blocks everyone |
+| **journal_entries** | `[ID]` `[TS]` `[BY]`, number VARCHAR(30) unique, entry_date DATE, period_id FK fiscal_periods, branch_id FK NULL, **source_type enum(manual, opening, sale, sale_refund, sale_void, grn, purchase_return, supplier_invoice, supplier_payment, customer_payment, expense, expense_payment, payroll_run, payroll_payment, commission_payout, stock_adjustment, stock_transfer, stock_count, cash_movement, bank_transaction, revaluation, period_close, year_close, reversal, plugin)**, source_id CHAR(26) NULL, source_purpose VARCHAR(30) NULL (`revenue`, `cogs`, …, when one document raises more than one entry), status enum(draft, posted, reversed), currency, exchange_rate, total_debit, total_credit, description, reversal_of_id FK NULL, reversed_by_id FK NULL, posted_at, posted_by FK employees NULL, is_auto BOOL, plugin_name NULL; **unique (source_type, source_id, source_purpose)** where source_id not null — the idempotency guarantee that a replayed or retried document cannot double-post; indexes (entry_date), (period_id, status), (source_type, source_id) |
+| **journal_lines** | `[ID]`, entry_id FK CASCADE, line_no SMALLINT, account_id FK accounts, **debit DECIMAL(18,4) DEFAULT 0, credit DECIMAL(18,4) DEFAULT 0** with `CHECK (debit = 0 OR credit = 0)` and `CHECK (debit >= 0 AND credit >= 0)`, currency, exchange_rate, base_debit, base_credit, memo, **dimensions**: branch_id FK NULL, location_id FK NULL, department_id FK NULL, employee_id FK NULL, customer_id FK NULL, supplier_id FK NULL, product_id FK NULL, project_ref VARCHAR(40) NULL, tax_id FK NULL, tax_base DECIMAL NULL; unique (entry_id, line_no), indexes (account_id, entry_id), (customer_id), (supplier_id), (employee_id). **`SUM(debit) = SUM(credit)` per entry** is asserted in the posting service, re-checked by a nightly job, and (on MySQL 8.4) additionally guarded by a trigger-free pattern: the entry is written with its totals and the line insert is a single statement, so a partial entry cannot exist |
+| account_balances | account_id FK, period_id FK, branch_id FK NULL, opening_debit, opening_credit, period_debit, period_credit, closing_debit, closing_credit, updated_at; PK (account_id, period_id, branch_id). Incrementally maintained at posting time and fully rebuildable from `journal_lines` — the trial balance and P&L read this, not 50 M journal lines |
+| currencies / exchange_rates | currencies: code CHAR(3) PK, name, symbol, decimals, is_active · exchange_rates: `[ID]`, from_currency, to_currency, rate DECIMAL(18,8), rate_date DATE, source enum(manual, api), `[TS]`; unique (from_currency, to_currency, rate_date) |
+| **financial_accounts** (cash and bank) | `[ID]` `[TS]` `[SOFT]`, code unique, name, **type enum(cash_drawer, petty_cash, bank, credit_card, gateway, wallet, cheque_clearing, undeposited_funds)**, **account_id FK accounts** (the GL account it maps to, unique), branch_id FK NULL, currency, bank_name, account_no, iban, swift, branch_name, opening_balance, **current_balance** (maintained), last_reconciled_at, last_statement_balance, is_active, allow_negative BOOL, notes. Closes G-6 |
+| bank_transactions | `[ID]` `[TS]` `[BY]` `[GL]`, financial_account_id FK, **type enum(deposit, withdrawal, transfer_in, transfer_out, bank_charge, interest, adjustment)**, transaction_date, amount signed, currency, exchange_rate, reference, counterparty, contra_financial_account_id FK NULL (transfers), payment_id FK NULL, supplier_payment_id FK NULL, expense_payment_id FK NULL, cash_movement_id FK NULL, description, status enum(pending, cleared, reconciled, bounced, cancelled), cleared_date, reconciliation_id FK NULL; index (financial_account_id, transaction_date), (status) |
+| bank_statements / bank_statement_lines | header `[ID]` `[TS]`, financial_account_id FK, statement_date, period_start, period_end, opening_balance, closing_balance, imported_from enum(csv, ofx, api, manual), file_path, status enum(imported, reconciling, reconciled) · line `[ID]`, statement_id FK CASCADE, line_date, description, reference, amount signed, running_balance, match_status enum(unmatched, matched, ignored, manual), matched_transaction_id FK NULL, match_confidence, imported_hash CHAR(64); unique (statement_id, imported_hash) so re-importing a file cannot duplicate lines. Closes G-16 |
+| bank_reconciliations / bank_reconciliation_lines | header `[ID]` `[TS]` `[BY]`, financial_account_id FK, statement_id FK NULL, period_start, period_end, statement_balance, book_balance, **difference** (must be 0 to complete), outstanding_deposits, outstanding_cheques, status enum(draft, in_progress, completed, reopened), completed_at, completed_by, notes · line `[ID]`, reconciliation_id FK CASCADE, bank_transaction_id FK NULL, statement_line_id FK NULL, amount, type enum(matched, outstanding_deposit, outstanding_cheque, bank_only, book_only), note |
+| **ar_documents** | `[ID]` `[TS]` `[GL]`, number VARCHAR(30) unique, customer_id FK, branch_id FK, **type enum(invoice, credit_note, debit_note, opening_balance, advance)**, **source_type enum(sale, sales_order, manual, opening)**, source_id CHAR(26) NULL, document_date, **due_date**, currency, exchange_rate, amount, tax_amount, total, **amount_allocated**, **balance_due** (generated or maintained), status enum(open, partially_paid, paid, overdue, written_off, cancelled), days_overdue (computed nightly for the aging report), write_off_account_id FK NULL, notes; unique (source_type, source_id) where source_id not null; indexes (customer_id, status, due_date), (due_date, status). **The AR subledger.** A credit sale creates one row; aging, statements and overdue reports all read this table (closes G-11) |
+| ar_allocations | `[ID]` `[TS]`, ar_document_id FK, payment_id FK NULL, credit_note_document_id FK NULL, amount, allocated_by FK employees NULL, allocated_at, reversed_at NULL; index (ar_document_id), (payment_id). A payment can settle several invoices; a credit note can settle an invoice |
+| **ap_documents** | same shape as `ar_documents` against `suppliers`: type enum(invoice, debit_note, credit_note, opening_balance, advance), source_type enum(supplier_invoice, purchase_return, expense, manual, opening), source_id, document_date, due_date, amounts, status, days_overdue; unique (source_type, source_id). **The AP subledger** — supplier aging and outstanding-invoice reports read this (closes G-12) |
+| ap_allocations | `[ID]` `[TS]`, ap_document_id FK, supplier_payment_id FK NULL, credit_note_document_id FK NULL, amount, allocated_by, allocated_at, reversed_at NULL |
+| tax_returns | `[ID]` `[TS]` `[BY]` `[GL]`, tax_authority_id FK, period_start, period_end, status enum(draft, filed, paid, closed), output_tax, input_tax, adjustments, net_payable, filed_at, filed_by, reference, payment_id NULL, breakdown JSON. Freezes what was declared, so later edits to old invoices are visible as a discrepancy rather than silently changing a filed return |
 
-### 4.13 `pos_print` (print management service)
+### 6.11 Expenses
 
 | Table | Columns / notes |
 |---|---|
-| kitchen_stations | `[ID]` `[TENANT]` `[TS]`, branch_id NULL, code, name, type enum(kitchen, bar), is_active, version |
-| printers | `[ID]` `[TENANT]` `[TS]` `[SOFT]`, branch_id, terminal_id `[REF]` NULL (agent host), name, type enum(receipt, kitchen, bar, label, a4), connection enum(usb, network, bluetooth, os_driver), address, model, language enum(escpos, zpl, pdf), paper_width_mm, chars_per_line, status enum(online, offline, error, unknown), last_seen_at, last_error, settings JSON, version; unique (tenant_id, branch_id, name) |
-| printer_routes | `[ID]` `[TENANT]` `[TS]`, branch_id, terminal_id NULL, document_type enum(receipt, kot, bot, label, report, drawer), kitchen_station_id FK NULL, printer_id FK, copies, is_active, priority, version; unique (tenant_id, branch_id, terminal_id, document_type, kitchen_station_id) |
-| print_templates | `[ID]` `[TENANT]` `[TS]` `[SOFT]` `[BY]`, branch_id NULL, type enum(receipt, kot, bot, label, invoice_a4, shift_report), name, engine enum(handlebars), content MEDIUMTEXT, version INT, is_default, plugin_name NULL, preview_data JSON; unique (tenant_id, branch_id, type, name) |
-| print_jobs | `[ID]` `[TENANT]` `[TS]`, branch_id, terminal_id, printer_id FK NULL, document_type, reference_type, reference_id `[REF]`, template_id FK NULL, status enum(queued, sent, printed, failed, cancelled), attempts, last_error, payload_hash, payload JSON NULL (relay jobs only), printed_at, source_event_id. Index (tenant_id, branch_id, status, created_at). Retention 30 days |
-| agent_heartbeats | terminal_id `[REF]` PK, tenant_id, agent_version, os, printers JSON (status per printer), queue_depth, last_error, received_at |
-| projections | `terminal_refs` |
+| expense_categories | `[ID]` `[TS]` `[SOFT]`, code unique, name, parent_id FK NULL, **account_id FK accounts** (the expense GL account), tax_group_id FK NULL, requires_receipt BOOL, requires_approval BOOL, approval_threshold DECIMAL NULL, workflow_definition_id FK NULL, budget_monthly DECIMAL NULL, is_active, sort_order. Seeded with the 15 categories of `Refference/ERP.md` §5 (rent, utilities, fuel, vehicle, telephone, internet, marketing, office, maintenance, travel, meals, salary-related, bank charges, tax, miscellaneous) |
+| expenses | `[ID]` `[TS]` `[BY]` `[CF]` `[GL]`, number unique, category_id FK, branch_id FK, location_id FK NULL, expense_date, **employee_id FK NULL** (who incurred it, for reimbursements), supplier_id FK NULL, description, currency, exchange_rate, amount, tax_group_id FK NULL, tax_amount, total, is_billable BOOL, customer_id FK NULL (rebilled), **status enum(draft, submitted, pending_approval, approved, rejected, posted, partially_paid, paid, cancelled)**, workflow_instance_id FK NULL, ap_document_id FK NULL (when payable rather than paid on the spot), rejected_reason, submitted_at, approved_at, posted_at, notes; indexes (expense_date), (category_id, expense_date), (status), (employee_id) |
+| expense_items | `[ID]`, expense_id FK CASCADE, description, account_id FK accounts NULL (split across accounts), amount, tax_group_id FK NULL, tax_amount, department_id FK NULL, project_ref. Optional — a simple expense has none |
+| expense_attachments | `[ID]` `[TS]`, expense_id FK CASCADE, file_path, original_name, mime, size_bytes, checksum, uploaded_by FK employees, ocr_text TEXT NULL. Receipt image/PDF, required when the category says so |
+| expense_payments | `[ID]` `[TS]` `[BY]` `[GL]`, expense_id FK, financial_account_id FK, payment_date, method enum(cash, bank_transfer, cheque, card, petty_cash, payroll), amount, reference, bank_transaction_id FK NULL, status enum(pending, paid, bounced, cancelled), notes |
+
+The approval chain (employee → manager → finance → payment → accounting, `Refference/ERP.md` §5) is **not** hard-coded here: `expenses.workflow_instance_id` points at the generic engine of §6.15, and `expense_categories.workflow_definition_id` picks which chain applies.
+
+### 6.12 HR
+
+```mermaid
+erDiagram
+  DEPARTMENTS ||--o{ EMPLOYEES : staffs
+  DESIGNATIONS ||--o{ EMPLOYEES : titled
+  BRANCHES ||--o{ EMPLOYEES : based_at
+  EMPLOYEES ||--o{ EMPLOYEE_DOCUMENTS : holds
+  EMPLOYEES ||--o{ EMPLOYEE_BANK_ACCOUNTS : paid_to
+  EMPLOYEES ||--o{ EMPLOYMENT_HISTORY : changes
+  SHIFTS ||--o{ SHIFT_ASSIGNMENTS : rostered
+  EMPLOYEES ||--o{ ATTENDANCE_RECORDS : punches
+  EMPLOYEES ||--o{ ATTENDANCE_DAYS : summarised
+  EMPLOYEES ||--o{ OVERTIME_RECORDS : earns
+  LEAVE_TYPES ||--o{ LEAVE_REQUESTS : of
+  EMPLOYEES ||--o{ LEAVE_REQUESTS : asks
+  EMPLOYEES ||--o{ LEAVE_BALANCES : accrues
+  EMPLOYEES {
+    ulid id PK
+    string code UK
+    string name
+    string nic
+    ulid department_id FK
+    ulid designation_id FK
+    ulid branch_id FK
+    ulid user_id
+    string pin_hash
+    date joining_date
+    decimal basic_salary
+    string status
+  }
+```
+
+| Table | Columns / notes |
+|---|---|
+| departments | `[ID]` `[TS]` `[SOFT]`, code unique, name, parent_id FK NULL, manager_employee_id FK NULL, branch_id FK NULL, cost_centre_account_id FK accounts NULL, is_active |
+| designations | `[ID]` `[TS]` `[SOFT]`, code unique, name, department_id FK NULL, level TINYINT, is_active |
+| **employees** | `[ID]` `[TS]` `[SOFT]` `[BY]` `[CF]`, code VARCHAR(20) unique, **user_id CHAR(26) NULL** (master `users.id`; **no FK, cross-database** — null for a cashier with no web login), first_name, last_name, display_name, **nic VARCHAR(30)** / passport_no, dob, gender, marital_status, nationality, personal_email, work_email, phone, emergency_contact JSON, address JSON, photo_path, department_id FK NULL, designation_id FK NULL, branch_id FK, reports_to_employee_id FK NULL, **employment_type enum(permanent, contract, probation, part_time, casual, intern)**, joining_date, confirmation_date, probation_end_date, resignation_date, last_working_date, exit_reason, **status enum(active, probation, on_leave, suspended, resigned, terminated)**, **basic_salary DECIMAL(18,4)**, salary_structure_id FK NULL, pay_frequency enum(monthly, biweekly, weekly, daily, hourly), **pin_hash** (Argon2id, nullable — the till's offline PIN check reads this via `pos_replica`), pin_set_at, **perm_version INT**, is_sales_person BOOL, commission_plan_id FK NULL, default_location_id FK NULL, tax_id_no, epf_no, etf_no, notes. Indexes (status, branch_id), (department_id), (user_id), (reports_to_employee_id) |
+| employee_documents | `[ID]` `[TS]` `[BY]`, employee_id FK CASCADE, type enum(contract, nic_copy, passport, cv, certificate, appraisal, warning, medical, other), title, file_path, issue_date, expiry_date NULL, is_confidential BOOL, notes; index (employee_id, type), (expiry_date) |
+| employment_history | `[ID]` `[TS]` `[BY]`, employee_id FK, type enum(hire, promotion, transfer, salary_change, designation_change, department_change, suspension, resignation, termination, rehire), effective_date, from_value JSON, to_value JSON, reason, approved_by FK NULL. The audit trail HR and payroll disputes are settled with |
+| employee_bank_accounts | `[ID]` `[TS]`, employee_id FK CASCADE, bank_name, branch_name, account_no, account_name, is_primary, share_percent DECIMAL(5,2) (salary split across accounts), is_active |
+| shifts | `[ID]` `[TS]` `[SOFT]`, code unique, name, start_time TIME, end_time TIME, crosses_midnight BOOL, break_minutes SMALLINT, grace_minutes SMALLINT, half_day_hours DECIMAL(4,2), full_day_hours DECIMAL(4,2), overtime_after_minutes SMALLINT, branch_id FK NULL, is_active |
+| shift_assignments | `[ID]` `[TS]`, employee_id FK, shift_id FK, effective_from DATE, effective_to DATE NULL, weekdays JSON (which days apply), branch_id FK NULL; index (employee_id, effective_from). A roster is a set of assignments, not a table of days |
+| **attendance_records** (append-only punches) | `[ID]`, employee_id FK, branch_id FK, **type enum(clock_in, clock_out, break_start, break_end)**, punched_at DATETIME(3), business_date DATE, source enum(pos_terminal, web, mobile, biometric, manual, import), terminal_id FK NULL, device_ref VARCHAR(64) (biometric device id — the integration point of `Refference/ERP.md` §7), geo JSON NULL, photo_path NULL, is_manual BOOL, entered_by FK employees NULL, note, created_at; index (employee_id, business_date), (business_date, branch_id), unique (employee_id, type, punched_at) |
+| **attendance_days** (derived, one row per employee per day) | `[ID]`, employee_id FK, business_date DATE, shift_id FK NULL, first_in DATETIME(3) NULL, last_out DATETIME(3) NULL, worked_minutes, break_minutes, **late_minutes**, **early_leave_minutes**, **overtime_minutes**, **status enum(present, absent, half_day, late, on_leave, holiday, weekend, no_pay)**, leave_request_id FK NULL, holiday_id FK NULL, is_locked BOOL (frozen once a payroll run consumes it), recalculated_at; unique (employee_id, business_date), index (business_date, status). Rebuilt from `attendance_records` by a nightly job and on demand; payroll reads **this**, never the raw punches |
+| overtime_records | `[ID]` `[TS]` `[BY]`, employee_id FK, business_date, attendance_day_id FK NULL, minutes, rate_multiplier DECIMAL(5,2), type enum(normal, holiday, weekend, night), status enum(pending, approved, rejected, paid), workflow_instance_id FK NULL, approved_by FK NULL, approved_at, payslip_id FK NULL, note; unique (employee_id, business_date, type) |
+| leave_types | `[ID]` `[TS]` `[SOFT]`, code unique, name, **is_paid BOOL**, annual_entitlement DECIMAL(5,2), accrual enum(none, monthly, yearly, on_join), carry_forward_max DECIMAL(5,2), requires_document BOOL, min_notice_days, max_consecutive_days, gender_restriction NULL, workflow_definition_id FK NULL, counts_as enum(working_day, calendar_day), is_active. Seeded: annual, casual, medical, no_pay, other (`Refference/ERP.md` §8) |
+| leave_requests | `[ID]` `[TS]` `[BY]`, number, employee_id FK, leave_type_id FK, from_date, to_date, days DECIMAL(5,2), is_half_day BOOL, half_day_period enum(morning, afternoon) NULL, reason, document_path NULL, **status enum(draft, pending, approved, rejected, cancelled, withdrawn)**, workflow_instance_id FK NULL, approved_by FK NULL, approved_at, rejected_reason, covering_employee_id FK NULL; index (employee_id, from_date), (status, from_date) |
+| leave_balances | `[ID]`, employee_id FK, leave_type_id FK, period_year SMALLINT, **entitled, carried_forward, accrued, taken, pending, adjusted, available** (all DECIMAL(5,2)), last_accrued_at, `[TS]`; unique (employee_id, leave_type_id, period_year). `available` is maintained transactionally when a request is approved or cancelled |
+| holidays | `[ID]` `[TS]`, name, date DATE, type enum(public, bank, mercantile, company, optional), branch_id FK NULL (regional holidays), is_paid BOOL, year SMALLINT; unique (date, branch_id) |
+
+### 6.13 Payroll
+
+```mermaid
+erDiagram
+  PAY_COMPONENTS ||--o{ SALARY_STRUCTURE_COMPONENTS : composes
+  SALARY_STRUCTURES ||--o{ SALARY_STRUCTURE_COMPONENTS : has
+  SALARY_STRUCTURES ||--o{ EMPLOYEES : assigned
+  EMPLOYEES ||--o{ EMPLOYEE_SALARY_COMPONENTS : overrides
+  PAYROLL_PERIODS ||--o{ PAYROLL_RUNS : processed_in
+  PAYROLL_RUNS ||--o{ PAYSLIPS : produces
+  PAYSLIPS ||--o{ PAYSLIP_LINES : details
+  PAYSLIPS ||--o{ PAYROLL_PAYMENTS : paid_by
+  PAYROLL_RUNS ||--o| JOURNAL_ENTRIES : posts
+```
+
+| Table | Columns / notes |
+|---|---|
+| pay_components | `[ID]` `[TS]` `[SOFT]`, code unique, name, **kind enum(earning, deduction, employer_contribution, informational)**, category enum(basic, allowance, overtime, commission, bonus, statutory, loan, advance, tax, no_pay, other), **calculation enum(fixed, percent_of_basic, percent_of_gross, formula, per_day, per_hour, from_attendance, from_commission, manual)**, formula VARCHAR(500) NULL, percent DECIMAL(9,4) NULL, is_taxable BOOL, is_epf_liable BOOL, affects_gross BOOL, **account_id FK accounts** (expense account for an earning, payable account for a deduction), employer_account_id FK NULL, sequence SMALLINT (evaluation order), is_statutory BOOL, is_active. Seeded for Sri Lanka: basic, transport allowance, attendance allowance, overtime, commission, EPF employee 8 %, EPF employer 12 %, ETF employer 3 %, PAYE, no-pay, salary advance |
+| statutory_rates | `[ID]`, component_id FK pay_components, effective_from DATE, effective_to NULL, rate DECIMAL(9,4), ceiling DECIMAL(18,4) NULL, floor DECIMAL NULL, brackets JSON NULL (progressive tax bands), country CHAR(2); unique (component_id, effective_from). Rates change by budget; payroll for an old period recomputes with the rate that applied then |
+| salary_structures | `[ID]` `[TS]` `[SOFT]`, code unique, name, description, currency, pay_frequency, is_default, is_active |
+| salary_structure_components | `[ID]`, structure_id FK CASCADE, component_id FK, amount DECIMAL NULL, percent DECIMAL NULL, sequence; unique (structure_id, component_id) |
+| employee_salary_components | `[ID]` `[TS]` `[BY]`, employee_id FK, component_id FK, amount NULL, percent NULL, effective_from DATE, effective_to DATE NULL, reason; index (employee_id, component_id, effective_from). Per-person override on top of the structure |
+| payroll_periods | `[ID]` `[TS]`, name (`September 2026`), period_start, period_end, pay_date, frequency, **status enum(draft, processing, approved, paid, closed)**, fiscal_period_id FK NULL, is_locked BOOL, locked_at; unique (period_start, frequency). **Locked once approved** (`Refference/ERP.md` §9) — reopening requires a finance permission and writes a `platform`-visible audit row |
+| payroll_runs | `[ID]` `[TS]` `[BY]` `[GL]`, period_id FK, number unique, branch_id FK NULL (a run may cover one branch or all), type enum(regular, bonus, arrears, final_settlement, off_cycle), **status enum(draft, calculating, calculated, pending_approval, approved, posted, paid, cancelled)**, workflow_instance_id FK NULL, employee_count, gross_total, deduction_total, employer_contribution_total, net_total, calculated_at, approved_by FK NULL, approved_at, posted_at, paid_at, error TEXT NULL; index (period_id, status) |
+| payslips | `[ID]` `[TS]`, run_id FK, employee_id FK, **snapshots**: employee_code, employee_name, designation_name, department_name, bank_account_no (a payslip must reprint after the employee changes department), period_start, period_end, pay_date, worked_days, paid_days, absent_days, no_pay_days, leave_days, overtime_minutes, **basic, gross, total_earnings, total_deductions, employer_contributions, net_pay**, currency, status enum(draft, approved, paid, held, cancelled), payment_status enum(unpaid, partially_paid, paid), held_reason, pdf_path, published_at; unique (run_id, employee_id), index (employee_id, period_start) |
+| payslip_lines | `[ID]`, payslip_id FK CASCADE, component_id FK, component_code, component_name, kind, category, quantity DECIMAL NULL (hours, days, units), rate NULL, amount, is_taxable, account_id FK accounts, source_type enum(structure, override, attendance, overtime, commission, loan, manual, statutory), source_id CHAR(26) NULL, sequence; index (payslip_id) |
+| payroll_payments | `[ID]` `[TS]` `[BY]` `[GL]`, run_id FK, payslip_id FK NULL (null = a batch payment covering the run), financial_account_id FK, payment_date, method enum(bank_transfer, cash, cheque), amount, reference, bank_file_path NULL (generated bank upload), bank_transaction_id FK NULL, status enum(pending, paid, failed, reversed), failure_reason |
+
+### 6.14 Commission
+
+A rules engine, not hard-coded percentages (`Refference/ERP.md` §10; closes G-5).
+
+| Table | Columns / notes |
+|---|---|
+| commission_plans | `[ID]` `[TS]` `[SOFT]`, code unique, name, description, **basis enum(sales_value, gross_profit, quantity, collection)** (collection = commission earned when the customer pays, not when the sale is made), frequency enum(monthly, quarterly, per_sale), payout_via enum(payroll, separate_payment), pay_component_id FK NULL (which payslip line it becomes), expense_account_id FK accounts NULL, payable_account_id FK accounts NULL, is_active, effective_from, effective_to NULL |
+| commission_rules | `[ID]` `[TS]`, plan_id FK CASCADE, name, **scope_type enum(all, product, category, brand, branch, customer_group, employee, designation)**, scope_id CHAR(26) NULL, **type enum(percentage, fixed_per_unit, fixed_per_sale, tiered, target_based)**, rate DECIMAL(9,4) NULL, fixed_amount NULL, min_amount NULL, max_amount NULL (cap), condition JSON (extra predicates evaluated by the engine), priority SMALLINT, stacking enum(exclusive, additive), is_active; index (plan_id, scope_type, scope_id) |
+| commission_tiers | `[ID]`, rule_id FK CASCADE, from_amount, to_amount NULL, rate DECIMAL(9,4), fixed_amount NULL, is_marginal BOOL (marginal vs. whole-amount tiering), sequence; unique (rule_id, sequence) |
+| commission_targets | `[ID]` `[TS]`, plan_id FK, employee_id FK NULL, branch_id FK NULL, period_id FK commission_periods, target_amount, achieved_amount, achievement_percent, bonus_rate NULL; unique (plan_id, employee_id, period_id) |
+| commission_periods | `[ID]` `[TS]`, name, period_start, period_end, **status enum(open, calculating, calculated, pending_approval, approved, paid, closed)**, workflow_instance_id FK NULL, payroll_period_id FK NULL, calculated_at, approved_by FK NULL, approved_at, total_amount; unique (period_start, period_end) |
+| **commission_entries** | `[ID]` `[TS]`, period_id FK, plan_id FK, rule_id FK NULL, employee_id FK, **source_type enum(sale, sale_item, payment, manual, adjustment, reversal)**, source_id CHAR(26), sale_id FK NULL, sale_item_id FK NULL, product_id FK NULL, category_id FK NULL, branch_id FK NULL, base_amount (the value the rate applied to), profit_amount NULL, rate_applied, **amount**, currency, status enum(pending, approved, reversed, paid, excluded), reversal_of_id FK NULL, calculated_at, note; **unique (source_type, source_id, plan_id, rule_id)** so recalculation is idempotent; indexes (period_id, employee_id), (employee_id, status), (sale_id) |
+| commission_payouts | `[ID]` `[TS]` `[BY]` `[GL]`, period_id FK, employee_id FK, number, entries_count, gross_amount, adjustments, net_amount, **payout_method enum(payroll, cash, bank_transfer)**, payslip_id FK NULL, payment_id FK NULL, financial_account_id FK NULL, status enum(draft, approved, paid, cancelled), paid_at; unique (period_id, employee_id) |
+
+### 6.15 Workflow and approvals
+
+One engine for expenses, purchase requests, purchase orders, supplier invoices, stock adjustments and transfers, leave, payroll runs, commission periods and large discounts (`Refference/ERP.md` §22; closes G-15).
+
+| Table | Columns / notes |
+|---|---|
+| workflow_definitions | `[ID]` `[TS]` `[SOFT]` `[BY]`, key VARCHAR(60) unique, name, **entity_type enum(expense, purchase_request, purchase_order, supplier_invoice, stock_adjustment, stock_transfer, leave_request, overtime, payroll_run, commission_period, discount, sale_void, refund, custom)**, conditions JSON (`amount > 100000 AND branch_id IN (...)` compiled from a small predicate DSL), branch_ids JSON NULL, priority SMALLINT, on_reject enum(stop, return_to_requester), escalation_hours SMALLINT NULL, is_active, plugin_name NULL, version |
+| workflow_steps | `[ID]`, definition_id FK CASCADE, sequence SMALLINT, name, **approver_type enum(role, employee, manager_of_requester, department_head, branch_manager, any_of, all_of)**, approver_ref JSON (role ids or employee ids), quorum enum(any, all, majority), can_edit BOOL, can_skip_if JSON NULL, sla_hours SMALLINT NULL, escalate_to JSON NULL; unique (definition_id, sequence) |
+| workflow_instances | `[ID]` `[TS]`, definition_id FK, definition_version, entity_type, **entity_id CHAR(26)**, branch_id FK NULL, requested_by FK employees, amount DECIMAL NULL (the value the conditions matched on, frozen), current_step SMALLINT, **status enum(pending, approved, rejected, cancelled, expired)**, started_at, completed_at, sla_due_at, context JSON (snapshot of the fields the rules read); index (entity_type, entity_id), (status, sla_due_at), (requested_by) |
+| workflow_tasks | `[ID]` `[TS]`, instance_id FK CASCADE, step_sequence, assignee_employee_id FK NULL, assignee_role_id FK NULL, status enum(pending, approved, rejected, delegated, expired, skipped), decided_by FK employees NULL, decided_at, comment, delegated_to FK NULL, notified_at, reminded_at; index (assignee_employee_id, status), (instance_id, step_sequence) |
+| workflow_events | id BIGINT AUTO PK, instance_id FK CASCADE, task_id FK NULL, event enum(started, assigned, approved, rejected, delegated, escalated, commented, cancelled, expired, completed), actor_employee_id NULL, comment, data JSON, created_at |
+
+### 6.16 Notifications
+
+| Table | Columns / notes |
+|---|---|
+| notification_templates | `[ID]` `[TS]`, key VARCHAR(80), channel enum(email, sms, in_app, whatsapp, push, webhook), locale, subject, body MEDIUMTEXT, variables JSON, is_active, plugin_name NULL; unique (key, channel, locale) |
+| channel_configs | `[ID]` `[TS]`, channel, provider VARCHAR(50), credentials TEXT (encrypted), settings JSON, from_address, is_active, daily_limit, sent_today |
+| notification_rules | `[ID]` `[TS]`, event_key VARCHAR(80) (`stock.low`, `ar.invoice_overdue`, `expense.approved`, `expense.rejected`, `leave.approved`, `payroll.completed`, `sale.large_discount`, `sale.large_refund`, `purchase.approved`, `batch.expiring`), condition JSON, channels JSON, recipient_type enum(employee, role, customer, supplier, webhook), recipient_ref JSON, template_key, is_active. Closes G-18 as configuration rather than code |
+| notifications (in-app) | `[ID]` `[TS]`, recipient_employee_id FK, type, title, body, data JSON, priority enum(low, normal, high), read_at, action_url |
+| deliveries | id BIGINT AUTO PK, channel, template_key, recipient VARCHAR(191), provider, status enum(queued, sent, delivered, failed, bounced), provider_ref, error, attempts, source_event_id CHAR(26), created_at, sent_at. Index (created_at), (status, created_at). 90-day retention |
+| webhook_endpoints / webhook_deliveries | endpoint `[ID]` `[TS]`, url, secret TEXT (encrypted), events JSON, is_active, failure_count, disabled_at · delivery id BIGINT AUTO, endpoint_id FK, event_id CHAR(26), event_type, status, attempts, response_code, response_body, next_retry_at, created_at |
+
+### 6.17 Printing
+
+| Table | Columns / notes |
+|---|---|
+| kitchen_stations | `[ID]` `[TS]`, branch_id FK NULL, code, name, type enum(kitchen, bar, dessert, packing), is_active, version |
+| printers | `[ID]` `[TS]` `[SOFT]`, branch_id FK, terminal_id FK NULL (the agent host), name, type enum(receipt, kitchen, bar, label, a4), connection enum(usb, network, bluetooth, os_driver), address, model, language enum(escpos, zpl, pdf), paper_width_mm, chars_per_line, status enum(online, offline, error, unknown), last_seen_at, last_error, settings JSON, version; unique (branch_id, name) |
+| printer_routes | `[ID]` `[TS]`, branch_id FK, terminal_id FK NULL, document_type enum(receipt, kot, bot, label, report, drawer, invoice_a4, payslip), kitchen_station_id FK NULL, printer_id FK, copies TINYINT, is_active, priority, version; unique (branch_id, terminal_id, document_type, kitchen_station_id) |
+| print_templates | `[ID]` `[TS]` `[SOFT]` `[BY]`, branch_id FK NULL, type enum(receipt, kot, bot, label, invoice_a4, shift_report, payslip, statement), name, engine enum(handlebars), content MEDIUMTEXT, version INT, is_default, plugin_name NULL, preview_data JSON; unique (branch_id, type, name) |
+| print_jobs | `[ID]` `[TS]`, branch_id FK, terminal_id FK NULL, printer_id FK NULL, document_type, reference_type, reference_id, template_id FK NULL, status enum(queued, sent, printed, failed, cancelled), attempts, last_error, payload_hash CHAR(64), payload JSON NULL (relay jobs only), printed_at; index (branch_id, status, created_at). 30-day retention |
+| agent_heartbeats | terminal_id CHAR(26) PK FK terminals, agent_version, os, printers JSON (status per printer), queue_depth, last_error, received_at |
+
+### 6.18 Offline sync
+
+Unchanged in shape from v0.3, minus `tenant_id`. The POS replica is **not** a cross-module projection — it is the offline copy the terminal needs, and it stays.
+
+| Table | Columns / notes |
+|---|---|
+| sync_batches | `[ID]`, terminal_id FK, device_id FK NULL, item_count, accepted, rejected, conflicts, waiting, received_at, processed_at, duration_ms, status enum(received, processing, done, partial, failed) |
+| **sync_inbox** | id BIGINT AUTO PK, branch_id FK, terminal_id FK, device_id NULL, batch_id FK, **item_id CHAR(26) unique**, entity_type enum(sale, order, order_item, kot, cash_shift, cash_movement, approval_request, customer, loyalty_transaction, attendance_record), client_seq BIGINT, client_created_at, received_at, processed_at, payload JSON, status enum(accepted, duplicate, rejected, conflict, waiting_dependency, failed), result JSON, error_code, error_detail, depends_on_item_id NULL, attempts; indexes (terminal_id, client_seq), (status, received_at). Payload nulled after 90 days |
+| pos_replica | entity_type VARCHAR(40), entity_id CHAR(26), version BIGINT, branch_id FK NULL (branch-specific documents), payload JSON, deleted BOOL, updated_at; PK (entity_type, entity_id); index (version), (branch_id, version) |
+| replica_version | single row (`id = 1`): last_version BIGINT, updated_at. Per-tenant monotonic counter, incremented under `SELECT … FOR UPDATE` whenever a replica document changes. With one database per tenant this is now a one-row table, not a keyed one |
+| terminal_sync_state | terminal_id FK, entity_type, last_pulled_version, last_pushed_client_seq, last_full_sync_at, last_pull_at, last_push_at, pending_count, rejected_count; PK (terminal_id, entity_type) |
+
+Replica entity types: product (+ barcodes, modifiers, components), category, brand, unit, tax, tax_group, tax_rate, price_list (+ items), discount, customer, customer_group, payment_method, setting (effective per branch/terminal), printer, printer_route, kitchen_station, print_template, **employee** (PIN hash, permission set, branch access), enabled_plugin, stock_snapshot (advisory), location.
+
+### 6.19 Reporting
+
+With one database, reporting is mostly **queries plus rollups**, not a parallel star schema. The v0.3 fact and dimension tables are gone; `account_balances` (§6.10) and `daily_summaries` are the only pre-aggregations, and both are rebuildable.
+
+| Table | Columns / notes |
+|---|---|
+| report_definitions | key VARCHAR(80) PK, name, module VARCHAR(40), plugin_name NULL, category enum(sales, inventory, purchasing, finance, hr, payroll, commission, expense, crm, audit), params_schema JSON, permission_key FK permissions, sql_ref VARCHAR(120) (the query class), default_format, is_active |
+| report_runs | `[ID]` `[TS]`, report_key FK, employee_id FK, params JSON, row_count, duration_ms, status enum(running, done, failed), error; index (report_key, created_at). Also the usage signal for which reports deserve an index |
+| report_exports | `[ID]` `[TS]`, run_id FK NULL, report_key, employee_id FK, params JSON, format enum(csv, xlsx, pdf), status enum(queued, running, done, failed), file_path, size_bytes, expires_at |
+| daily_summaries | `[ID]`, branch_id FK, terminal_id FK NULL, business_date DATE, sales_count, refunds_count, gross, discounts, tax, service_charge, net, cost, profit, by_payment_method JSON, by_category JSON, by_employee JSON, customers_served, average_basket, rebuilt_at, `[TS]`; unique (branch_id, terminal_id, business_date). Written at shift close and by a nightly job; always recomputable from `sales` |
+| dashboards | `[ID]` `[TS]` `[BY]`, name, employee_id FK NULL (null = shared), role_id FK NULL, layout JSON, is_default |
+| dashboard_widgets | `[ID]`, dashboard_id FK CASCADE, type, title, report_key NULL, params JSON, position JSON, refresh_seconds |
+
+### 6.20 Plugins (tenant side)
+
+Master says whether a plugin may run; here is what it stores.
+
+| Table | Columns / notes |
+|---|---|
+| plugin_settings | plugin_name VARCHAR(100), key VARCHAR(120), value TEXT (encrypted when `is_secret`), is_secret BOOL, updated_by FK employees NULL, `[TS]`; PK (plugin_name, key) |
+| plugin_migrations | plugin_name VARCHAR(100), migration VARCHAR(191), batch INT, ran_at; PK (plugin_name, migration). Per tenant database, so a plugin enabled for 40 tenants has 40 independent migration states — tracked in master on `tenant_plugins.schema_version` (§4.3) and run by the same runner as core (§9.6) |
+| plugin_execution_logs | id BIGINT AUTO PK, plugin_name, point VARCHAR(60), mode enum(before, after, filter, override), duration_ms, status enum(ok, veto, error, timeout), error, request_id, created_at. 30-day retention |
+| `plg_<plugin>_*` | plugin-owned tables. May hold foreign keys **into** core tables (`plg_loyalty_accounts.customer_id` → `customers.id`); core tables never reference them. Dropped when the plugin is uninstalled for that tenant, after an export |
+
+### 6.21 System tables
+
+| Table | Columns / notes |
+|---|---|
+| **schema_meta** | key VARCHAR(60) PK, value VARCHAR(255). Rows: `tenant_id` (the owning tenant's ULID — the only place a tenant id appears inside a tenant database, and it is metadata, not a column on business rows), `tenant_code`, `database_identifier`, `schema_version`, `provisioned_at`, `provisioned_from_template`, `app_version`, `last_migrated_at`, `checksum`. **The safety interlock**: before any write the application asserts `schema_meta.tenant_id` equals the tenant in the request context, so a mis-resolved mapping or a restored-into-the-wrong-place database fails loudly instead of writing one tenant's sale into another's ledger |
+| audit_logs | id BIGINT AUTO PK, actor_type enum(employee, terminal, system, plugin, platform_staff), actor_id CHAR(26) NULL, actor_name (snapshot), branch_id FK NULL, module VARCHAR(40), action VARCHAR(80), subject_type, subject_id, before JSON, after JSON, changed_fields JSON, ip VARBINARY(16), user_agent, request_id CHAR(26), created_at; indexes (created_at), (subject_type, subject_id), (actor_id, created_at), (module, action, created_at). Mandatory coverage (`Refference/ERP.md` §24): price changes, discounts, refunds, voids, stock adjustments, payroll changes, journal entries, permission changes, plugin changes, deletions |
+| security_events | id BIGINT AUTO PK, type enum(pin_bruteforce, permission_denied, override_used, after_hours_access, bulk_export, mass_delete, negative_stock_forced), employee_id NULL, terminal_id NULL, detail JSON, severity enum(info, warn, critical), ip, created_at |
+| outbox_events | `[ID]`, type VARCHAR(80), version SMALLINT, branch_id FK NULL, aggregate_type, aggregate_id, payload JSON, occurred_at DATETIME(3), correlation_id, causation_id, actor JSON, status enum(pending, published, failed), published_at, attempts, last_error; index (status, occurred_at), (aggregate_type, aggregate_id). **Still needed** — not for module-to-module communication (that is now a function call inside a transaction) but for the outward edges: notifications, webhooks, the print relay, plugins and the platform analytics feed (`Refference/ARCH.md` §17). 30-day retention |
+| idempotency_keys | key VARCHAR(80) PK, request_hash CHAR(64), response_code SMALLINT, response_body JSON, created_at. 24-hour retention. Public POST idempotency |
+| jobs / job_batches / failed_jobs | Laravel queue tables. Per-tenant queues are **not** used — the queue is Redis and jobs carry the tenant id in their payload; these tables exist only for the database-queue fallback and for `failed_jobs` triage |
+| migrations | Laravel's own, the authority for what has run in **this** database. `tenant_databases.schema_version` in master is a cached mirror of it (§9.2) |
 
 ---
 
-## 5. Standard tables in every schema
+## 7. Accounting posting rules
 
-| Table | Columns | Purpose |
+Every posting goes through one `PostingService` with one signature: given a source document, resolve accounts through `account_mappings`, build a balanced `journal_entries` + `journal_lines` set, and write it **in the same transaction as the document** when the document is created online. Offline and replayed documents post in a queued job; the unique key `(source_type, source_id, source_purpose)` makes both paths idempotent, so a retry can never double-post.
+
+Rules that apply to all of them:
+
+- A posting into a `closed` fiscal period is rejected; into a `soft_closed` period it needs the `finance.post_closed_period` permission.
+- Nothing is edited after posting. A correction is `journal_entries.reversal_of_id` plus a new entry.
+- `journal_lines` carry dimensions (branch, location, department, employee, customer, supplier, product) so P&L by branch, cost by department and profit by salesperson come out of the ledger rather than a separate cube.
+- Amounts are in the document currency with `base_debit`/`base_credit` in the company currency at the document's rate.
+
+### 7.1 Sale
+
+Cash sale, net 10 000, output VAT 15 % = 1 500, cost of goods 6 000, and a 500 bill discount already netted off. Two entries, `source_type = sale`, purposes `revenue` and `cogs`:
+
+| Purpose | Dr | Cr | Account resolved from |
+|---|---|---|---|
+| revenue | Cash/undeposited funds **11 500** | | `payment_methods.financial_account_id` → `financial_accounts.account_id`, per tender |
+| revenue | Sales discount **500** | | `account_mappings['sale.discount']`, or `discounts.sales_discount_account_id` |
+| revenue | | Sales revenue **10 500** | product → category → company via `account_mappings['sale.revenue']` |
+| revenue | | Output tax payable **1 500** | `tax_authorities.payable_account_id`, one line per tax in `tax_breakdown` |
+| revenue | Rounding **≤0.05** | Rounding | `account_mappings['sale.rounding']` |
+| cogs | COGS **6 000** | | product → category → company; amount = `SUM(sale_items.line_cost)` = `sales.cost_total` |
+| cogs | | Inventory **6 000** | `accounts.control_type = 'inventory'`, per product override allowed |
+
+Variants: a **credit sale** debits the AR control account instead of cash and additionally creates one `ar_documents` row (`source_type = sale`) and one `customer_ledger` row; a **split tender** produces one debit line per tender; a **refund** posts the exact mirror with `source_type = sale_refund` and its own entry, never a reversal of the original; a **service product** (`track_stock = false`) raises no `cogs` entry; a **loyalty redemption** debits the loyalty liability account instead of cash.
+
+### 7.2 Goods receipt, supplier invoice, supplier payment
+
+Three documents, three postings, because goods and paper arrive at different times.
+
+| Document | Dr | Cr |
 |---|---|---|
-| outbox_events | `[ID]`, type VARCHAR(80), version SMALLINT, tenant_id, branch_id NULL, aggregate_type, aggregate_id, payload JSON, occurred_at DATETIME(3), correlation_id, causation_id, actor JSON, status enum(pending, published, failed), published_at, attempts. Index (status, occurred_at), (tenant_id, aggregate_type, aggregate_id). Partition by month, 90-day retention then archive | transactional outbox; the relay publishes to `evt.<service>` |
-| inbox_events | event_id CHAR(26) PK, type, producer, received_at, processed_at, status enum(processing, done, failed), error. 7-day retention | idempotent consumption |
-| idempotency_keys | tenant_id, key VARCHAR(80), request_hash CHAR(64), response_code SMALLINT, response_body JSON, created_at; PK (tenant_id, key). 24-hour retention | public POST idempotency |
-| tenant_refs | tenant_id PK, code, status, timezone, currency, locale, business_type, source_version, synced_at | local tenant validation (not in `pos_tenant`) |
-| branch_refs | branch_id PK, tenant_id, code, name, timezone, currency, status, source_version, synced_at | branch validation and business dates |
-| audit_logs | id BIGINT AUTO, tenant_id, branch_id NULL, actor_type enum(user, terminal, service, plugin, platform_user), actor_id, action VARCHAR(80), subject_type, subject_id, before JSON, after JSON, ip, user_agent, request_id, created_at. Index (tenant_id, created_at), (tenant_id, subject_type, subject_id). Partition by month | service-local audit; also published as `audit.recorded` for the reporting read model |
-| migrations | Laravel standard, per schema | |
+| **GRN** (`source_type = grn`) | Inventory (landed cost) | **GRNI** — goods received not invoiced (`control_type = 'grni'`) |
+| **Supplier invoice** (`source_type = supplier_invoice`) | GRNI (the receipted value), Input tax recoverable, and **purchase price variance** Dr or Cr for the difference between invoice price and receipted cost; non-stock lines Dr their own expense account | Accounts payable (`control_type = 'ap'`) — plus one `ap_documents` row |
+| **Supplier payment** (`source_type = supplier_payment`) | Accounts payable | Bank / cash (`financial_accounts.account_id`) — plus `ap_allocations` rows and a `bank_transactions` row |
+| **Purchase return** | GRNI or AP | Inventory |
+
+GRNI is what makes the three-way match (PO → GRN → invoice) visible: a non-zero GRNI balance at month end is either goods not yet invoiced or an invoice that never arrived, and the report is one query against `journal_lines` grouped by `supplier_id`.
+
+### 7.3 Expense
+
+| Stage | Posting |
+|---|---|
+| draft / submitted / pending approval | **no posting** — an unapproved expense is not a liability |
+| approved and posted (`source_type = expense`) | Dr expense account (`expense_categories.account_id` or `expense_items.account_id` per split), Dr input tax recoverable · Cr AP (when it is a supplier bill, plus an `ap_documents` row) **or** Cr cash/bank directly (petty cash, card) |
+| paid (`source_type = expense_payment`) | Dr AP · Cr bank/cash, plus `bank_transactions` |
+| employee reimbursement | Cr an "employee reimbursements payable" account; the payroll run picks it up as a payslip line |
+
+### 7.4 Payroll run
+
+One entry per approved run (`source_type = payroll_run`), lines generated from `payslip_lines` grouped by `pay_components.account_id`, with `employee_id` and `department_id` on each line so salary cost by department needs no extra table:
+
+| Dr | Cr |
+|---|---|
+| Salary and wages expense (sum of earning components) | |
+| Employer EPF 12 % expense, ETF 3 % expense (employer_contribution components) | |
+| Commission expense (when commission pays through payroll) | |
+| | Net pay payable (sum of `payslips.net_pay`) |
+| | EPF payable (employee 8 % + employer 12 %) |
+| | ETF payable (3 %) |
+| | PAYE tax payable |
+| | Salary advance / loan recovery (contra to the advance asset account) |
+| | Employee reimbursements payable (cleared) |
+
+Then on payment (`source_type = payroll_payment`): Dr net pay payable · Cr bank, plus `bank_transactions` and `payroll_payments`. Statutory remittances are ordinary expense payments against the EPF/ETF/PAYE payable accounts. Approving the run **locks** the payroll period and the `attendance_days` rows it consumed (`attendance_days.is_locked = true`), so a later attendance correction cannot silently change a paid payslip.
+
+### 7.5 The rest
+
+| Source | Posting |
+|---|---|
+| stock adjustment / count variance | Dr or Cr inventory · contra to inventory-gain or inventory-loss (`account_mappings['adjustment.gain'|'adjustment.loss']`); wastage goes to a wastage expense account |
+| stock transfer between locations | no entry when both locations share one inventory account; Dr receiving-location inventory · Cr sending-location inventory when they do not (branch-level inventory accounts) |
+| customer payment | Dr bank/cash · Cr AR, plus `ar_allocations` and `customer_ledger` |
+| cash movement / drawer drop | Dr bank or undeposited funds · Cr cash drawer |
+| bank charge, interest | Dr bank charges expense / Cr interest income · contra bank |
+| period close | no entry; `fiscal_periods.status = closed` |
+| year close | one entry moving revenue and expense balances to retained earnings |
+
+Financial reports and where they read from: **Trial balance** and **Balance sheet** → `account_balances`; **P&L** → `account_balances` filtered to revenue/expense, drillable to `journal_lines`; **General ledger** → `journal_lines` by account and date; **Cash flow** (indirect) → `account_balances` plus `bank_transactions`; **AR/AP aging** → `ar_documents`/`ap_documents` by `due_date`; **Customer statement** → `ar_documents` + `ar_allocations`; **Tax report** → `journal_lines` where `tax_id IS NOT NULL`, reconciled against `tax_returns`.
 
 ---
 
-## 6. Index and partition strategy
+## 8. Tenant provisioning
 
-- Composite indexes lead with `tenant_id`, then the hottest filter (`branch_id`, `business_date`, `status`), then the sort column.
-- Sync dimensions: `(tenant_id, terminal_id, client_seq)` on `sales`, `orders`, `cash_shifts`, `sync_inbox`; `(tenant_id, version)` on `pos_replica`; `(tenant_id, sync_status)` on `sales`, `customers`.
-- Hot lookups: `product_barcodes(tenant_id, barcode)`, `products FULLTEXT`, `customers(tenant_id, phone)`, `sales(tenant_id, number)`, `refresh_tokens(token_hash)`, `stock_levels(tenant_id, branch_id, product_id)`.
-- Idempotency uniques: `stock_movements(reference_type, reference_id, product_id, type)`, `customer_ledger(tenant_id, reference_type, reference_id, type)`, `payments.id = tender ULID`, `sync_inbox(tenant_id, item_id)`, `inbox_events(event_id)`.
-- Partition by month (RANGE on the date column): `stock_movements`, `sync_inbox`, `outbox_events`, `audit_logs`, `plugin_execution_logs`, `deliveries`; `sales`, `sale_items`, `sale_tenders`, `payments` and the reporting facts from stage 1.
-- Archival: monthly job exports partitions past retention to object storage and drops them.
-- Row estimates at target (500 tenants, 300 k sales/day): `sales` ≈ 110 M/year, `sale_items` ≈ 400 M/year, `stock_movements` ≈ 400 M/year, `outbox_events` ≈ 900 M/year before retention. Reporting facts duplicate sales volume by design (read models).
+`php artisan tenant:provision {--name=} {--plan=} {--owner-email=} {--server=} {--resume=<run_id>}`, driven by `tenant_provisioning_runs` / `tenant_provisioning_steps` so every step is recorded, retryable and resumable.
+
+| # | Step | What it does | Compensation on failure |
+|---|---|---|---|
+| 1 | `reserve_identity` | insert `tenants` (status `provisioning`), allocate `sequence`, derive `code` and `database_name` | delete the tenant row |
+| 2 | `select_server` | pick a `database_servers` row with `accepts_new_tenants`, `status = active`, `tenant_count < max_tenants`, matching `data_region`; lowest utilisation wins; `--server` overrides | none |
+| 3 | `create_database` | with the provisioner credential: `CREATE DATABASE flx_t_000123 CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci` | `DROP DATABASE` (only if this step created it) |
+| 4 | `create_users` | create `flx_t000123_app` (DML) and `flx_t000123_mig` (DML + DDL), random 40-char passwords, `GRANT … ON flx_t_000123.*`, `ALTER USER … WITH MAX_USER_CONNECTIONS n` | `DROP USER` |
+| 5 | `store_credentials` | write both secrets through the `SecretResolver` driver; **the password never touches a log, an exception message or the master database in clear** | delete the secret versions |
+| 6 | `write_mapping` | insert `tenant_databases` (status `provisioning`, `schema_version = 0`) | delete the mapping row |
+| 7 | `import_template` | import `database/templates/tenant_schema_v<N>.sql` (the CI-built dump of the schema at version N) in one shot, then insert the matching rows into the tenant's `migrations` table and set `schema_version = N`. ~2 s instead of ~90 s of running 400 migrations | drop and recreate the database |
+| 8 | `migrate_remainder` | run migrations `> N` through the normal runner (§9) | see §9 |
+| 9 | `seed_core` | permissions, system roles (owner, manager, cashier, accountant, storekeeper), `settings_registry` defaults, `company_profile`, currencies, one branch + its `branch_store` location, number sequences, default tax group and taxes, default payment methods (cash, card, credit), print templates and routes, report definitions, leave types, pay components + statutory rates, **chart of accounts**, the current `fiscal_year` and its periods, default `account_mappings`, default `financial_accounts` (cash drawer, petty cash, undeposited funds, one bank) | none needed — the database is dropped on rollback |
+| 10 | `create_owner` | insert `employees` for the owner (with `user_id`), grant the owner role; in master insert/attach `users` and `tenant_users` with `employee_id` | delete both sides |
+| 11 | `verify` | assert `schema_meta.tenant_id` matches; assert table count == expected; assert the seeded account codes exist; run a smoke transaction (open a shift, post a 1.00 sale, reverse it) in a rolled-back transaction | mark `failed`, leave everything for inspection |
+| 12 | `activate` | `tenant_databases.status = active`, `tenants.status = trial|active`, bump `database_servers.tenant_count`, emit `tenant.provisioned`, send the welcome e-mail | — |
+
+The whole run is **idempotent by step**: re-running with `--resume` skips `done` steps and retries from the first non-`done` one. A run left `failed` for more than 24 hours is reported by the nightly consistency check as an `orphan_database` candidate.
+
+Related lifecycles, same machinery:
+
+| Operation | Steps |
+|---|---|
+| **Suspend** (non-payment) | `tenants.status = suspended`, `tenant_databases.status = read_only`, revoke INSERT/UPDATE/DELETE from the app user. The tenant can still log in and read and export |
+| **Deprovision** | final export (`type = final` in `tenant_backups`, retained 90 days) → `status = archived` → after the retention window, `DROP DATABASE`, `DROP USER`, delete secrets, keep the `tenants` and `tenant_databases` rows with `archived_at` set so the identifier is never reused |
+| **Move to another server** | `status = moving` → backup → restore on the target → verify row counts per table and `schema_meta` → repoint `server_id`, create users on the target, rotate credentials → `status = active` → drop the source after 7 days. Downtime = the dump/restore window; for large tenants, replicate then cut over |
+| **Clone** (sandbox, support) | restore a backup into `flx_t_000123_sandbox` with a mapping row of status `read_only` and an anonymisation pass over customers and employees |
 
 ---
 
-## 7. Write paths
+## 9. Per-tenant migrations and schema versioning
 
-### 7.1 Online sale (saga S1)
+**The single biggest operational cost of this architecture.** One schema change now runs N times, can fail on tenant 47 of 300, and must be resumable, isolated and observable. Designed here, not later.
 
-```text
-pos_sales      idempotency_keys check (sale ULID)
-pos_customer   [sync call, credit sales only]  read customers.credit_limit/credit_balance → allow/deny
-pos_inventory  [sync call]  BEGIN; SELECT stock_levels FOR UPDATE; insert stock_movements(type=sale, reference=sale) ×N (unique = idempotent);
-               update stock_levels; insert outbox inventory.stock.updated ×N; COMMIT   → 200, or 409 with insufficient lines
-pos_payment    [sync call, gateway tenders only]  gateway_transactions(authorize), payments(pending)
-pos_sales      BEGIN; insert sales(stock_applied=true), sale_items ×N, sale_tenders ×M, saga_steps(done);
-               insert outbox sales.sale.completed{origin: online}; insert idempotency_keys; COMMIT → 201
-async          payment: payments(completed) by tender ULID, capture gateway auth
-               customer: customer_ledger (credit), loyalty_transactions (earn)
-               reporting: sales_facts, sale_item_facts, tender_facts, daily_summaries
-               notification: e-receipt if requested · print: relay job if configured · plugin: AFTER hooks
-compensation   on failure after the inventory call: saga_steps(inventory_release) → stock_movements(type=reservation_release)
+### 9.1 Versioning
+
+- CI assigns every migration a monotonic `version` ordinal and records it in `schema_versions` (§4.5) with its checksum, phase and whether it is destructive. A migration file that changes after release fails CI on checksum mismatch — migrations are append-only.
+- The application declares `APP_REQUIRED_SCHEMA_VERSION`. It refuses to open a tenant whose `schema_version` is below it (503, not a broken query) and warns when a tenant is far ahead (a rolled-back deploy).
+- `tenant_databases.schema_version` is the **fast index**; the tenant's own `migrations` table is the **authority**. The runner writes both in the same step; a drift check compares them nightly.
+
+### 9.2 Finding tenants that are behind
+
+```sql
+-- the one query the whole operation hangs on; index (schema_version) makes it trivial
+SELECT td.tenant_id, t.code, td.server_id, td.schema_version
+FROM tenant_databases td JOIN tenants t ON t.id = td.tenant_id
+WHERE td.status IN ('active','read_only') AND td.schema_version < :target
+ORDER BY td.schema_version, td.size_bytes;
 ```
 
-### 7.2 Offline sale (batch S3)
+`php artisan tenant:schema-status` prints the histogram (how many tenants at each version, per server, oldest laggard). A health check pages when any `active` tenant has been below `APP_REQUIRED_SCHEMA_VERSION` for more than one hour, and a weekly report lists tenants below the latest version for more than seven days.
 
-```text
-pos_sync       sync_batches; sync_inbox rows (unique item_id) ordered by client_seq
-pos_sales      [contract] recordOffline: insert sales(stock_applied=false), sale_items, sale_tenders; outbox sales.sale.completed{origin: offline}
-pos_sync       inbox status accepted|duplicate|rejected|conflict|waiting_dependency; ack to POS
-async          inventory: on sale.completed{offline} insert stock_movements + update stock_levels; if resulting < 0 → stock_conflicts + outbox stock.conflict_detected
-               payment, customer, reporting, notification, print, plugin as above
+### 9.3 The runner
+
+```bash
+php artisan tenant:migrate --all --to=412 --concurrency=4 --per-server=2 --canary=5 --backup=destructive
+php artisan tenant:migrate --run=01J8… --retry-failed
+php artisan tenant:migrate --tenant=TEN000123 --pretend
 ```
+
+| Property | How |
+|---|---|
+| **Planning** | one `tenant_migration_runs` row plus one `tenant_migration_jobs` row per tenant, all `pending`, written before any work starts. The plan is inspectable and the run is resumable even if every worker dies |
+| **Ordering** | canary tenants first (internal, demo, then the N smallest by `size_bytes`), then ascending size. A structural problem shows up on a 20 MB database, not a 40 GB one |
+| **Claiming** | a worker claims with `UPDATE tenant_migration_jobs SET status='claimed', claimed_by=?, claimed_at=NOW(), lock_expires_at=NOW()+INTERVAL 30 MINUTE WHERE id=? AND status IN ('pending','failed') AND attempts < :max` — single statement, so two workers cannot claim one tenant. A crashed worker's claim expires and is re-offered |
+| **Per-tenant lock** | in addition, `GET_LOCK('flexipos:migrate:flx_t_000123', 0)` on the tenant connection, so a manual `tenant:migrate --tenant=` can never collide with a running batch |
+| **Failure isolation** | a failure records `error_class`, `error_message`, `error_migration` and the log path on that job, marks it `failed`, and **continues with the next tenant**. The run ends `completed_with_failures`; nobody's deploy is blocked by one broken tenant |
+| **Resumability** | `done` jobs are skipped on re-run (they are also a no-op inside the tenant, because Laravel's `migrations` table is the authority). `--retry-failed` rebuilds the claim set from `failed` jobs |
+| **Concurrency** | `--concurrency` caps total workers; `--per-server` caps workers per `database_servers` row, so a batch cannot saturate one MySQL box and take the tenants on it offline |
+| **Backups** | `--backup=destructive` (default) takes a pre-migration dump for any tenant when the plan includes a migration with `is_destructive`, records it in `tenant_backups` with `trigger_ref = run_id`, and refuses to proceed for that tenant if the backup fails |
+| **Maintenance window** | a job whose plan includes `requires_offline` sets `tenant_databases.status = 'migrating'` first (that tenant's API returns 503 with `Retry-After`; its POS terminals keep selling offline and sync afterwards) and restores `active` on success. Expand-only migrations never set it |
+| **Dry run** | `--pretend` prints the SQL per tenant and touches nothing; `--tenant=` runs exactly one |
+| **Observability** | progress is a query (`SELECT status, COUNT(*) FROM tenant_migration_jobs WHERE run_id = ?`); each job carries `duration_ms`; the run emits start/finish/failure notifications |
+| **Abort** | `tenant:migrate --run=… --abort` marks unclaimed jobs `cancelled`; running jobs finish the tenant they are on (never killed mid-DDL) |
+
+### 9.4 Expand / contract discipline
+
+MySQL DDL on a live table is the risk, so the rule is three releases:
+
+1. **Expand** (release *n*): add the nullable column, the new table, the new index. `ALGORITHM=INSTANT` where MySQL 8.4 allows it (add column at the end, add virtual column, rename); `ALGORITHM=INPLACE, LOCK=NONE` otherwise; anything that needs `LOCK=SHARED` or a table copy is flagged `requires_offline` and gets the maintenance window. Code in release *n* writes both shapes and reads the old one.
+2. **Backfill** (between releases): `tenant:backfill <key>` with `tenant_backfill_jobs`, chunked by primary key with a stored cursor, throttled, resumable, and never inside the migration itself — a 30-minute `UPDATE` in a migration is how a migration run dies.
+3. **Contract** (release *n+1*, after every tenant is at *n* and backfilled): drop the old column, add the `NOT NULL`, add the foreign key. The runner refuses a contract migration while any `active` tenant is below the expand version.
+
+Rules of thumb baked into review: no `ALTER` on a table over 5 M rows without `is_destructive` + backup + window; add a foreign key only in a contract step, after the backfill proved the data is clean; never rename a table in one step (add, dual-write, drop).
+
+### 9.5 Templates and CI
+
+- CI regenerates `database/templates/tenant_schema_v<N>.sql` from a from-scratch migration run, and asserts that **from-scratch migrate == import template + remaining migrate** by comparing `SHOW CREATE TABLE` for every table. A drifting template is a build failure, so a new tenant can never be provisioned onto a schema no migration produces.
+- CI runs the full migration set against a fixture tenant database at the **previous release's** schema, not only from scratch — the upgrade path is what breaks, not the fresh install.
+- A `tenant:doctor` command diffs one tenant's live schema against the template and reports extra, missing or differently-typed columns (the symptom of a hand-patched production database).
+
+### 9.6 Plugin migrations
+
+Same runner, different scope: `tenant:migrate --plugin=loyalty` walks tenants where `tenant_plugins.status = enabled` for that plugin, runs the plugin's migrations against the tenant connection, records them in the tenant's `plugin_migrations` and mirrors the version to `tenant_plugins.schema_version` in master. Enabling a plugin for a tenant is itself a one-tenant run of this command. Disabling does **not** drop tables; uninstalling exports then drops them.
 
 ---
 
-## 8. Migrations, users and grants, XAMPP notes
+## 10. Capacity: how many tenants fit on one MySQL server
 
-- Each service owns `database/migrations`; `php artisan svc:migrate <service>|--all` runs them on that service's connection. Expand/contract only.
-- `platform:init-databases` (idempotent) creates schemas and users from `.env` (`DB_<SERVICE>_DATABASE/USERNAME/PASSWORD`) and applies `GRANT ALL ON pos_<service>.* TO svc_<service>`; it refuses to run with a root user in production.
-- Seeders per service: system roles (identity), default settings and registry (tenant), default tax group and payment methods (pricing, payment), default templates and routes (print), report definitions (reporting), `TwoTenantFixture` (testing package) across all schemas.
-- Schema drift check in CI: `schema:dump` per service compared with the committed dump.
-- **XAMPP / MariaDB 10.4 mode**: 13 schemas on the local MariaDB created by `infra/scripts/xampp-dev.ps1`; JSON columns are `LONGTEXT` with JSON functions (works); no `utf8mb4_0900_ai_ci` (script substitutes `utf8mb4_unicode_ci`); functional indexes are unavailable, so indexed custom fields use stored generated columns (supported); `CHECK` constraints supported; partitioning supported. CI runs MySQL 8.4, so any divergence fails there before reaching the VPS.
+**Design for a few hundred tenants per server, not thousands.** Disk is not the limit; table count and metadata are.
+
+The arithmetic, with ≈190 core tables plus ≈10 plugin tables per tenant:
+
+| Tenants on the server | Tables | `.ibd` files | Empty-schema disk (112 KB/table) | Open-file descriptors needed (≈2×) |
+|---|---|---|---|---|
+| 100 | 20 000 | 20 000 | ≈ 2.2 GB | ≈ 45 000 |
+| **200 (soft cap)** | 40 000 | 40 000 | ≈ 4.5 GB | ≈ 85 000 |
+| **300 (hard cap)** | 60 000 | 60 000 | ≈ 6.7 GB | ≈ 130 000 |
+| 1 000 | 200 000 | 200 000 | ≈ 22 GB | ≈ 420 000 |
+
+What actually degrades, in the order it bites:
+
+1. **InnoDB data dictionary and table cache.** Each open table instance costs a few KB of memory and one or two file descriptors. `table_open_cache` and `table_definition_cache` must exceed the working set of concurrently-touched tables; below that, MySQL evicts and reopens tables on every request and throughput collapses. Budget `table_open_cache ≥ 8 000` at 200 tenants and raise `open_files_limit` to at least 3× the table count.
+2. **Empty-file overhead.** A brand-new tenant occupies ≈ 2.2 GB of nothing at 200 tables × 112 KB (7 pages × 16 KB). Three hundred idle tenants is ≈ 6.7 GB of pure metadata before a single sale.
+3. **`information_schema` and tooling.** Anything that scans the data dictionary — a schema diff, `mysqldump --all-databases`, a monitoring agent collecting per-table stats, Laravel's `schema:dump` — goes from seconds to minutes at tens of thousands of tables, and holds metadata locks while it does.
+4. **Startup, crash recovery and upgrade.** InnoDB opens tablespaces at startup; a minor-version upgrade rebuilds the data dictionary. Both scale with table count and turn a two-minute restart into a twenty-minute one.
+5. **Backup window.** Per-tenant logical dumps are the point of this architecture, but 300 sequential dumps must still finish inside the night.
+6. **Connections.** With one DB user per tenant, a connection is bound to one tenant and cannot be pooled across tenants. `max_connections` must cover (PHP-FPM workers + queue workers) × distinct tenants concurrently in flight. Persistent PDO connections stay **off**; set `MAX_USER_CONNECTIONS` per tenant user so one busy tenant cannot exhaust the server.
+
+Therefore:
+
+- `database_servers.max_tenants` — **soft cap 200, hard cap 300** on a shared server; placement refuses a server at `tenant_count >= max_tenants` and alerts at 80 %.
+- Large tenants move to `tier = dedicated` servers (`Refference/ARCH.md` §8), which is exactly the `move` lifecycle of §8.
+- **Partitioning is off by default** (§11) because every partition is another file.
+- The Phase 0/1 VPS (1 vCPU, 4 GB, `innodb_buffer_pool_size=256M`) supports roughly **10–20 pilot tenants**, not 200. The caps above assume a dedicated database host with ≥ 16 GB RAM and a buffer pool of 8 GB+.
+- Growth path: more servers, not bigger ones. Adding a server is a row in `database_servers`; the mapping already carries host and port, so tenants land wherever there is room.
+
+---
+
+## 11. Index and partition strategy
+
+What changed now that `tenant_id` is gone:
+
+- Composite indexes lead with the **real** discriminator: `branch_id`, `location_id`, `business_date`, `status`, `entry_date`. Every index is 26 bytes per entry narrower and materially more selective, which is a genuine performance gain, not a rounding error.
+- Unique keys are plain: `products.sku`, `sales.number`, `accounts.code`, `employees.code`, `product_barcodes.barcode`.
+- A tenant's tables are small in absolute terms (a busy shop does 300 000 sales a year, not 300 000 a day), so most tables never need more than a good index.
+
+Hot lookups: `product_barcodes(barcode)`, `products` FULLTEXT `(name, short_name, sku)`, `customers(phone)`, `sales(number)`, `sales(branch_id, business_date)`, `stock_levels(location_id, product_id)`, `journal_lines(account_id, entry_id)`, `ar_documents(customer_id, status, due_date)`, `attendance_days(employee_id, business_date)`, `sync_inbox(item_id)`.
+
+Idempotency uniques (the ones that make replay safe): `stock_movements(reference_type, reference_id, product_id, batch_id, type)` · `journal_entries(source_type, source_id, source_purpose)` · `customer_ledger(reference_type, reference_id, type)` · `commission_entries(source_type, source_id, plan_id, rule_id)` · `payments.id = the POS tender ULID` · `sync_inbox(item_id)` · `ar_documents(source_type, source_id)` · `bank_statement_lines(statement_id, imported_hash)`.
+
+**Partitioning: off by default.** In v0.3, monthly RANGE partitions on six hot tables were free. Here, 6 tables × 24 months × 300 tenants = 43 200 extra files on one server, on top of 60 000 — which is precisely the pressure §10 warns about. So:
+
+| Profile (`tenant_databases.profile`) | Strategy |
+|---|---|
+| **standard** (default, ~95 % of tenants) | no partitions. Retention instead: `sync_inbox` payload nulled at 90 days and rows dropped at 180; `outbox_events` 30 days; `audit_logs` archived to `audit_logs_archive_<year>` yearly and exported; `print_jobs` 30 days; `plugin_execution_logs` 30 days; `deliveries` 90 days. Deletion is chunked by a scheduled job, never one big `DELETE` |
+| **large** (opt-in, set when `size_bytes` or row estimates cross a threshold, and for dedicated servers) | monthly RANGE partitions on `sales`, `sale_items`, `stock_movements`, `journal_lines`, `audit_logs`, `sync_inbox`; partitions past retention exported and dropped |
+
+`tenant_usage_metrics` (§4.2) feeds the promotion decision: a tenant whose `sales` row count or `database_bytes` crosses the threshold is flagged for `profile = large` and, usually, for a dedicated server at the same time.
+
+Row estimates for a busy single tenant at 1 000 sales/day: `sales` 365 k/year, `sale_items` 1.5 M/year, `stock_movements` 1.5 M/year, `journal_lines` 3 M/year, `audit_logs` 2 M/year. All comfortable for one InnoDB table with the right index; none of it justifies partitioning until a tenant is ten times that.
+
+---
+
+## 12. Write paths
+
+### 12.1 Online sale — one transaction
+
+```text
+tenant connection resolved from master (cached), schema_meta.tenant_id asserted
+idempotency_keys check (the sale ULID)
+
+BEGIN
+  SELECT stock_levels FOR UPDATE for each stocked line (+ stock_batch_levels when tracked)
+  INSERT stock_movements (type=sale) ×N            -- unique key = idempotent
+  UPDATE stock_levels, stock_batch_levels; UPDATE serials when serial-tracked
+  INSERT sales, sale_items ×N, sale_tenders ×M     -- with cost_total and line_cost snapshots
+  UPDATE number_sequences
+  [credit sale]  SELECT customers FOR UPDATE, check credit_limit,
+                 INSERT ar_documents, customer_ledger; UPDATE customers.credit_balance
+  [loyalty]      INSERT loyalty_transactions; UPDATE customers.loyalty_points
+  INSERT payments ×M (id = tender ULID)
+  INSERT journal_entries(revenue) + journal_lines; INSERT journal_entries(cogs) + journal_lines
+  UPDATE account_balances
+  INSERT commission_entries (when the employee has a per-sale plan)
+  INSERT outbox_events (sale.completed), audit_logs, idempotency_keys
+  UPDATE pos_replica + replica_version for anything the POS must see
+COMMIT                                              -- → 201
+```
+
+Everything that v0.3 achieved with a saga, two synchronous contract calls, an outbox and compensation steps is now one local transaction that either happens or does not. The only remaining out-of-transaction party is the **payment gateway**: for gateway tenders the authorisation happens first, recorded in `gateway_transactions`, and a failure after authorisation but before commit is resolved by the gateway reconciliation job — the one place `gateway_transactions.next_retry_at` still earns its keep.
+
+Async afterwards (queued, from `outbox_events`): notifications, e-receipt, webhooks, the print relay, plugin AFTER hooks, `daily_summaries`, and the platform analytics feed.
+
+### 12.2 Offline sale
+
+```text
+POS pushes a batch  →  sync_batches + sync_inbox rows (unique item_id), ordered by client_seq
+per item, in one transaction:
+  validate against the tenant's current state (product exists, terminal known, shift open)
+  the same INSERT set as §12.1 with origin='offline', stock_applied=true
+  if stock would go negative at a location that forbids it:
+      still record the sale (it already happened in the real world),
+      write the movement, and open a stock_conflicts row
+  posting to the ledger uses the sale's business_date; a business_date inside a closed
+  fiscal period posts to the earliest open period with a note, never silently into a closed one
+mark sync_inbox accepted | duplicate | rejected | conflict | waiting_dependency; ack to the POS
+```
+
+Offline sales are why `sales.business_date_source` and `sync_status` exist, and why the ledger posting has a documented rule for late arrivals.
+
+---
+
+## 13. Backup, restore, export and move
+
+| Concern | Design |
+|---|---|
+| Master | `mysqldump --single-transaction` every 6 hours + binlog for point-in-time recovery, 30-day retention, offsite. **The mapping is the crown jewel**: losing `tenant_databases` means N unreachable databases, so the master dump is also replicated to a second location and a restore drill runs monthly |
+| Per tenant | nightly `mysqldump --single-transaction` per database, gzipped, catalogued in `tenant_backups` with size and checksum; 7 daily + 4 weekly + 12 monthly. Because each tenant is its own database, one shop can be restored without touching any other — the operational promise of this architecture (`Refference/ARCH.md` §10) |
+| Pre-change | automatic backup before a destructive migration (§9.3), before a move, and before a restore |
+| Point-in-time | server-level binlog covers all tenants on that server; a single-tenant PITR is "restore the nightly dump into a scratch database, replay the binlog filtered to that schema, then swap" — scripted as `tenant:restore --at=` |
+| Restore verification | `tenant_backups.restore_tested_at`; a monthly drill restores one random tenant into a scratch database, runs `tenant:doctor` and asserts `schema_meta.tenant_id` |
+| Tenant export (GDPR / churn) | `tenant:export <code>` produces a schema+data SQL dump plus CSV per domain and the uploaded files; recorded as `type = export` |
+| Restoring into the wrong place | prevented by `schema_meta.tenant_id`: a restored database announces whose it is, and the application refuses to serve it under any other tenant |
+
+---
+
+## 14. Local, CI and MariaDB notes
+
+| Environment | Setup |
+|---|---|
+| **XAMPP / MariaDB 10.4** (this machine) | `flexipos_master` plus 2–3 tenant databases (`flx_t_000001`, `flx_t_000002`, one empty for provisioning tests) created by `infra/scripts/xampp-dev.ps1`. Credential driver `env://`. Differences that matter: no `utf8mb4_0900_ai_ci` (the script substitutes `utf8mb4_unicode_ci`); `JSON` is a `LONGTEXT` alias with working JSON functions; **no functional indexes**, so indexed custom fields use stored generated columns; `CHECK` constraints and partitioning are supported; `ALTER … ALGORITHM=INSTANT` support differs, which matters for §9.4 rehearsals |
+| **Docker dev and CI** | MySQL 8.4, master + a two-tenant fixture (`TwoTenantFixture`). CI jobs: migrate-from-scratch, migrate-from-previous-release, template-equals-migrations, `tenant:provision` end to end, `tenant:migrate --all` across the fixture including one deliberately broken tenant to prove failure isolation, and a schema-drift diff against the committed dump |
+| **Boundary enforcement** | Deptrac rules keep modules from reaching into each other's models; **cross-module foreign keys are allowed, cross-module direct model access is not** — a module calls another module's service, which is now an in-process call, not an HTTP hop. A static test asserts no `tenant_id` column exists in any tenant migration and no query string contains a second schema name |
+| **Testing** | feature tests run against a real tenant database created per test class and dropped afterwards (transactions alone cannot test provisioning or migrations). A `RefreshTenantDatabase` trait imports the template rather than migrating, to keep the suite fast |
+
+---
+
+## 15. Deleted from v0.3
+
+So nobody implements them from the old document:
+
+| Deleted | Why |
+|---|---|
+| The 13 `pos_*` schemas and their 13 DB users | replaced by master + per-tenant databases |
+| `tenant_id` on every table, and every `(tenant_id, …)` index prefix | the database is the boundary |
+| All projection tables: `tenant_refs`, `branch_refs`, `product_refs`, `tax_group_refs`, `customer_group_refs`, `payment_method_refs`, `terminal_refs`, `kitchen_station_refs`, `custom_field_defs`, `user_counts`, `hook_registry` | join the real table |
+| Snapshot endpoints and projection rebuild/drift jobs | nothing to rebuild |
+| `inbox_events` per schema | there are no inter-module events to consume; the outbox now only feeds outward edges |
+| `saga_steps` and the online-sale saga with compensations | one local transaction |
+| The reporting star schema: `sales_facts`, `sale_item_facts`, `tender_facts`, `stock_movement_facts`, `purchase_facts`, `customer_facts`, `audit_facts`, `*_dims`, `rebuild_jobs` | reports query the tables; only `account_balances` and `daily_summaries` are pre-aggregated, and both rebuild from source |
+| `platform_users` as a separate table | one `users` table in master with `is_platform_staff` |
+| `pos_tenant.tenants`, `plans`, `subscriptions`, `feature_flags`, `provisioning_status` | moved to master |
+| `pos_identity.users`, `roles`, `permissions` as one cross-tenant schema | split: login identity in master, employees/roles/permissions per tenant (§5) |
+| Default monthly partitioning on the hot tables | partitions are files; see §11 |
+
+Kept deliberately, despite the simplification: **snapshot columns** on documents, the **stock ledger**, the **outbox** (outward edges only), the **POS replica and sync inbox**, **`approval_requests`** alongside the workflow engine (offline PIN overrides), and **idempotency keys** on public POSTs.
+
+---
+
+## 16. Open questions
+
+| # | Question | Where it bites | Proposal |
+|---|---|---|---|
+| Q-1 | `Refference/ARCH.md` §2 lists `database_host` and `database_port` **on `tenant_databases`**; this document normalises them onto `database_servers` with `tenant_databases.server_id`. | moving a server or changing its port would otherwise mean updating hundreds of mapping rows, non-atomically | **keep the normalisation** (documented in §4.4). The resolved mapping the application caches still contains host, port, database and credential reference exactly as ARCH describes |
+| Q-2 | ARCH §2 lists one `users` table and ERP §31 lists `users`/`roles`/`permissions` under the **tenant** domain. Both cannot be the primary home. | §5 splits them: login in master, roles/permissions/employees per tenant | confirm §5. It is the only split that lets a PIN-only cashier exist and an offline till verify a PIN |
+| Q-3 | Inventory valuation method | weighted average is assumed throughout §7 and `stock_levels.avg_cost` | confirm **weighted average** for 1.0; FIFO costing would add a cost-layer table and change every COGS posting |
+| Q-4 | Restaurant (tables, orders, KOT) is modelled as core here, matching v0.3; the gap analysis (C-2) records `ERP.md`'s preference for a plugin | §6.7 | core for 1.0, extractable later — the tables carry no cross-module obligations. Flagging because it contradicts `ERP.md` §2 |
+| Q-5 | Multi-currency depth: transaction currency plus base currency is designed, full revaluation of open AR/AP at period end is not | §6.10 | defer revaluation to phase 6; the `exchange_rates` table and `base_debit`/`base_credit` columns make it additive |
+| Q-6 | Analytics warehouse | `Refference/ARCH.md` §17 and `tenant_usage_metrics` | the nightly collector plus the outbox feed are enough for 1.0; a warehouse is a separate design when platform-wide analytics is actually asked for |
+| Q-7 | Secret store for tenant credentials on the Phase 0 VPS | §4.4 | `file://` Docker secrets. `enc://` exists only as a fallback and its key must not live in the master database |
+| Q-8 | `tenant_users.employee_id` is a cross-database reference with no foreign key | §5, §4.9 | accepted, with the nightly consistency check. The alternative — duplicating employee identity into master — is worse |
