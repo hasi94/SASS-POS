@@ -27,12 +27,23 @@ it('refuses an invalid name, exits non-zero and creates nothing', function (stri
     'trailing hyphen' => 'billing-',
     'doubled hyphen' => 'bad--name',
     'hyphen only' => '-',
+    // T-002 AC-4: PCRE's $ matches before a final newline, so without the D
+    // modifier on the shared pattern the generator accepted this and created a
+    // directory the registry could never boot.
+    'trailing newline' => "billing\n",
 ]);
 
 it('applies the identical name rule at generation time and at boot time', function (string $name) {
     expect(preg_match(ServiceRegistry::NAME_PATTERN, $name))->toBe(0)
         ->and(Artisan::call('svc:make', ['name' => $name]))->not->toBe(0);
-})->with(['Billing', '1billing', '-billing', 'bill_ing', 'billing-', 'bad--name', 'demo/../demo']);
+})->with(['Billing', '1billing', '-billing', 'bill_ing', 'billing-', 'bad--name', 'demo/../demo', "billing\n"]);
+
+it('creates no directory at all for a name that ends in a newline', function () {
+    expect(Artisan::call('svc:make', ['name' => "billing\n"]))->not->toBe(0)
+        ->and(Artisan::output())->toContain('Invalid service name')
+        ->and(File::exists(servicesPath("billing\n")))->toBeFalse()
+        ->and(File::exists(servicesPath('billing')))->toBeFalse();
+});
 
 it('still accepts a multi-word kebab-case name', function () {
     expect(preg_match(ServiceRegistry::NAME_PATTERN, 'demo'))->toBe(1)

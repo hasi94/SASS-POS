@@ -15,6 +15,56 @@ return [
     | packages, which is a legitimate minimal configuration. A name that has no
     | matching package under services/ makes the host fail fast at boot.
     |
+    |--------------------------------------------------------------------------
+    | Caching in production: four constraints, one of them guarded
+    |--------------------------------------------------------------------------
+    |
+    | The host boots service packages at runtime, from this value and from each
+    | package's own composer.json. Laravel's optimisation commands and Composer's
+    | authoritative classmap all freeze part of that at build time, so read this
+    | before running any of them in an image.
+    |
+    | 1. `php artisan config:cache` bakes SERVICES into bootstrap/cache/config.php
+    |    and the process never reads the variable again, so one image can no
+    |    longer run a different service subset per deployment stage - the single
+    |    guarantee this host exists for.
+    |    GUARDED IN CODE: ServiceHostServiceProvider::guardAgainstStaleCachedServices()
+    |    throws at boot when the configuration is cached AND the process
+    |    environment sets a SERVICES value that parses differently from the
+    |    frozen one. It stays silent when the configuration is not cached, when
+    |    the environment sets no SERVICES at all, and when the two agree.
+    |    LIMIT OF THE GUARD, worth knowing before you rely on it: it reads the
+    |    real process environment only. While the configuration is cached the
+    |    framework does not load .env at all, so a SERVICES changed there after
+    |    caching is invisible to the application AND to this guard - the process
+    |    boots the frozen list in silence. On a host where SERVICES lives in
+    |    .env (the XAMPP/VPS route rather than a container one), re-run
+    |    `php artisan config:clear && php artisan config:cache` after every edit,
+    |    or do not cache configuration there at all.
+    |
+    | 2. A service provider's mergeConfigFrom() (the generated stub merges its
+    |    own database connection that way) is a no-op while the configuration is
+    |    cached, so a service booted under a cached config never contributes its
+    |    connection to the running process.
+    |    DOCUMENTED ONLY (decision D-20). Constraint 1's guard closes the
+    |    dangerous half structurally: a service whose connection was merged
+    |    before `config:cache` ran is inside the cache file already, and a
+    |    service that was not in SERVICES when the cache was built can no longer
+    |    boot for the first time under a disagreeing cached value.
+    |
+    | 3. `php artisan route:cache` freezes the route table the same way, so a
+    |    service added to SERVICES afterwards is unreachable until the cache is
+    |    rebuilt. It also fails outright today, because routes/web.php still has
+    |    the stock closure route on `/` and closures cannot be serialised.
+    |    DOCUMENTED ONLY (decision D-20): removing stock Laravel scaffolding is
+    |    explicitly out of T-002's scope.
+    |
+    | 4. Building the Composer autoloader with `--classmap-authoritative` breaks
+    |    the boot mechanism entirely: such a loader answers "not found" for any
+    |    class outside the classmap it was built with, no matter what
+    |    ServiceRegistry adds with addPsr4() afterwards, so every service fails.
+    |    DOCUMENTED ONLY (decision D-20): no detection code is added in T-002.
+    |
     */
 
     'services' => env('SERVICES', ''),

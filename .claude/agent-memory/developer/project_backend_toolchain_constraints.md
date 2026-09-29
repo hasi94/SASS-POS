@@ -34,7 +34,36 @@ otherwise.
   `->in()`.
 - **Pint already excludes `vendor`, `storage` and `bootstrap/cache`** when given a
   directory, so `pint --test .. ../../packages` covers every service and package without
-  walking `vendor`, and `storage/` is a safe place for lint fixtures.
+  walking `vendor`, and `storage/` is a safe place for lint fixtures. Pint does **not**
+  touch `*.stub` files, so a stub must be hand-written in the exact shape Pint wants for
+  the generated `.php` output, or `composer lint` fails on the generated package.
+- **PHPStan cannot see a Pest closure's real `$this`.** Pest annotates its own
+  `it()`/`beforeEach()` with `@param-closure-this PHPUnit\Framework\TestCase`, so once a
+  `tests/` directory is in `phpstan.neon.dist`'s `paths`, every `$this->get()` is
+  `method.notFound` at level 6. The fix that keeps the level and adds no dependency is
+  Pest's already-installed Laravel plugin: `use function Pest\Laravel\get;` (typed
+  `TestResponse` return). Not an inline `@var`, not a baseline.
+- **PHPUnit's duplicate-collection warning is emitted at collection time, before
+  filtering**, so a child run with a filter that matches nothing still surfaces it
+  (`... as it was already added to test suite "Host"`). That is how a test asserts the
+  absence of the warning without shelling an unfiltered full run and recursing forever.
+- **Under a cached config Laravel never loads `.env`**, so `Env::getRepository()->get()`
+  then sees only the real process environment. `Symfony`/Laravel `Process::env([...=>
+  false])` removes a variable from the child, which is how the "no ambient value" case is
+  testable. `Env::getRepository()->get()` returns the raw string; `env()`/`Env::get()`
+  coerce `"true"`/`"false"`/`"null"`/`"empty"`.
+- **PHPStan level 6 does not flag an untyped *closure* parameter**, only functions and
+  methods; a probe meant to prove a path is analysed must use something like a missing
+  iterable value type or a wrong argument type.
+- **Never `md5_file()` generated output against a checked-out tree.** `svc:make` always
+  writes LF (`SvcMakeCommand::stub()` strips CRLF), but only `services/host/` has a
+  `.gitattributes` and `core.autocrlf` is `true` on this machine, so a fresh clone or a
+  branch switch materialises `services/demo` as CRLF and every raw-byte comparison goes
+  red for someone who changed nothing. Hash
+  `md5(str_replace("\r\n", "\n", file_get_contents(...)))` whenever the two sides came
+  from different producers; raw `md5_file()` is only safe when comparing a tree against
+  itself (before/after a move, a rollback, an AC-27 host fingerprint). A root
+  `.gitattributes` is the durable fix, tracked as FP-156.
 
 **Why:** each was found by running the tool, not by reading its docs; four of them changed
 a decision that had been written down differently.

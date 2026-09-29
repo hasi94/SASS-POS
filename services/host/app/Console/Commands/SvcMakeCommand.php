@@ -6,6 +6,7 @@ use App\Support\ServiceHost\ServiceRegistry;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
+use Throwable;
 
 class SvcMakeCommand extends Command
 {
@@ -83,27 +84,52 @@ class SvcMakeCommand extends Command
 
         $replacements = $this->replacements($name);
 
-        foreach (self::FILES as $stub => $relativePath) {
-            $path = $target.DIRECTORY_SEPARATOR.strtr($relativePath, $replacements);
+        // Generation is all or nothing. A missing stub or an unwritable path
+        // part-way through used to leave a half-made package behind, after
+        // which the "already exists. Nothing was created or modified" refusal
+        // above was a lie and the name was stuck. Nothing outside
+        // services/<name>/ is ever written, so deleting that one directory is a
+        // complete rollback.
+        try {
+            foreach (self::FILES as $stub => $relativePath) {
+                $path = $target.DIRECTORY_SEPARATOR.strtr($relativePath, $replacements);
 
-            File::ensureDirectoryExists(dirname($path));
-            File::put($path, strtr($this->stub($stub), $replacements));
-        }
+                File::ensureDirectoryExists(dirname($path));
+                File::put($path, strtr($this->stub($stub), $replacements));
+            }
 
-        foreach (self::EMPTY_DIRECTORIES as $directory) {
-            File::ensureDirectoryExists($target.DIRECTORY_SEPARATOR.$directory);
-            File::put($target.DIRECTORY_SEPARATOR.$directory.DIRECTORY_SEPARATOR.'.gitkeep', '');
+            foreach (self::EMPTY_DIRECTORIES as $directory) {
+                File::ensureDirectoryExists($target.DIRECTORY_SEPARATOR.$directory);
+                File::put($target.DIRECTORY_SEPARATOR.$directory.DIRECTORY_SEPARATOR.'.gitkeep', '');
+            }
+        } catch (Throwable $exception) {
+            File::deleteDirectory($target);
+
+            $this->error(sprintf(
+                'Generating services/%s failed (%s). The partially generated package was removed, so running this command again is safe.',
+                $name,
+                $exception->getMessage()
+            ));
+
+            return self::FAILURE;
         }
 
         $this->info(sprintf("Created services/%s. Add '%s' to SERVICES to boot it.", $name, $name));
 
         // PHPStan and Deptrac cannot glob their path lists, so a new package is
-        // invisible to both until someone registers it by hand. Say so here;
-        // QaToolchainRegistryCoverageTest fails the gate if this is forgotten.
+        // invisible to both until someone registers it by hand.
+        //
+        // Both directories, not just src: T-002 put services/*/tests into both
+        // registries, and this command always generates a tests directory, so a
+        // developer who registered only src would hit a second red the reminder
+        // never mentioned. The root README says the same two paths, and
+        // QaDocumentationAccuracyTest fails the gate if the two ever drift
+        // apart again; QaToolchainRegistryCoverageTest fails it if either
+        // registration is forgotten.
         $this->warn(sprintf(
-            'Also register services/%s/src in phpstan.neon.dist (paths) and in deptrac.yaml '.
-            '(paths, plus a Service_%s layer and its ruleset entry), or it is neither statically '.
-            'analysed nor boundary-checked.',
+            'Also register services/%1$s/src and services/%1$s/tests in phpstan.neon.dist (paths) '.
+            'and in deptrac.yaml (paths, plus a Service_%2$s layer and its ruleset entry), or it is '.
+            'neither statically analysed nor boundary-checked.',
             $name,
             Str::studly($name)
         ));

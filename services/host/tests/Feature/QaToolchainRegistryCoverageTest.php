@@ -1,5 +1,7 @@
 <?php
 
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\File;
 use Symfony\Component\Yaml\Yaml;
 
 /*
@@ -20,6 +22,49 @@ use Symfony\Component\Yaml\Yaml;
  */
 
 /**
+ * The exact names of the throwaway service packages this suite generates while
+ * it runs (T-002 AC-18, decision D-23).
+ *
+ * This used to be `str_contains($name, 'fixture')`, which would also have
+ * exempted a legitimately named permanent service - `data-fixtures`, say - from
+ * every coverage check in this file, silently and forever. An exact list cannot
+ * do that: the worst it can do is fail loudly when a new test starts generating
+ * a package under a name nobody added here, which is the safe direction to be
+ * wrong in.
+ *
+ * Every test that generates a service package must add its exact name here and
+ * delete the package in afterEach. Names currently in use, by file:
+ * SvcMakeValidationTest (svcmakefixture, svc-make-fixture),
+ * QaServiceNameValidationTest (qa-name-fixture), QaGeneratedServiceTestDiscoveryTest
+ * (qadiscoveryfixture), QaServiceRegistryContractTest (qabrokenfixture),
+ * SvcMakeGeneratedServiceReachableTest (reachablefixture),
+ * UnlistedServiceReturns404Test (unlistedfixture), ServiceRegistryManifestTrustTest
+ * (trustfixture), SvcMakeAtomicGenerationTest (atomicfixture),
+ * QaManifestTrustAttackTest (qatrustfixture), QaCacheGuardBranchesTest
+ * (qacachefixture).
+ *
+ * @return list<string>
+ */
+function qaFixturePackageNames(): array
+{
+    return [
+        'atomicfixture',
+        'qa-name-fixture',
+        'qaatomicfixture',
+        'qabrokenfixture',
+        'qacachefixture',
+        'qadocfixture',
+        'qadiscoveryfixture',
+        'qatrustfixture',
+        'reachablefixture',
+        'svc-make-fixture',
+        'svcmakefixture',
+        'trustfixture',
+        'unlistedfixture',
+    ];
+}
+
+/**
  * Service packages committed under services/, excluding the host application and
  * the throwaway packages other tests generate while they run.
  *
@@ -32,7 +77,7 @@ function qaServicePackages(): array
     foreach (glob(servicesPath().DIRECTORY_SEPARATOR.'*', GLOB_ONLYDIR) ?: [] as $directory) {
         $name = basename($directory);
 
-        if ($name === 'host' || str_contains($name, 'fixture')) {
+        if ($name === 'host' || in_array($name, qaFixturePackageNames(), true)) {
             continue;
         }
 
@@ -106,6 +151,48 @@ function qaPhpstanPaths(): array
     }
 
     return $paths;
+}
+
+/**
+ * Describe every way phpstan.neon.dist fails to analyse the given packages.
+ *
+ * @param  array<string, string>  $packages
+ * @return list<string>
+ */
+function qaPhpstanGaps(array $packages, string $label): array
+{
+    $paths = qaPhpstanPaths();
+    $gaps = [];
+
+    foreach ($packages as $name => $directory) {
+        if (! in_array(realpath($directory.DIRECTORY_SEPARATOR.'src'), $paths, true)) {
+            $gaps[] = "{$label}/{$name}/src is not in phpstan.neon.dist paths";
+        }
+    }
+
+    return $gaps;
+}
+
+/**
+ * Describe every package whose tests no phpunit.xml testsuite collects.
+ *
+ * @param  array<string, string>  $packages
+ * @return list<string>
+ */
+function qaPhpunitGaps(array $packages): array
+{
+    $collected = qaPhpunitTestDirectories();
+    $gaps = [];
+
+    foreach ($packages as $name => $directory) {
+        $tests = $directory.DIRECTORY_SEPARATOR.'tests';
+
+        if (is_dir($tests) && ! in_array(realpath($tests), $collected, true)) {
+            $gaps[] = "{$name}/tests is not collected by any phpunit.xml testsuite";
+        }
+    }
+
+    return $gaps;
 }
 
 /**
@@ -227,29 +314,11 @@ it('finds the packages this guard is supposed to protect', function () {
 });
 
 it('analyses every service package with PHPStan', function () {
-    $paths = qaPhpstanPaths();
-    $missing = [];
-
-    foreach (qaServicePackages() as $name => $directory) {
-        if (! in_array(realpath($directory.DIRECTORY_SEPARATOR.'src'), $paths, true)) {
-            $missing[] = "services/{$name}/src is not in phpstan.neon.dist paths";
-        }
-    }
-
-    expect($missing)->toBe([]);
+    expect(qaPhpstanGaps(qaServicePackages(), 'services'))->toBe([]);
 });
 
 it('analyses every shared package with PHPStan', function () {
-    $paths = qaPhpstanPaths();
-    $missing = [];
-
-    foreach (qaSharedPackages() as $name => $directory) {
-        if (! in_array(realpath($directory.DIRECTORY_SEPARATOR.'src'), $paths, true)) {
-            $missing[] = "packages/{$name}/src is not in phpstan.neon.dist paths";
-        }
-    }
-
-    expect($missing)->toBe([]);
+    expect(qaPhpstanGaps(qaSharedPackages(), 'packages'))->toBe([]);
 });
 
 it('gives every service package its own Deptrac layer, path and ruleset entry', function () {
@@ -261,18 +330,65 @@ it('gives every shared package its own Deptrac layer, path and ruleset entry', f
 });
 
 it('collects tests from every package that ships them', function () {
-    $collected = qaPhpunitTestDirectories();
-    $missing = [];
+    expect(qaPhpunitGaps(array_merge(qaServicePackages(), qaSharedPackages())))->toBe([]);
+});
 
-    foreach (array_merge(qaServicePackages(), qaSharedPackages()) as $name => $directory) {
-        $tests = $directory.DIRECTORY_SEPARATOR.'tests';
+/*
+ * T-002 AC-18. The skip rule above is the one thing standing between this guard
+ * and a silently unchecked service, so it gets its own probe: a real package,
+ * generated by the real generator, whose name contains "fixture" as a genuine
+ * word. Under the old str_contains() rule it was exempt from all three
+ * registries; under the exact-name rule it must be required to appear in every
+ * one of them, and this guard must be red until it does.
+ */
 
-        if (is_dir($tests) && ! in_array(realpath($tests), $collected, true)) {
-            $missing[] = "{$name}/tests is not collected by any phpunit.xml testsuite";
-        }
+afterEach(function () {
+    File::deleteDirectory(servicesPath('data-fixtures'));
+});
+
+it('does not skip a legitimately named service just because its name contains the word fixture', function () {
+    $name = 'data-fixtures';
+
+    expect($name)->not->toBeIn(qaFixturePackageNames())
+        ->and(str_contains($name, 'fixture'))->toBeTrue();
+
+    expect(Artisan::call('svc:make', ['name' => $name]))->toBe(0);
+
+    $packages = qaServicePackages();
+
+    // Not skipped: the guard sees it exactly as it sees demo.
+    expect($packages)->toHaveKey($name);
+
+    $probe = [$name => $packages[$name]];
+
+    // And, because nobody has registered it anywhere, every one of the three
+    // checks this file makes reports it. A guard that silently passed here is
+    // the BUG-5 mitigation failing open.
+    expect(qaPhpstanGaps($probe, 'services'))->toBe(["services/{$name}/src is not in phpstan.neon.dist paths"])
+        ->and(qaDeptracGaps($probe, 'services'))->toBe([
+            "services/{$name}/src is not in deptrac.yaml paths",
+            'no deptrac.yaml layer collects Flexipos\Service\DataFixtures\QaProbe',
+        ])
+        ->and(qaPhpunitGaps($probe))->toBe([]);
+
+    // phpunit.xml is globbed, so it is the one registry that needs no edit -
+    // asserted rather than assumed, because it is why the guard exists at all.
+    expect(qaPhpunitTestDirectories())->toContain(realpath($packages[$name].DIRECTORY_SEPARATOR.'tests'));
+});
+
+it('still skips every throwaway package the suite generates, by exact name only', function () {
+    // The other half of AC-18: narrowing the rule must not start failing the
+    // gate mid-run because a fixture package happens to exist while this test
+    // is executing.
+    expect(Artisan::call('svc:make', ['name' => 'qadiscoveryfixture']))->toBe(0);
+
+    try {
+        expect(qaServicePackages())->not->toHaveKey('qadiscoveryfixture')
+            ->and(qaPhpstanGaps(qaServicePackages(), 'services'))->toBe([])
+            ->and(qaDeptracGaps(qaServicePackages(), 'services'))->toBe([]);
+    } finally {
+        File::deleteDirectory(servicesPath('qadiscoveryfixture'));
     }
-
-    expect($missing)->toBe([]);
 });
 
 it('forbids every service layer from depending on any other service layer', function () {

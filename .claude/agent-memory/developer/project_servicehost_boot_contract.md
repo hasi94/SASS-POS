@@ -5,10 +5,27 @@ metadata:
   type: project
 ---
 
-`App\Support\ServiceHost\ServiceRegistry` boots services by finding Composer's
-`ClassLoader` through `spl_autoload_functions()`, calling `addPsr4()` at runtime, then
-`$app->register()` on the class named under the package's own
-`extra.flexipos.provider` key.
+`App\Support\ServiceHost\ServiceRegistry` boots services by obtaining Composer's
+`ClassLoader` with `require base_path('vendor/autoload.php')` (never `require_once` —
+that returns `true`, not the loader, after Laravel's bootstrap already required it;
+Composer caches the instance in a static property so repeated `require`s return the same
+object), calling `addPsr4()` at runtime, then `$app->register()` on the class named under
+the package's own `extra.flexipos.provider` key.
+
+Since T-002 the manifest is treated as untrusted input, with **no escape hatch and no
+configuration switch**. In order: the `autoload.psr-4` map must hold **exactly one** pair
+(`count($map) !== 1` is refused — "the first key is right" is not enough, or a manifest
+smuggles `App\` into the second slot and a later refactor that iterates the map revives
+the whole attack), that key must equal `Flexipos\Service\<Str::studly($name)>\` exactly,
+`extra.flexipos.provider` must start with that same string, the class must satisfy
+`is_a(..., Illuminate\Support\ServiceProvider::class, true)`, **and**
+`(new ReflectionClass($provider))->isInstantiable()` — `is_a()` alone is happy with an
+abstract subclass, and `$app->register()` then dies with a raw
+`Cannot instantiate abstract class` that never names the service. Everything up to and
+including the namespace/prefix checks runs *before* `addPsr4()`, so a rejected package
+never leaves a prefix behind for another service's — or the host's own `App\` — namespace. A genuinely external integration belongs
+in `plugins/*`, or behind a first-party `services/<name>/` wrapper that still declares its
+own namespace.
 
 **Why:** the acceptance criteria require that adding a service to `SERVICES` boots it with
 zero edits to any file inside `services/host/`. A static `composer require` per service
@@ -24,6 +41,14 @@ rule lets `svc:make billing-` produce a Composer name Composer itself rejects an
 namespace that collides with `billing`, after which `/health/ready` reports a service
 whose routes return 404. Directory existence is checked against a `scandir()` listing, not
 `is_dir()`, so `SERVICES=Demo` behaves identically on Windows and on Linux.
+
+`config:cache` is the one hazard guarded in code (`ServiceHostServiceProvider::
+guardAgainstStaleCachedServices()`): it throws only when the configuration is cached AND
+the ambient `SERVICES` is set AND it parses differently from the frozen value. The other
+three caching constraints (`mergeConfigFrom` under cache, `route:cache`,
+`--classmap-authoritative`) are **documentation only** by decision D-20 — do not add
+runtime detection for them even though `ClassLoader::isClassMapAuthoritative()` exists.
+All four are written up in `config/servicehost.php` and the root `README.md`.
 
 **How to apply:** do not "simplify" this to a plain `composer require` or to Laravel
 auto-discovery. If a service package will not boot, check that its `composer.json` has

@@ -3,10 +3,17 @@
 use App\Support\ServiceHost\ServiceRegistry;
 use Tests\TestCase;
 
+use function Pest\Laravel\get;
+
 /*
  * This package may not be listed in SERVICES yet, so the test boots it into the
  * host itself. That is the same code path the host uses at boot, which is why
  * this test passes straight after generation with no further edits.
+ *
+ * The HTTP calls use Pest's Laravel helper functions instead of $this->get():
+ * Pest types a test closure's $this as the plain PHPUnit TestCase, so
+ * $this->get() cannot be resolved by the static analysis that now covers every
+ * services/<name>/tests directory at level 6.
  */
 
 uses(TestCase::class);
@@ -16,7 +23,7 @@ beforeEach(function () {
 });
 
 it('answers the demo ping route under its own prefix', function () {
-    $this->get('/api/v1/demo/ping')
+    get('/api/v1/demo/ping')
         ->assertOk()
         ->assertJson([
             'service' => 'demo',
@@ -32,7 +39,7 @@ it('registers the svc_demo database connection', function () {
 it('is reported by the readiness endpoint once booted', function () {
     expect(app(ServiceRegistry::class)->booted())->toContain('demo');
 
-    $this->get('/health/ready')
+    get('/health/ready')
         ->assertOk()
         ->assertJsonPath('status', 'ok');
 });

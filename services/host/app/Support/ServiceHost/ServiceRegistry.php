@@ -4,6 +4,9 @@ namespace App\Support\ServiceHost;
 
 use Composer\Autoload\ClassLoader;
 use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Str;
+use ReflectionClass;
 use RuntimeException;
 
 /**
@@ -33,8 +36,13 @@ class ServiceRegistry
      *
      * SvcMakeCommand reuses this constant rather than restating the expression,
      * so generation time and boot time can never drift apart.
+     *
+     * The D modifier is load bearing: without it PCRE's `$` also matches just
+     * before a final newline, so "billing\n" would pass. The registry happens to
+     * be safe because parse() trims first, but the generator does not, so a
+     * crafted name could create a directory the registry can never boot.
      */
-    public const NAME_PATTERN = '/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/';
+    public const NAME_PATTERN = '/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/D';
 
     /**
      * Identifiers of the service packages booted so far, sorted and unique.
@@ -111,9 +119,38 @@ class ServiceRegistry
             throw new UnknownServiceException($name, sprintf('a service name must be lowercase kebab-case matching %s.', self::NAME_PATTERN));
         }
 
+        // A service package is only ever entitled to its own namespace, derived
+        // from its own directory name with the identical Str::studly() call
+        // SvcMakeCommand generates it with. Every check below runs before
+        // addPsr4(): a package that fails validation must never leave a PSR-4
+        // prefix behind for another service's - or the host's own - namespace.
+        $expectedNamespace = sprintf('Flexipos\\Service\\%s\\', Str::studly($name));
+
         $manifest = $this->manifest($name);
-        [$namespace, $relativeSource] = $this->psr4($name, $manifest);
+        [$namespace, $relativeSource] = $this->psr4($name, $manifest, $expectedNamespace);
+
+        if ($namespace !== $expectedNamespace) {
+            throw new UnknownServiceException($name, sprintf(
+                'its composer.json declares autoload.psr-4 namespace [%s], but a service package at services/%s may only declare [%s].',
+                $namespace,
+                $name,
+                $expectedNamespace
+            ));
+        }
+
+        // Resolved after the namespace is settled, not before: a manifest wrong
+        // in both ways should report the namespace it may not declare rather
+        // than a missing provider key, because the namespace is the thing that
+        // has to be fixed first.
         $provider = $this->providerClass($name, $manifest);
+
+        if (! str_starts_with($provider, $expectedNamespace)) {
+            throw new UnknownServiceException($name, sprintf(
+                'its extra.flexipos.provider class [%s] is declared outside its own namespace; it must start with [%s].',
+                $provider,
+                $expectedNamespace
+            ));
+        }
 
         $source = $this->servicePath($name).DIRECTORY_SEPARATOR.trim($relativeSource, '/\\');
 
@@ -121,6 +158,32 @@ class ServiceRegistry
 
         if (! class_exists($provider)) {
             throw new UnknownServiceException($name, sprintf('service provider [%s] could not be autoloaded from %s.', $provider, $source));
+        }
+
+        // class_exists() only answers "is something autoloadable under that
+        // name". Without this, a manifest naming any loadable class - the
+        // package's own controller, say - got it constructed by the container
+        // and killed the process with a fatal that never named the service.
+        if (! is_a($provider, ServiceProvider::class, true)) {
+            throw new UnknownServiceException($name, sprintf(
+                'class [%s] is not a %s, so it cannot be registered as this service package\'s provider.',
+                $provider,
+                ServiceProvider::class
+            ));
+        }
+
+        // is_a() is satisfied by an abstract subclass, an interface and a class
+        // with a non-public constructor alike, and register() would then die
+        // with a raw "Cannot instantiate abstract class" that never names the
+        // service - the exact outcome decision D-1 exists to prevent. Kept
+        // separate from the check above so the two mistakes read differently:
+        // "that is not a service provider" and "that service provider cannot be
+        // constructed" have different fixes.
+        if (! (new ReflectionClass($provider))->isInstantiable()) {
+            throw new UnknownServiceException($name, sprintf(
+                'service provider [%s] cannot be instantiated (it is abstract, or its constructor is not public), so the host cannot register it.',
+                $provider
+            ));
         }
 
         $this->app->register($provider);
@@ -174,18 +237,46 @@ class ServiceRegistry
     /**
      * The single `autoload.psr-4` pair a service package must declare.
      *
+     * `$expectedNamespace` is used only to say which of several declared keys
+     * are the unentitled ones; whether the one remaining key actually equals it
+     * is decided in boot(), before anything is registered.
+     *
      * @param  array<array-key, mixed>  $manifest
      * @return array{0: string, 1: string}
      *
      * @throws UnknownServiceException
      */
-    private function psr4(string $name, array $manifest): array
+    private function psr4(string $name, array $manifest, string $expectedNamespace): array
     {
         $autoload = $manifest['autoload'] ?? null;
         $map = is_array($autoload) ? ($autoload['psr-4'] ?? null) : null;
 
         if (! is_array($map) || $map === []) {
             throw new UnknownServiceException($name, 'its composer.json declares no autoload.psr-4 namespace.');
+        }
+
+        // Exactly one, not "the first one": a manifest could otherwise declare
+        // the namespace it is entitled to and smuggle a second entry - App\,
+        // say - past the check below, which only ever looked at the first key.
+        // The extra entry is inert today because only the validated pair is
+        // registered, but refusing it is what keeps it inert: iterating the map
+        // instead of taking the first key would turn it straight back into the
+        // M-2 attack this validation exists to close.
+        if (count($map) !== 1) {
+            $unexpected = array_map(
+                static fn (mixed $key): string => sprintf('[%s]', (string) $key),
+                array_values(array_filter(
+                    array_keys($map),
+                    static fn (mixed $key): bool => (string) $key !== $expectedNamespace
+                ))
+            );
+
+            throw new UnknownServiceException($name, sprintf(
+                'its composer.json declares %d autoload.psr-4 namespaces, but a service package must declare exactly one, [%s]. Remove %s.',
+                count($map),
+                $expectedNamespace,
+                implode(', ', $unexpected)
+            ));
         }
 
         $namespace = array_key_first($map);
@@ -224,12 +315,19 @@ class ServiceRegistry
      */
     private function classLoader(): ClassLoader
     {
-        foreach (spl_autoload_functions() as $autoloader) {
-            if (is_array($autoloader) && $autoloader[0] instanceof ClassLoader) {
-                return $autoloader[0];
-            }
+        // require, never require_once: Composer's own vendor/autoload.php caches
+        // the ClassLoader in a static property (vendor/composer/autoload_real.php's
+        // getLoader()) and returns that same instance on every call. require_once
+        // would return true, not the loader, on every call after Laravel's own
+        // bootstrap already required this same file. Asking Composer beats
+        // scanning spl_autoload_functions(): that took the first matching loader,
+        // which becomes ambiguous the moment a second one is registered.
+        $loader = require $this->app->basePath('vendor/autoload.php');
+
+        if (! $loader instanceof ClassLoader) {
+            throw new RuntimeException('Composer\'s class loader is not registered, so service packages cannot be autoloaded at runtime.');
         }
 
-        throw new RuntimeException('Composer\'s class loader is not registered, so service packages cannot be autoloaded at runtime.');
+        return $loader;
     }
 }
