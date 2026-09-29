@@ -16,8 +16,6 @@
         "flexipos": {
             "service": "{{name}}",
             "provider": "Flexipos\\Service\\{{studly}}\\{{studly}}ServiceProvider",
-            "connection": "{{connection}}",
-            "schema": "{{schema}}",
             "prefix": "{{prefix}}"
         }
     },

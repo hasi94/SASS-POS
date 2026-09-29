@@ -8,15 +8,16 @@ use Symfony\Component\Finder\Finder;
 /*
  * T-002 FP-147 (T-001 review finding M-4).
  *
- * Generating a package writes six rendered files and five .gitkeep markers. If
- * anything threw part way through, the half-made package stayed on disk and the
- * next attempt refused with "already exists. Nothing was created or modified",
- * which was then untrue and left the name unusable. Generation is now all or
- * nothing: any throwable deletes services/<name>/ again.
+ * Generating a package writes five rendered files and six .gitkeep markers
+ * (T-003 removed the per-module connection config file). If anything threw part
+ * way through, the half-made package stayed on disk and the next attempt refused
+ * with "already exists. Nothing was created or modified", which was then untrue
+ * and left the name unusable. Generation is now all or nothing: any throwable
+ * deletes services/<name>/ again.
  *
  * The failure is simulated by moving the last stub the command renders out of
- * the way, so five files are genuinely written before the sixth fails. The stub
- * is moved, never rewritten, and moved back in a finally block plus an
+ * the way, so the earlier files are genuinely written before the last one fails.
+ * The stub is moved, never rewritten, and moved back in a finally block plus an
  * afterEach, so services/host is byte identical afterwards.
  */
 
@@ -111,7 +112,10 @@ it('removes the partial package when generation fails part way through, and gene
 
     foreach ([
         'composer.json',
-        'config/connection.php',
+        // T-003 AC-19/AC-20 supersede T-001 AC-25's per-module connection file;
+        // the config directory is now generated empty. See the note in
+        // SvcMakeValidationTest.
+        'config/.gitkeep',
         'routes/api.php',
         'src/AtomicfixtureServiceProvider.php',
         'src/Http/Controllers/PingController.php',

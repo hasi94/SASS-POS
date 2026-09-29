@@ -1,6 +1,8 @@
 <?php
 
 use App\Support\ServiceHost\ServiceRegistry;
+use Flexipos\Kernel\Tenancy\Exceptions\NoTenantResolved;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 use function Pest\Laravel\get;
@@ -31,9 +33,14 @@ it('answers the demo ping route under its own prefix', function () {
         ]);
 });
 
-it('registers the svc_demo database connection', function () {
-    expect(config('database.connections.svc_demo'))->toBeArray()
-        ->and(config('database.connections.svc_demo.database'))->toBe('pos_demo');
+it('cannot query the tenant connection until a tenant is resolved', function () {
+    // This module declares no database connection. Business data is reached
+    // through the shared `tenant` connection, which refuses every query until
+    // Flexipos\Kernel\Tenancy\Tenancy has resolved a tenant for this process -
+    // so a missing tenant check is a loud failure here, not a silent read from
+    // whatever database happened to be configured.
+    expect(fn (): mixed => DB::connection('tenant')->scalar('select 1'))
+        ->toThrow(NoTenantResolved::class);
 });
 
 it('is reported by the readiness endpoint once booted', function () {

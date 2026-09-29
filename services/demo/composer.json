@@ -16,8 +16,6 @@
         "flexipos": {
             "service": "demo",
             "provider": "Flexipos\\Service\\Demo\\DemoServiceProvider",
-            "connection": "svc_demo",
-            "schema": "pos_demo",
             "prefix": "api/v1/demo"
         }
     },

@@ -31,15 +31,21 @@ class SvcMakeCommand extends Command
         'composer.json.stub' => 'composer.json',
         'ServiceProvider.php.stub' => 'src/{{studly}}ServiceProvider.php',
         'PingController.php.stub' => 'src/Http/Controllers/PingController.php',
-        'connection.config.php.stub' => 'config/connection.php',
         'routes.api.php.stub' => 'routes/api.php',
         'PingRouteTest.php.stub' => 'tests/Feature/PingRouteTest.php',
     ];
 
     /**
      * Structural directories every service package has, empty to begin with.
+     *
+     * `config` is here rather than in FILES because a module no longer declares
+     * a database connection of its own: all business data goes through the
+     * shared `tenant` connection (FP-201). The directory stays so a module that
+     * genuinely needs its own configuration file has the conventional place for
+     * it.
      */
     private const EMPTY_DIRECTORIES = [
+        'config',
         'src/Models',
         'src/Services',
         'src/Consumers',
@@ -148,9 +154,6 @@ class SvcMakeCommand extends Command
             // is 'PluginSdk': the namespace segment is not a literal transliteration
             // of the hyphenated directory name.
             '{{studly}}' => Str::studly($name),
-            '{{screaming}}' => Str::upper(str_replace('-', '_', $name)),
-            '{{connection}}' => 'svc_'.str_replace('-', '_', $name),
-            '{{schema}}' => 'pos_'.str_replace('-', '_', $name),
             '{{prefix}}' => 'api/v1/'.$name,
         ];
     }

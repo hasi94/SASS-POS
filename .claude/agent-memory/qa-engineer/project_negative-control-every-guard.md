@@ -34,5 +34,37 @@ registered", "the tests directory is analysed" — each is an assertion that *no
 - *HTTP behaviour that depends on infrastructure being down.* Repoint the default connection at
   an sqlite file in a directory that does not exist, then register a route inside the `web`
   group and assert it 500s **before** asserting the middleware-free routes still answer 200.
+- *A guard that refuses a stale object.* Do the same moves on a connection name the guard does
+  not cover and watch the unguarded object serve the wrong data. Without that half, "it threw"
+  only proves something was wrong, not that the guard is what stopped it.
 
-Related: [[service-host-fragile-areas]], [[qa-assert-contract-not-symptom]].
+**Measure the installed thing, never a fresh copy of it.** The worst false green in T-003 was
+mine: two credential-leak tests built their own `VarCloner` and dumped through it, while `dump()`
+uses a cloner the framework constructed and captured **at provider-registration time**. A fresh
+copy picks up whatever we registered afterwards; the live one never does. Same trap wherever a
+framework captures a collaborator early - dumpers, the event dispatcher, the exception handler,
+the connection factory. If a helper is what production calls, the test has to call that helper,
+which usually means a child process that boots the app and reads its **stdout** (`ob_start()` does
+not capture a dumper writing through `ConsoleOutput`). Two shapes that looked like coverage and
+were not, both measured before discarding: `VAR_DUMPER_FORMAT=html` leaves the handler null so
+Symfony's lazy fallback builds a cloner *after* our provider; and registering the HTML dumper by
+hand from a CLI child inverts the very ordering that causes the bug. Guard such a probe with three
+controls - a marker proving the real handler is installed, a plain value proving the capture is
+not empty, and an **unprotected stand-in whose value must come back**, proving the probe could
+detect a leak at all.
+
+**One Pest trap that turns an assertion-of-absence green on its own.** `toContain()` takes
+**variadic needles**, `toHaveKey()` takes `($key, $value)`, `toHaveProperty()` takes `($name, $value, $message)` and `toThrow()` takes
+`($class, $message)` - none of those second arguments is a message under negation, so
+`expect($x)->not->toContain($secret, 'CliDumper')` passes as soon as *any* argument fails to
+match, and the harmless label always satisfies it. It cost me a false green in T-003 QA - two leak
+tests passed while the credential really was in the output. Never pass a second argument to a
+negated `toContain`/`toHaveKey`/`toHaveProperty`/`toThrow`. (`toBe`, `toBeTrue`, `toBeFalse` and `toHaveCount` do
+take a real message.) For "none of these leaked", collect offenders into an array with
+`str_contains()` and assert `toBe([])` with the list interpolated into the message: it reports
+*which* surface leaked instead of only that one did. This is now linted by
+`services/host/tests/Feature/QaAssertionShapeGuardTest.php` over every test file in the repo -
+it excludes only itself, by exact basename, because it holds the bad shapes as fixtures.
+
+Related: [[service-host-fragile-areas]], [[qa-assert-contract-not-symptom]],
+[[tenancy-boundary-leak-surfaces]].

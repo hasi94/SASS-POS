@@ -42,15 +42,19 @@ return [
     |    `php artisan config:clear && php artisan config:cache` after every edit,
     |    or do not cache configuration there at all.
     |
-    | 2. A service provider's mergeConfigFrom() (the generated stub merges its
-    |    own database connection that way) is a no-op while the configuration is
-    |    cached, so a service booted under a cached config never contributes its
-    |    connection to the running process.
+    | 2. A service provider's mergeConfigFrom() is a no-op while the
+    |    configuration is cached, so anything a module contributes that way is
+    |    missing from the running process. Since FP-201 no module contributes a
+    |    database connection that way at all - a module declares none, and all
+    |    business data goes through the shared `tenant` connection, which is
+    |    built at runtime by Flexipos\Kernel\Tenancy\Tenancy and is therefore
+    |    immune to a cached configuration - so the remaining exposure is only a
+    |    module that merges some other configuration file of its own.
     |    DOCUMENTED ONLY (decision D-20). Constraint 1's guard closes the
-    |    dangerous half structurally: a service whose connection was merged
-    |    before `config:cache` ran is inside the cache file already, and a
-    |    service that was not in SERVICES when the cache was built can no longer
-    |    boot for the first time under a disagreeing cached value.
+    |    dangerous half structurally: whatever a service merged before
+    |    `config:cache` ran is inside the cache file already, and a service that
+    |    was not in SERVICES when the cache was built can no longer boot for the
+    |    first time under a disagreeing cached value.
     |
     | 3. `php artisan route:cache` freezes the route table the same way, so a
     |    service added to SERVICES afterwards is unreachable until the cache is

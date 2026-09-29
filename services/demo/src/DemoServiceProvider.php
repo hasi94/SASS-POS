@@ -4,22 +4,22 @@ namespace Flexipos\Service\Demo;
 
 use Illuminate\Support\ServiceProvider;
 
+/**
+ * A module declares no database connection of its own.
+ *
+ * All business data is reached through the shared `tenant` connection, which is
+ * built at runtime for one shop at a time by Flexipos\Kernel\Tenancy\Tenancy and
+ * refuses every query until a tenant has been resolved. Platform-level data
+ * lives on `master`. Models extend Flexipos\Kernel\Tenancy\TenantModel; the
+ * schema this module owns goes in its own database/migrations directory and is
+ * applied to every tenant database by the per-tenant migration runner.
+ */
 class DemoServiceProvider extends ServiceProvider
 {
-    /**
-     * The database connection this service owns. No other service may use it.
-     */
-    public const CONNECTION = 'svc_demo';
-
     /**
      * The route prefix every endpoint of this service is mounted under.
      */
     public const PREFIX = 'api/v1/demo';
-
-    public function register(): void
-    {
-        $this->mergeConfigFrom(__DIR__.'/../config/connection.php', 'database.connections');
-    }
 
     public function boot(): void
     {

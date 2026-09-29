@@ -51,6 +51,16 @@
         <env name="DB_CONNECTION" value="sqlite"/>
         <env name="DB_DATABASE" value=":memory:"/>
         <env name="DB_URL" value=""/>
+        <!--
+            The master connection is a real, queryable connection under the
+            suite (AC-2), pointed at sqlite so no MySQL server is needed.
+            TENANCY_ALLOWED_DRIVERS adds sqlite to the tenant driver whitelist
+            for the same reason; the shipped default in config/tenancy.php is
+            mysql,mariadb only.
+        -->
+        <env name="DB_MASTER_DRIVER" value="sqlite"/>
+        <env name="DB_MASTER_DATABASE" value=":memory:"/>
+        <env name="TENANCY_ALLOWED_DRIVERS" value="mysql,mariadb,sqlite"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>

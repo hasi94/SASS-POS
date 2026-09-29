@@ -17,7 +17,10 @@
 |---|---|---|---|---|
 | T-001 | Monorepo, backend toolchain and module host skeleton | old FP-003 to FP-005 | `ai/T-001-monorepo-service-host` | **DONE** — QA 32/32, review APPROVE, commit `741307c` |
 | T-002 | Host hardening from the T-001 review | old FP-146 to FP-153 | `ai/T-002-service-host-hardening` | **DONE** — QA 19/19, review APPROVE, commit `ad7fb27` |
-| T-003 | Convert the skeleton to master plus tenant connections | FP-201, FP-202 | not started | **NEXT** |
+| T-003 | Convert the skeleton to master plus tenant connections | FP-201 | `ai/T-003-tenant-connections` (from T-002) | **DONE** — QA PASS 25/25, review APPROVE |
+| T-004 | Rename services to modules | FP-202 | not started | TODO — after T-003 |
+
+**Why FP-201 and FP-202 are split.** The rename is mechanical but touches every file, and burying a semantic change inside that much churn makes the diff unreviewable. FP-201 is what Phase 0 is blocked on; the rename blocks nothing, so it goes second and alone.
 
 ### What survives the v0.4 change
 
@@ -34,8 +37,27 @@ The host that boots only the modules named in configuration, the generator, the 
 | FP-155 | Keep the quality gate fast (153s cold, growth is multiplicative) | TODO — **before the second module lands** |
 | FP-156 | Root line-ending rule, `* text=auto eol=lf` | TODO — cheap, own commit |
 | FP-157 | Retire the remaining stock framework scaffolding, including the closure route that blocks route caching | TODO — before containers and CI |
+| FP-158 | Correct two defects in `docs/database.md` §4.4, found by the architect while planning T-003 | TODO — small, architect-owned |
+| FP-159 | Declare the framework dependency in the shared package manifests | TODO — own commit |
+| FP-160 | One construction choke point for the tenant connection | TODO — before FP-203 |
+| FP-161 | Make the tenant marker unforgeable | TODO — before FP-203 |
+| FP-162 | Purge every read and write variant on teardown | **DONE (T-003)** — reviewer R-2 |
+| FP-163 | Document the two escape hatches the guard cannot cover | TODO — with FP-203 |
+| FP-164 | Move shared test fixture helpers out of a test file | TODO — cheap |
 | ~~FP-144~~ | ~~Decide ERP scope questions~~ | **RESOLVED** by `Refference/ARCH.md`: database per tenant, ERP in scope, modular monolith |
 | ~~FP-145~~ | ~~Reserve ERP extension points~~ | **VOID** — the ERP domains are now designed directly rather than reserved for later |
+
+**FP-158 detail.** The proposed cache key includes the credential version, which nothing knows until after the mapping row has been read, so it cannot serve as a lookup key; the version belongs in the value. And one bullet says the secret is cached for the process lifetime while a bullet two lines later describes in-place credential rotation, which that caching would break. Both defects sit in the same six-line block, so this is one small row rather than two, and it is a document edit owned by the architect rather than a code task.
+
+**FP-159 detail.** The shared packages use the framework without declaring it. Deliberately skipped during T-003 because adding it rewrites the lock file, which has no business happening inside a task about connection plumbing.
+
+**FP-160 detail.** The guard currently attaches from two different hooks with a weak map to prevent double-attachment, and which hook catches which route is dictated by framework internals. Both construction routes ultimately pass through the connection factory binding, so decorating that binding would guard every route with no event dependency, no weak map, and no hole when a test fakes the event dispatcher. Reviewer's assessment: coherent design, mildly accreted attachment, worth consolidating before real modules depend on it.
+
+**FP-161 detail.** All guard levels check a marker that is a public constant, so code inside one tenant's scope could write a stanza carrying the right marker and another tenant's database. Inherent to the approved design and strictly better than the defect it replaced, but closable cheaply: generate a random token per scope entry, hold it on the scoped object, and compare that instead. Forging then needs access to the live scoped object rather than a published constant.
+
+**FP-163 detail.** Two things no connection-level guard can cover: a raw handle obtained from the connection is never re-checked, and a lazily evaluated result opened under one tenant keeps yielding that tenant's rows after a switch, because the per-query check fires once when the statement executes. Neither is a defect; both need writing down where a module author will look.
+
+**Carried into FP-203.** The real mapping reader must keep returning a credential *reference* and never a password, so the boundary where a secret becomes a usable password stays inside one audited place. Also needed there: a caching layer that never caches the resolved secret, and a re-read-and-retry path for a credential rotation that moved the reference.
 
 ---
 
@@ -45,7 +67,7 @@ The master database, tenant provisioning and everything that must exist before a
 
 | ID | Task | Stream | Deliverable | Depends | Status |
 |---|---|---|---|---|---|
-| FP-201 | Two-connection model | BE | `master` and `tenant` connections; `TenantContext`; the resolver that builds the tenant connection from the mapping; strip per-module connection config from the generator and the demo module | T-002 | TODO |
+| FP-201 | Two-connection model | BE | `master` and `tenant` connections; `TenantContext`; the resolver that builds the tenant connection from the mapping; strip per-module connection config from the generator and the demo module | T-002 | DONE (T-003) |
 | FP-202 | Rename services to modules | BE | `services/` → `modules/`, `svc:make` → `module:make`, boundary layers and documentation follow; vocabulary matches the architecture | FP-201 | TODO |
 | FP-203 | Master schema | BE | tenants, users, tenant_users, plans, subscriptions, licences, feature flags, platform settings, platform audit, **tenant_databases** mapping with host, port, name, credential reference, status and schema version | FP-201 | TODO |
 | FP-204 | Tenant schema baseline | BE | The tenant migration tree and its runner; settings, number sequences, audit, outbox | FP-203 | TODO |

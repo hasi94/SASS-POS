@@ -17,7 +17,7 @@ return [
     |
     */
 
-    'default' => env('DB_CONNECTION', 'sqlite'),
+    'default' => env('DB_CONNECTION', 'master'),
 
     /*
     |--------------------------------------------------------------------------
@@ -28,9 +28,67 @@ return [
     | An example configuration is provided for each database system which
     | is supported by Laravel. You're free to add / remove connections.
     |
+    |--------------------------------------------------------------------------
+    | The two connections FlexiPOS actually uses
+    |--------------------------------------------------------------------------
+    |
+    | `master` holds the login identity, the tenants, the subscriptions and the
+    | tenant-to-database mapping. It is configured from the environment, is
+    | always available, and never depends on a tenant having been resolved.
+    |
+    | `tenant` holds one shop's business data. It has no fixed database: the
+    | stanza below is a placeholder with a sentinel driver, no host and no
+    | credentials, and Flexipos\Kernel\Tenancy\Tenancy is the only code that
+    | ever replaces it. Until it does, building the connection is refused, so a
+    | query with no tenant resolved fails loudly instead of reading whatever
+    | database happened to be configured.
+    |
+    | Every other stanza below is stock Laravel scaffolding, kept as reference
+    | configuration (removing it is a separate backlog row).
+    |
     */
 
     'connections' => [
+
+        'master' => [
+            // Overridable so the test suite can point master at sqlite; every
+            // real deployment leaves it at the MySQL/MariaDB default.
+            'driver' => env('DB_MASTER_DRIVER', 'mysql'),
+            // Deliberately no 'url' key: ConfigurationUrlParser would otherwise
+            // be handed the empty DB_URL the test suite sets.
+            'host' => env('DB_MASTER_HOST', '127.0.0.1'),
+            'port' => env('DB_MASTER_PORT', '3306'),
+            'database' => env('DB_MASTER_DATABASE', 'flexipos_master'),
+            'username' => env('DB_MASTER_USERNAME', 'root'),
+            'password' => env('DB_MASTER_PASSWORD', ''),
+            'unix_socket' => env('DB_MASTER_SOCKET', ''),
+            'charset' => env('DB_MASTER_CHARSET', 'utf8mb4'),
+            // utf8mb4_unicode_ci, not utf8mb4_0900_ai_ci: local development is
+            // MariaDB 10.4 (docs/database.md section 14). MySQL deployments
+            // override it.
+            'collation' => env('DB_MASTER_COLLATION', 'utf8mb4_unicode_ci'),
+            'prefix' => '',
+            'prefix_indexes' => true,
+            'strict' => true,
+            'engine' => null,
+            'options' => extension_loaded('pdo_mysql') ? array_filter([
+                (PHP_VERSION_ID >= 80500 ? Mysql::ATTR_SSL_CA : PDO::MYSQL_ATTR_SSL_CA) => env('DB_MASTER_SSL_CA'),
+            ]) : [],
+        ],
+
+        /*
+         * Placeholder only. No host, no database, no username, no password -
+         * ever, at rest. 'database' and 'prefix' are present because
+         * ConnectionFactory::createSingleConnection() reads both
+         * unconditionally; the driver is a sentinel no real connector answers
+         * to, so nothing can connect by accident even if the guard in
+         * TenancyServiceProvider were removed.
+         */
+        'tenant' => [
+            'driver' => 'flexipos-no-tenant',
+            'database' => '',
+            'prefix' => '',
+        ],
 
         'sqlite' => [
             'driver' => 'sqlite',

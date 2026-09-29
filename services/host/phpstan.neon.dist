@@ -30,6 +30,7 @@ parameters:
         # Str::studly('http-client') === 'HttpClient'; the directory stays kebab-case.
         - ../../packages/http-client/src
         - ../../packages/kernel/src
+        - ../../packages/kernel/tests
         # Str::studly('plugin-sdk') === 'PluginSdk'; the directory stays kebab-case.
         - ../../packages/plugin-sdk/src
         - ../../packages/testing/src

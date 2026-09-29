@@ -64,9 +64,12 @@ same four points, in more detail, are in `services/host/config/servicehost.php`.
    without complaining. If `SERVICES` lives in `.env` rather than in the container's
    environment, run `php artisan config:clear && php artisan config:cache` after every
    edit, or do not cache configuration on that host.
-2. **`mergeConfigFrom()` is a no-op under a cached configuration**, so a service booted
-   that way never contributes its database connection. *Documented only* — point 1's guard
-   closes the dangerous half structurally.
+2. **`mergeConfigFrom()` is a no-op under a cached configuration**, so anything a module
+   contributes that way is missing from the running process. A module no longer contributes
+   a database connection at all — it declares none, and business data goes through the
+   shared `tenant` connection, which is built at runtime and is therefore unaffected by a
+   cached configuration. *Documented only* — point 1's guard closes the dangerous half
+   structurally.
 3. **`php artisan route:cache` freezes the route table** the same way, and currently fails
    outright because of the stock closure route on `/`. *Documented only*; removing stock
    Laravel scaffolding is out of scope for now.
@@ -82,8 +85,17 @@ php artisan svc:make billing
 ```
 
 This scaffolds `services/billing/` with a composer package, a service provider, a routes
-file mounted at `/api/v1/billing`, a `svc_billing` database connection, empty
-`database/migrations/` and `src/Consumers/` directories, and a passing feature test.
+file mounted at `/api/v1/billing`, empty `config/`, `database/migrations/` and
+`src/Consumers/` directories, and a passing feature test.
+
+A generated module **declares no database connection of its own.** There are two named
+connections in the platform and a module uses them both through the kernel: `master` for
+platform data (login identity, tenants, subscriptions, the tenant-to-database mapping), and
+`tenant` for one shop's business data. The `tenant` connection has no fixed database — it is
+built at runtime, one shop at a time, by `Flexipos\Kernel\Tenancy\Tenancy`, which is the only
+code allowed to configure it, and it refuses every query until a tenant has actually been
+resolved. See [docs/architecture.md](docs/architecture.md) and
+[docs/database.md](docs/database.md).
 
 Add `billing` to `SERVICES` to boot it; **no file inside `services/host/` needs to change
 for that** — booting a generated service is a configuration change only, and `svc:make`

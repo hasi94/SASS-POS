@@ -88,7 +88,12 @@ it('scaffolds the structure a service package must have', function () {
 
     foreach ([
         'composer.json',
-        'config/connection.php',
+        // T-001 AC-25's "a database connection configuration entry named for the
+        // service" is SUPERSEDED by T-003 AC-19/AC-20, not regressed: a module
+        // declares no connection of its own and reaches business data through
+        // the shared `tenant` connection. The directory survives as the
+        // conventional place for a module's own configuration.
+        'config/.gitkeep',
         'routes/api.php',
         'src/SvcmakefixtureServiceProvider.php',
         'src/Http/Controllers/PingController.php',
@@ -108,7 +113,11 @@ it('scaffolds the structure a service package must have', function () {
         ->and($manifest['name'])->toBe('flexipos/service-svcmakefixture')
         ->and($manifest['autoload']['psr-4'])->toBe(['Flexipos\\Service\\Svcmakefixture\\' => 'src/'])
         ->and($manifest['extra']['flexipos']['provider'])->toBe('Flexipos\\Service\\Svcmakefixture\\SvcmakefixtureServiceProvider')
-        ->and($manifest['extra']['flexipos']['connection'])->toBe('svc_svcmakefixture')
+        // Superseded with the file above (T-003 AC-20): the manifest carries no
+        // `connection` and no `schema` key, because there is no per-module
+        // connection to name.
+        ->and($manifest['extra']['flexipos'])->not->toHaveKey('connection')
+        ->and($manifest['extra']['flexipos'])->not->toHaveKey('schema')
         ->and($manifest['extra'])->not->toHaveKey('laravel');
 });
 

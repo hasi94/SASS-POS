@@ -55,6 +55,7 @@ function qaFixturePackageNames(): array
         'qacachefixture',
         'qadocfixture',
         'qadiscoveryfixture',
+        'qatenancyfixture',
         'qatrustfixture',
         'reachablefixture',
         'svc-make-fixture',
