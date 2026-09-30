@@ -1,0 +1,23 @@
+# Repository-wide line-ending rule (FP-156).
+#
+# core.autocrlf is true on this project's Windows development machines, so
+# before this file existed every text file outside services/host/ - which has
+# had its own rule since T-001 - was written into the working tree with CRLF,
+# while `svc:make` writes generated files directly with LF. A byte-for-byte
+# regeneration diff then failed for someone who had changed nothing, and Pint's
+# line_ending fixer rejected the checked-out PHP files outright, so `composer
+# check` died at its first step on a fresh clone.
+#
+# `text=auto` lets git decide what is text; `eol=lf` makes every text file land
+# in the working tree with LF on every platform, whatever core.autocrlf says.
+* text=auto eol=lf
+
+# The two Windows-only script formats keep CRLF, so this rule agrees with the
+# root .editorconfig's `[*.{bat,ps1}] end_of_line = crlf` rather than fighting
+# it - and with the .NET print agent's tooling when it lands.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary, so git never inspects or translates anything inside it.
+*.ico binary
