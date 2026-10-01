@@ -11,6 +11,16 @@
 
 ---
 
+## Owner decisions, 2026-10-02
+
+| Decision | Effect |
+|---|---|
+| **Server work approved** | FP-221 unblocked. Pre-flight is read-only first; nothing that disturbs existing applications on that box. |
+| **Continue in backlog order** | Phase 0 completes before anything is visible. The thin vertical slice was offered and declined. |
+| **Merge each task when committed** | `main` fast-forwarded to `bcd7595`, bringing all four tasks. Future tasks merge on commit rather than stacking. |
+
+---
+
 ## Active build
 
 | ID | Title | Covers | Branch | Status |
@@ -98,7 +108,7 @@ The master database, tenant provisioning and everything that must exist before a
 | FP-218 | CI pipeline | OPS | Format, static analysis, boundaries, tests, migration tests on a fresh and an existing database | FP-217 | TODO |
 | FP-219 | Frontend bootstrap | FE | Angular workspace: till application, admin application, shared library | — | TODO |
 | FP-220 | Print agent bootstrap | PA | .NET solution, loopback service, packaging | — | TODO |
-| FP-221 | VPS pre-flight and walking skeleton | OPS | **Needs the owner's explicit approval before touching the server** | FP-217 | BLOCKED |
+| FP-221 | VPS pre-flight and walking skeleton | OPS | Owner APPROVED 2026-10-02. Read-only pre-flight first, then Docker Engine, /opt/flexipos, compose with limits, CloudPanel reverse-proxy site. Must not disturb existing applications. | FP-217 | TODO |
 
 ## Phase 1 — Point of sale
 
