@@ -21,9 +21,14 @@ use Tests\TestCase;
  * message, its string form, its trace, anywhere in its previous chain), a log
  * record, and rendered debug output.
  *
- * The fixture helpers come from TenancyResolutionTest.php in this package; every
- * tenant in that mapping resolves its credential to tenancyFixturePassword().
+ * The fixture helpers come from ../Support/tenancy-fixture.php, required below;
+ * every tenant in that mapping resolves its credential to
+ * tenancyFixturePassword(). This file used to rely on TenancyResolutionTest.php
+ * having been collected first, so running it on its own died on an undefined
+ * function (T-004 FP-164).
  */
+
+require_once __DIR__.'/../Support/tenancy-fixture.php';
 
 uses(TestCase::class);
 
@@ -130,6 +135,12 @@ beforeEach(function () {
 
 afterEach(function () {
     tenancyForgetFixture();
+});
+
+// T-004 FP-155 (AC-6): the two shared SQLite files are removed once per file, not
+// once per case. Native calls only - afterAll runs outside the application.
+afterAll(function () {
+    tenancyDeleteFixtureRoot();
 });
 
 it('keeps the credential out of every exception every refusal path raises', function (string $tenantId) {

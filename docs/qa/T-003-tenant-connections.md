@@ -6,9 +6,20 @@ plan `docs/plans/T-003-tenant-connections.md` (13 steps) · decisions `docs/deci
 ## Verdict: PASS (run 3)
 
 **All 25 acceptance criteria and every non-functional requirement pass.** The gate is green at
-**277 passed, 1219 assertions, exit 0**, confirmed on two consecutive runs, with Pint, PHPStan
+**279 passed, 1224 assertions, exit 0** *(corrected 2026-09-30 — see the note below; this report
+originally said 277 / 1219)*, confirmed on two consecutive runs, with Pint, PHPStan
 level 6 and Deptrac clean. Run 1's and run 2's findings are kept below, because the reasoning
 behind each fix is the part worth re-reading when FP-203 extends this code.
+
+> **Correction, 2026-09-30 (T-004 QA).** Every "277 passed, 1219 assertions" in this report was
+> wrong; the T-003 tip (`e6c1934`) stands at **279 passed, 1224 assertions**. Three independent
+> measurements agree on 279 / 1224: the T-003 *review* header, `architect`'s two pre-T-004
+> measurements (plan §0.1), and T-004 QA's own reconstruction — the T-004 tree measures 299
+> passed / 1331 assertions, from which the 23 named additions (111 assertions) come out and the
+> 3 named removals (4 assertions) go back, giving 276 + 3 = **279** and 1220 + 4 = **1224**. The
+> wrong pair looks like a count copied from a run taken two cases before the last two QA cases
+> landed (run 2 was 275 / 1207). Corrected here so T-005 does not inherit it; the numbers below
+> are marked where they were changed.
 
 Run 3 exists because **the reviewer found a defect in my own sweep (BUG-3)**: my two `dump()`
 cases passed while the surface leaked. They are rewritten, and the rewrite is described in full
@@ -191,7 +202,8 @@ offenders** across the suite.
 ### Gate
 
 `cd services/host && composer check` → **exit 0**, Pint `{"result":"passed"}`, PHPStan level 6
-`[OK] No errors`, Deptrac `Violations 0`, Pest **277 passed, 0 failed, 1219 assertions**.
+`[OK] No errors`, Deptrac `Violations 0`, Pest **279 passed, 0 failed, 1224 assertions**
+*(corrected 2026-09-30; originally recorded here as 277 / 1219)*.
 Confirmed on **two consecutive runs** (98 s, 88 s), because an earlier run-3 attempt was polluted
 by a concurrent test run and produced 50 meaningless failures — see *Regression risks* below.
 
@@ -317,11 +329,14 @@ worth a fix round on its own; worth folding into whatever `dev` next touches the
   failures were the defect-pinning tests for BUG-1 and BUG-2.
 - Run 2, after `dev`'s fixes and 6 more QA cases: 275 passed, 0 failed, 1207 assertions, exit 0,
   114 s. **That green was partly false** — see BUG-3.
-- **Run 3, after rewriting the `dump()` cases and the R-2 assertion: 277 passed, 0 failed,
-  1219 assertions, exit 0**, on two consecutive runs (98 s, 88 s). Pint `{"result":"passed"}`,
+- **Run 3, after rewriting the `dump()` cases and the R-2 assertion: 279 passed, 0 failed,
+  1224 assertions, exit 0** *(corrected 2026-09-30; originally recorded as 277 / 1219)*, on two
+  consecutive runs (98 s, 88 s). Pint `{"result":"passed"}`,
   PHPStan level 6 `[OK] No errors`, Deptrac `Violations 0` — my test files are covered by both
   and clean.
-- **Every one of the 246 pre-existing tests still passes** (277 − 31 new = 246).
+- **Every one of the 248 pre-existing tests still passes** (279 − 31 new = 248) *(the derived
+  figure was 246 under the wrong total; the claim itself — no pre-existing test lost — is
+  unchanged)*.
 - Skipped: none.
 - Gate duration measured at 100 s, 106 s, 114 s and 144 s across four runs, up from the 79 s
   baseline. Plan R-9 asks for this to be reported against **FP-155** rather than fixed by trimming
@@ -610,4 +625,5 @@ code had to be touched to show it.
 Run 1: FAIL — 2 major defects (BUG-1 credential in `dd()`/`dump()`, BUG-2 `DB::build()`/`connectUsing()` bypasses the tenant guard). 24/25 AC pass; AC-15 and one non-functional requirement fail.
 Run 2: FAIL -> PASS — both defects closed and independently verified, plus `dev`'s three additions checked (extension kept alongside the listener, refusal before caching, `WeakMap` de-duplication). 25/25 AC and every non-functional requirement pass. Gate exit 0, 275 passed, 1207 assertions. 1 minor non-blocking note (two stale test names in `dev`-owned `SecretTest.php`).
 Run 3a: PASS, reviewer APPROVED. M-3 closed — corrected a disproved claim about `createTransaction()` reconnecting before the `beforeStartingTransaction` hooks, which I had inherited rather than measured; re-verified against the framework source and by measurement, and left visible as a marked correction rather than edited out. No code change, gate unchanged.
-Run 3: PASS (run 2's green was partly false) — reviewer found BUG-3 in my own sweep: both `dump()` cases measured a hand-built cloner, not the installed handler, and passed while the surface leaked. Rewritten as a child-process probe of the real handler with three controls; two further false-green shapes found and discarded while fixing it. Accepted the R-2 ruling and rewrote the assertion that had pinned the unfixed behaviour as a precondition. `toHaveProperty()` added to the assertion-shape guard. `dev`'s `WeakMap` storage also closed the `var_export()` residual, superseding Ruling 2 on that point. Gate exit 0, 277 passed, 1219 assertions, confirmed twice.
+Run 3: PASS (run 2's green was partly false) — reviewer found BUG-3 in my own sweep: both `dump()` cases measured a hand-built cloner, not the installed handler, and passed while the surface leaked. Rewritten as a child-process probe of the real handler with three controls; two further false-green shapes found and discarded while fixing it. Accepted the R-2 ruling and rewrote the assertion that had pinned the unfixed behaviour as a precondition. `toHaveProperty()` added to the assertion-shape guard. `dev`'s `WeakMap` storage also closed the `var_export()` residual, superseding Ruling 2 on that point. Gate exit 0, 279 passed, 1224 assertions, confirmed twice (this line originally said 277 / 1219; corrected 2026-09-30, see Run 4).
+Run 4 (2026-09-30, T-004 QA): PASS unchanged — no re-test of T-003 behaviour, one number corrected. The gate figure recorded above was wrong: the T-003 tip is 279 passed / 1224 assertions, not 277 / 1219. Corrected in the header, in the Gate section, in the run list and in the derived "pre-existing tests" figure (246 -> 248), each marked as a correction rather than silently edited. Evidence: the T-003 review header, architect's two pre-T-004 measurements, and T-004 QA's own reconstruction from the T-004 tree (299 / 1331 minus 23 named additions / 111 assertions plus 3 named removals / 4 assertions).

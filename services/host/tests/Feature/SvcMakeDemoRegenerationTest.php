@@ -63,14 +63,82 @@ function demoTreeFingerprint(string $root): array
     return $fingerprint;
 }
 
-afterEach(function () {
-    // Safety net only: the test body restores in a finally block. This catches
-    // the case where the move succeeded but the process died before it.
-    if (File::isDirectory(demoRegenBackupPath()) && ! File::isDirectory(servicesPath('demo'))) {
-        File::moveDirectory(demoRegenBackupPath(), servicesPath('demo'));
+/**
+ * Relative path => raw byte checksum for every file under a directory.
+ *
+ * The opposite trade-off to demoTreeFingerprint() above, for the one place that
+ * needs it: the afterEach guard that decides whether the backup is safe to
+ * delete (QA BUG-4).
+ *
+ * That guard must only ever delete a copy it can prove is redundant, so it needs
+ * the strictest comparison available, not the most forgiving one. Raw equality is
+ * strictly stronger than normalised equality: anything it calls identical really
+ * is identical, byte for byte. Where normalised hashing is right for the
+ * assertion in the test body - two trees from different producers, where a line
+ * ending must not fail the gate - it is wrong for a delete decision, because it
+ * would call two trees interchangeable while one of them still differs on disk.
+ *
+ * @return array<string, string>
+ */
+function demoRawTreeFingerprint(string $root): array
+{
+    $files = Finder::create()
+        ->in($root)
+        ->files()
+        ->ignoreDotFiles(false)
+        ->ignoreVCS(true);
+
+    $fingerprint = [];
+
+    foreach ($files as $file) {
+        $relative = str_replace('\\', '/', $file->getRelativePathname());
+
+        $fingerprint[$relative] = (string) md5_file($file->getPathname());
     }
 
-    File::deleteDirectory(demoRegenBackupPath());
+    ksort($fingerprint);
+
+    return $fingerprint;
+}
+
+afterEach(function () {
+    $demo = servicesPath('demo');
+    $backup = demoRegenBackupPath();
+
+    // Safety net only: the test body restores in a finally block. This catches
+    // the case where the move succeeded but the process died before it.
+    if (File::isDirectory($backup) && ! File::isDirectory($demo)) {
+        File::moveDirectory($backup, $demo);
+    }
+
+    /*
+     * QA BUG-3. A surviving backup is the ONLY copy of the committed module
+     * whenever services/demo holds something else, so it is never deleted blind.
+     * The original version deleted it unconditionally, which - combined with a
+     * delete failure in the finally below skipping the restore - could take the
+     * committed module and its backup out together.
+     *
+     * QA BUG-4: raw bytes, deliberately, and NOT demoTreeFingerprint(), which
+     * normalises line endings before hashing. A delete decision needs the
+     * strictest comparison available; normalised equality would call two trees
+     * interchangeable while one still differed on disk, and the thing being
+     * deleted here may be the only pristine copy.
+     *
+     * Worth being precise about what the two sides are, because it is not the
+     * self-comparison it looks like. This branch is reachable only when the
+     * restore did NOT happen, so services/demo holds the regenerated tree and the
+     * backup holds the committed one - two different producers. Raw equality can
+     * therefore report "different" for trees whose content matches, if their line
+     * endings ever diverge again. That false negative keeps the backup, which is
+     * the safe direction, and the next run's pre-flight assertion names it and
+     * refuses to start. A false positive, which normalised hashing allowed, loses
+     * the copy.
+     */
+    if (File::isDirectory($backup)
+        && File::isDirectory($demo)
+        && demoRawTreeFingerprint($demo) === demoRawTreeFingerprint($backup)) {
+        tryDeleteFixtureDirectory($backup);
+    }
 });
 
 it('regenerates the committed demo package byte for byte', function () {
@@ -111,11 +179,95 @@ it('regenerates the committed demo package byte for byte', function () {
             'regenerating services/demo differs from the committed tree in: '.implode(', ', $differing)
         );
     } finally {
-        File::deleteDirectory($demo);
-        File::moveDirectory($backup, $demo);
+        /*
+         * QA BUG-3: the restore must not be reachable only when the delete
+         * succeeds. tryDeleteFixtureDirectory() never throws, so nothing here can
+         * jump over the two lines below and leave the committed module living
+         * only in a backup that afterEach might then remove.
+         *
+         * If the regenerated tree cannot be removed, the backup stays exactly
+         * where it is and the assertions after this block report a working tree
+         * that needs a hand, rather than this teardown quietly making it worse.
+         */
+        if (tryDeleteFixtureDirectory($demo)) {
+            File::moveDirectory($backup, $demo);
+        }
     }
 
-    // The committed tree is back, untouched, whatever happened above.
+    // Recovery information, not an assertion: this keeps the case's assertion
+    // count unchanged (T-004 AC-4) while still naming where the only copy of the
+    // committed module is if the restore above could not run.
+    if (! File::isDirectory($demo)) {
+        throw new RuntimeException('services/demo was not restored; its only copy is still at '.$backup);
+    }
+
+    // The committed tree is back, untouched, whatever happened above. The backup
+    // assertion is also what reports an un-removable regenerated tree, now that
+    // the teardown no longer throws on that path.
     expect(demoTreeFingerprint($demo))->toBe($committed)
         ->and(File::exists($backup))->toBeFalse();
+});
+
+it('distinguishes raw bytes from normalised content, which is what the teardown rests on', function () {
+    /*
+     * QA BUG-4. The afterEach guard above deletes the backup only when the two
+     * trees are identical byte for byte, and the comment there says so. That is a
+     * claim about which of these two functions it calls, so it is pinned here
+     * rather than left to a reader to verify.
+     *
+     * Two trees with the same characters and different line endings: normalised
+     * hashing must call them equal (which is why the assertion in the case above
+     * uses it - a CRLF checkout must not fail the gate, T-002 R-1 / FP-153), and
+     * raw hashing must call them different (which is why the delete decision uses
+     * it). If either of those ever stops being true, the teardown's safety
+     * argument has changed and this says so.
+     */
+    $lf = storage_path('app'.DIRECTORY_SEPARATOR.'demo-eol-lf');
+    $crlf = storage_path('app'.DIRECTORY_SEPARATOR.'demo-eol-crlf');
+
+    try {
+        File::ensureDirectoryExists($lf);
+        File::ensureDirectoryExists($crlf);
+
+        File::put($lf.DIRECTORY_SEPARATOR.'a.txt', "one\ntwo\n");
+        File::put($crlf.DIRECTORY_SEPARATOR.'a.txt', "one\r\ntwo\r\n");
+
+        expect(demoTreeFingerprint($lf))->toBe(
+            demoTreeFingerprint($crlf),
+            'demoTreeFingerprint() stopped normalising line endings, so the assertion in the case above will '.
+            'now fail the gate on a CRLF checkout - the false red FP-153 exists to prevent'
+        );
+
+        expect(demoRawTreeFingerprint($lf))->not->toBe(
+            demoRawTreeFingerprint($crlf),
+            'demoRawTreeFingerprint() stopped distinguishing line endings, so the afterEach guard can delete the '.
+            'only copy of the committed module while it still differs from services/demo on disk'
+        );
+    } finally {
+        tryDeleteFixtureDirectory($lf);
+        tryDeleteFixtureDirectory($crlf);
+    }
+
+    expect(File::isDirectory($lf))->toBeFalse()
+        ->and(File::isDirectory($crlf))->toBeFalse();
+
+    /*
+     * And the teardown really calls the strict one. Without this, the two
+     * assertions above would keep passing after someone swapped the guard back to
+     * the normalising function - a test that pins a property nobody uses, which is
+     * the shape of QA BUG-2.
+     *
+     * Checked as source because afterEach cannot be invoked directly, and the
+     * branch only runs when a delete has already failed. Same precedent as
+     * RouteCachingTest reading routes/web.php.
+     */
+    $source = (string) File::get(__FILE__);
+    $teardown = substr($source, (int) strpos($source, 'afterEach(function ()'));
+    $teardown = substr($teardown, 0, (int) strpos($teardown, "\nit("));
+
+    expect(str_contains($teardown, 'demoRawTreeFingerprint($demo) === demoRawTreeFingerprint($backup)'))
+        ->toBeTrue('the afterEach guard no longer compares raw bytes before deleting the backup (QA BUG-4)');
+
+    expect(str_contains($teardown, 'demoTreeFingerprint($demo) === demoTreeFingerprint($backup)'))
+        ->toBeFalse('the afterEach guard is comparing line-ending-normalised content before deleting the only copy of the committed module (QA BUG-4)');
 });

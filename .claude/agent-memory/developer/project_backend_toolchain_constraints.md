@@ -63,7 +63,36 @@ otherwise.
   `md5(str_replace("\r\n", "\n", file_get_contents(...)))` whenever the two sides came
   from different producers; raw `md5_file()` is only safe when comparing a tree against
   itself (before/after a move, a rollback, an AC-27 host fingerprint). A root
-  `.gitattributes` is the durable fix, tracked as FP-156.
+  `.gitattributes` is the durable fix and landed in T-004 as commit `643e220`.
+  **Second half of the rule, and the part that is easy to get backwards: which hash is right
+  depends on what the comparison decides, not only on where the two trees came from.** For an
+  *assertion* that two trees match, normalise - a CRLF checkout must not fail the gate. For a
+  *decision to delete* one of them, hash raw bytes even across different producers: raw
+  equality is strictly stronger, so a false negative merely keeps a redundant copy while a
+  false positive destroys the only one. T-004 QA BUG-4 was exactly that - a teardown comparing
+  normalised content under a comment claiming it compared bytes.
+
+- **`tests/Helpers.php` is loaded before `tests/Pest.php`, and both run before the
+  application exists.** Pest's `BootFiles` bootstrapper walks a fixed `STRUCTURE`
+  (`Expectations`, `Expectations.php`, `Helpers`, `Helpers.php`, `Pest.php`) on every
+  command, including a single-file run — so a helper `Pest.php` itself calls belongs in
+  `Helpers.php`, and it must **not** use `base_path()`/`storage_path()`. Derive paths from
+  `__DIR__` instead. Same trap in Pest's `beforeAll`/`afterAll`: they run outside the
+  application lifecycle, so the `File` facade and every path helper are unavailable there —
+  memoise the path on the first `beforeEach` or use native `glob`/`unlink`/`rmdir`.
+- **`pest --list-tests` and `--list-groups` exit 0 and perform full collection without
+  executing anything.** That is how a group's membership can be proved from inside the suite
+  for ~1 s per child, instead of re-running the group (≈50 s) or parsing a JUnit log that
+  only records tests that actually ran. Class names come back as `P\<namespace>\<Basename>`.
+  Pest also **rejects `--no-ansi`** ("Unknown option") — the flag is `--colors=never`, which
+  is what the existing child-run helpers use.
+- **`git add --renormalize .` re-adds every tracked file matching the pathspec**, so it also
+  stages whatever unrelated edit another role has in flight (it staged the lead's
+  `docs/backlog.md` change). Check `git status --porcelain` afterwards and unstage anything
+  that is not a line-ending change before the commit. It also aborts partway with `unable to
+  stat` if a tracked file is deleted in the working tree but not yet staged. And
+  `git clone --local` from `D:` into a `C:` temp directory fails with `Improper link` —
+  `--no-hardlinks` is required for any cross-drive clone on this machine.
 
 **Why:** each was found by running the tool, not by reading its docs; four of them changed
 a decision that had been written down differently.

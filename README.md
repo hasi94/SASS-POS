@@ -32,8 +32,21 @@ PHP and Composer paths for this machine are documented in [CLAUDE.md](CLAUDE.md)
 ```bash
 cd services/host
 composer install
-composer check     # lint + stan + deptrac + test
+composer check     # lint + stan + deptrac + test — the gate, and the only thing that gates a task
+composer test:fast # inner development loop: every test except the toolchain group
 ```
+
+`composer test:fast` skips the `toolchain` group: the test files that spawn a child process to
+boot a whole tool (Pint, PHPStan, Deptrac, Pest itself, `svc:make`, the cache guards). That is
+roughly a sixth of the cases and most of the suite's runtime, so the fast command finishes in
+about a third of the time. Measured warm, on one machine, three times — a cold run (the first
+of a session, or with the analysis caches cleared) costs considerably more on both sides, so
+treat the ratio as the durable part and not the seconds. `toolchainGroupFiles()` in
+`services/host/tests/Helpers.php` is the one place the group is defined.
+
+It is never the gate: `composer check` runs everything, and
+`services/host/tests/Feature/ToolchainGroupCoverageTest.php` asserts that it cannot be
+filtered — `composer test` and `composer check` carry no group flag at all.
 
 `services/host/.env.example` ships with `SERVICES=demo`, which boots the demonstration
 service package in `services/demo`.
@@ -70,9 +83,13 @@ same four points, in more detail, are in `services/host/config/servicehost.php`.
    shared `tenant` connection, which is built at runtime and is therefore unaffected by a
    cached configuration. *Documented only* — point 1's guard closes the dangerous half
    structurally.
-3. **`php artisan route:cache` freezes the route table** the same way, and currently fails
-   outright because of the stock closure route on `/`. *Documented only*; removing stock
-   Laravel scaffolding is out of scope for now.
+3. **`php artisan route:cache` freezes the route table** the same way, so a module added to
+   `SERVICES` after the cache was built is unreachable until it is rebuilt. *Documented
+   only* — nothing detects that. The command itself succeeds: this entry used to say it
+   could not run at all while `routes/web.php` used an inline closure, which was never true
+   on this framework version (Laravel 12 serialises a closure action).
+   `services/host/tests/Feature/RouteCachingTest.php` now asserts that it succeeds, so it
+   cannot break unnoticed.
 4. **`--classmap-authoritative` breaks the boot mechanism entirely** — such a loader
    answers "not found" for anything outside the classmap it was built with, whatever is
    registered with `addPsr4()` afterwards. *Documented only*, no detection code.

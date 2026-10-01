@@ -38,7 +38,7 @@ function qaAtomicRestoreStub(): void
         File::move(qaAtomicBackup(), qaAtomicStub());
     }
 
-    File::deleteDirectory(dirname(qaAtomicBackup()));
+    deleteFixtureDirectory(dirname(qaAtomicBackup()));
 }
 
 /**
@@ -69,7 +69,7 @@ function qaRelativeFileList(string $root, ?string $package = null): array
 
 afterEach(function () {
     qaAtomicRestoreStub();
-    File::deleteDirectory(servicesPath('qaatomicfixture'));
+    deleteFixtureDirectory(servicesPath('qaatomicfixture'));
 });
 
 it('leaves nothing behind when generation fails on an early file, and the retry produces a working package', function () {

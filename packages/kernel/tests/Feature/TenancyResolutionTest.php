@@ -9,8 +9,6 @@ use Flexipos\Kernel\Tenancy\Exceptions\TenantDatabaseNotMapped;
 use Flexipos\Kernel\Tenancy\Secrets\ConnectionPassword;
 use Flexipos\Kernel\Tenancy\Tenancy;
 use Flexipos\Kernel\Tenancy\TenantDatabase;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\File;
 use Tests\TestCase;
 
 /*
@@ -22,239 +20,14 @@ use Tests\TestCase;
  * no migration is involved: the mapping source is the in-memory implementation
  * of the AC-24 contract (AC-25).
  *
- * The tenancy fixture helpers below are shared with the other three Feature
- * files in this package, the same way QaToolchainRegistryCoverageTest's
- * qaFixturePackageNames() is shared inside services/host/tests.
+ * The tenancy fixture helpers this file used to declare at file scope now live
+ * in ../Support/tenancy-fixture.php (T-004 FP-164), because two other Feature
+ * files call them and could not be run on their own while they lived here.
  */
+
+require_once __DIR__.'/../Support/tenancy-fixture.php';
 
 uses(TestCase::class);
-
-/**
- * Where the throwaway SQLite files live. Under storage/, which is git-ignored,
- * excluded from Pint and never analysed.
- */
-function tenancyFixtureRoot(): string
-{
-    return storage_path('app'.DIRECTORY_SEPARATOR.'tenancy-fixture');
-}
-
-function tenancyFixtureDatabasePath(string $tenant): string
-{
-    return tenancyFixtureRoot().DIRECTORY_SEPARATOR.$tenant.'.sqlite';
-}
-
-/**
- * The one distinctive password every credential-hygiene assertion looks for.
- */
-function tenancyFixturePassword(): string
-{
-    return 's3cret-DO-NOT-LEAK-7f3a';
-}
-
-/**
- * A SQLite database with a single-row `marker` table naming the tenant it
- * belongs to. Built with a bare PDO on purpose: going through the connection
- * manager would be the very thing under test.
- */
-function tenancyCreateFixtureDatabase(string $tenant): string
-{
-    $path = tenancyFixtureDatabasePath($tenant);
-
-    File::ensureDirectoryExists(dirname($path));
-    File::delete($path);
-    File::put($path, '');
-
-    $pdo = new PDO('sqlite:'.$path);
-    $pdo->exec('create table marker (value varchar(50) not null)');
-    $pdo->exec('insert into marker (value) values ('.$pdo->quote($tenant).')');
-
-    return $path;
-}
-
-/**
- * Write (or remove) a process environment variable so Env::getRepository() sees
- * it. $_SERVER as well as $_ENV, because Laravel's repository reads $_SERVER
- * first.
- */
-function tenancyWriteEnvironment(string $variable, ?string $value): void
-{
-    if ($value === null) {
-        unset($_ENV[$variable], $_SERVER[$variable]);
-        putenv($variable);
-
-        return;
-    }
-
-    $_ENV[$variable] = $value;
-    $_SERVER[$variable] = $value;
-    putenv($variable.'='.$value);
-}
-
-/**
- * The fake mapping: two servable tenants, two non-active ones, one whose
- * database cannot be opened and one asking for a driver the platform forbids.
- *
- * host/port/username are distinct per tenant and deliberately meaningless to
- * SQLite: they exist so AC-6 can assert the connection was configured *from the
- * record*.
- *
- * @return array<string, array<string, mixed>>
- */
-function tenancyFixtureMapping(): array
-{
-    return [
-        'tenant-a' => [
-            'driver' => 'sqlite',
-            'host' => 'db-fixture-a',
-            'port' => 3307,
-            'database' => tenancyFixtureDatabasePath('tenant-a'),
-            'username' => 'flx_ta_app',
-            'credential_ref' => 'env://TENANT_A_APP_PASSWORD',
-            'status' => 'active',
-        ],
-        'tenant-b' => [
-            'driver' => 'sqlite',
-            'host' => 'db-fixture-b',
-            'port' => 3308,
-            'database' => tenancyFixtureDatabasePath('tenant-b'),
-            'username' => 'flx_tb_app',
-            'credential_ref' => 'env://TENANT_B_APP_PASSWORD',
-            'status' => 'active',
-        ],
-        'tenant-suspended' => [
-            'driver' => 'sqlite',
-            'host' => 'db-fixture-a',
-            'port' => 3307,
-            'database' => tenancyFixtureDatabasePath('tenant-a'),
-            'username' => 'flx_ta_app',
-            'credential_ref' => 'env://TENANT_A_APP_PASSWORD',
-            'status' => 'suspended',
-        ],
-        'tenant-provisioning' => [
-            'driver' => 'sqlite',
-            'host' => 'db-fixture-a',
-            'port' => 3307,
-            'database' => tenancyFixtureDatabasePath('tenant-a'),
-            'username' => 'flx_ta_app',
-            'credential_ref' => 'env://TENANT_A_APP_PASSWORD',
-            'status' => 'provisioning',
-        ],
-        'tenant-unopenable' => [
-            'driver' => 'sqlite',
-            'host' => 'db-fixture-a',
-            'port' => 3307,
-            'database' => tenancyFixtureRoot().DIRECTORY_SEPARATOR.'no-such-database.sqlite',
-            'username' => 'flx_ta_app',
-            'credential_ref' => 'env://TENANT_A_APP_PASSWORD',
-            'status' => 'active',
-        ],
-        'tenant-wrong-driver' => [
-            'driver' => 'pgsql',
-            'host' => 'db-fixture-a',
-            'port' => 5432,
-            'database' => tenancyFixtureDatabasePath('tenant-a'),
-            'username' => 'flx_ta_app',
-            'credential_ref' => 'env://TENANT_A_APP_PASSWORD',
-            'status' => 'active',
-        ],
-    ];
-}
-
-/**
- * Create the fixture databases, publish the credentials and point the mapping
- * source at the fake mapping.
- */
-function tenancyBootFixture(): void
-{
-    tenancyCreateFixtureDatabase('tenant-a');
-    tenancyCreateFixtureDatabase('tenant-b');
-
-    tenancyWriteEnvironment('TENANT_A_APP_PASSWORD', tenancyFixturePassword());
-    tenancyWriteEnvironment('TENANT_B_APP_PASSWORD', tenancyFixturePassword());
-
-    config()->set('tenancy.databases', tenancyFixtureMapping());
-
-    // The repository is a singleton built from config, so it has to be dropped
-    // after the config changes.
-    app()->forgetInstance(TenantDatabaseRepository::class);
-    app()->forgetScopedInstances();
-}
-
-/**
- * Return the process to "no tenant resolved" whatever a test left behind, then
- * remove the fixture from disk and from the environment.
- */
-function tenancyForgetFixture(): void
-{
-    // A fresh scope gives a Tenancy with depth 0 and an empty context, so this
-    // single leave() always reaches the teardown branch.
-    app()->forgetScopedInstances();
-    app(Tenancy::class)->leave();
-
-    tenancyWriteEnvironment('TENANT_A_APP_PASSWORD', null);
-    tenancyWriteEnvironment('TENANT_B_APP_PASSWORD', null);
-
-    File::deleteDirectory(tenancyFixtureRoot());
-}
-
-function tenancy(): Tenancy
-{
-    return app(Tenancy::class);
-}
-
-/**
- * The at-rest tenant stanza, exactly as config/database.php ships it.
- *
- * @return array<string, mixed>
- */
-function tenancyPlaceholderStanza(): array
-{
-    return [
-        'driver' => 'flexipos-no-tenant',
-        'database' => '',
-        'prefix' => '',
-    ];
-}
-
-/**
- * @return array<string, mixed>
- */
-function tenancyTenantStanza(): array
-{
-    return (array) config('database.connections.tenant');
-}
-
-/**
- * The tenant stanza with the credential replaced by its own type name.
- *
- * The stanza holds a ConnectionPassword object, so two stanzas built for the
- * same tenant can never be identical under toBe(). Substituting the *type* keeps
- * an AC-17 comparison honest rather than merely possible: every other key is
- * still compared by value, and a regression that put a plain string back in the
- * stanza changes this marker too. The instance itself is asserted separately,
- * by class, wherever it matters.
- *
- * @return array<string, mixed>
- */
-function tenancyComparableStanza(): array
-{
-    $stanza = tenancyTenantStanza();
-
-    if (array_key_exists('password', $stanza)) {
-        $stanza['password'] = 'password:'.get_debug_type($stanza['password']);
-    }
-
-    return $stanza;
-}
-
-/**
- * What the `marker` table of whichever database the tenant connection currently
- * points at says.
- */
-function tenancyMarker(): string
-{
-    return (string) DB::connection('tenant')->scalar('select value from marker');
-}
 
 beforeEach(function () {
     tenancyBootFixture();
@@ -262,6 +35,12 @@ beforeEach(function () {
 
 afterEach(function () {
     tenancyForgetFixture();
+});
+
+// T-004 FP-155 (AC-6): the two shared SQLite files are removed once per file, not
+// once per case. Native calls only - afterAll runs outside the application.
+afterAll(function () {
+    tenancyDeleteFixtureRoot();
 });
 
 it('configures the tenant connection from the mapping record and reaches that database', function () {
@@ -420,4 +199,29 @@ it('nests re-entry for the same tenant and refuses entering a different one', fu
 
     expect(tenancy()->current()->hasTenant())->toBeFalse()
         ->and(tenancyTenantStanza())->toBe(tenancyPlaceholderStanza());
+});
+
+it('still starts every case from a fixture directory holding only the two databases', function () {
+    /*
+     * T-004 FP-155 (AC-7). Declared last, so it runs after every case above has
+     * had its chance to leave something behind.
+     *
+     * The fixture files are now built once per file instead of once per case, so
+     * the shared state has to be proved rather than assumed: a case that asserts
+     * something does NOT yet exist must still observe that. The mapping's
+     * `tenant-unopenable` tenant points at no-such-database.sqlite inside this
+     * directory and TenancyCredentialLeakTest's refusal cases depend on it being
+     * absent - if anything ever created it, those cases would connect
+     * successfully and stop proving anything.
+     */
+    $present = array_map('basename', glob(tenancyFixtureRoot().DIRECTORY_SEPARATOR.'*') ?: []);
+
+    sort($present);
+
+    expect($present)->toBe(['tenant-a.sqlite', 'tenant-b.sqlite'])
+        ->and(is_file(tenancyFixtureRoot().DIRECTORY_SEPARATOR.'no-such-database.sqlite'))->toBeFalse();
+
+    // And the shared databases still hold exactly what a freshly built one would.
+    expect(tenancy()->run('tenant-a', fn (): string => tenancyMarker()))->toBe('tenant-a')
+        ->and(tenancy()->run('tenant-b', fn (): string => tenancyMarker()))->toBe('tenant-b');
 });

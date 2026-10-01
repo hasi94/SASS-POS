@@ -39,7 +39,7 @@ function qaCacheArtisan(string $command, string|false $services): ProcessResult
 
 afterEach(function () {
     File::delete(qaCacheFile());
-    File::deleteDirectory(servicesPath('qacachefixture'));
+    deleteFixtureDirectory(servicesPath('qacachefixture'));
 });
 
 it('stays silent for every ambient value that parses to the frozen list, and fails for every one that does not', function () {

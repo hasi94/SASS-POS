@@ -74,14 +74,19 @@ it('registers both probes outside every middleware group', function (string $nam
         ->and($route?->gatherMiddleware())->toBe([]);
 })->with(['health.live', 'health.ready']);
 
-it('keeps the stock welcome route inside the web group', function () {
+it('keeps the root route inside the web group', function () {
     // D-18: only the two health routes move. If this ever comes back empty, the
     // `then` callback has swallowed routes/web.php instead of adding to it.
+    //
+    // T-004 FP-157/D-39 retired the stock welcome route this used to probe. The
+    // guarantee is unchanged and so is the shape of the assertion - only the
+    // route on `/` changed, from a closure rendering a view to the invokable
+    // RootController.
     $this->bootHostWith('');
 
-    $welcome = collect(Route::getRoutes()->getRoutes())
+    $root = collect(Route::getRoutes()->getRoutes())
         ->first(fn ($route): bool => $route->uri() === '/');
 
-    expect($welcome)->not->toBeNull()
-        ->and($welcome?->gatherMiddleware())->toContain('web');
+    expect($root)->not->toBeNull()
+        ->and($root?->gatherMiddleware())->toContain('web');
 });

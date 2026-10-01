@@ -58,13 +58,11 @@
             "composer install",
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
             "@php artisan key:generate",
-            "@php artisan migrate --force",
-            "npm install",
-            "npm run build"
+            "@php artisan migrate --force"
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
-            "npx concurrently -c \"#93c5fd,#c4b5fd,#fb7185,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1 --timeout=0\" \"php artisan pail --timeout=0\" \"npm run dev\" --names=server,queue,logs,vite --kill-others"
+            "@php artisan serve"
         ],
         "lint": "@php vendor/bin/pint --test .. ../../packages",
         "lint:fix": "@php vendor/bin/pint .. ../../packages",
@@ -73,6 +71,14 @@
         "test": [
             "@php artisan config:clear --ansi",
             "@php vendor/bin/pest"
+        ],
+        "test:fast": [
+            "@php artisan config:clear --ansi",
+            "@php vendor/bin/pest --exclude-group=toolchain"
+        ],
+        "test:slow": [
+            "@php artisan config:clear --ansi",
+            "@php vendor/bin/pest --group=toolchain"
         ],
         "check": [
             "@lint",
@@ -95,11 +101,15 @@
         ]
     },
     "scripts-descriptions": {
+        "setup": "Install dependencies, create .env, generate a key and migrate.",
+        "dev": "Serve the host. The queue worker and the log tailer are their own commands now (artisan queue:listen, artisan pail): multiplexing them needed npx concurrently, and T-004 removed the front-end build this host never had.",
         "lint": "Check formatting with Pint (no files changed).",
         "lint:fix": "Fix formatting with Pint.",
         "stan": "Run PHPStan (level 6) static analysis.",
         "deptrac": "Enforce service/package boundary rules with Deptrac.",
         "test": "Run the Pest test suite.",
+        "test:fast": "Inner development loop only: the whole suite except the toolchain group (the tests that spawn a child process to boot a whole tool). Never the gate - use check.",
+        "test:slow": "Only the toolchain group, so the split can be proved by count and by name.",
         "check": "Run lint, stan, deptrac and test in sequence (CI gate)."
     },
     "extra": {

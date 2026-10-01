@@ -148,8 +148,11 @@ it('keeps collecting the two original host directories under the single suite', 
     // Collapsing Unit and Feature into one recursive suite must not have made
     // either of them stop running - the failure mode that would look like a
     // green, smaller suite.
+    // T-004 FP-157 deleted the stock tests/Unit/ExampleTest.php this used to
+    // anchor on. tests/Unit/ToolchainGroupDetectorTest.php replaces it as the
+    // Unit-directory anchor; the assertion below is unchanged.
     foreach ([
-        'test_that_true_is_true' => 'tests/Unit/ExampleTest.php',
+        'it reports a source that starts no child process' => 'tests/Unit/ToolchainGroupDetectorTest.php',
         'it reports liveness' => 'tests/Feature/HealthEndpointTest.php',
     ] as $marker => $file) {
         expect(File::exists(base_path($file)))->toBeTrue();

@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\File;
  */
 
 afterEach(function () {
-    File::deleteDirectory(servicesPath('unlistedfixture'));
+    deleteFixtureDirectory(servicesPath('unlistedfixture'));
 });
 
 it('does not route a service package that exists but is not listed in SERVICES', function () {

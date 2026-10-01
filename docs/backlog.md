@@ -34,16 +34,27 @@ The host that boots only the modules named in configuration, the generator, the 
 |---|---|---|
 | FP-143 | Migrate to the maintained boundary-check package | TODO |
 | FP-154 | Validate a module's namespace target resolves inside its own directory | TODO — before the first non-first-party package loader |
-| FP-155 | Keep the quality gate fast (153s cold, growth is multiplicative) | TODO — **before the second module lands** |
-| FP-156 | Root line-ending rule, `* text=auto eol=lf` | TODO — cheap, own commit |
-| FP-157 | Retire the remaining stock framework scaffolding, including the closure route that blocks route caching | TODO — before containers and CI |
+| FP-155 | Keep the quality gate fast | **DONE (T-004)** — gate split into a fast inner loop and the full gate; see FP-165 for the cold measurement |
+| FP-156 | Root line-ending rule, `* text=auto eol=lf` | **DONE (T-004)** — committed alone as `643e220` |
+| FP-157 | Retire the remaining stock framework scaffolding | **DONE (T-004)**. The original wording claimed a closure route blocked route caching. That was measured false: route caching already succeeded, because the framework serialises closures, and there were four such routes rather than one. The scaffolding was removed as hygiene and the false claim deleted from the README and the host configuration. |
 | FP-158 | Correct two defects in `docs/database.md` §4.4, found by the architect while planning T-003 | TODO — small, architect-owned |
 | FP-159 | Declare the framework dependency in the shared package manifests | TODO — own commit |
 | FP-160 | One construction choke point for the tenant connection | TODO — before FP-203 |
 | FP-161 | Make the tenant marker unforgeable | TODO — before FP-203 |
 | FP-162 | Purge every read and write variant on teardown | **DONE (T-003)** — reviewer R-2 |
 | FP-163 | Document the two escape hatches the guard cannot cover | TODO — with FP-203 |
-| FP-164 | Move shared test fixture helpers out of a test file | TODO — cheap |
+| FP-164 | Move shared test fixture helpers out of a test file | **DONE (T-004)** |
+| FP-165 | Measure the gate cold once, and explain the unaccounted speed-up | TODO — before T-005 |
+| FP-166 | Guard the shared tenancy fixture include, as the group registry is guarded | TODO — cheap |
+| FP-167 | Give each generated fixture package a unique directory name | TODO — precondition for parallelism |
+| FP-168 | Standing guard: no teardown may throw before it restores | TODO — reviewer R-1 family |
+| FP-169 | Bring `services/host/tests` into static analysis and the boundary check | TODO — before T-005 |
+| FP-170 | Give the fast loop a time dimension | TODO — after FP-165 |
+| FP-171 | A number written into prose carries its date, or becomes a ratio, or becomes an assertion | TODO — convention |
+
+**FP-168 detail.** Three readers have each found one instance of the same family: a teardown where something that can throw runs before something that restores, sometimes split across two functions so no proximity search can see it. QA closed the family with a one-off sweep by property rather than mechanism, scanning 74 teardown blocks with a negative control, and found exactly the one the reviewer predicted. A standing guard needs one level of call-graph reasoning plus a named exemption list for fixture builders, which is why it is a row rather than something added mid-commit.
+
+**FP-171 detail.** The reviewer's observation after four tasks: the recurring defect in this project is no longer false reasoning, it is absolute measurements written into prose with no date and no mechanism to re-measure them. Three of the four stale statements it found in T-004 were introduced by T-004 itself.
 | ~~FP-144~~ | ~~Decide ERP scope questions~~ | **RESOLVED** by `Refference/ARCH.md`: database per tenant, ERP in scope, modular monolith |
 | ~~FP-145~~ | ~~Reserve ERP extension points~~ | **VOID** — the ERP domains are now designed directly rather than reserved for later |
 

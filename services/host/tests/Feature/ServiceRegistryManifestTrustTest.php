@@ -94,7 +94,7 @@ function trustBootThrowable(string $name): ?Throwable
 }
 
 afterEach(function () {
-    File::deleteDirectory(servicesPath('trustfixture'));
+    deleteFixtureDirectory(servicesPath('trustfixture'));
 });
 
 it('refuses a manifest naming a class that is not a service provider', function () {

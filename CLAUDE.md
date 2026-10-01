@@ -42,6 +42,8 @@ Run from the repo root unless stated otherwise. `composer` below means the full 
 | Static analysis | `cd services/host && composer stan` (PHPStan) |
 | Boundary rules | `cd services/host && composer deptrac` |
 | Unit + feature tests | `cd services/host && composer test` (Pest) |
+| Tests, fast inner loop | `cd services/host && composer test:fast` — excludes the `toolchain` group. Measured **warm**: 23s against 82s for the full run. A cold machine or CI pays considerably more, so do not quote these as the cost of the gate. **Never the gate**: task completion is always judged by `composer check` |
+| Tests, the excluded group only | `cd services/host && composer test:slow` |
 | All checks (CI gate) | `cd services/host && composer check` |
 | Frontend install / test | `cd frontend && npm ci` · `npm test` |
 | Print agent build / test | `cd print-agent && dotnet build` · `dotnet test` |

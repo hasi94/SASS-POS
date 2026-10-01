@@ -70,7 +70,7 @@ function qaModTreeContents(string $root): array
 }
 
 afterEach(function () {
-    File::deleteDirectory(servicesPath(qaModFixtureName()));
+    deleteFixtureDirectory(servicesPath(qaModFixtureName()));
 });
 
 it('ships no stub that can produce a per-module database connection', function () {

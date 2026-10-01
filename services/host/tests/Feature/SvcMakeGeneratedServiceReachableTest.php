@@ -2,7 +2,6 @@
 
 use App\Support\ServiceHost\ServiceRegistry;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\File;
 use Symfony\Component\Finder\Finder;
 
 /*
@@ -37,7 +36,7 @@ function hostFingerprint(): array
 }
 
 afterEach(function () {
-    File::deleteDirectory(servicesPath('reachablefixture'));
+    deleteFixtureDirectory(servicesPath('reachablefixture'));
 });
 
 it('generates a package without touching a single file inside services/host', function () {

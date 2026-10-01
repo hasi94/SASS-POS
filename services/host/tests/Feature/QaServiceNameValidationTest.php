@@ -24,8 +24,8 @@ use Illuminate\Support\Str;
  */
 
 afterEach(function () {
-    File::deleteDirectory(servicesPath('qa-'));
-    File::deleteDirectory(servicesPath('qa-name-fixture'));
+    deleteFixtureDirectory(servicesPath('qa-'));
+    deleteFixtureDirectory(servicesPath('qa-name-fixture'));
 });
 
 it('refuses a SERVICES entry that is not a plain service package name', function () {

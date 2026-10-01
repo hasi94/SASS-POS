@@ -35,7 +35,7 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-    File::deleteDirectory(dirname(pintFixturePath()));
+    deleteFixtureDirectory(dirname(pintFixturePath()));
 });
 
 it('rejects a badly formatted file, fixes it, and then accepts it', function () {

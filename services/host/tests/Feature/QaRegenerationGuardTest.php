@@ -29,14 +29,43 @@ function qaDriftBackupPath(): string
     return storage_path('app'.DIRECTORY_SEPARATOR.'qa-stub-drift'.DIRECTORY_SEPARATOR.'routes.api.php.stub');
 }
 
-function qaRestoreDriftedStub(): void
+/**
+ * Put the borrowed stub back and remove the directory it was parked in.
+ *
+ * Reviewer finding R-1, and the BUG-3 rule applied one level up: this runs from
+ * the afterEach hook *before* qaRestoreCrlfBackup(), so it must not be able to
+ * throw. It used to end with the throwing deleteFixtureDirectory(), which meant
+ * one Windows delete failure here skipped the restore of the committed
+ * services/demo bytes below it - the same hazard as BUG-3, hidden because the
+ * delete and the skipped restore live in different functions.
+ *
+ * The rule is kept local to the helper rather than to the hook's statement order:
+ * a teardown helper reports its failure to its caller and never decides, by
+ * throwing, which of its siblings get to run. The hook raises one report after
+ * every restore has happened.
+ *
+ * @return bool whether the parking directory is gone
+ */
+function qaRestoreDriftedStub(): bool
 {
-    if (File::exists(qaDriftBackupPath())) {
-        File::put(qaDriftStubPath(), File::get(qaDriftBackupPath()));
-        File::delete(qaDriftBackupPath());
+    $backup = qaDriftBackupPath();
+
+    /*
+     * file_get_contents() rather than File::get(), which throws
+     * FileNotFoundException if the file vanishes between the check and the read.
+     * That throw would skip both the File::put() below it and the second restore
+     * in the hook - the same property R-1 is about, reached through a different
+     * statement. With this, nothing in this helper can throw at all, which is what
+     * makes the hook's ordering safe by construction rather than by argument.
+     */
+    $contents = is_file($backup) ? @file_get_contents($backup) : false;
+
+    if ($contents !== false) {
+        File::put(qaDriftStubPath(), $contents);
+        File::delete($backup);
     }
 
-    File::deleteDirectory(dirname(qaDriftBackupPath()));
+    return tryDeleteFixtureDirectory(dirname($backup));
 }
 
 /**
@@ -98,8 +127,15 @@ function qaCrlfBackupPath(): string
 /**
  * Restore services/demo from the byte-for-byte backup this file takes before
  * rewriting its line endings. Safety net for a run that dies mid-test.
+ *
+ * Non-throwing for the same reason as qaRestoreDriftedStub() above (R-1): a
+ * teardown helper reports, and the hook decides. Nothing restorative currently
+ * follows this one at either call site, but relying on that would make the
+ * property depend on statement order again, which is exactly what R-1 was.
+ *
+ * @return bool whether the backup directory is gone
  */
-function qaRestoreCrlfBackup(): void
+function qaRestoreCrlfBackup(): bool
 {
     $backup = qaCrlfBackupPath();
 
@@ -112,7 +148,7 @@ function qaRestoreCrlfBackup(): void
         }
     }
 
-    File::deleteDirectory($backup);
+    return tryDeleteFixtureDirectory($backup);
 }
 
 function qaRunRegenerationTest(): ProcessResult
@@ -126,8 +162,35 @@ function qaRunRegenerationTest(): ProcessResult
 }
 
 afterEach(function () {
-    qaRestoreDriftedStub();
-    qaRestoreCrlfBackup();
+    /*
+     * Reviewer finding R-1. Every restore runs first, unconditionally; the report
+     * comes last. Neither helper throws any more, so no delete failure in the
+     * first one can skip the second - the second is the one that puts the
+     * committed services/demo bytes back from a byte-for-byte backup, and the
+     * backup-creation loop in the first case sits outside any finally, so this
+     * hook is the only thing that restores it on that path.
+     *
+     * A RuntimeException rather than an expect() call, the same choice
+     * deleteFixtureDirectory() makes: this runs from a hook whose tests' assertion
+     * counts must not change (AC-4), and a leftover fixture directory has to be
+     * loud rather than counted.
+     */
+    $leftovers = [];
+
+    if (! qaRestoreDriftedStub()) {
+        $leftovers[] = dirname(qaDriftBackupPath());
+    }
+
+    if (! qaRestoreCrlfBackup()) {
+        $leftovers[] = qaCrlfBackupPath();
+    }
+
+    if ($leftovers !== []) {
+        throw new RuntimeException(
+            'could not remove the fixture directories '.implode(', ', $leftovers).
+            '; the restores above did run. Close any process holding a handle inside them and delete them by hand.'
+        );
+    }
 });
 
 it('survives a services/demo working tree checked out with CRLF line endings', function () {
@@ -187,7 +250,7 @@ it('survives a services/demo working tree checked out with CRLF line endings', f
         // difference; normalised hashing calls the trees identical.
         $aside = storage_path('app'.DIRECTORY_SEPARATOR.'qa-crlf-aside');
 
-        File::deleteDirectory($aside);
+        deleteFixtureDirectory($aside);
         File::ensureDirectoryExists(dirname($aside));
         File::moveDirectory($demo, $aside);
 
@@ -208,9 +271,36 @@ it('survives a services/demo working tree checked out with CRLF line endings', f
             expect($rawDifferences)->toBe($rewritten)
                 ->and($generatedNormalised)->toBe($normalised);
         } finally {
-            File::deleteDirectory($demo);
-            File::moveDirectory($aside, $demo);
-            File::deleteDirectory($aside);
+            /*
+             * QA BUG-3's rule, adopted here as well: a delete that precedes a
+             * restore uses the non-throwing helper with the restore inside the
+             * conditional, so one delete failure - the condition that helper
+             * exists for - can never jump over putting services/demo back.
+             * $aside's own removal happens only inside that branch, because
+             * deleting it while the restore has not happened would discard the
+             * only copy of the tree this case rewrote.
+             *
+             * Reviewer finding R-1: that removal is now non-throwing too. It is a
+             * cleanup-only delete, so the throwing variant was defensible - but a
+             * throw here would leave qaRestoreCrlfBackup(), in the enclosing
+             * finally, as the thing that still has to run, and relying on PHP
+             * executing an outer finally while an exception escapes an inner one is
+             * exactly the "depends on control flow rather than on the helper"
+             * shape R-1 reported. A surviving $aside is instead reported by the
+             * pre-flight deleteFixtureDirectory($aside) above on the next run,
+             * which is strict and names the path.
+             *
+             * Milder here than in SvcMakeDemoRegenerationTest, and deliberately
+             * still fixed: qaRestoreCrlfBackup() below restores the committed
+             * bytes from a byte-for-byte backup whatever happens, so the tree
+             * recovers either way and the assertion after it is what reports a
+             * working tree that needs a hand.
+             */
+            if (tryDeleteFixtureDirectory($demo)) {
+                File::moveDirectory($aside, $demo);
+
+                tryDeleteFixtureDirectory($aside);
+            }
         }
     } finally {
         qaRestoreCrlfBackup();

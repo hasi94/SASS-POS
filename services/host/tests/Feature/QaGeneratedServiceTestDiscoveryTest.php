@@ -20,7 +20,7 @@ use Illuminate\Support\Facades\Process;
  */
 
 afterEach(function () {
-    File::deleteDirectory(servicesPath('qadiscoveryfixture'));
+    deleteFixtureDirectory(servicesPath('qadiscoveryfixture'));
 });
 
 it('runs a freshly generated service package own test with no further edits', function () {

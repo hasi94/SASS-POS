@@ -6,8 +6,8 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 
 afterEach(function () {
-    File::deleteDirectory(servicesPath('svcmakefixture'));
-    File::deleteDirectory(servicesPath('svc-make-fixture'));
+    deleteFixtureDirectory(servicesPath('svcmakefixture'));
+    deleteFixtureDirectory(servicesPath('svc-make-fixture'));
 });
 
 it('refuses an invalid name, exits non-zero and creates nothing', function (string $name) {

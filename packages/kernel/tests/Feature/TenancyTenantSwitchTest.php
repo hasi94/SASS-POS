@@ -15,8 +15,12 @@ use Tests\TestCase;
  * tenant A's job and then tenant B's. A bug here is not a failing feature, it is
  * one shop reading another shop's sales.
  *
- * The fixture helpers come from TenancyResolutionTest.php in this package.
+ * The fixture helpers come from ../Support/tenancy-fixture.php, required below:
+ * this file used to rely on TenancyResolutionTest.php having been collected
+ * first, so running it on its own died on an undefined function (T-004 FP-164).
  */
+
+require_once __DIR__.'/../Support/tenancy-fixture.php';
 
 uses(TestCase::class);
 
@@ -26,6 +30,12 @@ beforeEach(function () {
 
 afterEach(function () {
     tenancyForgetFixture();
+});
+
+// T-004 FP-155 (AC-6): the two shared SQLite files are removed once per file, not
+// once per case. Native calls only - afterAll runs outside the application.
+afterAll(function () {
+    tenancyDeleteFixtureRoot();
 });
 
 it('serves the second tenant from the second database, and closes the first', function () {

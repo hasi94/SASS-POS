@@ -47,7 +47,7 @@ function qaBrokenPackage(string $name, ?string $manifest): string
 
 afterEach(function () {
     foreach (['qabrokenfixture'] as $name) {
-        File::deleteDirectory(servicesPath($name));
+        deleteFixtureDirectory(servicesPath($name));
     }
 });
 

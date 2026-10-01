@@ -24,8 +24,16 @@ PHP and Composer are not on `PATH` on the development machine; see
 cd services/host
 composer install
 composer check          # lint + stan + deptrac + test — the CI gate
+composer test:fast      # inner loop: everything except the toolchain group
+composer test:slow      # only the toolchain group
 php artisan svc:make billing
 ```
+
+The `toolchain` group is the set of test files that spawn a child process to boot a whole
+tool. It is declared in one place, `tests/Helpers.php`'s `toolchainGroupFiles()`, and
+`tests/Feature/ToolchainGroupCoverageTest.php` fails if that list stops matching the files
+that really spawn — so `test:fast` cannot quietly decay, and `composer check`, which passes no
+group flag at all, cannot lose a test to the split.
 
 ## More
 

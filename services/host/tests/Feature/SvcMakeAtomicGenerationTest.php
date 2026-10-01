@@ -41,7 +41,7 @@ function atomicRestoreStub(): void
             : File::move($backup, atomicStubPath());
     }
 
-    File::deleteDirectory(dirname($backup));
+    deleteFixtureDirectory(dirname($backup));
 }
 
 /**
@@ -72,7 +72,7 @@ function atomicHostFingerprint(): array
 
 afterEach(function () {
     atomicRestoreStub();
-    File::deleteDirectory(servicesPath('atomicfixture'));
+    deleteFixtureDirectory(servicesPath('atomicfixture'));
 });
 
 it('removes the partial package when generation fails part way through, and generates the same name cleanly afterwards', function () {

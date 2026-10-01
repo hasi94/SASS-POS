@@ -1,7 +1,6 @@
 <?php
 
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\File;
 use Symfony\Component\Yaml\Yaml;
 
 /*
@@ -21,49 +20,14 @@ use Symfony\Component\Yaml\Yaml;
  * covered by all three.
  */
 
-/**
- * The exact names of the throwaway service packages this suite generates while
- * it runs (T-002 AC-18, decision D-23).
- *
- * This used to be `str_contains($name, 'fixture')`, which would also have
- * exempted a legitimately named permanent service - `data-fixtures`, say - from
- * every coverage check in this file, silently and forever. An exact list cannot
- * do that: the worst it can do is fail loudly when a new test starts generating
- * a package under a name nobody added here, which is the safe direction to be
- * wrong in.
- *
- * Every test that generates a service package must add its exact name here and
- * delete the package in afterEach. Names currently in use, by file:
- * SvcMakeValidationTest (svcmakefixture, svc-make-fixture),
- * QaServiceNameValidationTest (qa-name-fixture), QaGeneratedServiceTestDiscoveryTest
- * (qadiscoveryfixture), QaServiceRegistryContractTest (qabrokenfixture),
- * SvcMakeGeneratedServiceReachableTest (reachablefixture),
- * UnlistedServiceReturns404Test (unlistedfixture), ServiceRegistryManifestTrustTest
- * (trustfixture), SvcMakeAtomicGenerationTest (atomicfixture),
- * QaManifestTrustAttackTest (qatrustfixture), QaCacheGuardBranchesTest
- * (qacachefixture).
- *
- * @return list<string>
+/*
+ * qaFixturePackageNames() - the exact names of the throwaway service packages
+ * this suite generates while it runs (T-002 AC-18, decision D-23) - now lives in
+ * tests/Helpers.php, which Pest loads before any test file. T-004 FP-164 moved
+ * it there because filesSpawningChildProcesses() needs the same list; the
+ * function, its name and its contents are unchanged and no call site in this
+ * file changed.
  */
-function qaFixturePackageNames(): array
-{
-    return [
-        'atomicfixture',
-        'qa-name-fixture',
-        'qaatomicfixture',
-        'qabrokenfixture',
-        'qacachefixture',
-        'qadocfixture',
-        'qadiscoveryfixture',
-        'qatenancyfixture',
-        'qatrustfixture',
-        'reachablefixture',
-        'svc-make-fixture',
-        'svcmakefixture',
-        'trustfixture',
-        'unlistedfixture',
-    ];
-}
 
 /**
  * Service packages committed under services/, excluding the host application and
@@ -344,7 +308,7 @@ it('collects tests from every package that ships them', function () {
  */
 
 afterEach(function () {
-    File::deleteDirectory(servicesPath('data-fixtures'));
+    deleteFixtureDirectory(servicesPath('data-fixtures'));
 });
 
 it('does not skip a legitimately named service just because its name contains the word fixture', function () {
@@ -388,7 +352,7 @@ it('still skips every throwaway package the suite generates, by exact name only'
             ->and(qaPhpstanGaps(qaServicePackages(), 'services'))->toBe([])
             ->and(qaDeptracGaps(qaServicePackages(), 'services'))->toBe([]);
     } finally {
-        File::deleteDirectory(servicesPath('qadiscoveryfixture'));
+        deleteFixtureDirectory(servicesPath('qadiscoveryfixture'));
     }
 });
 

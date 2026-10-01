@@ -97,7 +97,7 @@ function qaTrustFailure(string $name): ?Throwable
 }
 
 afterEach(function () {
-    File::deleteDirectory(servicesPath('qatrustfixture'));
+    deleteFixtureDirectory(servicesPath('qatrustfixture'));
 });
 
 it('refuses an autoloadable class that is not a service provider without ever constructing it', function () {

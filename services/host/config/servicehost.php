@@ -58,10 +58,17 @@ return [
     |
     | 3. `php artisan route:cache` freezes the route table the same way, so a
     |    service added to SERVICES afterwards is unreachable until the cache is
-    |    rebuilt. It also fails outright today, because routes/web.php still has
-    |    the stock closure route on `/` and closures cannot be serialised.
-    |    DOCUMENTED ONLY (decision D-20): removing stock Laravel scaffolding is
-    |    explicitly out of T-002's scope.
+    |    rebuilt.
+    |    DOCUMENTED ONLY (decision D-20): no code detects a route table that was
+    |    cached before a service joined SERVICES.
+    |    The command itself succeeds - measured, T-004. Earlier revisions of this
+    |    entry said it could not run here at all because routes/web.php used an
+    |    inline closure. That was never true on this framework version: Laravel 12
+    |    serialises a closure action with SerializableClosure::unsigned(). Three
+    |    closure routes remain (`/up`, and `storage/{path}` twice) and route
+    |    caching handles them, which is why
+    |    tests/Feature/RouteCachingTest.php pins both halves as assertions
+    |    instead of leaving them as prose nobody re-measures.
     |
     | 4. Building the Composer autoloader with `--classmap-authoritative` breaks
     |    the boot mechanism entirely: such a loader answers "not found" for any

@@ -66,5 +66,76 @@ take a real message.) For "none of these leaked", collect offenders into an arra
 `services/host/tests/Feature/QaAssertionShapeGuardTest.php` over every test file in the repo -
 it excludes only itself, by exact basename, because it holds the bad shapes as fixtures.
 
+**A third shape of tautology, found in T-004: a guard applied to data that was already
+normalised.** `ToolchainGroupBindingTest` compared `--list-tests` output by *basename* and
+protected the substitution with `expect(count($files))->toBe(count(array_unique($files)))` - but
+the helper that produced `$files` had already called `array_unique()`, so the check can never
+fail, and the comment above it claims a protection that does not exist. Worth an explicit habit:
+when an assertion guards an *earlier* transformation, re-read that transformation and ask what
+input would make the assertion red. Here the answer is "two test files with the same basename",
+which happens routinely - `svc:make` writes `tests/Feature/PingRouteTest.php` into every
+generated package and `services/demo` already ships that name. The generic form of the mistake is
+asserting a property of the output that the producer guarantees by construction.
+
+**A fourth shape: the comment claims more than the assertion asserts.** Found twice in T-004 run
+2. `FixtureDirectoryTeardownTest`'s comment says "the file is removed, the directory survives" and
+only the directory half is asserted; `SvcMakeDemoRegenerationTest`'s afterEach says the backup is
+removed "only once services/demo demonstrably holds the same **bytes**" while the comparison is
+line-ending-**normalised** md5. Neither makes anything pass falsely today, but a reader cannot
+tell a protection that exists from one that is only described. Habit: for every comment that
+states a guarantee, find the assertion that enforces it, and if there is none, say so.
+
+**Mutation-test a timing assertion, never reason about it.** A lower bound on how long a retry
+helper waits ("`expect($elapsed)->toBeGreaterThan(0.3)`") is the assertion that catches a fake
+fix, so it has to be shown red. Reinstate the fake fix in the helper (T-004: `$attempt < 3`,
+`usleep(0)`), run the one file, confirm the failure message names the cause, then restore the
+helper and verify with `md5sum -c`. Measured margins matter too: the real helper takes 0.66-0.73 s
+to give up against a 0.3 s bound, so it cannot flake in the other direction on a slow machine.
+Also check the matcher takes a real message - `toBeGreaterThan(int|float|string|DateTimeInterface
+$expected, string $message = '')` does
+(`vendor/pestphp/pest/src/Mixins/Expectation.php`); PHP silently ignores a surplus argument to a
+userland method, so a message passed to a matcher that has no `$message` parameter disappears
+without any error.
+
+**Mutate documentation in both directions.** For a "the document now says something true"
+criterion, one mutation is not enough: re-insert the false claim (must go red, naming the file and
+the phrase) **and** delete the corrected paragraph entirely (must also go red, on the clause that
+has to stay). T-004's AC-16 needed four mutations for two documents. Back up each file, compare
+`md5sum -c` after restoring, and check `git status --porcelain` is back to its starting count.
+
+**Sweep by PROPERTY, not by mechanism — a mechanism sweep misses the same hazard split across two
+functions.** T-004's delete-before-restore family was found three times by three readers: BUG-3 in
+`SvcMakeDemoRegenerationTest`, then its sibling in `QaRegenerationGuardTest`, then R-1 — where the
+throwing `deleteFixtureDirectory()` sat at the end of `qaRestoreDriftedStub()` while the restore it
+could skip was the *next statement in the hook*. My grep for `moveDirectory|copyDirectory|rename`
+near a delete could not see that, because the two halves were in different functions. The property
+that does see it: *in any teardown (`afterEach`/`afterAll`/`beforeAll` body or a `finally` block),
+does anything that can throw appear before anything that restores, counting a call to a helper as
+"can throw"/"restores" when the helper's own body does?* Throwers here are
+`deleteFixtureDirectory(`, `File::get(` (FileNotFoundException), `expect(`, `Artisan::call(`,
+`throw new`. Ask it separately of each helper too (is its own restore before its own thrower?), and
+exclude fixture *builders* - `qaTrustFixture()`, `trustFixture()` put `File::put()` after an
+`expect()` on purpose and are never called from a teardown. Result after the fix: 0 hits over 74
+teardown blocks in 52 files, with a negative control that reports R-1's pre-fix shape. The durable
+fix shape: teardown helpers **return bool and never throw**; the hook runs every restore first and
+raises one report last. A `RuntimeException`, not an `expect()`, so no assertion count moves.
+
+**Two defects my own scanners had, both of which would have faked a clean sweep.**
+(1) *It matched its own prose* - four hits that were the words `deleteFixtureDirectory`, `expect`
+and `Restore` inside comments, including comments written for the fix under test. Strip
+`T_COMMENT`/`T_DOC_COMMENT` with `token_get_all()` before scanning. The same bug appeared in my
+assertion-line diff. (2) *It counted one statement as two* - a call to a helper that both restores
+and can throw yields a THROW and a RESTORE event at the **same source offset**, and a naive "is
+there a restore after a throw" loop read it as a hit: seven phantom findings. Compare offsets
+strictly. Rule of thumb: before trusting a scanner's zero, feed it the known positive.
+
+**Sweep the whole suite for tautologies mechanically, not by reading.** A ~50-line PHP scanner over
+every `*.php` under every `*/tests` root catches four shapes cheaply: `expect(X)->toBe(X)` with
+normalised whitespace; `count(X)` against `count(array_unique|array_values|array_filter(X))`; an
+assertion on a literal; both sides wrapped in `array_values`. In T-004 run 2 it found only two
+hits over 52 files, both `expect(true)->toBeTrue()` inside heredocs that *write* a throwaway probe
+file whose only job is to be collected - so the scanner needs the "is this inside a heredoc that
+generates a fixture?" judgement applied to its output, not built into it.
+
 Related: [[service-host-fragile-areas]], [[qa-assert-contract-not-symptom]],
-[[tenancy-boundary-leak-surfaces]].
+[[tenancy-boundary-leak-surfaces]], [[gate-split-and-shared-state]].

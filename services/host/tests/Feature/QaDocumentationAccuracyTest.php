@@ -23,7 +23,7 @@ function qaRootReadme(): string
 }
 
 afterEach(function () {
-    File::deleteDirectory(servicesPath('qadocfixture'));
+    deleteFixtureDirectory(servicesPath('qadocfixture'));
 });
 
 it('no longer tells a developer that no file inside the host ever changes', function () {
