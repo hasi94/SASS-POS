@@ -181,6 +181,8 @@ never writes the literal). A hand-dropped file nobody plants is out of scope by 
 analyser dying on it, naming it, is the right detector; closing it would need a tracked-files
 allowlist, which breaks every legitimate new untracked test file.
 
+General form of the above: reproduce through the interface the guard actually watches, or the result says nothing about its claim. My hand-dropped-file reproduction was real but a different hole from the one the guard claims. Also, when reconciling counts after a fix round, subtract the CURRENT per-class additions (measure each class), never an earlier run's total: I once reported a broken reconciliation that was intact (1435 - 77 = 1358).
+
 **Never add a bare quoted-singular token to a vocabulary sweep.** Measured: the both-quotes form
 hits ordinary quoted prose in the backlog, the trailing-quote form hits the lock file and the
 database enum lists. Key position only (quote, word, quote, then colon, arrow or bracket) has zero
