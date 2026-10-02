@@ -58,7 +58,7 @@ The host that boots only the modules named in configuration, the generator, the 
 | FP-166 | Guard the shared tenancy fixture include, as the group registry is guarded | TODO — cheap |
 | FP-167 | Give each generated fixture package a unique directory name | TODO — precondition for parallelism |
 | FP-168 | Standing guard: no teardown may throw before it restores | TODO — reviewer R-1 family |
-| FP-169 | Bring `services/host/tests` into static analysis and the boundary check | TODO — before T-005 |
+| FP-169 | Bring `modules/host/tests` into static analysis and the boundary check | TODO — before T-005 |
 | FP-170 | Give the fast loop a time dimension | TODO — after FP-165 |
 | FP-171 | A number written into prose carries its date, or becomes a ratio, or becomes an assertion | TODO — convention |
 
@@ -89,7 +89,7 @@ The master database, tenant provisioning and everything that must exist before a
 | ID | Task | Stream | Deliverable | Depends | Status |
 |---|---|---|---|---|---|
 | FP-201 | Two-connection model | BE | `master` and `tenant` connections; `TenantContext`; the resolver that builds the tenant connection from the mapping; strip per-module connection config from the generator and the demo module | T-002 | DONE (T-003) |
-| FP-202 | Rename services to modules | BE | `services/` → `modules/`, `svc:make` → `module:make`, boundary layers and documentation follow; vocabulary matches the architecture | FP-201 | TODO |
+| FP-202 | Rename services to modules | BE | the top-level directory becomes `modules/`, the generator becomes `module:make`, boundary layers and documentation follow; vocabulary matches the architecture | FP-201 | TODO |
 | FP-203 | Master schema | BE | tenants, users, tenant_users, plans, subscriptions, licences, feature flags, platform settings, platform audit, **tenant_databases** mapping with host, port, name, credential reference, status and schema version | FP-201 | TODO |
 | FP-204 | Tenant schema baseline | BE | The tenant migration tree and its runner; settings, number sequences, audit, outbox | FP-203 | TODO |
 | FP-205 | **Per-tenant migration runner** | BE | Queued per tenant, resumable, isolates failures to one tenant, records schema version, reports who is behind, refuses to serve a tenant older than the code expects, expand-and-contract enforced | FP-204 | TODO |

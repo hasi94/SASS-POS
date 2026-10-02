@@ -1,7 +1,7 @@
 # Developer memory index
 
 - [Backend toolchain constraints](project_backend_toolchain_constraints.md) — Deptrac/Pint/Pest/Composer path-repo gotchas that already changed decisions once.
-- [Service host boot contract](project_servicehost_boot_contract.md) — why services boot via runtime PSR-4, not `composer require`; what a service package must declare.
+- [Module host boot contract](project_modulehost_boot_contract.md) — why modules boot via runtime PSR-4, not `composer require`; what a module must declare.
 - [Tenancy connection invariants](project_tenancy_connection_invariants.md) — what leaks across a tenant switch, which guard catches it, and which DB APIs are forbidden.
 - [Line endings in scripted edits](feedback_windows_line_endings_in_scripts.md) — text-mode Python writes rewrite whole files as CRLF here; use binary mode and verify.
 - [Enumerate leak surfaces by running them](feedback_enumerate_leak_surfaces_by_running_them.md) — reasoning about which magic method each dumper honours produced a confident, wrong list.

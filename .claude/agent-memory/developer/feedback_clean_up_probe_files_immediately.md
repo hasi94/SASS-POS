@@ -9,9 +9,9 @@ When measuring something with a throwaway PHP script, **write it to the session 
 delete it in the same command that reads its output**. Never leave it inside the repository,
 even under a git-ignored path.
 
-**Why:** on T-003 I left two probe scripts under `services/host/storage/app/dumpprobe/`. The
+**Why:** on T-003 I left two probe scripts under `modules/host/storage/app/dumpprobe/`. The
 next `composer check` reported **46 failures** across `PintLintFixRoundTripTest`,
-`QaManifestTrustAttackTest`, `SvcMakeDemoRegenerationTest` and most of the tenancy suite —
+`QaManifestTrustAttackTest`, `ModuleMakeDemoRegenerationTest` and most of the tenancy suite —
 `FileNotFoundException`, `PDOException`, `UnexpectedValueException`. It read exactly like a
 catastrophic regression in the change I had just made. The actual cause was that the probe
 files were deliberately unformatted, a test runs Pint over a storage path, and that one failure

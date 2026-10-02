@@ -108,4 +108,4 @@ failing test. Every bullet was verified by breaking the code and watching a name
 
 **How to apply:** before "simplifying" any of this, re-read the bullet that names the API you
 are reaching for. Related: [[project-backend-toolchain-constraints]],
-[[project-servicehost-boot-contract]], [[feedback-windows-line-endings-in-scripts]].
+[[project-modulehost-boot-contract]], [[feedback-windows-line-endings-in-scripts]].

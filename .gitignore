@@ -25,12 +25,12 @@
 .phpunit.result.cache
 .phpunit.cache
 .php-cs-fixer.cache
-/services/host/public/hot
-/services/host/public/storage
+/modules/host/public/hot
+/modules/host/public/storage
 
 # Installed plugin packages (runtime)
-/services/host/plugins/*
-!/services/host/plugins/.gitkeep
+/modules/host/plugins/*
+!/modules/host/plugins/.gitkeep
 
 # Angular / Node
 /frontend/dist

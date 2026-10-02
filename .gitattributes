@@ -1,9 +1,9 @@
 # Repository-wide line-ending rule (FP-156).
 #
 # core.autocrlf is true on this project's Windows development machines, so
-# before this file existed every text file outside services/host/ - which has
+# before this file existed every text file outside modules/host/ - which has
 # had its own rule since T-001 - was written into the working tree with CRLF,
-# while `svc:make` writes generated files directly with LF. A byte-for-byte
+# while `module:make` writes generated files directly with LF. A byte-for-byte
 # regeneration diff then failed for someone who had changed nothing, and Pint's
 # line_ending fixer rejected the checked-out PHP files outright, so `composer
 # check` died at its first step on a fresh clone.

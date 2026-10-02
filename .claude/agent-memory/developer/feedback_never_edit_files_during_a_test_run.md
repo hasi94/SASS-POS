@@ -17,9 +17,9 @@ because of an edit made during it costs more than waiting.
 **A handful of green runs does not prove a Windows directory-teardown flake is fixed.** The
 mechanism, measured on this machine: while any handle inside a directory is open, `unlink()` on
 the files **succeeds** but `rmdir()` on the directory **fails** — so the files go and the
-directory stays, and `svc:make` then refuses the name and the *next* test in the file fails for
+directory stays, and `module:make` then refuses the name and the *next* test in the file fails for
 an unrelated reason. A retry loop with no delay completes in microseconds and therefore cannot
-outlast the holder: three immediate passes still lost `services/trustfixture` on a full run,
+outlast the holder: three immediate passes still lost `modules/trustfixture` on a full run,
 after 13 consecutive green runs had convinced me it was closed. What works is
 `gc_collect_cycles()` plus a real `usleep()` between attempts, with the first attempt never
 sleeping so the normal case stays free.
