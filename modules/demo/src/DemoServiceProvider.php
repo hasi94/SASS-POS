@@ -1,6 +1,6 @@
 <?php
 
-namespace Flexipos\Service\Demo;
+namespace Flexipos\Module\Demo;
 
 use Illuminate\Support\ServiceProvider;
 
@@ -17,7 +17,7 @@ use Illuminate\Support\ServiceProvider;
 class DemoServiceProvider extends ServiceProvider
 {
     /**
-     * The route prefix every endpoint of this service is mounted under.
+     * The route prefix every endpoint of this module is mounted under.
      */
     public const PREFIX = 'api/v1/demo';
 

@@ -7,9 +7,9 @@ use Illuminate\Support\Facades\Process;
 /*
  * T-002 FP-149 (T-001 review finding M-6).
  *
- * `config:cache` bakes SERVICES into bootstrap/cache/config.php and the process
+ * `config:cache` bakes MODULES into bootstrap/cache/config.php and the process
  * never reads the variable again, so one image silently stops being able to run
- * a different service subset per deployment stage - the single guarantee this
+ * a different module subset per deployment stage - the single guarantee this
  * host exists for. The guard makes that disagreement a boot failure.
  *
  * These cases shell out to real artisan child processes because the hazard only
@@ -28,15 +28,15 @@ function configCachePath(): string
 }
 
 /**
- * Run one artisan command in a child process with a chosen ambient SERVICES.
+ * Run one artisan command in a child process with a chosen ambient MODULES.
  *
  * Passing false removes the variable from the child's environment entirely,
  * which is the "container started with no override at all" case.
  */
-function configGuardArtisan(string $command, string|false $services): ProcessResult
+function configGuardArtisan(string $command, string|false $modules): ProcessResult
 {
     return Process::path(base_path())
-        ->env(['SERVICES' => $services])
+        ->env(['MODULES' => $modules])
         ->run([PHP_BINARY, base_path('artisan'), $command, '--no-ansi']);
 }
 
@@ -44,7 +44,7 @@ afterEach(function () {
     File::delete(configCachePath());
 });
 
-it('fails fast when a cached SERVICES value disagrees with the process environment', function () {
+it('fails fast when a cached MODULES value disagrees with the process environment', function () {
     expect(File::exists(configCachePath()))
         ->toBeFalse('a leftover bootstrap/cache/config.php from an earlier crashed run would make this test meaningless');
 
@@ -57,12 +57,12 @@ it('fails fast when a cached SERVICES value disagrees with the process environme
         $output = $mismatch->output().$mismatch->errorOutput();
 
         expect($mismatch->exitCode())->not->toBe(0)
-            ->and($output)->toContain('SERVICES="demo"')
-            ->and($output)->toContain('SERVICES="billing"')
+            ->and($output)->toContain('MODULES="demo"')
+            ->and($output)->toContain('MODULES="billing"')
             ->and($output)->toContain('config:clear');
 
         // AC-10: the legitimate case - one image built and started with the
-        // same SERVICES throughout - boots with no complaint.
+        // same MODULES throughout - boots with no complaint.
         $matching = configGuardArtisan('route:list', 'demo');
 
         expect($matching->exitCode())->toBe(0)
@@ -87,14 +87,14 @@ it('fails fast when a cached SERVICES value disagrees with the process environme
 it('stays out of the way entirely when the configuration is not cached', function () {
     expect(File::exists(configCachePath()))->toBeFalse();
 
-    // Uncached, SERVICES is read live, so the frozen and ambient values cannot
+    // Uncached, MODULES is read live, so the frozen and ambient values cannot
     // disagree. A name with no package on disk must still fail the ordinary
     // way, never with the cache guard's message.
     $result = configGuardArtisan('route:list', 'billing');
     $output = $result->output().$result->errorOutput();
 
     expect($result->exitCode())->not->toBe(0)
-        ->and($output)->toContain('Unknown service "billing" listed in SERVICES')
+        ->and($output)->toContain('Unknown module "billing" listed in MODULES')
         ->and($output)->not->toContain('Cached configuration disagrees');
 
     expect(configGuardArtisan('route:list', 'demo')->exitCode())->toBe(0)

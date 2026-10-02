@@ -1,11 +1,11 @@
 <?php
 
 use App\Providers\AppServiceProvider;
-use App\Providers\ServiceHostServiceProvider;
+use App\Providers\ModuleHostServiceProvider;
 use Flexipos\Kernel\Tenancy\TenancyServiceProvider;
 
 return [
     AppServiceProvider::class,
-    ServiceHostServiceProvider::class,
+    ModuleHostServiceProvider::class,
     TenancyServiceProvider::class,
 ];

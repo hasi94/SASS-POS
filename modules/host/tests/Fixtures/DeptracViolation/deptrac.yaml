@@ -1,25 +1,25 @@
-# Fixture only. Two stand-in service layers where one reaches into the other,
-# mirroring the shipped deptrac.yaml ruleset: a service layer may never depend
-# on another service layer. DeptracBoundaryEnforcementTest runs Deptrac against
+# Fixture only. Two stand-in module layers where one reaches into the other,
+# mirroring the shipped deptrac.yaml ruleset: a module layer may never depend
+# on another module layer. DeptracBoundaryEnforcementTest runs Deptrac against
 # this file and expects a non-zero exit code naming both layers.
 deptrac:
   paths:
-    - ServiceA
-    - ServiceB
+    - ModuleA
+    - ModuleB
 
   exclude_files: []
 
   layers:
-    - name: Service_A
+    - name: Module_A
       collectors:
         - type: classLike
-          value: ^Tests\\Fixtures\\DeptracViolation\\ServiceA\\.*
+          value: ^Tests\\Fixtures\\DeptracViolation\\ModuleA\\.*
 
-    - name: Service_B
+    - name: Module_B
       collectors:
         - type: classLike
-          value: ^Tests\\Fixtures\\DeptracViolation\\ServiceB\\.*
+          value: ^Tests\\Fixtures\\DeptracViolation\\ModuleB\\.*
 
   ruleset:
-    Service_A: ~
-    Service_B: ~
+    Module_A: ~
+    Module_B: ~

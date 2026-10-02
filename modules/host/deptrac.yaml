@@ -1,21 +1,21 @@
 deptrac:
   # Analysed source. Listed literally (no globs): the host application, every
-  # packages/*/src, every services/*/src and every services/*/tests. Adding a new,
-  # permanent service package means adding its two paths, one layer and one ruleset
+  # packages/*/src, every modules/*/src and every modules/*/tests. Adding a new,
+  # permanent module means adding its two paths, one layer and one ruleset
   # entry here.
   #
   # Test code is boundary-checked too, and needs no layer of its own: layers are
   # matched by namespace, not by directory, so a class declared under
-  # Flexipos\Service\Demo\ is inside the Service_Demo layer whether its file lives
+  # Flexipos\Module\Demo\ is inside the Module_Demo layer whether its file lives
   # in src/ or in tests/.
   paths:
     - app
-    # The host's own test directory (FP-169). Unlike a service package's tests,
+    # The host's own test directory (FP-169). Unlike a module's tests,
     # this one needs a layer of its own: the host's Pest files declare no
     # classes and the shared infrastructure declares Tests\*, which belonged to
     # no layer, so nothing in here could ever be the depender in a rule and the
     # path alone was inert. Measured: path only = 0 violations and no new
-    # covered class; path + the HostTests layer below = the import of a service
+    # covered class; path + the HostTests layer below = the import of a module
     # internal from a host test becomes reportable.
     - tests
     - ../demo/src
@@ -39,9 +39,9 @@ deptrac:
 
     # The host's own test code (FP-169). Separate from HostApp so its ruleset can
     # be the narrower one: a host test may reach the host application and any
-    # shared package, but never a service package's internals. Deliberately NOT
-    # granted any Service_* layer - that omission is the whole point, and it is
-    # what makes a host test importing a service internal a reportable
+    # shared package, but never a module's internals. Deliberately NOT
+    # granted any Module_* layer - that omission is the whole point, and it is
+    # what makes a host test importing a module internal a reportable
     # violation. Intra-layer dependencies are allowed by Deptrac, so the
     # Tests\Fixtures\DeptracViolation\* stand-ins stay silent here.
     - name: HostTests
@@ -49,12 +49,12 @@ deptrac:
         - type: classLike
           value: ^Tests\\.*
 
-    # One layer per service package, so a dependency from one service onto
+    # One layer per module, so a dependency from one module onto
     # another is a violation instead of an internal edge of a shared layer.
-    - name: Service_Demo
+    - name: Module_Demo
       collectors:
         - type: classLike
-          value: ^Flexipos\\Service\\Demo\\.*
+          value: ^Flexipos\\Module\\Demo\\.*
 
     - name: Package_Auth
       collectors:
@@ -94,8 +94,8 @@ deptrac:
         - type: classLike
           value: ^Flexipos\\Testing\\.*
 
-  # A service layer may depend only on shared packages/* layers — never on another
-  # service layer. packages/* layers depend on nothing (`~`).
+  # A module layer may depend only on shared packages/* layers — never on another
+  # module layer. packages/* layers depend on nothing (`~`).
   ruleset:
     HostApp:
       - Package_Auth
@@ -107,7 +107,7 @@ deptrac:
       - Package_Testing
 
     # The host's tests may use the host application and the shared packages.
-    # No Service_* layer appears here on purpose: see the layer comment above.
+    # No Module_* layer appears here on purpose: see the layer comment above.
     HostTests:
       - HostApp
       - Package_Auth
@@ -118,7 +118,7 @@ deptrac:
       - Package_PluginSdk
       - Package_Testing
 
-    Service_Demo:
+    Module_Demo:
       - Package_Auth
       - Package_Contracts
       - Package_Eventbus

@@ -1,7 +1,7 @@
 <?php
 
-use App\Support\ServiceHost\ServiceRegistry;
-use App\Support\ServiceHost\UnknownServiceException;
+use App\Support\ModuleHost\ModuleRegistry;
+use App\Support\ModuleHost\UnknownModuleException;
 use Composer\Autoload\ClassLoader;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
@@ -13,7 +13,7 @@ use function Pest\Laravel\get;
 /*
  * QA attack proofs for T-002 AC-1, AC-2, AC-3 and AC-4.
  *
- * ServiceRegistryManifestTrustTest (dev's) proves the new checks throw. These
+ * ModuleRegistryManifestTrustTest (dev's) proves the new checks throw. These
  * prove the thing the checks exist to prevent actually fails: a hostile or
  * copy-pasted manifest must not end up with a source directory donated to a
  * namespace it does not own, and the class it named must never reach the
@@ -24,7 +24,7 @@ use function Pest\Laravel\get;
  */
 
 /**
- * Composer's live class loader, obtained the way ServiceRegistry obtains it.
+ * Composer's live class loader, obtained the way ModuleRegistry obtains it.
  */
 function qaTrustLoader(): ClassLoader
 {
@@ -35,7 +35,7 @@ function qaTrustLoader(): ClassLoader
 }
 
 /**
- * Generate a real service package, rewrite its manifest, and plant extra files.
+ * Generate a real module, rewrite its manifest, and plant extra files.
  *
  * @param  callable(array<string, mixed>): array<string, mixed>  $mutate
  * @param  array<string, string>  $planted  relative path => file contents
@@ -44,9 +44,9 @@ function qaTrustFixture(callable $mutate, array $planted = []): string
 {
     $name = 'qatrustfixture';
 
-    expect(Artisan::call('svc:make', ['name' => $name]))->toBe(0);
+    expect(Artisan::call('module:make', ['name' => $name]))->toBe(0);
 
-    $file = servicesPath($name).DIRECTORY_SEPARATOR.'composer.json';
+    $file = modulesPath($name).DIRECTORY_SEPARATOR.'composer.json';
 
     /** @var array<string, mixed> $manifest */
     $manifest = (array) json_decode((string) File::get($file), true);
@@ -54,7 +54,7 @@ function qaTrustFixture(callable $mutate, array $planted = []): string
     File::put($file, (string) json_encode($mutate($manifest), JSON_PRETTY_PRINT));
 
     foreach ($planted as $relative => $contents) {
-        $path = servicesPath($name).DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $relative);
+        $path = modulesPath($name).DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $relative);
 
         File::ensureDirectoryExists(dirname($path));
         File::put($path, $contents);
@@ -75,15 +75,15 @@ function qaTrustFixture(callable $mutate, array $planted = []): string
 function qaTrustWouldResolve(string $prefix, string $class): bool
 {
     $loader = new ClassLoader;
-    $loader->addPsr4($prefix, servicesPath('qatrustfixture').DIRECTORY_SEPARATOR.'src');
+    $loader->addPsr4($prefix, modulesPath('qatrustfixture').DIRECTORY_SEPARATOR.'src');
 
     return is_string($loader->findFile($class));
 }
 
 /**
- * Boot one service and return whatever it threw, or null if it booted.
+ * Boot one module and return whatever it threw, or null if it booted.
  *
- * Deliberately catches Throwable, not UnknownServiceException: AC-1 requires
+ * Deliberately catches Throwable, not UnknownModuleException: AC-1 requires
  * the failure to be the registry's own typed exception rather than a TypeError
  * or a fatal escaping from the container, and a narrower catch could not tell
  * the difference.
@@ -91,7 +91,7 @@ function qaTrustWouldResolve(string $prefix, string $class): bool
 function qaTrustFailure(string $name): ?Throwable
 {
     try {
-        app(ServiceRegistry::class)->bootAll($name);
+        app(ModuleRegistry::class)->bootAll($name);
     } catch (Throwable $exception) {
         return $exception;
     }
@@ -100,12 +100,12 @@ function qaTrustFailure(string $name): ?Throwable
 }
 
 afterEach(function () {
-    deleteFixtureDirectory(servicesPath('qatrustfixture'));
+    deleteFixtureDirectory(modulesPath('qatrustfixture'));
 });
 
-it('refuses an autoloadable class that is not a service provider without ever constructing it', function () {
+it('refuses an autoloadable class that is not a module provider without ever constructing it', function () {
     // The package's own controller, pasted over the provider key by mistake.
-    $provider = 'Flexipos\\Service\\Qatrustfixture\\Http\\Controllers\\PingController';
+    $provider = 'Flexipos\\Module\\Qatrustfixture\\Http\\Controllers\\PingController';
 
     $name = qaTrustFixture(function (array $manifest) use ($provider): array {
         $manifest['extra']['flexipos']['provider'] = $provider;
@@ -115,10 +115,10 @@ it('refuses an autoloadable class that is not a service provider without ever co
 
     $failure = qaTrustFailure($name);
 
-    expect($failure)->toBeInstanceOf(UnknownServiceException::class);
+    expect($failure)->toBeInstanceOf(UnknownModuleException::class);
 
-    /** @var UnknownServiceException $failure */
-    expect($failure->service())->toBe($name)
+    /** @var UnknownModuleException $failure */
+    expect($failure->module())->toBe($name)
         ->and($failure->getMessage())->toContain($provider)
         ->and($failure->getMessage())->toContain('is not a Illuminate\Support\ServiceProvider')
         // Distinct from the "could not be autoloaded" message, per AC-1.
@@ -135,45 +135,45 @@ it('refuses an autoloadable class that is not a service provider without ever co
     );
 
     expect($registered)->toBe([])
-        ->and(app(ServiceRegistry::class)->booted())->not->toContain($name);
+        ->and(app(ModuleRegistry::class)->booted())->not->toContain($name);
 });
 
-it('never donates a source directory to another service package namespace', function () {
-    $stolen = 'Flexipos\\Service\\Sales\\QaStolenFromSales';
+it('never donates a source directory to another module namespace', function () {
+    $stolen = 'Flexipos\\Module\\Sales\\QaStolenFromSales';
 
-    expect(qaTrustLoader()->getPrefixesPsr4())->not->toHaveKey('Flexipos\\Service\\Sales\\')
+    expect(qaTrustLoader()->getPrefixesPsr4())->not->toHaveKey('Flexipos\\Module\\Sales\\')
         ->and(class_exists($stolen))->toBeFalse();
 
     $name = qaTrustFixture(
         function (array $manifest): array {
-            $manifest['autoload']['psr-4'] = ['Flexipos\\Service\\Sales\\' => 'src/'];
-            $manifest['extra']['flexipos']['provider'] = 'Flexipos\\Service\\Sales\\SalesServiceProvider';
+            $manifest['autoload']['psr-4'] = ['Flexipos\\Module\\Sales\\' => 'src/'];
+            $manifest['extra']['flexipos']['provider'] = 'Flexipos\\Module\\Sales\\SalesServiceProvider';
 
             return $manifest;
         },
-        ['src/QaStolenFromSales.php' => "<?php\n\nnamespace Flexipos\\Service\\Sales;\n\nclass QaStolenFromSales {}\n"]
+        ['src/QaStolenFromSales.php' => "<?php\n\nnamespace Flexipos\\Module\\Sales;\n\nclass QaStolenFromSales {}\n"]
     );
 
     $failure = qaTrustFailure($name);
 
-    expect($failure)->toBeInstanceOf(UnknownServiceException::class);
+    expect($failure)->toBeInstanceOf(UnknownModuleException::class);
 
-    /** @var UnknownServiceException $failure */
-    expect($failure->service())->toBe($name)
-        ->and($failure->getMessage())->toContain('Flexipos\Service\Sales\\')
-        ->and($failure->getMessage())->toContain('Flexipos\Service\Qatrustfixture\\');
+    /** @var UnknownModuleException $failure */
+    expect($failure->module())->toBe($name)
+        ->and($failure->getMessage())->toContain('Flexipos\Module\Sales\\')
+        ->and($failure->getMessage())->toContain('Flexipos\Module\Qatrustfixture\\');
 
     // The proof AC-2 asks for, both ways round: no prefix was registered, and
     // a class that would have become loadable through it is still not loadable.
-    expect(qaTrustLoader()->getPrefixesPsr4())->not->toHaveKey('Flexipos\\Service\\Sales\\')
+    expect(qaTrustLoader()->getPrefixesPsr4())->not->toHaveKey('Flexipos\\Module\\Sales\\')
         ->and(class_exists($stolen))->toBeFalse()
         // ... and the payload was genuinely live: registering that prefix, which
         // is exactly what the registry used to do before validating, would have
         // resolved it.
-        ->and(qaTrustWouldResolve('Flexipos\\Service\\Sales\\', $stolen))->toBeTrue();
+        ->and(qaTrustWouldResolve('Flexipos\\Module\\Sales\\', $stolen))->toBeTrue();
 });
 
-it('never extends the host own App namespace with a service package source directory', function () {
+it('never extends the host own App namespace with a module source directory', function () {
     $hijack = 'App\\QaHijackedByFixture';
     $before = qaTrustLoader()->getPrefixesPsr4()['App\\'] ?? [];
 
@@ -192,12 +192,12 @@ it('never extends the host own App namespace with a service package source direc
 
     $failure = qaTrustFailure($name);
 
-    expect($failure)->toBeInstanceOf(UnknownServiceException::class);
+    expect($failure)->toBeInstanceOf(UnknownModuleException::class);
 
-    /** @var UnknownServiceException $failure */
-    expect($failure->service())->toBe($name)
+    /** @var UnknownModuleException $failure */
+    expect($failure->module())->toBe($name)
         ->and($failure->getMessage())->toContain('[App\]')
-        ->and($failure->getMessage())->toContain('Flexipos\Service\Qatrustfixture\\');
+        ->and($failure->getMessage())->toContain('Flexipos\Module\Qatrustfixture\\');
 
     // Shadowing the host's own classes is the worst case of M-2: the App\
     // prefix must be byte for byte what it was, and the planted class must
@@ -225,7 +225,7 @@ it('registers nothing for a second psr-4 entry the package is not entitled to', 
     $name = qaTrustFixture(
         function (array $manifest): array {
             $manifest['autoload']['psr-4'] = [
-                'Flexipos\\Service\\Qatrustfixture\\' => 'src/',
+                'Flexipos\\Module\\Qatrustfixture\\' => 'src/',
                 'App\\' => 'src/',
             ];
 
@@ -236,12 +236,12 @@ it('registers nothing for a second psr-4 entry the package is not entitled to', 
 
     $failure = qaTrustFailure($name);
 
-    expect($failure)->toBeInstanceOf(UnknownServiceException::class);
+    expect($failure)->toBeInstanceOf(UnknownModuleException::class);
 
-    /** @var UnknownServiceException $failure */
-    expect($failure->service())->toBe($name)
+    /** @var UnknownModuleException $failure */
+    expect($failure->module())->toBe($name)
         ->and($failure->getMessage())->toContain('must declare exactly one')
-        ->and($failure->getMessage())->toContain('Flexipos\Service\Qatrustfixture\\')
+        ->and($failure->getMessage())->toContain('Flexipos\Module\Qatrustfixture\\')
         // The advice names the entry to remove, not "everything after the first".
         ->and($failure->getMessage())->toContain('Remove [App\].');
 
@@ -260,8 +260,8 @@ it('rejects a two entry psr-4 map and names the unentitled key even when it is l
     // this suite's own fixtures suffered in the previous round.
     $second = qaTrustFixture(function (array $manifest): array {
         $manifest['autoload']['psr-4'] = [
-            'Flexipos\\Service\\Sales\\' => 'src/',
-            'Flexipos\\Service\\Qatrustfixture\\' => 'src/',
+            'Flexipos\\Module\\Sales\\' => 'src/',
+            'Flexipos\\Module\\Qatrustfixture\\' => 'src/',
         ];
 
         return $manifest;
@@ -269,24 +269,24 @@ it('rejects a two entry psr-4 map and names the unentitled key even when it is l
 
     $failure = qaTrustFailure($second);
 
-    expect($failure)->toBeInstanceOf(UnknownServiceException::class);
+    expect($failure)->toBeInstanceOf(UnknownModuleException::class);
 
-    /** @var UnknownServiceException $failure */
-    expect($failure->service())->toBe($second)
+    /** @var UnknownModuleException $failure */
+    expect($failure->module())->toBe($second)
         ->and($failure->getMessage())->toContain('declares 2 autoload.psr-4 namespaces')
         ->and($failure->getMessage())->toContain('must declare exactly one')
         // Correct advice: remove the foreign key and keep its own, rather than
         // the other way round just because the foreign one came first.
-        ->and($failure->getMessage())->toContain('Remove [Flexipos\Service\Sales\].')
-        ->and($failure->getMessage())->not->toContain('Remove [Flexipos\Service\Qatrustfixture\]');
+        ->and($failure->getMessage())->toContain('Remove [Flexipos\Module\Sales\].')
+        ->and($failure->getMessage())->not->toContain('Remove [Flexipos\Module\Qatrustfixture\]');
 
-    expect(qaTrustLoader()->getPrefixesPsr4())->not->toHaveKey('Flexipos\\Service\\Sales\\');
+    expect(qaTrustLoader()->getPrefixesPsr4())->not->toHaveKey('Flexipos\\Module\\Sales\\');
 });
 
 it('names every unentitled key when a psr-4 map declares only namespaces it may not have', function () {
     $name = qaTrustFixture(function (array $manifest): array {
         $manifest['autoload']['psr-4'] = [
-            'Flexipos\\Service\\Sales\\' => 'src/',
+            'Flexipos\\Module\\Sales\\' => 'src/',
             'App\\' => 'src/',
         ];
 
@@ -296,11 +296,11 @@ it('names every unentitled key when a psr-4 map declares only namespaces it may 
     $before = qaTrustLoader()->getPrefixesPsr4()['App\\'] ?? [];
     $failure = qaTrustFailure($name);
 
-    expect($failure)->toBeInstanceOf(UnknownServiceException::class);
+    expect($failure)->toBeInstanceOf(UnknownModuleException::class);
 
-    /** @var UnknownServiceException $failure */
-    expect($failure->getMessage())->toContain('Remove [Flexipos\Service\Sales\], [App\].')
-        ->and(qaTrustLoader()->getPrefixesPsr4())->not->toHaveKey('Flexipos\\Service\\Sales\\')
+    /** @var UnknownModuleException $failure */
+    expect($failure->getMessage())->toContain('Remove [Flexipos\Module\Sales\], [App\].')
+        ->and(qaTrustLoader()->getPrefixesPsr4())->not->toHaveKey('Flexipos\\Module\\Sales\\')
         ->and(qaTrustLoader()->getPrefixesPsr4()['App\\'] ?? [])->toBe($before);
 });
 
@@ -309,9 +309,9 @@ it('still reports an empty or malformed psr-4 map as such, not as a count proble
     // own, more specific message: "none at all" and "not a string key".
     $name = 'qatrustfixture';
 
-    expect(Artisan::call('svc:make', ['name' => $name]))->toBe(0);
+    expect(Artisan::call('module:make', ['name' => $name]))->toBe(0);
 
-    $file = servicesPath($name).DIRECTORY_SEPARATOR.'composer.json';
+    $file = modulesPath($name).DIRECTORY_SEPARATOR.'composer.json';
 
     /** @var array<string, mixed> $manifest */
     $manifest = (array) json_decode((string) File::get($file), true);
@@ -321,9 +321,9 @@ it('still reports an empty or malformed psr-4 map as such, not as a count proble
 
     $failure = qaTrustFailure($name);
 
-    expect($failure)->toBeInstanceOf(UnknownServiceException::class);
+    expect($failure)->toBeInstanceOf(UnknownModuleException::class);
 
-    /** @var UnknownServiceException $failure */
+    /** @var UnknownModuleException $failure */
     expect($failure->getMessage())->toContain($expected)
         ->and($failure->getMessage())->not->toContain('must declare exactly one');
 })->with([
@@ -340,39 +340,39 @@ it('cannot have the one entry rule dodged by a manifest that repeats a json key'
     // asserts.
     $name = 'qatrustfixture';
 
-    expect(Artisan::call('svc:make', ['name' => $name]))->toBe(0);
+    expect(Artisan::call('module:make', ['name' => $name]))->toBe(0);
 
-    File::put(servicesPath($name).DIRECTORY_SEPARATOR.'composer.json', <<<'JSON'
+    File::put(modulesPath($name).DIRECTORY_SEPARATOR.'composer.json', <<<'JSON'
         {
-            "name": "flexipos/service-qatrustfixture",
+            "name": "flexipos/module-qatrustfixture",
             "autoload": {
                 "psr-4": {
-                    "Flexipos\\Service\\Qatrustfixture\\": "src/",
+                    "Flexipos\\Module\\Qatrustfixture\\": "src/",
                     "App\\": "src/",
                     "App\\": "src/"
                 }
             },
-            "extra": { "flexipos": { "provider": "Flexipos\\Service\\Qatrustfixture\\QatrustfixtureServiceProvider" } }
+            "extra": { "flexipos": { "provider": "Flexipos\\Module\\Qatrustfixture\\QatrustfixtureServiceProvider" } }
         }
         JSON);
 
     /** @var array<string, mixed> $decoded */
-    $decoded = (array) json_decode((string) File::get(servicesPath($name).DIRECTORY_SEPARATOR.'composer.json'), true);
+    $decoded = (array) json_decode((string) File::get(modulesPath($name).DIRECTORY_SEPARATOR.'composer.json'), true);
 
     expect($decoded['autoload']['psr-4'])->toHaveCount(2);
 
     $before = qaTrustLoader()->getPrefixesPsr4()['App\\'] ?? [];
     $failure = qaTrustFailure($name);
 
-    expect($failure)->toBeInstanceOf(UnknownServiceException::class);
+    expect($failure)->toBeInstanceOf(UnknownModuleException::class);
 
-    /** @var UnknownServiceException $failure */
+    /** @var UnknownModuleException $failure */
     expect($failure->getMessage())->toContain('must declare exactly one')
         ->and(qaTrustLoader()->getPrefixesPsr4()['App\\'] ?? [])->toBe($before);
 });
 
 it('refuses a provider declared outside the package own namespace and registers nothing for it', function () {
-    $provider = 'Flexipos\\Service\\Sales\\QatrustfixtureServiceProvider';
+    $provider = 'Flexipos\\Module\\Sales\\QatrustfixtureServiceProvider';
 
     $name = qaTrustFixture(function (array $manifest) use ($provider): array {
         $manifest['extra']['flexipos']['provider'] = $provider;
@@ -382,28 +382,28 @@ it('refuses a provider declared outside the package own namespace and registers 
 
     $failure = qaTrustFailure($name);
 
-    expect($failure)->toBeInstanceOf(UnknownServiceException::class);
+    expect($failure)->toBeInstanceOf(UnknownModuleException::class);
 
-    /** @var UnknownServiceException $failure */
-    expect($failure->service())->toBe($name)
+    /** @var UnknownModuleException $failure */
+    expect($failure->module())->toBe($name)
         ->and($failure->getMessage())->toContain($provider)
         ->and($failure->getMessage())->toContain('outside its own namespace')
-        ->and($failure->getMessage())->toContain('Flexipos\Service\Qatrustfixture\\');
+        ->and($failure->getMessage())->toContain('Flexipos\Module\Qatrustfixture\\');
 
-    expect(qaTrustLoader()->getPrefixesPsr4())->not->toHaveKey('Flexipos\\Service\\Sales\\')
-        ->and(app(ServiceRegistry::class)->booted())->not->toContain($name);
+    expect(qaTrustLoader()->getPrefixesPsr4())->not->toHaveKey('Flexipos\\Module\\Sales\\')
+        ->and(app(ModuleRegistry::class)->booted())->not->toContain($name);
 });
 
 it('refuses a provider that passes the type check but cannot be constructed', function (string $class, string $source) {
     // BUG-3. is_a(..., true) is satisfied by an abstract subclass and by one
     // whose constructor is not public, and register() then died with a raw
-    // "Cannot instantiate abstract class" that never named the service - the
+    // "Cannot instantiate abstract class" that never named the module - the
     // outcome D-1 and AC-1 exist to prevent, reached by a shape AC-1's wording
     // does not cover. The failure has to be the registry's own exception, so
     // this catches Throwable and asserts the type rather than expecting one.
     $name = qaTrustFixture(
         function (array $manifest) use ($class): array {
-            $manifest['extra']['flexipos']['provider'] = 'Flexipos\\Service\\Qatrustfixture\\'.$class;
+            $manifest['extra']['flexipos']['provider'] = 'Flexipos\\Module\\Qatrustfixture\\'.$class;
 
             return $manifest;
         },
@@ -412,29 +412,29 @@ it('refuses a provider that passes the type check but cannot be constructed', fu
 
     $failure = qaTrustFailure($name);
 
-    expect($failure)->toBeInstanceOf(UnknownServiceException::class);
+    expect($failure)->toBeInstanceOf(UnknownModuleException::class);
 
-    /** @var UnknownServiceException $failure */
-    expect($failure->service())->toBe($name)
+    /** @var UnknownModuleException $failure */
+    expect($failure->module())->toBe($name)
         ->and($failure->getMessage())->toContain($class)
         ->and($failure->getMessage())->toContain('cannot be instantiated')
         // Distinguishable from its two neighbours, which have different fixes.
         ->and($failure->getMessage())->not->toContain('is not a Illuminate\Support\ServiceProvider')
         ->and($failure->getMessage())->not->toContain('could not be autoloaded');
 
-    expect(app(ServiceRegistry::class)->booted())->not->toContain($name);
+    expect(app(ModuleRegistry::class)->booted())->not->toContain($name);
 })->with([
     'abstract provider' => [
         'QaAbstractProvider',
-        "<?php\n\nnamespace Flexipos\\Service\\Qatrustfixture;\n\nuse Illuminate\\Support\\ServiceProvider;\n\nabstract class QaAbstractProvider extends ServiceProvider {}\n",
+        "<?php\n\nnamespace Flexipos\\Module\\Qatrustfixture;\n\nuse Illuminate\\Support\\ServiceProvider;\n\nabstract class QaAbstractProvider extends ServiceProvider {}\n",
     ],
     'private constructor' => [
         'QaPrivateProvider',
-        "<?php\n\nnamespace Flexipos\\Service\\Qatrustfixture;\n\nuse Illuminate\\Support\\ServiceProvider;\n\nclass QaPrivateProvider extends ServiceProvider\n{\n    private function __construct() {}\n}\n",
+        "<?php\n\nnamespace Flexipos\\Module\\Qatrustfixture;\n\nuse Illuminate\\Support\\ServiceProvider;\n\nclass QaPrivateProvider extends ServiceProvider\n{\n    private function __construct() {}\n}\n",
     ],
     'protected constructor' => [
         'QaProtectedProvider',
-        "<?php\n\nnamespace Flexipos\\Service\\Qatrustfixture;\n\nuse Illuminate\\Support\\ServiceProvider;\n\nclass QaProtectedProvider extends ServiceProvider\n{\n    protected function __construct() {}\n}\n",
+        "<?php\n\nnamespace Flexipos\\Module\\Qatrustfixture;\n\nuse Illuminate\\Support\\ServiceProvider;\n\nclass QaProtectedProvider extends ServiceProvider\n{\n    protected function __construct() {}\n}\n",
     ],
 ]);
 
@@ -444,7 +444,7 @@ it('refuses every other shape a provider key can name, each with its own message
     // answers no and they stop earlier. None of them may reach the container.
     $name = qaTrustFixture(
         function (array $manifest) use ($class): array {
-            $manifest['extra']['flexipos']['provider'] = 'Flexipos\\Service\\Qatrustfixture\\'.$class;
+            $manifest['extra']['flexipos']['provider'] = 'Flexipos\\Module\\Qatrustfixture\\'.$class;
 
             return $manifest;
         },
@@ -453,31 +453,31 @@ it('refuses every other shape a provider key can name, each with its own message
 
     $failure = qaTrustFailure($name);
 
-    expect($failure)->toBeInstanceOf(UnknownServiceException::class);
+    expect($failure)->toBeInstanceOf(UnknownModuleException::class);
 
-    /** @var UnknownServiceException $failure */
-    expect($failure->service())->toBe($name)
+    /** @var UnknownModuleException $failure */
+    expect($failure->module())->toBe($name)
         ->and($failure->getMessage())->toContain($class)
         ->and($failure->getMessage())->toContain($expected)
         ->and($failure->getMessage())->not->toContain($notExpected);
 
-    expect(app(ServiceRegistry::class)->booted())->not->toContain($name);
+    expect(app(ModuleRegistry::class)->booted())->not->toContain($name);
 })->with([
     'enum' => [
         'QaProviderEnum',
-        "<?php\n\nnamespace Flexipos\\Service\\Qatrustfixture;\n\nenum QaProviderEnum\n{\n    case One;\n}\n",
+        "<?php\n\nnamespace Flexipos\\Module\\Qatrustfixture;\n\nenum QaProviderEnum\n{\n    case One;\n}\n",
         'is not a Illuminate\Support\ServiceProvider',
         'cannot be instantiated',
     ],
     'trait' => [
         'QaProviderTrait',
-        "<?php\n\nnamespace Flexipos\\Service\\Qatrustfixture;\n\ntrait QaProviderTrait {}\n",
+        "<?php\n\nnamespace Flexipos\\Module\\Qatrustfixture;\n\ntrait QaProviderTrait {}\n",
         'could not be autoloaded',
         'cannot be instantiated',
     ],
     'interface' => [
         'QaProviderContract',
-        "<?php\n\nnamespace Flexipos\\Service\\Qatrustfixture;\n\ninterface QaProviderContract {}\n",
+        "<?php\n\nnamespace Flexipos\\Module\\Qatrustfixture;\n\ninterface QaProviderContract {}\n",
         'could not be autoloaded',
         'cannot be instantiated',
     ],
@@ -488,33 +488,33 @@ it('still boots the committed demo package, so the rule blocks only what it shou
     // A guard that also rejects a legitimate package is a defect, not a fix.
     $this->bootHostWith('demo');
 
-    expect(app(ServiceRegistry::class)->booted())->toBe(['demo'])
-        ->and(qaTrustLoader()->getPrefixesPsr4())->toHaveKey('Flexipos\\Service\\Demo\\');
+    expect(app(ModuleRegistry::class)->booted())->toBe(['demo'])
+        ->and(qaTrustLoader()->getPrefixesPsr4())->toHaveKey('Flexipos\\Module\\Demo\\');
 
-    get('/api/v1/demo/ping')->assertOk()->assertJson(['service' => 'demo', 'status' => 'ok']);
+    get('/api/v1/demo/ping')->assertOk()->assertJson(['module' => 'demo', 'status' => 'ok']);
 });
 
 it('rejects a trailing newline in the shared name pattern itself', function () {
     // PCRE's $ matches just before a final newline; the D modifier is what
     // closes that. Same defect class as T-001's BUG-2.
     foreach (["billing\n", "demo\n", "http-client\n", "billing\r", "billing\r\n", "billing\n\n", "billing\nhost"] as $name) {
-        expect(preg_match(ServiceRegistry::NAME_PATTERN, $name))->toBe(0, json_encode($name));
+        expect(preg_match(ModuleRegistry::NAME_PATTERN, $name))->toBe(0, json_encode($name));
     }
 
     foreach (['billing', 'demo', 'http-client'] as $name) {
-        expect(preg_match(ServiceRegistry::NAME_PATTERN, $name))->toBe(1, $name);
+        expect(preg_match(ModuleRegistry::NAME_PATTERN, $name))->toBe(1, $name);
     }
 });
 
 it('rejects a trailing newline at the real command line and creates nothing', function () {
     // AC-4 (a): the actual shell path, not Artisan::call() in process, because
     // the generator is what a developer runs and it does not trim.
-    $before = File::directories(servicesPath());
+    $before = File::directories(modulesPath());
 
     $result = Process::path(base_path())->run([
         PHP_BINARY,
         base_path('artisan'),
-        'svc:make',
+        'module:make',
         "billing\n",
         '--no-ansi',
     ]);
@@ -522,10 +522,10 @@ it('rejects a trailing newline at the real command line and creates nothing', fu
     $output = $result->output().$result->errorOutput();
 
     expect($result->exitCode())->not->toBe(0)
-        ->and($output)->toContain('Invalid service name')
+        ->and($output)->toContain('Invalid module name')
         // The child really did receive the newline, rather than a name the
         // shell had already stripped it from - otherwise this proves nothing.
         ->and($output)->toContain("billing\n]")
-        ->and(File::directories(servicesPath()))->toBe($before)
-        ->and(File::exists(servicesPath('billing')))->toBeFalse();
+        ->and(File::directories(modulesPath()))->toBe($before)
+        ->and(File::exists(modulesPath('billing')))->toBeFalse();
 });

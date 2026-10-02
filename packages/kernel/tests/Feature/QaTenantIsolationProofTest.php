@@ -467,7 +467,7 @@ it('holds exactly one production write to the tenant connection configuration', 
 
     $roots = [
         $repository.DIRECTORY_SEPARATOR.'packages',
-        $repository.DIRECTORY_SEPARATOR.'services',
+        $repository.DIRECTORY_SEPARATOR.'modules',
     ];
 
     $writers = [];

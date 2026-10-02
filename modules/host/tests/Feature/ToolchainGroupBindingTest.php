@@ -61,8 +61,8 @@ function toolchainListedClasses(string $output): array
  *
  * The trailing segment of each distinct class, which is the file it came from.
  * Basenames are only a faithful stand-in for paths while no two files share one,
- * and that is NOT free here: `svc:make` writes tests/Feature/PingRouteTest.php
- * into every package it generates and the committed services/demo ships that
+ * and that is NOT free here: `module:make` writes tests/Feature/PingRouteTest.php
+ * into every package it generates and the committed modules/demo ships that
  * name too, so a second package on disk during collection would silently make two
  * different files look like one. The case below asserts the mapping is injective
  * by comparing these against toolchainListedClasses() - counting this list
@@ -133,8 +133,8 @@ it('binds the group to exactly the registry, and loses no test to the split', fu
      * construction and could never fail.
      *
      * Distinct classes against distinct basenames can fail, and the way it fails
-     * is reachable: every package `svc:make` generates contains
-     * tests/Feature/PingRouteTest.php and services/demo ships that name, so a
+     * is reachable: every package `module:make` generates contains
+     * tests/Feature/PingRouteTest.php and modules/demo ships that name, so a
      * generated package left on disk by a crashed run - or a second committed one
      * - collapses two files into one basename here.
      */
@@ -153,7 +153,7 @@ it('binds the group to exactly the registry, and loses no test to the split', fu
         [],
         'two or more collected test files share a basename, so comparing the toolchain group by basename would '.
         'conflate them: '.implode(', ', $shared).'. The usual cause is a generated fixture package left under '.
-        'services/ by a crashed run - every one of them ships tests/Feature/PingRouteTest.php.'
+        'modules/ by a crashed run - every one of them ships tests/Feature/PingRouteTest.php.'
     );
 
     expect(count($fullFiles))->toBe(count($fullClasses));

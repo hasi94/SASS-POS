@@ -9,19 +9,19 @@ use Symfony\Component\Finder\Finder;
 /*
  * QA proof for T-002 AC-19.
  *
- * SvcMakeDemoRegenerationTest passes today, which only tells us it is green on
+ * ModuleMakeDemoRegenerationTest passes today, which only tells us it is green on
  * an unmodified tree - exactly the state in which the manual T-001 procedure it
  * replaces was also green. What AC-19 buys is that a stub edit which drifts
- * from the committed services/demo is caught by `composer test` and the
+ * from the committed modules/demo is caught by `composer test` and the
  * differing file is named. That can only be shown by actually drifting a stub,
  * so this mutates one, runs that test in a child process, and asserts it turns
  * red and prints the file name - then restores the stub and asserts it is green
- * again and services/demo is byte for byte what it was.
+ * again and modules/demo is byte for byte what it was.
  */
 
 function qaDriftStubPath(): string
 {
-    return base_path('stubs'.DIRECTORY_SEPARATOR.'service'.DIRECTORY_SEPARATOR.'routes.api.php.stub');
+    return base_path('stubs'.DIRECTORY_SEPARATOR.'module'.DIRECTORY_SEPARATOR.'routes.api.php.stub');
 }
 
 function qaDriftBackupPath(): string
@@ -36,7 +36,7 @@ function qaDriftBackupPath(): string
  * the afterEach hook *before* qaRestoreCrlfBackup(), so it must not be able to
  * throw. It used to end with the throwing deleteFixtureDirectory(), which meant
  * one Windows delete failure here skipped the restore of the committed
- * services/demo bytes below it - the same hazard as BUG-3, hidden because the
+ * modules/demo bytes below it - the same hazard as BUG-3, hidden because the
  * delete and the skipped restore live in different functions.
  *
  * The rule is kept local to the helper rather than to the hook's statement order:
@@ -71,12 +71,12 @@ function qaRestoreDriftedStub(): bool
 /**
  * Relative path => content checksum for every file under a directory.
  *
- * Line endings are normalised before hashing (reviewer finding R-1). `svc:make`
- * always writes LF, but nothing guarantees the committed services/demo tree is
- * LF in a working copy: services/host/.gitattributes covers only
- * services/host/, there is no root or services/demo equivalent yet (FP-156),
+ * Line endings are normalised before hashing (reviewer finding R-1). `module:make`
+ * always writes LF, but nothing guarantees the committed modules/demo tree is
+ * LF in a working copy: modules/host/.gitattributes covers only
+ * modules/host/, there is no root or modules/demo equivalent yet (FP-156),
  * and core.autocrlf is true on this machine. Hashing raw bytes therefore passes
- * only for as long as nobody re-checks-out services/demo, and goes red on a
+ * only for as long as nobody re-checks-out modules/demo, and goes red on a
  * fresh clone for someone who changed nothing.
  *
  * @return array<string, string>
@@ -100,7 +100,7 @@ function qaTreeFingerprint(string $root): array
  * Relative path => raw byte checksum, no normalisation.
  *
  * Used only where the claim really is "these exact bytes came back", i.e. that
- * a test which moves services/demo aside restored it untouched. Comparing a
+ * a test which moves modules/demo aside restored it untouched. Comparing a
  * tree against itself is safe to do byte for byte; comparing generated output
  * against a checked-out tree is not, which is what qaTreeFingerprint() is for.
  *
@@ -125,7 +125,7 @@ function qaCrlfBackupPath(): string
 }
 
 /**
- * Restore services/demo from the byte-for-byte backup this file takes before
+ * Restore modules/demo from the byte-for-byte backup this file takes before
  * rewriting its line endings. Safety net for a run that dies mid-test.
  *
  * Non-throwing for the same reason as qaRestoreDriftedStub() above (R-1): a
@@ -141,7 +141,7 @@ function qaRestoreCrlfBackup(): bool
 
     if (File::isDirectory($backup)) {
         foreach (Finder::create()->in($backup)->files()->ignoreDotFiles(false) as $file) {
-            $target = servicesPath('demo').DIRECTORY_SEPARATOR.$file->getRelativePathname();
+            $target = modulesPath('demo').DIRECTORY_SEPARATOR.$file->getRelativePathname();
 
             File::ensureDirectoryExists(dirname($target));
             File::put($target, (string) file_get_contents($file->getPathname()));
@@ -166,7 +166,7 @@ afterEach(function () {
      * Reviewer finding R-1. Every restore runs first, unconditionally; the report
      * comes last. Neither helper throws any more, so no delete failure in the
      * first one can skip the second - the second is the one that puts the
-     * committed services/demo bytes back from a byte-for-byte backup, and the
+     * committed modules/demo bytes back from a byte-for-byte backup, and the
      * backup-creation loop in the first case sits outside any finally, so this
      * hook is the only thing that restores it on that path.
      *
@@ -193,13 +193,13 @@ afterEach(function () {
     }
 });
 
-it('survives a services/demo working tree checked out with CRLF line endings', function () {
+it('survives a modules/demo working tree checked out with CRLF line endings', function () {
     // Reviewer finding R-1, proven rather than argued. On a fresh clone with
-    // core.autocrlf=true and no .gitattributes covering services/demo, git
-    // writes CRLF into that tree while svc:make still generates LF. This
+    // core.autocrlf=true and no .gitattributes covering modules/demo, git
+    // writes CRLF into that tree while module:make still generates LF. This
     // reproduces exactly that state and asserts the regeneration test still
     // passes, then puts the original bytes back.
-    $demo = servicesPath('demo');
+    $demo = modulesPath('demo');
     $backup = qaCrlfBackupPath();
     $raw = qaRawTreeFingerprint($demo);
     $normalised = qaTreeFingerprint($demo);
@@ -255,7 +255,7 @@ it('survives a services/demo working tree checked out with CRLF line endings', f
         File::moveDirectory($demo, $aside);
 
         try {
-            expect(Artisan::call('svc:make', ['name' => 'demo']))->toBe(0);
+            expect(Artisan::call('module:make', ['name' => 'demo']))->toBe(0);
 
             $generatedRaw = qaRawTreeFingerprint($demo);
             $generatedNormalised = qaTreeFingerprint($demo);
@@ -275,7 +275,7 @@ it('survives a services/demo working tree checked out with CRLF line endings', f
              * QA BUG-3's rule, adopted here as well: a delete that precedes a
              * restore uses the non-throwing helper with the restore inside the
              * conditional, so one delete failure - the condition that helper
-             * exists for - can never jump over putting services/demo back.
+             * exists for - can never jump over putting modules/demo back.
              * $aside's own removal happens only inside that branch, because
              * deleting it while the restore has not happened would discard the
              * only copy of the tree this case rewrote.
@@ -290,7 +290,7 @@ it('survives a services/demo working tree checked out with CRLF line endings', f
              * pre-flight deleteFixtureDirectory($aside) above on the next run,
              * which is strict and names the path.
              *
-             * Milder here than in SvcMakeDemoRegenerationTest, and deliberately
+             * Milder here than in ModuleMakeDemoRegenerationTest, and deliberately
              * still fixed: qaRestoreCrlfBackup() below restores the committed
              * bytes from a byte-for-byte backup whatever happens, so the tree
              * recovers either way and the assertion after it is what reports a
@@ -315,8 +315,8 @@ it('turns red and names the file when a stub drifts from the committed demo pack
     $stub = qaDriftStubPath();
     $original = File::get($stub);
     $checksum = (string) md5_file($stub);
-    $demoBefore = qaTreeFingerprint(servicesPath('demo'));
-    $rawBefore = qaRawTreeFingerprint(servicesPath('demo'));
+    $demoBefore = qaTreeFingerprint(modulesPath('demo'));
+    $rawBefore = qaRawTreeFingerprint(modulesPath('demo'));
 
     expect($demoBefore)->toHaveKey('routes/api.php');
 
@@ -325,7 +325,7 @@ it('turns red and names the file when a stub drifts from the committed demo pack
 
     try {
         // A realistic drift: someone edits the template and forgets that
-        // services/demo is the committed copy of its output.
+        // modules/demo is the committed copy of its output.
         File::put($stub, $original."\n// drifted by QA, restored below\n");
 
         expect(md5_file($stub))->not->toBe($checksum);
@@ -345,17 +345,17 @@ it('turns red and names the file when a stub drifts from the committed demo pack
 
     // The failing run still restored the committed tree, which is the other
     // half of AC-19: a red regeneration test must not cost the repository its
-    // services/demo. Asserted byte for byte as well as by content, because
+    // modules/demo. Asserted byte for byte as well as by content, because
     // "restored" is a claim about the exact bytes and this comparison is of the
     // committed tree against itself, where raw hashing is the stronger check.
-    expect(qaTreeFingerprint(servicesPath('demo')))->toBe($demoBefore)
-        ->and(qaRawTreeFingerprint(servicesPath('demo')))->toBe($rawBefore);
+    expect(qaTreeFingerprint(modulesPath('demo')))->toBe($demoBefore)
+        ->and(qaRawTreeFingerprint(modulesPath('demo')))->toBe($rawBefore);
 
     $green = qaRunRegenerationTest();
 
     expect($green->exitCode())->toBe(0)
         ->and($green->output())->toMatch('/Tests:\s+1 passed/')
-        ->and(qaRawTreeFingerprint(servicesPath('demo')))->toBe($rawBefore)
-        ->and(qaTreeFingerprint(servicesPath('demo')))->toBe($demoBefore)
+        ->and(qaRawTreeFingerprint(modulesPath('demo')))->toBe($rawBefore)
+        ->and(qaTreeFingerprint(modulesPath('demo')))->toBe($demoBefore)
         ->and(File::isDirectory(storage_path('app'.DIRECTORY_SEPARATOR.'demo-regen-backup')))->toBeFalse();
 });

@@ -1,6 +1,6 @@
 <?php
 
-use Flexipos\Service\{{studly}}\Http\Controllers\PingController;
+use Flexipos\Module\{{studly}}\Http\Controllers\PingController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('api')

@@ -5,15 +5,15 @@ parameters:
     level: 6
 
     # Analysis paths are listed literally (no globs): the host application itself,
-    # every packages/*/src, every services/*/src and every services/*/tests. Adding
-    # a new shared package or a new, permanent service package means adding one line
+    # every packages/*/src, every modules/*/src and every modules/*/tests. Adding
+    # a new shared package or a new, permanent module means adding one line
     # per directory here.
     #
-    # Test code is analysed too: a service's test file is as capable of a level 6
+    # Test code is analysed too: a module's test file is as capable of a level 6
     # mistake as its source, and leaving tests out meant the only code that ever
     # touches another layer on purpose was the code nothing checked.
     paths:
-        # services/host
+        # modules/host
         - app
         - bootstrap/app.php
         - bootstrap/providers.php
@@ -24,7 +24,7 @@ parameters:
         # the shared test infrastructure T-004 moved into it (Helpers.php,
         # Pest.php, TestCase.php) was the only code here that nothing checked.
         - tests
-        # services/*
+        # modules/*
         - ../demo/src
         - ../demo/tests
         # packages/*

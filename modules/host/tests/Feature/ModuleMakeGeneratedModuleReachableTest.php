@@ -1,19 +1,19 @@
 <?php
 
-use App\Support\ServiceHost\ServiceRegistry;
+use App\Support\ModuleHost\ModuleRegistry;
 use Illuminate\Support\Facades\Artisan;
 use Symfony\Component\Finder\Finder;
 
 use function Pest\Laravel\get;
 
 /*
- * Adding a service must be a configuration change, never a code change: the
- * generator writes nothing inside services/host, and naming the package is
+ * Adding a module must be a configuration change, never a code change: the
+ * generator writes nothing inside modules/host, and naming the package is
  * enough to make it reachable.
  */
 
 /**
- * Checksums of every tracked file in services/host.
+ * Checksums of every tracked file in modules/host.
  *
  * @return array<string, string>
  */
@@ -38,29 +38,29 @@ function hostFingerprint(): array
 }
 
 afterEach(function () {
-    deleteFixtureDirectory(servicesPath('reachablefixture'));
+    deleteFixtureDirectory(modulesPath('reachablefixture'));
 });
 
-it('generates a package without touching a single file inside services/host', function () {
+it('generates a package without touching a single file inside modules/host', function () {
     $before = hostFingerprint();
 
-    expect(Artisan::call('svc:make', ['name' => 'reachablefixture']))->toBe(0)
+    expect(Artisan::call('module:make', ['name' => 'reachablefixture']))->toBe(0)
         ->and(hostFingerprint())->toBe($before);
 });
 
 it('makes a generated package reachable purely by naming it', function () {
-    expect(Artisan::call('svc:make', ['name' => 'reachablefixture']))->toBe(0);
+    expect(Artisan::call('module:make', ['name' => 'reachablefixture']))->toBe(0);
 
-    // Exactly what the host does at boot for every name in SERVICES.
-    app(ServiceRegistry::class)->bootAll('reachablefixture');
+    // Exactly what the host does at boot for every name in MODULES.
+    app(ModuleRegistry::class)->bootAll('reachablefixture');
 
-    expect(app(ServiceRegistry::class)->booted())->toContain('reachablefixture');
+    expect(app(ModuleRegistry::class)->booted())->toContain('reachablefixture');
 
     get('/api/v1/reachablefixture/ping')
         ->assertOk()
-        ->assertJson(['service' => 'reachablefixture', 'status' => 'ok']);
+        ->assertJson(['module' => 'reachablefixture', 'status' => 'ok']);
 
     get('/health/ready')
         ->assertOk()
-        ->assertExactJson(['status' => 'ok', 'services' => ['demo', 'reachablefixture']]);
+        ->assertExactJson(['status' => 'ok', 'modules' => ['demo', 'reachablefixture']]);
 });

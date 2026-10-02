@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Route;
  * measured before a line of this task was written. Laravel 12's
  * Route::prepareForSerialization() serialises a closure action with
  * SerializableClosure::unsigned(), so the LogicException("Unable to prepare route
- * [...] for serialization. Uses Closure.") that README.md, config/servicehost.php
+ * [...] for serialization. Uses Closure.") that README.md, config/modulehost.php
  * and the T-002 plan all rested on does not exist in this framework version.
  *
  * So this file does not unblock anything. It pins a guarantee that was already
@@ -37,7 +37,7 @@ function routeCachePath(): string
 function routeCacheArtisan(string $command): ProcessResult
 {
     return Process::path(base_path())
-        ->env(['SERVICES' => 'demo'])
+        ->env(['MODULES' => 'demo'])
         ->run([PHP_BINARY, base_path('artisan'), $command, '--no-ansi']);
 }
 
@@ -142,7 +142,7 @@ it('documents the route:cache constraint that is actually true', function () {
     // AC-16. The two places that documented a false reason for a real hazard.
     // Corrected, and asserted here so the correction cannot silently rot back.
     $documents = [
-        'config/servicehost.php' => File::get(base_path('config'.DIRECTORY_SEPARATOR.'servicehost.php')),
+        'config/modulehost.php' => File::get(base_path('config'.DIRECTORY_SEPARATOR.'modulehost.php')),
         'README.md' => File::get(dirname(base_path(), 2).DIRECTORY_SEPARATOR.'README.md'),
     ];
 

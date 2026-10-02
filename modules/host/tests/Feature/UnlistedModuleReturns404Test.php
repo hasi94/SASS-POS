@@ -1,6 +1,6 @@
 <?php
 
-use App\Support\ServiceHost\ServiceRegistry;
+use App\Support\ModuleHost\ModuleRegistry;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Tests\TestCase;
@@ -8,26 +8,26 @@ use Tests\TestCase;
 use function Pest\Laravel\get;
 
 /*
- * A service package that exists on disk but is not named in SERVICES must cost
+ * A module that exists on disk but is not named in MODULES must cost
  * nothing at boot: no provider, no routes, no entry in /health/ready.
  */
 
 afterEach(function () {
-    deleteFixtureDirectory(servicesPath('unlistedfixture'));
+    deleteFixtureDirectory(modulesPath('unlistedfixture'));
 });
 
-it('does not route a service package that exists but is not listed in SERVICES', function () {
+it('does not route a module that exists but is not listed in MODULES', function () {
     /** @var TestCase $this */
-    expect(Artisan::call('svc:make', ['name' => 'unlistedfixture']))->toBe(0)
-        ->and(File::exists(servicesPath('unlistedfixture').'/routes/api.php'))->toBeTrue();
+    expect(Artisan::call('module:make', ['name' => 'unlistedfixture']))->toBe(0)
+        ->and(File::exists(modulesPath('unlistedfixture').'/routes/api.php'))->toBeTrue();
 
     $this->bootHostWith('demo');
 
-    expect(app(ServiceRegistry::class)->booted())->toBe(['demo']);
+    expect(app(ModuleRegistry::class)->booted())->toBe(['demo']);
 
     get('/api/v1/unlistedfixture/ping')->assertNotFound();
 
     get('/health/ready')
         ->assertOk()
-        ->assertExactJson(['status' => 'ok', 'services' => ['demo']]);
+        ->assertExactJson(['status' => 'ok', 'modules' => ['demo']]);
 });

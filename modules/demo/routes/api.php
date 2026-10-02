@@ -1,6 +1,6 @@
 <?php
 
-use Flexipos\Service\Demo\Http\Controllers\PingController;
+use Flexipos\Module\Demo\Http\Controllers\PingController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('api')

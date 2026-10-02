@@ -77,18 +77,18 @@ it('subtracts the exemption list from the spawners and nothing else', function (
 });
 
 it('reports a registry or exemption entry that names no file on disk', function () {
-    $missing = 'services/host/tests/Feature/NoSuchFileWasEverCommittedTest.php';
+    $missing = 'modules/host/tests/Feature/NoSuchFileWasEverCommittedTest.php';
 
     expect(toolchainMissingPaths([$missing]))->toBe([$missing]);
 
     // And says nothing about a path that does exist, so the check is not simply
     // always positive.
-    expect(toolchainMissingPaths(['services/host/tests/Helpers.php']))->toBe([]);
+    expect(toolchainMissingPaths(['modules/host/tests/Helpers.php']))->toBe([]);
 });
 
 it('computes the repository root from its own location, not from the container', function () {
     // Pest.php calls toolchainGroupFiles() at bootstrap time, before the
     // application exists, so this must never start depending on base_path().
     expect(is_file(toolchainRepositoryRoot().DIRECTORY_SEPARATOR.'.gitattributes'))->toBeTrue()
-        ->and(is_dir(toolchainRepositoryRoot().DIRECTORY_SEPARATOR.'services'.DIRECTORY_SEPARATOR.'host'))->toBeTrue();
+        ->and(is_dir(toolchainRepositoryRoot().DIRECTORY_SEPARATOR.'modules'.DIRECTORY_SEPARATOR.'host'))->toBeTrue();
 });

@@ -12,11 +12,11 @@ use Symfony\Component\Yaml\Yaml;
  * Adding ../demo/tests to phpstan.neon.dist and deptrac.yaml is a one-line
  * change in each; that both lines are present proves nothing about whether the
  * tools then find anything. Each is therefore proven by planting a real defect
- * inside a service test directory and watching the shipped configuration fail
+ * inside a module test directory and watching the shipped configuration fail
  * on it.
  *
  * The same applies to the generated PingRouteTest stub, which ships into every
- * service created from now on: it moved from $this->get() to Pest's Laravel
+ * module created from now on: it moved from $this->get() to Pest's Laravel
  * helper functions because the former is a genuine level 6 error once test
  * directories are analysed. That is asserted here by planting the old form back
  * and watching PHPStan report it.
@@ -24,7 +24,7 @@ use Symfony\Component\Yaml\Yaml;
 
 function qaStanProbePath(): string
 {
-    return servicesPath('demo').DIRECTORY_SEPARATOR.'tests'.DIRECTORY_SEPARATOR.'Feature'.DIRECTORY_SEPARATOR.'QaStanProbe.php';
+    return modulesPath('demo').DIRECTORY_SEPARATOR.'tests'.DIRECTORY_SEPARATOR.'Feature'.DIRECTORY_SEPARATOR.'QaStanProbe.php';
 }
 
 function qaRunShippedStan(): ProcessResult
@@ -46,8 +46,8 @@ function qaBoundaryFixtureRoot(): string
 }
 
 /**
- * A two-service fixture in which a *test* file of one service imports a class
- * from another service's namespace. Written outside services/ so the host can
+ * A two-module fixture in which a *test* file of one module imports a class
+ * from another module's namespace. Written outside modules/ so the host can
  * never try to boot it and the shipped configuration never sees it.
  */
 function qaWriteBoundaryFixture(bool $analyseTestDirectory): string
@@ -59,14 +59,14 @@ function qaWriteBoundaryFixture(bool $analyseTestDirectory): string
     File::ensureDirectoryExists($root.'/billing/src');
     File::ensureDirectoryExists($root.'/billing/tests');
 
-    File::put($root.'/sales/src/Invoice.php', "<?php\n\nnamespace Flexipos\\Service\\Sales;\n\nclass Invoice {}\n");
-    File::put($root.'/billing/src/Ledger.php', "<?php\n\nnamespace Flexipos\\Service\\Billing;\n\nclass Ledger {}\n");
+    File::put($root.'/sales/src/Invoice.php', "<?php\n\nnamespace Flexipos\\Module\\Sales;\n\nclass Invoice {}\n");
+    File::put($root.'/billing/src/Ledger.php', "<?php\n\nnamespace Flexipos\\Module\\Billing;\n\nclass Ledger {}\n");
     File::put($root.'/billing/tests/LedgerSpec.php', <<<'PHP'
         <?php
 
-        namespace Flexipos\Service\Billing\Tests;
+        namespace Flexipos\Module\Billing\Tests;
 
-        use Flexipos\Service\Sales\Invoice;
+        use Flexipos\Module\Sales\Invoice;
 
         class LedgerSpec
         {
@@ -88,10 +88,10 @@ function qaWriteBoundaryFixture(bool $analyseTestDirectory): string
         'deptrac' => [
             'paths' => $paths,
             'layers' => [
-                ['name' => 'Service_Sales', 'collectors' => [['type' => 'classLike', 'value' => '^Flexipos\\\\Service\\\\Sales\\\\.*']]],
-                ['name' => 'Service_Billing', 'collectors' => [['type' => 'classLike', 'value' => '^Flexipos\\\\Service\\\\Billing\\\\.*']]],
+                ['name' => 'Module_Sales', 'collectors' => [['type' => 'classLike', 'value' => '^Flexipos\\\\Module\\\\Sales\\\\.*']]],
+                ['name' => 'Module_Billing', 'collectors' => [['type' => 'classLike', 'value' => '^Flexipos\\\\Module\\\\Billing\\\\.*']]],
             ],
-            'ruleset' => ['Service_Sales' => null, 'Service_Billing' => null],
+            'ruleset' => ['Module_Sales' => null, 'Module_Billing' => null],
         ],
     ], 8));
 
@@ -117,7 +117,7 @@ afterEach(function () {
     File::delete(base_path('storage/framework/cache/.deptrac-qa.cache'));
 });
 
-it('registers every service test directory with both analysers', function () {
+it('registers every module test directory with both analysers', function () {
     // The configuration half. The two tests below are the behavioural half.
     expect(File::get(base_path('phpstan.neon.dist')))->toContain('../demo/tests');
 
@@ -126,10 +126,10 @@ it('registers every service test directory with both analysers', function () {
 
     expect($deptrac['deptrac']['paths'])->toContain('../demo/tests');
 
-    // Every service package that ships tests must be in both lists, not just
+    // Every module that ships tests must be in both lists, not just
     // demo - the same manual-registry hazard QaToolchainRegistryCoverageTest
     // guards for src/.
-    foreach (glob(servicesPath().DIRECTORY_SEPARATOR.'*', GLOB_ONLYDIR) ?: [] as $directory) {
+    foreach (glob(modulesPath().DIRECTORY_SEPARATOR.'*', GLOB_ONLYDIR) ?: [] as $directory) {
         $name = basename($directory);
 
         if ($name === 'host' || in_array($name, qaFixturePackageNames(), true) || ! is_dir($directory.'/tests')) {
@@ -141,7 +141,7 @@ it('registers every service test directory with both analysers', function () {
     }
 });
 
-it('fails PHPStan on a real level 6 defect planted inside a service test directory', function () {
+it('fails PHPStan on a real level 6 defect planted inside a module test directory', function () {
     // Two defects at once: an untyped parameter, which only level 6 reports,
     // and the $this->get() form the stub used to ship, which is what adding
     // test directories to the analysis surfaced in the first place.
@@ -157,7 +157,7 @@ it('fails PHPStan on a real level 6 defect planted inside a service test directo
             return $value;
         }
 
-        it('probes the analysis of a service test directory', function () {
+        it('probes the analysis of a module test directory', function () {
             $this->get('/api/v1/demo/ping')->assertOk();
         });
 
@@ -193,7 +193,7 @@ it('fails PHPStan on a real level 6 defect planted inside a service test directo
             return $value;
         }
 
-        it('probes the analysis of a service test directory', function () {
+        it('probes the analysis of a module test directory', function () {
             get('/api/v1/demo/ping')->assertOk();
         });
 
@@ -210,19 +210,19 @@ it('fails PHPStan on a real level 6 defect planted inside a service test directo
     expect(File::exists(qaStanProbePath()))->toBeFalse();
 });
 
-it('reports a boundary violation when one service test file imports another service namespace', function () {
-    // AC-17 to the letter: service to service, from a tests/ directory. The
-    // shipped deptrac.yaml has only one service layer today, so the two-layer
+it('reports a boundary violation when one module test file imports another module namespace', function () {
+    // AC-17 to the letter: module to module, from a tests/ directory. The
+    // shipped deptrac.yaml has only one module layer today, so the two-layer
     // case is proven on an isolated fixture built the same way - by namespace,
     // not by directory - while dev's DeptracBoundaryEnforcementTest proves the
-    // shipped configuration itself catches a test file reaching out of Service_Demo.
+    // shipped configuration itself catches a test file reaching out of Module_Demo.
     $withTests = qaWriteBoundaryFixture(analyseTestDirectory: true);
     $violating = qaRunDeptrac($withTests);
     $output = $violating->output().$violating->errorOutput();
 
     expect($violating->exitCode())->not->toBe(0)
-        ->and($output)->toContain('Service_Billing')
-        ->and($output)->toContain('Service_Sales')
+        ->and($output)->toContain('Module_Billing')
+        ->and($output)->toContain('Module_Sales')
         ->and($output)->toContain('must not depend on')
         ->and($output)->toContain('LedgerSpec');
 
@@ -239,7 +239,7 @@ it('reports a boundary violation when one service test file imports another serv
 });
 
 it('keeps the generated test stub and the committed demo copy identical', function () {
-    // The stub ships into every service generated from now on, so a fix applied
+    // The stub ships into every module generated from now on, so a fix applied
     // to only one of the two would leave every future package with the level 6
     // error dev just removed.
     $replacements = [
@@ -252,11 +252,11 @@ it('keeps the generated test stub and the committed demo copy identical', functi
     ];
 
     $rendered = strtr(
-        str_replace("\r\n", "\n", File::get(base_path('stubs/service/PingRouteTest.php.stub'))),
+        str_replace("\r\n", "\n", File::get(base_path('stubs/module/PingRouteTest.php.stub'))),
         $replacements
     );
 
-    $committed = str_replace("\r\n", "\n", File::get(servicesPath('demo').'/tests/Feature/PingRouteTest.php'));
+    $committed = str_replace("\r\n", "\n", File::get(modulesPath('demo').'/tests/Feature/PingRouteTest.php'));
 
     expect($rendered)->toBe($committed)
         ->and($committed)->toContain('use function Pest\Laravel\get;')

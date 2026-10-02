@@ -1,6 +1,6 @@
 <?php
 
-use App\Support\ServiceHost\ServiceRegistry;
+use App\Support\ModuleHost\ModuleRegistry;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
@@ -11,7 +11,7 @@ use function Pest\Laravel\get;
 /*
  * QA proofs for T-002 AC-5 and AC-6.
  *
- * SvcMakeAtomicGenerationTest fails generation on the last of the six stubs.
+ * ModuleMakeAtomicGenerationTest fails generation on the last of the six stubs.
  * This one fails it on the second, so the rollback has to remove a file the
  * command had already successfully written (composer.json) rather than only the
  * directories around the one that threw - the state in which the old "already
@@ -20,13 +20,13 @@ use function Pest\Laravel\get;
  * AC-6 is then proven by using the retried package rather than by listing its
  * files: it is booted into the running host and its route answered, which is
  * what "a complete, passing package" has to mean. The happy-path file set is
- * compared against the committed services/demo, so a rollback that quietly
+ * compared against the committed modules/demo, so a rollback that quietly
  * changed what a successful generation writes would be caught too.
  */
 
 function qaAtomicStub(): string
 {
-    return base_path('stubs'.DIRECTORY_SEPARATOR.'service'.DIRECTORY_SEPARATOR.'ServiceProvider.php.stub');
+    return base_path('stubs'.DIRECTORY_SEPARATOR.'module'.DIRECTORY_SEPARATOR.'ServiceProvider.php.stub');
 }
 
 function qaAtomicBackup(): string
@@ -71,15 +71,15 @@ function qaRelativeFileList(string $root, ?string $package = null): array
 
 afterEach(function () {
     qaAtomicRestoreStub();
-    deleteFixtureDirectory(servicesPath('qaatomicfixture'));
+    deleteFixtureDirectory(modulesPath('qaatomicfixture'));
 });
 
 it('leaves nothing behind when generation fails on an early file, and the retry produces a working package', function () {
     $name = 'qaatomicfixture';
     $checksum = (string) md5_file(qaAtomicStub());
-    $directoriesBefore = File::directories(servicesPath());
+    $directoriesBefore = File::directories(modulesPath());
 
-    expect(File::exists(servicesPath($name)))->toBeFalse();
+    expect(File::exists(modulesPath($name)))->toBeFalse();
 
     File::ensureDirectoryExists(dirname(qaAtomicBackup()));
     File::move(qaAtomicStub(), qaAtomicBackup());
@@ -87,16 +87,16 @@ it('leaves nothing behind when generation fails on an early file, and the retry 
     try {
         // composer.json is written first and succeeds; the provider stub is the
         // second of the six and now cannot be read.
-        $exit = Artisan::call('svc:make', ['name' => $name]);
+        $exit = Artisan::call('module:make', ['name' => $name]);
         $output = Artisan::output();
 
         expect($exit)->not->toBe(0)
             ->and($output)->toContain('was removed')
             // AC-5: no partial package at all, not even the file that had
             // already been written successfully.
-            ->and(File::exists(servicesPath($name)))->toBeFalse()
-            ->and(File::exists(servicesPath($name).DIRECTORY_SEPARATOR.'composer.json'))->toBeFalse()
-            ->and(File::directories(servicesPath()))->toBe($directoriesBefore);
+            ->and(File::exists(modulesPath($name)))->toBeFalse()
+            ->and(File::exists(modulesPath($name).DIRECTORY_SEPARATOR.'composer.json'))->toBeFalse()
+            ->and(File::directories(modulesPath()))->toBe($directoriesBefore);
     } finally {
         qaAtomicRestoreStub();
     }
@@ -105,45 +105,45 @@ it('leaves nothing behind when generation fails on an early file, and the retry 
 
     // AC-6: the same name is genuinely free again. The old behaviour was a
     // refusal claiming nothing had been created.
-    $retry = Artisan::call('svc:make', ['name' => $name]);
+    $retry = Artisan::call('module:make', ['name' => $name]);
 
     expect($retry)->toBe(0)
         ->and(Artisan::output())->not->toContain('already exists');
 
     // The happy path still writes exactly the file set the committed reference
     // package has - the rollback wrapper changed the error path only.
-    expect(qaRelativeFileList(servicesPath($name), $name))->toBe(qaRelativeFileList(servicesPath('demo'), 'demo'));
+    expect(qaRelativeFileList(modulesPath($name), $name))->toBe(qaRelativeFileList(modulesPath('demo'), 'demo'));
 
     // "Complete" proven by use: the retried package boots into the running host
-    // and serves its own route, which is all a real service has to do.
-    app(ServiceRegistry::class)->bootAll($name);
+    // and serves its own route, which is all a real module has to do.
+    app(ModuleRegistry::class)->bootAll($name);
 
-    expect(app(ServiceRegistry::class)->booted())->toContain($name);
+    expect(app(ModuleRegistry::class)->booted())->toContain($name);
 
     get("/api/v1/{$name}/ping")
         ->assertOk()
-        ->assertJson(['service' => $name, 'status' => 'ok']);
+        ->assertJson(['module' => $name, 'status' => 'ok']);
 
-    get('/health/ready')->assertOk()->assertJsonPath('services', ['demo', $name]);
+    get('/health/ready')->assertOk()->assertJsonPath('modules', ['demo', $name]);
 });
 
 it('refuses a genuinely existing package before writing or deleting anything', function () {
     // The rollback must never be able to reach a package the command did not
     // create: the refusal returns before the write block is entered. T-001
     // AC-29, re-proven because T-002 put a delete on that code path.
-    $demo = servicesPath('demo');
+    $demo = modulesPath('demo');
     $before = qaRelativeFileList($demo);
     $manifest = (string) md5_file($demo.DIRECTORY_SEPARATOR.'composer.json');
 
-    expect(Artisan::call('svc:make', ['name' => 'demo']))->not->toBe(0)
+    expect(Artisan::call('module:make', ['name' => 'demo']))->not->toBe(0)
         ->and(Artisan::output())->toContain('already exists')
         ->and(qaRelativeFileList($demo))->toBe($before)
         ->and(md5_file($demo.DIRECTORY_SEPARATOR.'composer.json'))->toBe($manifest);
 });
 
-it('writes nothing inside services/host on the failure path either', function () {
+it('writes nothing inside modules/host on the failure path either', function () {
     // T-001 AC-27 on the error path: the only thing the rollback deletes is
-    // services/<name>/, and the only thing generation reads from the host is a
+    // modules/<name>/, and the only thing generation reads from the host is a
     // stub. Checked with the stub directory excluded, because this test is the
     // one moving a stub about.
     $name = 'qaatomicfixture';
@@ -153,7 +153,7 @@ it('writes nothing inside services/host on the failure path either', function ()
     File::move(qaAtomicStub(), qaAtomicBackup());
 
     try {
-        expect(Artisan::call('svc:make', ['name' => $name]))->not->toBe(0)
+        expect(Artisan::call('module:make', ['name' => $name]))->not->toBe(0)
             ->and(qaHostFingerprintWithoutStubs())->toBe($before);
     } finally {
         qaAtomicRestoreStub();
@@ -163,7 +163,7 @@ it('writes nothing inside services/host on the failure path either', function ()
 });
 
 /**
- * Checksums of every tracked file in services/host except the stubs.
+ * Checksums of every tracked file in modules/host except the stubs.
  *
  * @return array<string, string>
  */

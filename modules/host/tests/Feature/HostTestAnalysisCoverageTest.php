@@ -129,10 +129,10 @@ it('registers the host\'s own tests directory with both analysers', function () 
     /** @var list<string> $allowed */
     $allowed = $ruleset['HostTests'];
 
-    // The omission is the load-bearing part: granting HostTests any service
+    // The omission is the load-bearing part: granting HostTests any module
     // layer would silently retire the AC-22 proof, so assert it is absent
     // rather than trusting a comment to stop someone adding it.
     expect($allowed)->toContain('HostApp')
         ->and($allowed)->toContain('Package_Kernel')
-        ->and(array_filter($allowed, static fn (string $layer): bool => str_starts_with($layer, 'Service_')))->toBe([]);
+        ->and(array_filter($allowed, static fn (string $layer): bool => str_starts_with($layer, 'Module_')))->toBe([]);
 });

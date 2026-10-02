@@ -10,10 +10,10 @@ use Illuminate\Support\Facades\Process;
  *
  * The guard has four branches and two of them are silent, which is the half
  * that is easy to get wrong: a guard that fires on a container legitimately
- * started with the SERVICES it was built with is a defect, not a safety net,
+ * started with the MODULES it was built with is a defect, not a safety net,
  * because it is the kind people switch off. So both silent branches are
  * asserted here against values that differ from the frozen one only in the
- * ways ServiceRegistry::parse() is documented to normalise away - order,
+ * ways ModuleRegistry::parse() is documented to normalise away - order,
  * whitespace and duplicates - not merely against a byte-identical string.
  *
  * bootstrap/cache/config.php is real, shared state that every other test in
@@ -27,27 +27,27 @@ function qaCacheFile(): string
 }
 
 /**
- * Run one artisan command in a child process with a chosen ambient SERVICES.
+ * Run one artisan command in a child process with a chosen ambient MODULES.
  * Passing false removes the variable from the child environment entirely.
  */
-function qaCacheArtisan(string $command, string|false $services): ProcessResult
+function qaCacheArtisan(string $command, string|false $modules): ProcessResult
 {
     return Process::path(base_path())
-        ->env(['SERVICES' => $services])
+        ->env(['MODULES' => $modules])
         ->run([PHP_BINARY, base_path('artisan'), $command, '--no-ansi']);
 }
 
 afterEach(function () {
     File::delete(qaCacheFile());
-    deleteFixtureDirectory(servicesPath('qacachefixture'));
+    deleteFixtureDirectory(modulesPath('qacachefixture'));
 });
 
 it('stays silent for every ambient value that parses to the frozen list, and fails for every one that does not', function () {
     expect(File::exists(qaCacheFile()))
         ->toBeFalse('a leftover bootstrap/cache/config.php would make this test meaningless');
 
-    // Two services, so "same list, different order" is expressible at all.
-    expect(Artisan::call('svc:make', ['name' => 'qacachefixture']))->toBe(0);
+    // Two modules, so "same list, different order" is expressible at all.
+    expect(Artisan::call('module:make', ['name' => 'qacachefixture']))->toBe(0);
 
     try {
         expect(qaCacheArtisan('config:cache', 'demo,qacachefixture')->exitCode())->toBe(0)
@@ -87,8 +87,8 @@ it('stays silent for every ambient value that parses to the frozen list, and fai
             $output = $result->output().$result->errorOutput();
 
             expect($result->exitCode())->not->toBe(0, $label)
-                ->and($output)->toContain('SERVICES="demo,qacachefixture"')
-                ->and($output)->toContain(sprintf('SERVICES="%s"', $ambient))
+                ->and($output)->toContain('MODULES="demo,qacachefixture"')
+                ->and($output)->toContain(sprintf('MODULES="%s"', $ambient))
                 ->and($output)->toContain('config:clear');
         }
     } finally {
@@ -107,7 +107,7 @@ it('stays silent for every ambient value that parses to the frozen list, and fai
 it('never fires while the configuration is not cached, whatever the environment says', function () {
     expect(File::exists(qaCacheFile()))->toBeFalse();
 
-    // The branch the whole existing suite runs under. SERVICES is read live, so
+    // The branch the whole existing suite runs under. MODULES is read live, so
     // there is nothing frozen to disagree with; an unknown name must still fail
     // the ordinary way and with the ordinary message.
     $good = qaCacheArtisan('route:list', 'demo');
@@ -119,7 +119,7 @@ it('never fires while the configuration is not cached, whatever the environment 
     $output = $bad->output().$bad->errorOutput();
 
     expect($bad->exitCode())->not->toBe(0)
-        ->and($output)->toContain('Unknown service "billing"')
+        ->and($output)->toContain('Unknown module "billing"')
         ->and($output)->not->toContain('Cached configuration disagrees')
         ->and(File::exists(qaCacheFile()))->toBeFalse();
 });
@@ -128,10 +128,10 @@ it('documents all four caching and autoloader constraints in one findable place'
     // AC-11: the content has to exist where a developer about to run these
     // commands will actually read it, and has to say which of the four is
     // guarded by code and which are prose only.
-    $config = File::get(base_path('config'.DIRECTORY_SEPARATOR.'servicehost.php'));
+    $config = File::get(base_path('config'.DIRECTORY_SEPARATOR.'modulehost.php'));
     $readme = File::get(dirname(base_path(), 2).DIRECTORY_SEPARATOR.'README.md');
 
-    foreach (['config/servicehost.php' => $config, 'README.md' => $readme] as $where => $text) {
+    foreach (['config/modulehost.php' => $config, 'README.md' => $readme] as $where => $text) {
         expect($text)->toContain('config:cache')
             ->and($text)->toContain('mergeConfigFrom')
             ->and($text)->toContain('route:cache')
@@ -143,7 +143,7 @@ it('documents all four caching and autoloader constraints in one findable place'
     // Three of the four are documentation only; exactly one is code-guarded,
     // and the code it names has to exist.
     expect(substr_count(strtolower($config), 'documented only'))->toBe(3)
-        ->and($config)->toContain('guardAgainstStaleCachedServices')
-        ->and(File::get(base_path('app'.DIRECTORY_SEPARATOR.'Providers'.DIRECTORY_SEPARATOR.'ServiceHostServiceProvider.php')))
-        ->toContain('function guardAgainstStaleCachedServices');
+        ->and($config)->toContain('guardAgainstStaleCachedModules')
+        ->and(File::get(base_path('app'.DIRECTORY_SEPARATOR.'Providers'.DIRECTORY_SEPARATOR.'ModuleHostServiceProvider.php')))
+        ->toContain('function guardAgainstStaleCachedModules');
 });

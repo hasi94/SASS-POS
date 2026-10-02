@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Process;
  * anything: adding deptrac.yaml's `tests` path alone was measured to be
  * completely inert, because the host's Pest files declare no classes and
  * Tests\* belonged to no layer. So each half of FP-169 is proven the same way
- * T-002 proved the service test directories - by planting a real defect inside
+ * T-002 proved the module test directories - by planting a real defect inside
  * the host's own tests directory and watching the shipped configuration fail on
  * it, then watching the clean tree pass.
  *
@@ -109,15 +109,15 @@ it('fails PHPStan on a real level 6 defect planted inside the host test director
         ->and($clean->exitCode())->toBe(0);
 });
 
-it('fails Deptrac when a host test class imports a service package internal', function () {
-    // Tests\Feature\* is the HostTests layer; PingController is Service_Demo's
+it('fails Deptrac when a host test class imports a module internal', function () {
+    // Tests\Feature\* is the HostTests layer; PingController is Module_Demo's
     // internal, which that layer is deliberately not allowed to reach.
     File::put(hostDeptracProbePath(), <<<'PHP'
         <?php
 
         namespace Tests\Feature;
 
-        use Flexipos\Service\Demo\Http\Controllers\PingController;
+        use Flexipos\Module\Demo\Http\Controllers\PingController;
 
         class HostDeptracProbe
         {
@@ -135,7 +135,7 @@ it('fails Deptrac when a host test class imports a service package internal', fu
 
         expect($result->exitCode())->not->toBe(0)
             ->and($output)->toContain('HostTests')
-            ->and($output)->toContain('Service_Demo')
+            ->and($output)->toContain('Module_Demo')
             ->and($output)->toContain('must not depend on');
     } finally {
         File::delete(hostDeptracProbePath());

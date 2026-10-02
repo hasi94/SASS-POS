@@ -8,13 +8,13 @@ use Illuminate\Support\Facades\Process;
  * T-002 FP-150 (T-001 review finding M-7).
  *
  * phpunit.xml used to list tests/Unit and tests/Feature literally while the
- * globbed Services suite explicitly excluded ../host/tests, so any other
- * directory under services/host/tests was collected by nothing at all: it never
+ * globbed Modules suite explicitly excluded ../host/tests, so any other
+ * directory under modules/host/tests was collected by nothing at all: it never
  * ran and the gate still went green. That is T-001's BUG-1, relocated to the
  * host. One recursive `tests` suite closes it.
  *
  * The exclude still has to stay, which is the other half of this: without it
- * every host test file is offered to the Services suite as well and PHPUnit
+ * every host test file is offered to the Modules suite as well and PHPUnit
  * warns once per file while de-duplicating.
  */
 

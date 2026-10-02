@@ -1,6 +1,6 @@
 <?php
 
-use App\Support\ServiceHost\ServiceRegistry;
+use App\Support\ModuleHost\ModuleRegistry;
 use Flexipos\Kernel\Tenancy\Exceptions\NoTenantResolved;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -8,27 +8,27 @@ use Tests\TestCase;
 use function Pest\Laravel\get;
 
 /*
- * This package may not be listed in SERVICES yet, so the test boots it into the
+ * This package may not be listed in MODULES yet, so the test boots it into the
  * host itself. That is the same code path the host uses at boot, which is why
  * this test passes straight after generation with no further edits.
  *
  * The HTTP calls use Pest's Laravel helper functions instead of $this->get():
  * Pest types a test closure's $this as the plain PHPUnit TestCase, so
  * $this->get() cannot be resolved by the static analysis that now covers every
- * services/<name>/tests directory at level 6.
+ * modules/<name>/tests directory at level 6.
  */
 
 uses(TestCase::class);
 
 beforeEach(function () {
-    app(ServiceRegistry::class)->bootAll('demo');
+    app(ModuleRegistry::class)->bootAll('demo');
 });
 
 it('answers the demo ping route under its own prefix', function () {
     get('/api/v1/demo/ping')
         ->assertOk()
         ->assertJson([
-            'service' => 'demo',
+            'module' => 'demo',
             'status' => 'ok',
         ]);
 });
@@ -44,7 +44,7 @@ it('cannot query the tenant connection until a tenant is resolved', function () 
 });
 
 it('is reported by the readiness endpoint once booted', function () {
-    expect(app(ServiceRegistry::class)->booted())->toContain('demo');
+    expect(app(ModuleRegistry::class)->booted())->toContain('demo');
 
     get('/health/ready')
         ->assertOk()

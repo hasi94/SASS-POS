@@ -2,16 +2,16 @@
 
 namespace App\Console\Commands;
 
-use App\Support\ServiceHost\ServiceRegistry;
+use App\Support\ModuleHost\ModuleRegistry;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use Throwable;
 
-class SvcMakeCommand extends Command
+class ModuleMakeCommand extends Command
 {
     /**
-     * Names a service package may not use.
+     * Names a module may not use.
      */
     private const RESERVED_NAMES = ['host'];
 
@@ -19,10 +19,10 @@ class SvcMakeCommand extends Command
      * Lowercase kebab-case, so the name works as a directory, a Composer
      * package name and a namespace segment at the same time (decision D-12).
      *
-     * Deliberately the same constant the host validates SERVICES entries with,
+     * Deliberately the same constant the host validates MODULES entries with,
      * not a copy of the expression: a name that generates must also boot.
      */
-    private const NAME_PATTERN = ServiceRegistry::NAME_PATTERN;
+    private const NAME_PATTERN = ModuleRegistry::NAME_PATTERN;
 
     /**
      * Stub file => path inside the generated package.
@@ -36,13 +36,18 @@ class SvcMakeCommand extends Command
     ];
 
     /**
-     * Structural directories every service package has, empty to begin with.
+     * Structural directories every module has, empty to begin with.
      *
      * `config` is here rather than in FILES because a module no longer declares
      * a database connection of its own: all business data goes through the
      * shared `tenant` connection (FP-201). The directory stays so a module that
      * genuinely needs its own configuration file has the conventional place for
      * it.
+     *
+     * `src/Services` survived T-005's services-to-modules rename on purpose and
+     * must keep surviving: it holds a module's *service classes* - the ordinary
+     * application-layer sense of the word - and has never meant a module. It is
+     * not a leftover for a later reader to "finish the job" on.
      */
     private const EMPTY_DIRECTORIES = [
         'config',
@@ -53,9 +58,9 @@ class SvcMakeCommand extends Command
         'database/migrations',
     ];
 
-    protected $signature = 'svc:make {name : Lowercase kebab-case service name, for example billing}';
+    protected $signature = 'module:make {name : Lowercase kebab-case module name, for example billing}';
 
-    protected $description = 'Scaffold a new service package under services/.';
+    protected $description = 'Scaffold a new module under modules/.';
 
     public function handle(): int
     {
@@ -63,7 +68,7 @@ class SvcMakeCommand extends Command
 
         if (preg_match(self::NAME_PATTERN, $name) !== 1) {
             $this->error(sprintf(
-                'Invalid service name [%s]. A service name must be lowercase kebab-case matching %s.',
+                'Invalid module name [%s]. A module name must be lowercase kebab-case matching %s.',
                 $name,
                 self::NAME_PATTERN
             ));
@@ -73,17 +78,17 @@ class SvcMakeCommand extends Command
 
         if (in_array($name, self::RESERVED_NAMES, true)) {
             $this->error(sprintf(
-                '[%s] is a reserved name: services/host is the service host application itself, not a service package.',
+                '[%s] is a reserved name: modules/host is the module host application itself, not a module.',
                 $name
             ));
 
             return self::FAILURE;
         }
 
-        $target = $this->servicesPath().DIRECTORY_SEPARATOR.$name;
+        $target = $this->modulesPath().DIRECTORY_SEPARATOR.$name;
 
         if (File::exists($target)) {
-            $this->error(sprintf('services/%s already exists. Nothing was created or modified.', $name));
+            $this->error(sprintf('modules/%s already exists. Nothing was created or modified.', $name));
 
             return self::FAILURE;
         }
@@ -94,7 +99,7 @@ class SvcMakeCommand extends Command
         // part-way through used to leave a half-made package behind, after
         // which the "already exists. Nothing was created or modified" refusal
         // above was a lie and the name was stuck. Nothing outside
-        // services/<name>/ is ever written, so deleting that one directory is a
+        // modules/<name>/ is ever written, so deleting that one directory is a
         // complete rollback.
         try {
             foreach (self::FILES as $stub => $relativePath) {
@@ -112,7 +117,7 @@ class SvcMakeCommand extends Command
             File::deleteDirectory($target);
 
             $this->error(sprintf(
-                'Generating services/%s failed (%s). The partially generated package was removed, so running this command again is safe.',
+                'Generating modules/%s failed (%s). The partially generated package was removed, so running this command again is safe.',
                 $name,
                 $exception->getMessage()
             ));
@@ -120,12 +125,12 @@ class SvcMakeCommand extends Command
             return self::FAILURE;
         }
 
-        $this->info(sprintf("Created services/%s. Add '%s' to SERVICES to boot it.", $name, $name));
+        $this->info(sprintf("Created modules/%s. Add '%s' to MODULES to boot it.", $name, $name));
 
         // PHPStan and Deptrac cannot glob their path lists, so a new package is
         // invisible to both until someone registers it by hand.
         //
-        // Both directories, not just src: T-002 put services/*/tests into both
+        // Both directories, not just src: T-002 put modules/*/tests into both
         // registries, and this command always generates a tests directory, so a
         // developer who registered only src would hit a second red the reminder
         // never mentioned. The root README says the same two paths, and
@@ -133,8 +138,8 @@ class SvcMakeCommand extends Command
         // apart again; QaToolchainRegistryCoverageTest fails it if either
         // registration is forgotten.
         $this->warn(sprintf(
-            'Also register services/%1$s/src and services/%1$s/tests in phpstan.neon.dist (paths) '.
-            'and in deptrac.yaml (paths, plus a Service_%2$s layer and its ruleset entry), or it is '.
+            'Also register modules/%1$s/src and modules/%1$s/tests in phpstan.neon.dist (paths) '.
+            'and in deptrac.yaml (paths, plus a Module_%2$s layer and its ruleset entry), or it is '.
             'neither statically analysed nor boundary-checked.',
             $name,
             Str::studly($name)
@@ -160,12 +165,12 @@ class SvcMakeCommand extends Command
 
     private function stub(string $stub): string
     {
-        $contents = File::get($this->laravel->basePath('stubs'.DIRECTORY_SEPARATOR.'service'.DIRECTORY_SEPARATOR.$stub));
+        $contents = File::get($this->laravel->basePath('stubs'.DIRECTORY_SEPARATOR.'module'.DIRECTORY_SEPARATOR.$stub));
 
         return str_replace("\r\n", "\n", $contents);
     }
 
-    private function servicesPath(): string
+    private function modulesPath(): string
     {
         return dirname($this->laravel->basePath());
     }

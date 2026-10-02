@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\File;
  * this platform: with a file handle open inside a directory, unlink() on that
  * file SUCCEEDS but rmdir() on the directory FAILS - so the files go and the
  * directory stays, which is precisely the shape that made a cold gate run fail in
- * ServiceRegistryManifestTrustTest and made `svc:make` refuse the name
+ * ModuleRegistryManifestTrustTest and made `module:make` refuse the name
  * afterwards. No child process, no sleep, milliseconds.
  *
  * Every case closes its handle and force-removes its fixture in a finally: a
@@ -133,7 +133,7 @@ it('still restores a moved directory when the delete before it fails', function 
     /*
      * QA BUG-3, as a regression test rather than a promise.
      *
-     * The shape SvcMakeDemoRegenerationTest uses: something was moved aside into
+     * The shape ModuleMakeDemoRegenerationTest uses: something was moved aside into
      * a backup that now holds the ONLY copy of committed content, and the
      * teardown has to remove a regenerated tree before moving the backup home.
      * With the throwing helper first, one delete failure skipped the restore and

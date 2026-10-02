@@ -14,26 +14,26 @@ it('reports liveness', function () {
         ->assertExactJson(['status' => 'ok']);
 });
 
-it('reports exactly the booted service identifiers', function () {
+it('reports exactly the booted module identifiers', function () {
     /** @var TestCase $this */
     $this->bootHostWith('demo');
 
     $response = get('/health/ready')->assertOk();
 
-    $response->assertExactJson(['status' => 'ok', 'services' => ['demo']]);
+    $response->assertExactJson(['status' => 'ok', 'modules' => ['demo']]);
 
-    expect($response->json('services'))->toBe(['demo']);
+    expect($response->json('modules'))->toBe(['demo']);
 });
 
-it('reports an empty service list when the host booted with no services', function () {
+it('reports an empty module list when the host booted with no modules', function () {
     /** @var TestCase $this */
     $this->bootHostWith('');
 
     $response = get('/health/ready')->assertOk();
 
-    $response->assertExactJson(['status' => 'ok', 'services' => []]);
+    $response->assertExactJson(['status' => 'ok', 'modules' => []]);
 
-    expect($response->json('services'))->toBe([]);
+    expect($response->json('modules'))->toBe([]);
 });
 
 /*
@@ -70,7 +70,7 @@ it('answers readiness without touching the session store', function () {
 
     get('/health/ready')
         ->assertOk()
-        ->assertExactJson(['status' => 'ok', 'services' => ['demo']]);
+        ->assertExactJson(['status' => 'ok', 'modules' => ['demo']]);
 });
 
 it('registers both probes outside every middleware group', function (string $name) {

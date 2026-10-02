@@ -1,11 +1,11 @@
 <?php
 
-namespace Flexipos\Service\Demo\Http\Controllers;
+namespace Flexipos\Module\Demo\Http\Controllers;
 
 use Illuminate\Http\JsonResponse;
 
 /**
- * Sample endpoint proving the route prefix of this service is mounted.
+ * Sample endpoint proving the route prefix of this module is mounted.
  *
  * Replace it with real endpoints; the full API envelope is a later backlog row.
  */
@@ -14,7 +14,7 @@ class PingController
     public function index(): JsonResponse
     {
         return response()->json([
-            'service' => 'demo',
+            'module' => 'demo',
             'status' => 'ok',
         ]);
     }

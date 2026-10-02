@@ -80,7 +80,7 @@ it('answers liveness with 200 while the database is unreachable', function () {
         ->and($response->headers->get('content-type'))->toContain('application/json');
 });
 
-it('answers readiness with the booted services while the database is unreachable', function () {
+it('answers readiness with the booted modules while the database is unreachable', function () {
     /** @var TestCase $this */
     $this->bootHostWith('demo');
 
@@ -88,10 +88,10 @@ it('answers readiness with the booted services while the database is unreachable
 
     get('/health/ready')
         ->assertOk()
-        ->assertExactJson(['status' => 'ok', 'services' => ['demo']]);
+        ->assertExactJson(['status' => 'ok', 'modules' => ['demo']]);
 });
 
-it('answers readiness with an empty list while the database is unreachable and no service is booted', function () {
+it('answers readiness with an empty list while the database is unreachable and no module is booted', function () {
     /** @var TestCase $this */
     $this->bootHostWith('');
 
@@ -99,7 +99,7 @@ it('answers readiness with an empty list while the database is unreachable and n
 
     get('/health/ready')
         ->assertOk()
-        ->assertExactJson(['status' => 'ok', 'services' => []]);
+        ->assertExactJson(['status' => 'ok', 'modules' => []]);
 });
 
 it('sets no session cookie on either probe, so nothing can reintroduce the dependency', function () {

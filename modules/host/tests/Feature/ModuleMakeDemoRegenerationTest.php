@@ -7,16 +7,16 @@ use Symfony\Component\Finder\Finder;
 /*
  * T-002 FP-153 (AC-19).
  *
- * services/demo is the committed reference package: it is what `svc:make`
- * produces, and every claim the skeleton makes about generated services is
+ * modules/demo is the committed reference package: it is what `module:make`
+ * produces, and every claim the skeleton makes about generated modules is
  * anchored to it. T-001 proved the two match by hand, once. This makes it a
  * permanent regression test, so a stub edit that drifts from the committed tree
  * is caught by `composer test` instead of by a human diffing directories.
  *
  * This is the one test in the suite that manipulates real committed content, so
- * it moves services/demo aside rather than overwriting it, and restores it in a
+ * it moves modules/demo aside rather than overwriting it, and restores it in a
  * finally block: a failing assertion must never leave the working tree without
- * a services/demo.
+ * a modules/demo.
  */
 
 function demoRegenBackupPath(): string
@@ -29,9 +29,9 @@ function demoRegenBackupPath(): string
  * directory.
  *
  * Normalised, not md5_file(), because the two sides are produced differently.
- * `svc:make` always writes LF (SvcMakeCommand::stub() strips CRLF), but the
+ * `module:make` always writes LF (ModuleMakeCommand::stub() strips CRLF), but the
  * committed tree is whatever Git checked out: `core.autocrlf` is true on the
- * development machine and only services/host/ has a .gitattributes, so a fresh
+ * development machine and only modules/host/ has a .gitattributes, so a fresh
  * clone - or a branch switch that re-materialises a demo file - gives CRLF on
  * disk. Hashing raw bytes would then fail the gate for someone who changed
  * nothing, which is exactly the false red FP-153 exists to prevent. The
@@ -102,7 +102,7 @@ function demoRawTreeFingerprint(string $root): array
 }
 
 afterEach(function () {
-    $demo = servicesPath('demo');
+    $demo = modulesPath('demo');
     $backup = demoRegenBackupPath();
 
     // Safety net only: the test body restores in a finally block. This catches
@@ -113,7 +113,7 @@ afterEach(function () {
 
     /*
      * QA BUG-3. A surviving backup is the ONLY copy of the committed module
-     * whenever services/demo holds something else, so it is never deleted blind.
+     * whenever modules/demo holds something else, so it is never deleted blind.
      * The original version deleted it unconditionally, which - combined with a
      * delete failure in the finally below skipping the restore - could take the
      * committed module and its backup out together.
@@ -126,7 +126,7 @@ afterEach(function () {
      *
      * Worth being precise about what the two sides are, because it is not the
      * self-comparison it looks like. This branch is reachable only when the
-     * restore did NOT happen, so services/demo holds the regenerated tree and the
+     * restore did NOT happen, so modules/demo holds the regenerated tree and the
      * backup holds the committed one - two different producers. Raw equality can
      * therefore report "different" for trees whose content matches, if their line
      * endings ever diverge again. That false negative keeps the backup, which is
@@ -142,7 +142,7 @@ afterEach(function () {
 });
 
 it('regenerates the committed demo package byte for byte', function () {
-    $demo = servicesPath('demo');
+    $demo = modulesPath('demo');
     $backup = demoRegenBackupPath();
 
     expect(File::isDirectory($demo))->toBeTrue()
@@ -157,13 +157,13 @@ it('regenerates the committed demo package byte for byte', function () {
 
     try {
         expect(File::exists($demo))->toBeFalse()
-            ->and(Artisan::call('svc:make', ['name' => 'demo']))->toBe(0);
+            ->and(Artisan::call('module:make', ['name' => 'demo']))->toBe(0);
 
         $regenerated = demoTreeFingerprint($demo);
 
         expect(array_keys($regenerated))->toBe(
             array_keys($committed),
-            'svc:make demo no longer produces the same file list as the committed services/demo'
+            'module:make demo no longer produces the same file list as the committed modules/demo'
         );
 
         $differing = [];
@@ -176,7 +176,7 @@ it('regenerates the committed demo package byte for byte', function () {
 
         expect($differing)->toBe(
             [],
-            'regenerating services/demo differs from the committed tree in: '.implode(', ', $differing)
+            'regenerating modules/demo differs from the committed tree in: '.implode(', ', $differing)
         );
     } finally {
         /*
@@ -198,7 +198,7 @@ it('regenerates the committed demo package byte for byte', function () {
     // count unchanged (T-004 AC-4) while still naming where the only copy of the
     // committed module is if the restore above could not run.
     if (! File::isDirectory($demo)) {
-        throw new RuntimeException('services/demo was not restored; its only copy is still at '.$backup);
+        throw new RuntimeException('modules/demo was not restored; its only copy is still at '.$backup);
     }
 
     // The committed tree is back, untouched, whatever happened above. The backup
@@ -241,7 +241,7 @@ it('distinguishes raw bytes from normalised content, which is what the teardown 
         expect(demoRawTreeFingerprint($lf))->not->toBe(
             demoRawTreeFingerprint($crlf),
             'demoRawTreeFingerprint() stopped distinguishing line endings, so the afterEach guard can delete the '.
-            'only copy of the committed module while it still differs from services/demo on disk'
+            'only copy of the committed module while it still differs from modules/demo on disk'
         );
     } finally {
         tryDeleteFixtureDirectory($lf);

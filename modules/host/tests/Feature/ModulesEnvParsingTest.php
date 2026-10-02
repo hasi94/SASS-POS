@@ -1,33 +1,33 @@
 <?php
 
-use App\Support\ServiceHost\ServiceRegistry;
-use App\Support\ServiceHost\UnknownServiceException;
-use Flexipos\Service\Demo\DemoServiceProvider;
+use App\Support\ModuleHost\ModuleRegistry;
+use App\Support\ModuleHost\UnknownModuleException;
+use Flexipos\Module\Demo\DemoServiceProvider;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
 use function Pest\Laravel\get;
 
-it('registers only the service named in SERVICES', function () {
+it('registers only the module named in MODULES', function () {
     /** @var TestCase $this */
     $this->bootHostWith('demo');
 
-    expect(app(ServiceRegistry::class)->booted())->toBe(['demo'])
+    expect(app(ModuleRegistry::class)->booted())->toBe(['demo'])
         ->and(app()->getLoadedProviders())->toHaveKey(DemoServiceProvider::class);
 
-    $services = collect(array_keys(app()->getLoadedProviders()))
-        ->filter(fn (string $provider): bool => str_starts_with($provider, 'Flexipos\\Service\\'))
+    $modules = collect(array_keys(app()->getLoadedProviders()))
+        ->filter(fn (string $provider): bool => str_starts_with($provider, 'Flexipos\\Module\\'))
         ->values()
         ->all();
 
-    expect($services)->toBe([DemoServiceProvider::class]);
+    expect($modules)->toBe([DemoServiceProvider::class]);
 });
 
 it('registers a duplicated, whitespace padded name exactly once', function () {
     /** @var TestCase $this */
     $this->bootHostWith(' demo , demo ');
 
-    expect(app(ServiceRegistry::class)->booted())->toBe(['demo']);
+    expect(app(ModuleRegistry::class)->booted())->toBe(['demo']);
 
     $pings = collect(Route::getRoutes()->getRoutes())
         ->filter(fn ($route): bool => $route->uri() === 'api/v1/demo/ping')
@@ -38,17 +38,17 @@ it('registers a duplicated, whitespace padded name exactly once', function () {
     get('/api/v1/demo/ping')->assertOk();
 });
 
-it('is idempotent when the same service is booted twice', function () {
+it('is idempotent when the same module is booted twice', function () {
     /** @var TestCase $this */
     $this->bootHostWith('demo');
 
-    app(ServiceRegistry::class)->bootAll('demo');
+    app(ModuleRegistry::class)->bootAll('demo');
 
-    expect(app(ServiceRegistry::class)->booted())->toBe(['demo']);
+    expect(app(ModuleRegistry::class)->booted())->toBe(['demo']);
 });
 
-it('parses a SERVICES value into a sorted, trimmed, de-duplicated list', function () {
-    $registry = app(ServiceRegistry::class);
+it('parses a MODULES value into a sorted, trimmed, de-duplicated list', function () {
+    $registry = app(ModuleRegistry::class);
 
     expect($registry->parse('demo'))->toBe(['demo'])
         ->and($registry->parse(' demo , demo '))->toBe(['demo'])
@@ -58,29 +58,29 @@ it('parses a SERVICES value into a sorted, trimmed, de-duplicated list', functio
         ->and($registry->parse(',,'))->toBe([]);
 });
 
-it('fails fast naming the unknown service when SERVICES lists a package that does not exist', function () {
+it('fails fast naming the unknown module when MODULES lists a package that does not exist', function () {
     /** @var TestCase $this */
     expect(fn () => $this->bootHostWith('demo,ghost'))
-        ->toThrow(UnknownServiceException::class, 'ghost');
+        ->toThrow(UnknownModuleException::class, 'ghost');
 });
 
-it('refuses to boot the host application itself as a service package', function () {
+it('refuses to boot the host application itself as a module', function () {
     /** @var TestCase $this */
     expect(fn () => $this->bootHostWith('host'))
-        ->toThrow(UnknownServiceException::class, 'host');
+        ->toThrow(UnknownModuleException::class, 'host');
 });
 
-it('fails fast on a SERVICES entry that is not a plain service package name', function (string $entry) {
+it('fails fast on a MODULES entry that is not a plain module name', function (string $entry) {
     /** @var TestCase $this */
     expect(fn () => $this->bootHostWith($entry))
-        ->toThrow(UnknownServiceException::class, $entry);
+        ->toThrow(UnknownModuleException::class, $entry);
 })->with([
-    // Resolves to services/demo on every OS, but is not a service identifier:
-    // accepting it made /health/ready report a service twice under two names.
+    // Resolves to modules/demo on every OS, but is not a module identifier:
+    // accepting it made /health/ready report a module twice under two names.
     'path traversal' => 'demo/../demo',
     'absolute-ish path' => '/demo',
     // Boots on Windows, fails fast on a case-sensitive filesystem - the same
-    // SERVICES value must behave identically on both.
+    // MODULES value must behave identically on both.
     'wrong case' => 'Demo',
     'trailing hyphen' => 'demo-',
     'doubled hyphen' => 'de--mo',
@@ -90,33 +90,33 @@ it('fails fast on a SERVICES entry that is not a plain service package name', fu
 it('never reports an entry it did not actually register', function () {
     /** @var TestCase $this */
     expect(fn () => $this->bootHostWith('demo,demo/../demo'))
-        ->toThrow(UnknownServiceException::class);
+        ->toThrow(UnknownModuleException::class);
 
     // The host refused to start at all, so nothing can be half-booted and
     // /health/ready cannot disagree with the routing table.
     $this->bootHostWith('demo');
 
-    expect(app(ServiceRegistry::class)->booted())->toBe(['demo']);
+    expect(app(ModuleRegistry::class)->booted())->toBe(['demo']);
 
     get('/health/ready')
         ->assertOk()
-        ->assertExactJson(['status' => 'ok', 'services' => ['demo']]);
+        ->assertExactJson(['status' => 'ok', 'modules' => ['demo']]);
 });
 
-it('boots with zero services and still serves HTTP when SERVICES is empty', function () {
+it('boots with zero modules and still serves HTTP when MODULES is empty', function () {
     /** @var TestCase $this */
     $this->bootHostWith('');
 
-    expect(app(ServiceRegistry::class)->booted())->toBe([]);
+    expect(app(ModuleRegistry::class)->booted())->toBe([]);
 
     get('/health/live')->assertOk();
 });
 
-it('boots with zero services when SERVICES is unset', function () {
+it('boots with zero modules when MODULES is unset', function () {
     /** @var TestCase $this */
     $this->bootHostWith(null);
 
-    expect(app(ServiceRegistry::class)->booted())->toBe([]);
+    expect(app(ModuleRegistry::class)->booted())->toBe([]);
 
     get('/health/live')->assertOk();
 });

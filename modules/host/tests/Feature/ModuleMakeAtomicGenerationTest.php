@@ -13,22 +13,22 @@ use Symfony\Component\Finder\Finder;
  * way through, the half-made package stayed on disk and the next attempt refused
  * with "already exists. Nothing was created or modified", which was then untrue
  * and left the name unusable. Generation is now all or nothing: any throwable
- * deletes services/<name>/ again.
+ * deletes modules/<name>/ again.
  *
  * The failure is simulated by moving the last stub the command renders out of
  * the way, so the earlier files are genuinely written before the last one fails.
  * The stub is moved, never rewritten, and moved back in a finally block plus an
- * afterEach, so services/host is byte identical afterwards.
+ * afterEach, so modules/host is byte identical afterwards.
  */
 
 function atomicStubPath(): string
 {
-    return base_path('stubs'.DIRECTORY_SEPARATOR.'service'.DIRECTORY_SEPARATOR.'PingRouteTest.php.stub');
+    return base_path('stubs'.DIRECTORY_SEPARATOR.'module'.DIRECTORY_SEPARATOR.'PingRouteTest.php.stub');
 }
 
 function atomicStubBackupPath(): string
 {
-    return storage_path('app'.DIRECTORY_SEPARATOR.'svcmake-atomic-backup'.DIRECTORY_SEPARATOR.'PingRouteTest.php.stub');
+    return storage_path('app'.DIRECTORY_SEPARATOR.'modulemake-atomic-backup'.DIRECTORY_SEPARATOR.'PingRouteTest.php.stub');
 }
 
 function atomicRestoreStub(): void
@@ -45,7 +45,7 @@ function atomicRestoreStub(): void
 }
 
 /**
- * Checksums of every tracked file in services/host, minus the stubs directory
+ * Checksums of every tracked file in modules/host, minus the stubs directory
  * this test deliberately borrows from.
  *
  * @return array<string, string>
@@ -72,7 +72,7 @@ function atomicHostFingerprint(): array
 
 afterEach(function () {
     atomicRestoreStub();
-    deleteFixtureDirectory(servicesPath('atomicfixture'));
+    deleteFixtureDirectory(modulesPath('atomicfixture'));
 });
 
 it('removes the partial package when generation fails part way through, and generates the same name cleanly afterwards', function () {
@@ -80,7 +80,7 @@ it('removes the partial package when generation fails part way through, and gene
     $stub = atomicStubPath();
     $checksum = (string) md5_file($stub);
 
-    $directoriesBefore = File::directories(servicesPath());
+    $directoriesBefore = File::directories(modulesPath());
     $hostBefore = atomicHostFingerprint();
 
     File::ensureDirectoryExists(dirname(atomicStubBackupPath()));
@@ -89,16 +89,16 @@ it('removes the partial package when generation fails part way through, and gene
     try {
         expect(File::exists($stub))->toBeFalse();
 
-        $exit = Artisan::call('svc:make', ['name' => $name]);
+        $exit = Artisan::call('module:make', ['name' => $name]);
         $output = Artisan::output();
 
-        // AC-5: no partial services/<name>/ survives, and the failure says so.
+        // AC-5: no partial modules/<name>/ survives, and the failure says so.
         expect($exit)->not->toBe(0)
             ->and($output)->toContain('was removed')
-            ->and(File::exists(servicesPath($name)))->toBeFalse()
-            ->and(File::directories(servicesPath()))->toBe($directoriesBefore);
+            ->and(File::exists(modulesPath($name)))->toBeFalse()
+            ->and(File::directories(modulesPath()))->toBe($directoriesBefore);
 
-        // The rollback only ever deletes services/<name>/: T-001 AC-27 holds on
+        // The rollback only ever deletes modules/<name>/: T-001 AC-27 holds on
         // the failure path too, not just on the happy path.
         expect(atomicHostFingerprint())->toBe($hostBefore);
     } finally {
@@ -108,13 +108,13 @@ it('removes the partial package when generation fails part way through, and gene
     expect(md5_file($stub))->toBe($checksum);
 
     // AC-6: the name is genuinely free again, not stuck behind "already exists".
-    expect(Artisan::call('svc:make', ['name' => $name]))->toBe(0);
+    expect(Artisan::call('module:make', ['name' => $name]))->toBe(0);
 
     foreach ([
         'composer.json',
         // T-003 AC-19/AC-20 supersede T-001 AC-25's per-module connection file;
         // the config directory is now generated empty. See the note in
-        // SvcMakeValidationTest.
+        // ModuleMakeValidationTest.
         'config/.gitkeep',
         'routes/api.php',
         'src/AtomicfixtureServiceProvider.php',
@@ -126,7 +126,7 @@ it('removes the partial package when generation fails part way through, and gene
         'database/migrations/.gitkeep',
         'tests/Feature/PingRouteTest.php',
     ] as $relative) {
-        expect(File::exists(servicesPath($name).DIRECTORY_SEPARATOR.$relative))->toBeTrue("missing {$relative}");
+        expect(File::exists(modulesPath($name).DIRECTORY_SEPARATOR.$relative))->toBeTrue("missing {$relative}");
     }
 
     // "Complete" means the retried package actually passes, not merely that the
@@ -148,10 +148,10 @@ it('removes the partial package when generation fails part way through, and gene
 it('still refuses a genuinely existing package without deleting anything', function () {
     // The rollback must never reach a package the command did not create: the
     // already-exists refusal returns before the try block is entered.
-    $demo = servicesPath('demo');
+    $demo = modulesPath('demo');
     $before = (string) md5_file($demo.DIRECTORY_SEPARATOR.'composer.json');
 
-    expect(Artisan::call('svc:make', ['name' => 'demo']))->not->toBe(0)
+    expect(Artisan::call('module:make', ['name' => 'demo']))->not->toBe(0)
         ->and(Artisan::output())->toContain('already exists')
         ->and(File::isDirectory($demo))->toBeTrue()
         ->and(md5_file($demo.DIRECTORY_SEPARATOR.'composer.json'))->toBe($before);

@@ -1,6 +1,6 @@
 {
-    "name": "flexipos/service-demo",
-    "description": "FlexiPOS demo service package.",
+    "name": "flexipos/module-demo",
+    "description": "FlexiPOS demo module.",
     "type": "library",
     "version": "0.1.0",
     "license": "proprietary",
@@ -9,13 +9,13 @@
     },
     "autoload": {
         "psr-4": {
-            "Flexipos\\Service\\Demo\\": "src/"
+            "Flexipos\\Module\\Demo\\": "src/"
         }
     },
     "extra": {
         "flexipos": {
-            "service": "demo",
-            "provider": "Flexipos\\Service\\Demo\\DemoServiceProvider",
+            "module": "demo",
+            "provider": "Flexipos\\Module\\Demo\\DemoServiceProvider",
             "prefix": "api/v1/demo"
         }
     },

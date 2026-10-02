@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "6db0c76095f3c227355661fdc3c7d108",
+    "content-hash": "1a759d369e2beaee02cddec82011e79b",
     "packages": [
         {
             "name": "brick/math",
@@ -6516,12 +6516,12 @@
             "time": "2026-09-18T12:00:00+00:00"
         },
         {
-            "name": "flexipos/service-demo",
+            "name": "flexipos/module-demo",
             "version": "0.1.0",
             "dist": {
                 "type": "path",
                 "url": "../demo",
-                "reference": "aa33911c63aad0735387d6d3fcfe99767cfda18b"
+                "reference": "c1ce1f90e862cefa7caf9ca7f15ebe014152b1b5"
             },
             "require": {
                 "php": "^8.2"
@@ -6529,22 +6529,20 @@
             "type": "library",
             "extra": {
                 "flexipos": {
-                    "service": "demo",
-                    "provider": "Flexipos\\Service\\Demo\\DemoServiceProvider",
-                    "connection": "svc_demo",
-                    "schema": "pos_demo",
+                    "module": "demo",
+                    "provider": "Flexipos\\Module\\Demo\\DemoServiceProvider",
                     "prefix": "api/v1/demo"
                 }
             },
             "autoload": {
                 "psr-4": {
-                    "Flexipos\\Service\\Demo\\": "src/"
+                    "Flexipos\\Module\\Demo\\": "src/"
                 }
             },
             "license": [
                 "proprietary"
             ],
-            "description": "FlexiPOS demo service package.",
+            "description": "FlexiPOS demo module.",
             "transport-options": {
                 "relative": true
             }

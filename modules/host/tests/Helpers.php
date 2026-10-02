@@ -38,7 +38,7 @@ function toolchainRepositoryRoot(): string
  * The canonical `toolchain` group registry.
  *
  * Every test file here spawns a child process that boots a whole tool - Pint,
- * PHPStan, Deptrac, Pest itself, `svc:make`, `config:cache`, `route:cache` - and
+ * PHPStan, Deptrac, Pest itself, `module:make`, `config:cache`, `route:cache` - and
  * exists to prove that toolchain or generator mechanism works (decision D-37).
  * Measured on 2026-09-29: these files account for 60 % of test-case time across
  * 17 % of the cases, and a filtered child run still performs full collection
@@ -56,26 +56,26 @@ function toolchainRepositoryRoot(): string
 function toolchainGroupFiles(): array
 {
     return [
-        'services/host/tests/Feature/ConfigCacheGuardTest.php',
-        'services/host/tests/Feature/DeptracBoundaryEnforcementTest.php',
-        'services/host/tests/Feature/HostTestAnalysisEnforcementTest.php',
-        'services/host/tests/Feature/HostTestSuiteCollectionTest.php',
-        'services/host/tests/Feature/PintLintFixRoundTripTest.php',
-        'services/host/tests/Feature/QaCacheGuardBranchesTest.php',
-        'services/host/tests/Feature/QaGeneratedServiceTestDiscoveryTest.php',
-        'services/host/tests/Feature/QaHostSuiteCollectionProofTest.php',
-        'services/host/tests/Feature/QaManifestTrustAttackTest.php',
-        'services/host/tests/Feature/QaModuleConnectionRemovalTest.php',
-        'services/host/tests/Feature/QaRegenerationGuardTest.php',
-        'services/host/tests/Feature/QaTestCodeAnalysisCoverageTest.php',
-        'services/host/tests/Feature/QaTestSuiteIsolationTest.php',
-        'services/host/tests/Feature/RouteCachingTest.php',
-        'services/host/tests/Feature/SvcMakeAtomicGenerationTest.php',
+        'modules/host/tests/Feature/ConfigCacheGuardTest.php',
+        'modules/host/tests/Feature/DeptracBoundaryEnforcementTest.php',
+        'modules/host/tests/Feature/HostTestAnalysisEnforcementTest.php',
+        'modules/host/tests/Feature/HostTestSuiteCollectionTest.php',
+        'modules/host/tests/Feature/PintLintFixRoundTripTest.php',
+        'modules/host/tests/Feature/ModuleMakeAtomicGenerationTest.php',
+        'modules/host/tests/Feature/QaCacheGuardBranchesTest.php',
+        'modules/host/tests/Feature/QaGeneratedModuleTestDiscoveryTest.php',
+        'modules/host/tests/Feature/QaHostSuiteCollectionProofTest.php',
+        'modules/host/tests/Feature/QaManifestTrustAttackTest.php',
+        'modules/host/tests/Feature/QaModuleConnectionRemovalTest.php',
+        'modules/host/tests/Feature/QaRegenerationGuardTest.php',
+        'modules/host/tests/Feature/QaTestCodeAnalysisCoverageTest.php',
+        'modules/host/tests/Feature/QaTestSuiteIsolationTest.php',
+        'modules/host/tests/Feature/RouteCachingTest.php',
         // This one polices the list it is on: it spawns Pest children to prove the
         // group declaration binds, so it belongs to the group it describes. Its
         // sibling ToolchainGroupCoverageTest.php spawns nothing and is therefore
         // deliberately absent, so the registry lint runs in test:fast too.
-        'services/host/tests/Feature/ToolchainGroupBindingTest.php',
+        'modules/host/tests/Feature/ToolchainGroupBindingTest.php',
     ];
 }
 
@@ -142,7 +142,7 @@ function toolchainSourceSpawns(string $source): bool
 }
 
 /**
- * Every *Test.php under every tests directory of a services/ or packages/
+ * Every *Test.php under every tests directory of a modules/ or packages/
  * package whose source starts a child process, relative to the repository root.
  *
  * The same enumeration QaAssertionShapeGuardTest::qaShapeTestFiles() uses, minus
@@ -157,7 +157,7 @@ function filesSpawningChildProcesses(): array
     $root = toolchainRepositoryRoot();
     $spawners = [];
 
-    foreach (['services', 'packages'] as $group) {
+    foreach (['modules', 'packages'] as $group) {
         foreach (glob($root.DIRECTORY_SEPARATOR.$group.DIRECTORY_SEPARATOR.'*'.DIRECTORY_SEPARATOR.'tests', GLOB_ONLYDIR) ?: [] as $directory) {
             if (in_array(basename(dirname($directory)), qaFixturePackageNames(), true)) {
                 continue;
@@ -230,25 +230,25 @@ function toolchainMissingPaths(array $paths): array
  *
  * File::deleteDirectory() opens a FilesystemIterator over the directory and then
  * rmdir()s it; on Windows the iterator's handle can outlive the unset, so the
- * files go but the directory stays. `svc:make` then refuses the name outright
+ * files go but the directory stays. `module:make` then refuses the name outright
  * ("... already exists. Nothing was created or modified.") and the next case in
  * the same file fails for a reason that has nothing to do with what it asserts.
  * That is a real, observed flake, not a theory: a cold gate run failed in
- * ServiceRegistryManifestTrustTest, whose eight cases create and delete
- * services/trustfixture in turn.
+ * ModuleRegistryManifestTrustTest, whose eight cases create and delete
+ * modules/trustfixture in turn.
  *
  * Retried with a real backoff, not in a tight loop. Measured on this platform:
  * while any handle inside the directory is open, unlink() on the files SUCCEEDS
  * and rmdir() on the directory FAILS; the moment the handle closes, rmdir()
  * succeeds immediately. An immediate second and third pass therefore complete in
  * microseconds and cannot outlast whatever is still holding it - which is exactly
- * what happened: a three-attempt tight loop still lost services/trustfixture and
+ * what happened: a three-attempt tight loop still lost modules/trustfixture and
  * the flake recurred. gc_collect_cycles() drops a FilesystemIterator that is only
  * reachable through a reference cycle; the sleep covers everything else. The first
  * attempt never sleeps, so the normal case costs nothing.
  *
  * The reasoning started as QaCredentialSurfaceSweepTest::qaCredDeleteFixtureRoot()'s
- * second pass, generalised so the svc:make teardowns share it instead of each
+ * second pass, generalised so the module:make teardowns share it instead of each
  * rediscovering it - and then corrected, because a second pass is demonstrably
  * not enough for the heavier generated-package fixtures.
  *
@@ -290,10 +290,10 @@ function tryDeleteFixtureDirectory(string $directory): bool
  * change, and a leftover directory has to be loud rather than counted.
  *
  * It throws, so it must never be the first statement of a teardown that still
- * has to put something back. QA BUG-3: SvcMakeDemoRegenerationTest's finally
- * deleted the regenerated services/demo and then restored the backup, so one
+ * has to put something back. QA BUG-3: ModuleMakeDemoRegenerationTest's finally
+ * deleted the regenerated modules/demo and then restored the backup, so one
  * delete failure - exactly the condition this helper exists for - skipped the
- * restore, and the afterEach safety net then saw services/demo still present,
+ * restore, and the afterEach safety net then saw modules/demo still present,
  * declined to restore, and deleted the backup. That path could destroy the
  * committed module and its only copy together. Reach for
  * tryDeleteFixtureDirectory() on any path like that.
@@ -311,7 +311,7 @@ function deleteFixtureDirectory(string $directory): void
 }
 
 /**
- * The exact names of the throwaway service packages this suite generates while
+ * The exact names of the throwaway modules this suite generates while
  * it runs (T-002 AC-18, decision D-23).
  *
  * Relocated verbatim from QaToolchainRegistryCoverageTest.php by T-004 FP-164,
@@ -322,20 +322,20 @@ function deleteFixtureDirectory(string $directory): void
  * only for the duration of one test change its result.
  *
  * This used to be `str_contains($name, 'fixture')`, which would also have
- * exempted a legitimately named permanent service - `data-fixtures`, say - from
+ * exempted a legitimately named permanent module - `data-fixtures`, say - from
  * every coverage check in QaToolchainRegistryCoverageTest, silently and forever.
  * An exact list cannot do that: the worst it can do is fail loudly when a new
  * test starts generating a package under a name nobody added here, which is the
  * safe direction to be wrong in.
  *
- * Every test that generates a service package must add its exact name here and
+ * Every test that generates a module must add its exact name here and
  * delete the package in afterEach. Names currently in use, by file:
- * SvcMakeValidationTest (svcmakefixture, svc-make-fixture),
- * QaServiceNameValidationTest (qa-name-fixture), QaGeneratedServiceTestDiscoveryTest
- * (qadiscoveryfixture), QaServiceRegistryContractTest (qabrokenfixture),
- * SvcMakeGeneratedServiceReachableTest (reachablefixture),
- * UnlistedServiceReturns404Test (unlistedfixture), ServiceRegistryManifestTrustTest
- * (trustfixture), SvcMakeAtomicGenerationTest (atomicfixture),
+ * ModuleMakeValidationTest (modulemakefixture, module-make-fixture),
+ * QaModuleNameValidationTest (qa-name-fixture), QaGeneratedModuleTestDiscoveryTest
+ * (qadiscoveryfixture), QaModuleRegistryContractTest (qabrokenfixture),
+ * ModuleMakeGeneratedModuleReachableTest (reachablefixture),
+ * UnlistedModuleReturns404Test (unlistedfixture), ModuleRegistryManifestTrustTest
+ * (trustfixture), ModuleMakeAtomicGenerationTest (atomicfixture),
  * QaManifestTrustAttackTest (qatrustfixture), QaCacheGuardBranchesTest
  * (qacachefixture).
  *
@@ -354,8 +354,8 @@ function qaFixturePackageNames(): array
         'qatenancyfixture',
         'qatrustfixture',
         'reachablefixture',
-        'svc-make-fixture',
-        'svcmakefixture',
+        'module-make-fixture',
+        'modulemakefixture',
         'trustfixture',
         'unlistedfixture',
     ];

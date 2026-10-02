@@ -1,6 +1,6 @@
 <?php
 
-use App\Console\Commands\SvcMakeCommand;
+use App\Console\Commands\ModuleMakeCommand;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
@@ -11,13 +11,13 @@ use Symfony\Component\Finder\Finder;
  * AC-25.
  *
  * AC-20 says a generated module declares no connection "anywhere". `dev`'s
- * SvcMakeValidationTest checks the two places it used to be declared; this
+ * ModuleMakeValidationTest checks the two places it used to be declared; this
  * checks the whole generated tree and the whole stub directory for every token
  * the old model used, so a connection re-appearing in a file nobody thought to
  * list is caught too.
  *
  * T-001 AC-25 is SUPERSEDED here, not regressed: its "database connection
- * configuration entry named for the service" clause is removed by AC-19/AC-20,
+ * configuration entry named for the module" clause is removed by AC-19/AC-20,
  * and every other element it required is re-proved below.
  */
 
@@ -70,14 +70,14 @@ function qaModTreeContents(string $root): array
 }
 
 afterEach(function () {
-    deleteFixtureDirectory(servicesPath(qaModFixtureName()));
+    deleteFixtureDirectory(modulesPath(qaModFixtureName()));
 });
 
 it('ships no stub that can produce a per-module database connection', function () {
     // AC-19, from the stub directory rather than from the command's file list,
     // because a stub the command stopped rendering but nobody deleted would
     // still be the template someone copies.
-    $stubs = base_path('stubs'.DIRECTORY_SEPARATOR.'service');
+    $stubs = base_path('stubs'.DIRECTORY_SEPARATOR.'module');
 
     expect(File::exists($stubs.DIRECTORY_SEPARATOR.'connection.config.php.stub'))->toBeFalse();
 
@@ -85,7 +85,7 @@ it('ships no stub that can produce a per-module database connection', function (
 
     foreach (qaModTreeContents($stubs) as $relative => $contents) {
         foreach (qaModForbiddenTokens() as $why => $token) {
-            // The service-name-derived tokens cannot appear in an unrendered
+            // The module-name-derived tokens cannot appear in an unrendered
             // stub, so only the literal ones are meaningful here.
             if (str_starts_with($token, 'svc_') || str_starts_with($token, 'pos_')) {
                 continue;
@@ -100,10 +100,10 @@ it('ships no stub that can produce a per-module database connection', function (
     expect($offenders)->toBe([], implode('; ', $offenders));
 
     // Negative control: an assertion that nothing was found is only evidence if
-    // the same sweep finds something when it is there. config/servicehost.php
+    // the same sweep finds something when it is there. config/modulehost.php
     // documents the mergeConfigFrom constraint and keeps that literal token, so
     // the detector must report it.
-    $control = (string) file_get_contents(config_path('servicehost.php'));
+    $control = (string) file_get_contents(config_path('modulehost.php'));
     $found = [];
 
     foreach (qaModForbiddenTokens() as $why => $token) {
@@ -115,7 +115,7 @@ it('ships no stub that can produce a per-module database connection', function (
     expect($found)->toContain('the merge that registered a module connection');
 
     // And the generator's own file list no longer maps one.
-    $files = (new ReflectionClassConstant(SvcMakeCommand::class, 'FILES'))->getValue();
+    $files = (new ReflectionClassConstant(ModuleMakeCommand::class, 'FILES'))->getValue();
 
     expect($files)->toBeArray();
 
@@ -133,9 +133,9 @@ it('ships no stub that can produce a per-module database connection', function (
 it('generates a module that declares no database connection anywhere in its tree', function () {
     // AC-20, swept over every generated file rather than over a list of the
     // places it used to be.
-    expect(Artisan::call('svc:make', ['name' => qaModFixtureName()]))->toBe(0);
+    expect(Artisan::call('module:make', ['name' => qaModFixtureName()]))->toBe(0);
 
-    $root = servicesPath(qaModFixtureName());
+    $root = modulesPath(qaModFixtureName());
     $tree = qaModTreeContents($root);
 
     expect($tree)->not->toBe([])
@@ -165,7 +165,7 @@ it('generates a module that declares no database connection anywhere in its tree
     /** @var array<string, mixed> $manifest */
     $flexipos = (array) (($manifest['extra'] ?? [])['flexipos'] ?? []);
 
-    expect(array_keys($flexipos))->toBe(['service', 'provider', 'prefix']);
+    expect(array_keys($flexipos))->toBe(['module', 'provider', 'prefix']);
 
     // The provider has no register() at all now, so there is nothing left that
     // could merge configuration at boot.
@@ -180,9 +180,9 @@ it('still generates every other element T-001 AC-25 required', function () {
     // The supersession ruling: exactly one clause of T-001 AC-25 is gone. The
     // rest must be unchanged, or this task broke a criterion instead of
     // replacing one.
-    expect(Artisan::call('svc:make', ['name' => qaModFixtureName()]))->toBe(0);
+    expect(Artisan::call('module:make', ['name' => qaModFixtureName()]))->toBe(0);
 
-    $root = servicesPath(qaModFixtureName());
+    $root = modulesPath(qaModFixtureName());
     $tree = qaModTreeContents($root);
 
     foreach ([
@@ -204,14 +204,14 @@ it('still generates every other element T-001 AC-25 required', function () {
 });
 
 it('runs every test a freshly generated module ships, with no further edits', function () {
-    // AC-21. The existing QaGeneratedServiceTestDiscoveryTest filters the child
+    // AC-21. The existing QaGeneratedModuleTestDiscoveryTest filters the child
     // run by the package name, which matches only the ping case - so the new
     // "cannot query the tenant connection" case that replaced the connection
     // assertion was never actually executed in a freshly generated package.
     // Running the file by path executes all three.
-    expect(Artisan::call('svc:make', ['name' => qaModFixtureName()]))->toBe(0);
+    expect(Artisan::call('module:make', ['name' => qaModFixtureName()]))->toBe(0);
 
-    $test = servicesPath(qaModFixtureName())
+    $test = modulesPath(qaModFixtureName())
         .DIRECTORY_SEPARATOR.'tests'.DIRECTORY_SEPARATOR.'Feature'.DIRECTORY_SEPARATOR.'PingRouteTest.php';
 
     expect(File::exists($test))->toBeTrue();
@@ -232,9 +232,9 @@ it('runs every test a freshly generated module ships, with no further edits', fu
 });
 
 it('leaves no connection artefact in the committed demo package', function () {
-    // AC-23, and the committed half of AC-22. SvcMakeDemoRegenerationTest proves
+    // AC-23, and the committed half of AC-22. ModuleMakeDemoRegenerationTest proves
     // the tree matches the generator; this proves what the tree says.
-    $tree = qaModTreeContents(servicesPath('demo'));
+    $tree = qaModTreeContents(modulesPath('demo'));
 
     expect(array_keys($tree))->not->toContain('config/connection.php')
         ->and(array_keys($tree))->toContain('config/.gitkeep');

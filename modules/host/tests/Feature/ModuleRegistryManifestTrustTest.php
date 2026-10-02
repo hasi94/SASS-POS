@@ -1,7 +1,7 @@
 <?php
 
-use App\Support\ServiceHost\ServiceRegistry;
-use App\Support\ServiceHost\UnknownServiceException;
+use App\Support\ModuleHost\ModuleRegistry;
+use App\Support\ModuleHost\UnknownModuleException;
 use Composer\Autoload\ClassLoader;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
@@ -13,22 +13,22 @@ use function Pest\Laravel\get;
 /*
  * T-002 FP-146 (T-001 review findings M-1, M-2, M-3).
  *
- * A service package manifest is untrusted input. Before T-002 the registry took
+ * A module manifest is untrusted input. Before T-002 the registry took
  * the PSR-4 namespace it declared verbatim, registered it with Composer's class
  * loader before validating anything, and then constructed whatever class the
  * manifest named as long as it was autoloadable. A copy-pasted package could
- * therefore add a second source directory for another service's namespace - or
+ * therefore add a second source directory for another module's namespace - or
  * for the host's own App\ - and a manifest naming any loadable class killed the
- * process with a fatal that never said which service was at fault.
+ * process with a fatal that never said which module was at fault.
  *
  * The rule now: the single autoload.psr-4 key must be exactly
- * Flexipos\Service\<Studly>\ for the package's own directory name, the provider
- * must be declared inside it, and the provider must really be a service
+ * Flexipos\Module\<Studly>\ for the package's own directory name, the provider
+ * must be declared inside it, and the provider must really be a module
  * provider. The first two are checked before addPsr4() ever runs.
  */
 
 /**
- * Generate a throwaway service package, rewrite its manifest and plant files.
+ * Generate a throwaway module, rewrite its manifest and plant files.
  *
  * @param  callable(array<string, mixed>): array<string, mixed>  $mutate
  * @param  array<string, string>  $planted  relative path => file contents
@@ -37,9 +37,9 @@ function trustFixture(callable $mutate, array $planted = []): string
 {
     $name = 'trustfixture';
 
-    expect(Artisan::call('svc:make', ['name' => $name]))->toBe(0);
+    expect(Artisan::call('module:make', ['name' => $name]))->toBe(0);
 
-    $file = servicesPath($name).DIRECTORY_SEPARATOR.'composer.json';
+    $file = modulesPath($name).DIRECTORY_SEPARATOR.'composer.json';
 
     /** @var array<string, mixed> $manifest */
     $manifest = (array) json_decode((string) File::get($file), true);
@@ -47,7 +47,7 @@ function trustFixture(callable $mutate, array $planted = []): string
     File::put($file, (string) json_encode($mutate($manifest), JSON_PRETTY_PRINT));
 
     foreach ($planted as $relative => $contents) {
-        $path = servicesPath($name).DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $relative);
+        $path = modulesPath($name).DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $relative);
 
         File::ensureDirectoryExists(dirname($path));
         File::put($path, $contents);
@@ -57,7 +57,7 @@ function trustFixture(callable $mutate, array $planted = []): string
 }
 
 /**
- * Composer's class loader, obtained exactly the way ServiceRegistry obtains it.
+ * Composer's class loader, obtained exactly the way ModuleRegistry obtains it.
  */
 function trustLoader(): ClassLoader
 {
@@ -68,13 +68,13 @@ function trustLoader(): ClassLoader
 }
 
 /**
- * Boot one service and return the failure, or null if it booted.
+ * Boot one module and return the failure, or null if it booted.
  */
-function trustBootFailure(string $name): ?UnknownServiceException
+function trustBootFailure(string $name): ?UnknownModuleException
 {
     try {
-        app(ServiceRegistry::class)->bootAll($name);
-    } catch (UnknownServiceException $exception) {
+        app(ModuleRegistry::class)->bootAll($name);
+    } catch (UnknownModuleException $exception) {
         return $exception;
     }
 
@@ -82,13 +82,13 @@ function trustBootFailure(string $name): ?UnknownServiceException
 }
 
 /**
- * Boot one service catching anything at all, so a raw PHP Error escaping the
+ * Boot one module catching anything at all, so a raw PHP Error escaping the
  * container is observable rather than fatal to the run.
  */
 function trustBootThrowable(string $name): ?Throwable
 {
     try {
-        app(ServiceRegistry::class)->bootAll($name);
+        app(ModuleRegistry::class)->bootAll($name);
     } catch (Throwable $exception) {
         return $exception;
     }
@@ -97,47 +97,47 @@ function trustBootThrowable(string $name): ?Throwable
 }
 
 afterEach(function () {
-    deleteFixtureDirectory(servicesPath('trustfixture'));
+    deleteFixtureDirectory(modulesPath('trustfixture'));
 });
 
-it('refuses a manifest naming a class that is not a service provider', function () {
+it('refuses a manifest naming a class that is not a module provider', function () {
     // The package's own controller, pasted into the manifest by mistake: really
     // autoloadable, so class_exists() alone lets it through to the container.
     $name = trustFixture(function (array $manifest): array {
-        $manifest['extra']['flexipos']['provider'] = 'Flexipos\\Service\\Trustfixture\\Http\\Controllers\\PingController';
+        $manifest['extra']['flexipos']['provider'] = 'Flexipos\\Module\\Trustfixture\\Http\\Controllers\\PingController';
 
         return $manifest;
     });
 
     $failure = trustBootFailure($name);
 
-    expect($failure)->toBeInstanceOf(UnknownServiceException::class)
-        ->and($failure?->service())->toBe($name)
-        ->and($failure?->getMessage())->toContain('Flexipos\Service\Trustfixture\Http\Controllers\PingController')
+    expect($failure)->toBeInstanceOf(UnknownModuleException::class)
+        ->and($failure?->module())->toBe($name)
+        ->and($failure?->getMessage())->toContain('Flexipos\Module\Trustfixture\Http\Controllers\PingController')
         ->and($failure?->getMessage())->toContain('is not a Illuminate\Support\ServiceProvider')
         ->and($failure?->getMessage())->not->toContain('could not be autoloaded');
 });
 
-it('refuses a manifest that claims another service package namespace and registers nothing for it', function () {
+it('refuses a manifest that claims another module namespace and registers nothing for it', function () {
     $name = trustFixture(function (array $manifest): array {
-        $manifest['autoload']['psr-4'] = ['Flexipos\\Service\\Sales\\' => 'src/'];
-        $manifest['extra']['flexipos']['provider'] = 'Flexipos\\Service\\Sales\\SalesServiceProvider';
+        $manifest['autoload']['psr-4'] = ['Flexipos\\Module\\Sales\\' => 'src/'];
+        $manifest['extra']['flexipos']['provider'] = 'Flexipos\\Module\\Sales\\SalesServiceProvider';
 
         return $manifest;
     });
 
-    expect(trustLoader()->getPrefixesPsr4())->not->toHaveKey('Flexipos\\Service\\Sales\\');
+    expect(trustLoader()->getPrefixesPsr4())->not->toHaveKey('Flexipos\\Module\\Sales\\');
 
     $failure = trustBootFailure($name);
 
-    expect($failure)->toBeInstanceOf(UnknownServiceException::class)
-        ->and($failure?->service())->toBe($name)
-        ->and($failure?->getMessage())->toContain('Flexipos\Service\Sales\\')
-        ->and($failure?->getMessage())->toContain('Flexipos\Service\Trustfixture\\');
+    expect($failure)->toBeInstanceOf(UnknownModuleException::class)
+        ->and($failure?->module())->toBe($name)
+        ->and($failure?->getMessage())->toContain('Flexipos\Module\Sales\\')
+        ->and($failure?->getMessage())->toContain('Flexipos\Module\Trustfixture\\');
 
     // The proof M-2 actually asks for: the rejected package left no PSR-4
     // prefix behind for a namespace it was never entitled to.
-    expect(trustLoader()->getPrefixesPsr4())->not->toHaveKey('Flexipos\\Service\\Sales\\');
+    expect(trustLoader()->getPrefixesPsr4())->not->toHaveKey('Flexipos\\Module\\Sales\\');
 });
 
 it('refuses a manifest that claims the host own App namespace and never extends that prefix', function () {
@@ -154,12 +154,12 @@ it('refuses a manifest that claims the host own App namespace and never extends 
 
     $failure = trustBootFailure($name);
 
-    expect($failure)->toBeInstanceOf(UnknownServiceException::class)
-        ->and($failure?->service())->toBe($name)
+    expect($failure)->toBeInstanceOf(UnknownModuleException::class)
+        ->and($failure?->module())->toBe($name)
         ->and($failure?->getMessage())->toContain('[App\]')
-        ->and($failure?->getMessage())->toContain('Flexipos\Service\Trustfixture\\');
+        ->and($failure?->getMessage())->toContain('Flexipos\Module\Trustfixture\\');
 
-    // A second source directory for App\ would let a service package shadow the
+    // A second source directory for App\ would let a module shadow the
     // host's own classes. The prefix must be byte for byte what it was.
     expect(trustLoader()->getPrefixesPsr4()['App\\'] ?? [])->toBe($before);
 });
@@ -181,7 +181,7 @@ it('refuses a manifest that smuggles a second psr-4 namespace beside its own', f
     $name = trustFixture(
         function (array $manifest): array {
             $manifest['autoload']['psr-4'] = [
-                'Flexipos\\Service\\Trustfixture\\' => 'src/',
+                'Flexipos\\Module\\Trustfixture\\' => 'src/',
                 'App\\' => 'src/',
             ];
 
@@ -192,22 +192,22 @@ it('refuses a manifest that smuggles a second psr-4 namespace beside its own', f
 
     $failure = trustBootFailure($name);
 
-    expect($failure)->toBeInstanceOf(UnknownServiceException::class)
-        ->and($failure?->service())->toBe($name)
+    expect($failure)->toBeInstanceOf(UnknownModuleException::class)
+        ->and($failure?->module())->toBe($name)
         ->and($failure?->getMessage())->toContain('declares 2 autoload.psr-4 namespaces')
         ->and($failure?->getMessage())->toContain('[App\]')
         ->and($failure?->getMessage())->toContain('must declare exactly one');
 
     expect(trustLoader()->getPrefixesPsr4()['App\\'] ?? [])->toBe($before)
         ->and(class_exists('App\\TrustSmuggled'))->toBeFalse()
-        ->and(app(ServiceRegistry::class)->booted())->not->toContain($name);
+        ->and(app(ModuleRegistry::class)->booted())->not->toContain($name);
 });
 
 it('still refuses a two entry psr-4 map when the foreign entry is listed first', function () {
     $name = trustFixture(function (array $manifest): array {
         $manifest['autoload']['psr-4'] = [
-            'Flexipos\\Service\\Sales\\' => 'src/',
-            'Flexipos\\Service\\Trustfixture\\' => 'src/',
+            'Flexipos\\Module\\Sales\\' => 'src/',
+            'Flexipos\\Module\\Trustfixture\\' => 'src/',
         ];
 
         return $manifest;
@@ -215,20 +215,20 @@ it('still refuses a two entry psr-4 map when the foreign entry is listed first',
 
     $failure = trustBootFailure($name);
 
-    expect($failure)->toBeInstanceOf(UnknownServiceException::class)
-        ->and($failure?->service())->toBe($name)
+    expect($failure)->toBeInstanceOf(UnknownModuleException::class)
+        ->and($failure?->module())->toBe($name)
         ->and($failure?->getMessage())->toContain('must declare exactly one');
 
-    expect(trustLoader()->getPrefixesPsr4())->not->toHaveKey('Flexipos\\Service\\Sales\\');
+    expect(trustLoader()->getPrefixesPsr4())->not->toHaveKey('Flexipos\\Module\\Sales\\');
 });
 
 it('refuses an abstract provider instead of letting the container fatal on it', function () {
     // BUG-3 (QA run 1): is_a(..., ServiceProvider::class, true) is satisfied by
     // an abstract subclass, so register() died with a raw
-    // "Cannot instantiate abstract class" that never named the service - the
+    // "Cannot instantiate abstract class" that never named the module - the
     // outcome D-1 and AC-1's rationale exist to prevent, just outside AC-1's
     // literal "does not extend ServiceProvider" wording.
-    $provider = 'Flexipos\\Service\\Trustfixture\\TrustAbstractProvider';
+    $provider = 'Flexipos\\Module\\Trustfixture\\TrustAbstractProvider';
 
     $name = trustFixture(
         function (array $manifest) use ($provider): array {
@@ -236,19 +236,19 @@ it('refuses an abstract provider instead of letting the container fatal on it', 
 
             return $manifest;
         },
-        ['src/TrustAbstractProvider.php' => "<?php\n\nnamespace Flexipos\\Service\\Trustfixture;\n\nuse Illuminate\\Support\\ServiceProvider;\n\nabstract class TrustAbstractProvider extends ServiceProvider {}\n"]
+        ['src/TrustAbstractProvider.php' => "<?php\n\nnamespace Flexipos\\Module\\Trustfixture;\n\nuse Illuminate\\Support\\ServiceProvider;\n\nabstract class TrustAbstractProvider extends ServiceProvider {}\n"]
     );
 
     $failure = trustBootThrowable($name);
 
     // Not an Error, not a TypeError: the registry's own typed exception.
-    expect($failure)->toBeInstanceOf(UnknownServiceException::class);
+    expect($failure)->toBeInstanceOf(UnknownModuleException::class);
 
-    /** @var UnknownServiceException $failure */
-    expect($failure->service())->toBe($name)
+    /** @var UnknownModuleException $failure */
+    expect($failure->module())->toBe($name)
         ->and($failure->getMessage())->toContain($provider)
         ->and($failure->getMessage())->toContain('cannot be instantiated')
-        // A different mistake from "that is not a service provider", so it must
+        // A different mistake from "that is not a module provider", so it must
         // read differently.
         ->and($failure->getMessage())->not->toContain('is not a Illuminate\Support\ServiceProvider');
 
@@ -256,64 +256,64 @@ it('refuses an abstract provider instead of letting the container fatal on it', 
     // stopped it - and it never reached the container.
     expect(class_exists($provider))->toBeTrue()
         ->and(is_a($provider, ServiceProvider::class, true))->toBeTrue()
-        ->and(app(ServiceRegistry::class)->booted())->not->toContain($name);
+        ->and(app(ModuleRegistry::class)->booted())->not->toContain($name);
 });
 
 it('refuses a provider class declared outside the package own namespace', function () {
     $name = trustFixture(function (array $manifest): array {
-        $manifest['extra']['flexipos']['provider'] = 'Flexipos\\Service\\Sales\\TrustfixtureServiceProvider';
+        $manifest['extra']['flexipos']['provider'] = 'Flexipos\\Module\\Sales\\TrustfixtureServiceProvider';
 
         return $manifest;
     });
 
     $failure = trustBootFailure($name);
 
-    expect($failure)->toBeInstanceOf(UnknownServiceException::class)
-        ->and($failure?->service())->toBe($name)
-        ->and($failure?->getMessage())->toContain('Flexipos\Service\Sales\TrustfixtureServiceProvider')
-        ->and($failure?->getMessage())->toContain('Flexipos\Service\Trustfixture\\')
+    expect($failure)->toBeInstanceOf(UnknownModuleException::class)
+        ->and($failure?->module())->toBe($name)
+        ->and($failure?->getMessage())->toContain('Flexipos\Module\Sales\TrustfixtureServiceProvider')
+        ->and($failure?->getMessage())->toContain('Flexipos\Module\Trustfixture\\')
         ->and($failure?->getMessage())->toContain('outside its own namespace');
 });
 
 it('still reports a correctly scoped provider class that is not on disk as not autoloadable', function () {
     // The namespace/prefix checks run first now, so this is the only shape that
-    // still reaches the class_exists() branch. QaServiceRegistryContractTest's
+    // still reaches the class_exists() branch. QaModuleRegistryContractTest's
     // own fixture for it declares a foreign namespace and therefore now stops
     // one check earlier; keep the branch proven here.
     $name = trustFixture(function (array $manifest): array {
-        $manifest['extra']['flexipos']['provider'] = 'Flexipos\\Service\\Trustfixture\\NotOnDisk';
+        $manifest['extra']['flexipos']['provider'] = 'Flexipos\\Module\\Trustfixture\\NotOnDisk';
 
         return $manifest;
     });
 
     $failure = trustBootFailure($name);
 
-    expect($failure)->toBeInstanceOf(UnknownServiceException::class)
-        ->and($failure?->service())->toBe($name)
-        ->and($failure?->getMessage())->toContain('Flexipos\Service\Trustfixture\NotOnDisk')
+    expect($failure)->toBeInstanceOf(UnknownModuleException::class)
+        ->and($failure?->module())->toBe($name)
+        ->and($failure?->getMessage())->toContain('Flexipos\Module\Trustfixture\NotOnDisk')
         ->and($failure?->getMessage())->toContain('could not be autoloaded');
 });
 
-it('rejects a candidate service name that ends in a newline', function () {
+it('rejects a candidate module name that ends in a newline', function () {
     // PCRE's $ also matches just before a final newline, so without the D
     // modifier "billing\n" passed the shared pattern - the same defect class as
-    // T-001's BUG-2, and the reason svc:make could create a directory the
+    // T-001's BUG-2, and the reason module:make could create a directory the
     // registry (which trims in parse()) could never boot.
-    expect(preg_match(ServiceRegistry::NAME_PATTERN, "billing\n"))->toBe(0)
-        ->and(preg_match(ServiceRegistry::NAME_PATTERN, "demo\n"))->toBe(0)
-        ->and(preg_match(ServiceRegistry::NAME_PATTERN, "http-client\n"))->toBe(0)
-        ->and(preg_match(ServiceRegistry::NAME_PATTERN, 'billing'))->toBe(1);
+    expect(preg_match(ModuleRegistry::NAME_PATTERN, "billing\n"))->toBe(0)
+        ->and(preg_match(ModuleRegistry::NAME_PATTERN, "demo\n"))->toBe(0)
+        ->and(preg_match(ModuleRegistry::NAME_PATTERN, "http-client\n"))->toBe(0)
+        ->and(preg_match(ModuleRegistry::NAME_PATTERN, 'billing'))->toBe(1);
 });
 
-it('still boots a correctly scoped service package and registers its prefix on the required loader', function () {
+it('still boots a correctly scoped module and registers its prefix on the required loader', function () {
     $name = trustFixture(fn (array $manifest): array => $manifest);
 
     expect(trustBootFailure($name))->toBeNull()
-        ->and(app(ServiceRegistry::class)->booted())->toContain($name);
+        ->and(app(ModuleRegistry::class)->booted())->toContain($name);
 
-    // The loader ServiceRegistry required is the live one, not a second copy:
+    // The loader ModuleRegistry required is the live one, not a second copy:
     // the prefix it just added is visible through a fresh require.
-    expect(trustLoader()->getPrefixesPsr4())->toHaveKey('Flexipos\\Service\\Trustfixture\\');
+    expect(trustLoader()->getPrefixesPsr4())->toHaveKey('Flexipos\\Module\\Trustfixture\\');
 
     get('/api/v1/trustfixture/ping')->assertOk();
 });
@@ -330,9 +330,9 @@ it('boots the committed demo package unchanged under the tightened rule', functi
     /** @var TestCase $this */
     $this->bootHostWith('demo');
 
-    expect(app(ServiceRegistry::class)->booted())->toBe(['demo']);
+    expect(app(ModuleRegistry::class)->booted())->toBe(['demo']);
 
-    get('/api/v1/demo/ping')->assertOk()->assertJson(['service' => 'demo', 'status' => 'ok']);
+    get('/api/v1/demo/ping')->assertOk()->assertJson(['module' => 'demo', 'status' => 'ok']);
 
-    get('/health/ready')->assertOk()->assertExactJson(['status' => 'ok', 'services' => ['demo']]);
+    get('/health/ready')->assertOk()->assertExactJson(['status' => 'ok', 'modules' => ['demo']]);
 });
