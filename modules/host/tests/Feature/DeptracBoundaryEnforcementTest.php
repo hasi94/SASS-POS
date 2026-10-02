@@ -84,7 +84,12 @@ beforeEach(function () {
     // protects the gate is `composer probes:clean`, the first entry of the check
     // script, because a surviving copy of this probe - a module test class
     // importing the host's ModuleRegistry - aborts `composer check` at
-    // @deptrac, the third of five steps, before any hook here could run. It
+    // @deptrac, the fourth of its five steps: @probes:clean, @lint, @stan,
+    // @deptrac, @test. This line said "third of five" while naming those same
+    // five (reviewer W-3): third of five is @stan, so the ordinal sent a reader
+    // debugging a surviving probe to the wrong step. Count off the list, which
+    // is why the list is now in the sentence. All of that happens before any
+    // hook here could run. It
     // cannot interfere with the plant-and-delete cycle below either: that
     // script runs once, before Pest starts.
     File::delete(deptracProbePath());

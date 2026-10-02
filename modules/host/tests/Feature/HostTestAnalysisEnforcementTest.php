@@ -98,9 +98,11 @@ function hostRegisteredProbePaths(): array
  *
  * Not every planter the suite *could* declare: packageTestFiles() walks
  * *Test.php only, so one declared in a Helpers.php or a fixtures class is not
- * discovered (QA BUG-4, measured). Widening the walk to every .php would be
- * green on today's tree - there is no such planter - so the scope is stated
- * here and in tools/clean-probes.php rather than guessed at.
+ * discovered (QA BUG-4, measured), and it skips the throwaway packages
+ * qaFixturePackageNames() lists, so a planter inside one of those is not
+ * discovered either. Widening the walk would be green on today's tree - no
+ * planter exists in either place - so the scope is stated here and in
+ * tools/clean-probes.php rather than guessed at.
  *
  * The discovered half of the registry check. Without it both sides of that
  * comparison are hand-kept literals in two files and the case cannot fail on
@@ -204,12 +206,22 @@ function hostProbeTargetFromSource(string $source, string $function): string
 }
 
 /**
- * Every directory or file the gate looks inside: PHPStan's `paths`, Deptrac's
- * `paths` and phpunit.xml's suite directories, resolved to absolute paths.
+ * Every directory or file the three *collectors* look inside: PHPStan's
+ * `paths`, Deptrac's `paths` and phpunit.xml's suite directories, resolved to
+ * absolute paths. Not everything the gate looks inside - see below.
  *
  * A planted probe only matters where one of those three finds it - PHPStan and
  * Deptrac turn it into a failing analysis, phpunit collects it as a test - which
  * is what makes the storage/ probe out of scope by rule rather than by name.
+ *
+ * `@lint` is the fourth pair of eyes and is deliberately not in this list.
+ * `pint --test .. ../../packages` sweeps both trees wholesale, so an
+ * unformatted probe anywhere in them fails the gate one step earlier than
+ * PHPStan would - T-003 lost a run to exactly that. It is left out because
+ * Pint, given a directory, excludes storage/ (measured: `pint --test ..
+ * ../../packages -v` lists no storage file), so the only probe outside these
+ * three registries is outside Pint's reach as well, and adding it would widen
+ * the rule with no path to catch today.
  *
  * phpunit.xml's <exclude> entries are deliberately not subtracted: ../host/tests
  * is excluded from the Modules suite only because the Host suite already

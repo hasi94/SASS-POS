@@ -75,6 +75,8 @@ Thumbs.db
 # Its neighbour, planted by DeptracBoundaryEnforcementTest: the same argument
 # with a sharper edge, because this one declares a module test class importing
 # App\Support\ModuleHost\ModuleRegistry, so a committed copy is a boundary
-# violation inside the byte-compared demo tree that fails `composer deptrac` at
-# the gate's third step.
+# violation inside the byte-compared demo tree that fails `composer deptrac` -
+# the FOURTH of the gate's five steps: @probes:clean, @lint, @stan, @deptrac,
+# @test. Numbered off the list, not from memory; this line said "third" until
+# reviewer W-3, and third of five is @stan.
 /modules/demo/tests/Feature/DeptracProbeTest.php

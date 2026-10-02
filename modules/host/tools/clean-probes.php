@@ -32,20 +32,22 @@ declare(strict_types=1);
 | The list below is the single source of truth, and it is not trusted to be
 | complete: HostTestAnalysisEnforcementTest discovers the probe-planting
 | functions - every *ProbePath() declared in a *Test.php file under
-| modules/*\/tests or packages/*\/tests - evaluates the path each one returns,
+| modules/*\/tests or packages/*\/tests, throwaway fixture packages aside -
+| evaluates the path each one returns,
 | and fails if any of those paths lies inside a PHPStan path, a Deptrac path or a
 | phpunit suite directory without appearing here. So a *test file* that plants a
 | probe inside an analysed or collected path cannot leave it unregistered.
 |
-| Two residuals, stated because the sentence above is only true with them. A
+| Three residuals, stated because the sentence above is only true with them. A
 | planter declared somewhere else - a Helpers.php, a Pest.php, a fixtures class,
 | anything not matching *Test.php - is NOT discovered: QA planted one and the
 | guard stayed green (BUG-4), measured again here before this paragraph was
-| written. Widening the walk to every .php would close it and would be green on
-| today's tree, where no such planter exists, so it is deferred rather than
-| guessed at. And a file dropped into the tree by hand declares no planter at
-| all; it is nobody's probe, and the gate dying on it in static analysis is the
-| right answer rather than a hole.
+| written. The walk also skips the throwaway packages qaFixturePackageNames()
+| lists, so a planter inside one of those is not discovered either. Widening it
+| would close both and would be green on today's tree, where neither planter
+| exists, so it is deferred rather than guessed at. And a file dropped into the
+| tree by hand declares no planter at all; it is nobody's probe, and the gate
+| dying on it in static analysis is the right answer rather than a hole.
 |
 | That sentence used to claim the registry was complete while both sides of the
 | comparison were hand-kept literals; it named three probes and the suite planted
