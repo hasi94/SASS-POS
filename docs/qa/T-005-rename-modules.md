@@ -499,8 +499,12 @@ not re-raise this.** BUG-3 is closed as fixed for the planter shape and as decli
 planted three of six now plants six, +9; the W-2 conditional and its duplicate go, -3), case count
 unchanged. `1420 -> 1435` is mine: the sweep 20 -> 35 assertions, case count unchanged. Fast **257 / 980** +
 slow **57 / 455** = **314 / 1435**, so the split is whole. `314 - 10 = 304`: the case count still lands on the
-baseline. The assertion count no longer lands on `1358`; the rise since run 2 is all guard assertions,
-declared above.
+baseline, and **the assertion count still lands on `1358` exactly.** The three classes that do not exist on
+`main`, each measured by a single-file run in run 3: `HostTestAnalysisCoverageTest` 1 case / 12 assertions,
+`HostTestAnalysisEnforcementTest` 4 / 30, `QaVocabularyRenameSweepTest` 5 / 35 = **10 cases / 77
+assertions**. So `314 - 10 = 304` and `1435 - 77 = 1358`: both AC-1 dimensions reconcile, and no pre-existing
+case moved (`1414 + 6 + 15 = 1435`). An earlier draft of this paragraph said the assertion count no longer
+lands; that was wrong, because I subtracted run 2's 56 instead of the current 77.
 
 ### Other commands
 

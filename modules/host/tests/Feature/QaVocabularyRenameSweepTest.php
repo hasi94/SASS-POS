@@ -256,8 +256,8 @@ function qaVocabAllowances(): array
  * task has to name the old directory, the old environment variable and the old
  * namespace to say what changed, so leaving it swept would turn the gate red at
  * the release step through no fault of its author (review R-3). The case that
- * keeps the exemptions live pins the full set of six, so a seventh folder cannot
- * be forgotten the same way.
+ * keeps the exemptions live pins the six that exist today, so none of them can be
+ * dropped; a seventh hand-off folder still has to be added here by hand.
  *
  * Dependency and build directories are NOT in this list: they are pruned by name
  * in qaVocabCorpus() and their absence cannot hide a tracked file, so an
