@@ -48,7 +48,18 @@ that mechanism, and each one needs the same treatment.** Before committing, re-r
 every comment the diff adds and ask, of each clause, "which line of code makes this
 true, and what input would make it false?" - then run that input. The cheap ones are
 scope words: "every", "any", "all", a glob, a directory. On BUG-4 the fix was two
-words of scope plus the residual written down; finding it cost a QA cycle. And when
+words of scope plus the residual written down; finding it cost a QA cycle.
+
+**The recipe, now FP-176 on this project:** grep the comment lines the diff adds for
+`every|any|all|each|only` plus ordinals, and resolve each hit against a line of code.
+It found three of T-005's seven instances in about ten minutes, and two more of mine
+on the round after - a walk described by its directory when it filters by `*Test.php`,
+and a list called "everything the gate looks inside" that omitted Pint. **And make
+ordinals self-enumerating:** "`@deptrac`, the fourth of its five steps: @probes:clean,
+@lint, @stan, @deptrac, @test" cannot drift, while "the third step" silently became
+wrong the moment `probes:clean` went to the front of the gate. The one sentence in that
+family that stayed correct through two rounds was the one that listed the steps before
+numbering them. And when
 the reported instance has siblings in files I am already editing, fix them in the
 same commit and say so - correcting one copy of a false sentence and leaving two is
 the same defect with a smaller blast radius.
