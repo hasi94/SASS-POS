@@ -67,12 +67,55 @@ function hostRunShippedDeptrac(): ProcessResult
     ]);
 }
 
+/**
+ * Remove a planted probe, or say so loudly.
+ *
+ * Harmless when the probe is already gone, which is what lets it run both before
+ * and after every test. Failure is a thrown RuntimeException rather than an
+ * expect() call on purpose: this runs from beforeEach/afterEach hooks of tests
+ * whose assertion counts are declared, and a surviving planted violation has to
+ * be loud rather than counted.
+ */
+function hostRemoveProbe(string $path): void
+{
+    if (! file_exists($path)) {
+        return;
+    }
+
+    File::delete($path);
+
+    clearstatcache(true, $path);
+
+    if (file_exists($path)) {
+        throw new RuntimeException(
+            'could not remove the planted probe '.$path.'. HostDeptracProbe.php declares a '.
+            'deliberate boundary violation and HostStanProbe.php a deliberate level 6 defect, so '.
+            'either one left behind turns `composer deptrac` or `composer stan` red for every '.
+            'later run, naming a file that reads like real code. Delete it by hand.'
+        );
+    }
+}
+
+beforeEach(function () {
+    // Load bearing, and not redundant with the afterEach below. No PHP-level
+    // teardown runs when the process is killed rather than finishing - a
+    // Composer process timeout, a Ctrl-C, a CI step limit - and that is exactly
+    // how a planted probe escapes: the measured incident was `composer check`
+    // being killed at its 300 s timeout mid-test, after which the next run's
+    // deptrac reported a violation in HostDeptracProbe.php and the gate was red
+    // for a reason that had nothing to do with the change under test. Cleaning
+    // up before planting is the only thing that survives a kill, because it
+    // moves the guarantee out of the dying process and into the next one.
+    hostRemoveProbe(hostStanProbePath());
+    hostRemoveProbe(hostDeptracProbePath());
+});
+
 afterEach(function () {
-    // The safety net behind each test's own finally: a probe left inside tests/
-    // would fail the next `composer stan` or `composer deptrac` for a reason
-    // that has nothing to do with what that run is checking.
-    File::delete(hostStanProbePath());
-    File::delete(hostDeptracProbePath());
+    // The safety net behind each test's own finally, for the ordinary case where
+    // the process does finish.
+    hostRemoveProbe(hostStanProbePath());
+    hostRemoveProbe(hostDeptracProbePath());
+
     File::delete(hostDeptracCachePath());
 });
 

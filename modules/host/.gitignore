@@ -20,6 +20,13 @@
 /storage/*.key
 /storage/pail
 /vendor
+# Planted probes. HostTestAnalysisEnforcementTest writes these two to prove
+# `composer stan` and `composer deptrac` can actually fail, and deletes them
+# again; each carries a deliberate defect. They are never part of the tree, so
+# ignoring them means a copy left behind by a killed run cannot be committed by
+# accident. The test still asserts they are gone, so this hides nothing.
+/tests/Feature/HostStanProbe.php
+/tests/Feature/HostDeptracProbe.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
