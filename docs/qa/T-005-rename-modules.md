@@ -5,7 +5,11 @@ Spec `docs/specs/T-005-rename-modules.md` (AC-1 to AC-26) · Plan `docs/plans/T-
 Branch `ai/T-005-rename-modules`, 7 commits, nothing pushed, nothing committed by `qa`.
 Measured on this machine (Windows 11, PHP 8.2.12, MariaDB 10.4) on **2026-10-02**.
 
-## Verdict: PASS (run 2, after `dev`'s BUG-1 / BUG-2 fix at `174061a`)
+## Verdict: PASS (run 3, after the review round `d19d687`..`8e71bf0` and `qa`'s own R-3 / W-1 fix at `60867da`)
+
+Run 3 summary: R-1, R-2, W-2 and BUG-3 verified fixed by reproduction. R-3 fixed by `qa`. W-1 judged and
+widened. One new minor, non-blocking finding, BUG-4. Detail in **Run 3** below; runs 1 and 2 are kept as
+measured on the trees they describe.
 
 Every one of the 26 acceptance criteria passes with evidence I produced myself. `composer check`
 exits 0 at **314 passed / 1414 assertions** — and, separately, **also exits 0 at 314 / 1414 starting
@@ -369,6 +373,152 @@ reports `[]`; `.gitignore` now ignores all three probe paths
 
 ---
 
+## Run 3 - the review round
+
+Tree certified: `60867da` (my R-3 / W-1 commit) on top of `8e71bf0`. Nothing below is taken from `dev`'s or
+the lead's report; every figure is a command I ran this session.
+
+**Symptom recorded before reproducing (the rule from T-004):** the only thing in this run that could have been
+critical was R-3 - a swept `docs/releases` would turn the gate red at the release step. It was measured
+red (below) and fixed in the same run.
+
+### R-3 - fixed by `qa`, with its control
+
+`docs/releases` added to `qaVocabExemptPaths()` with its reason in the docblock. Liveness confirmed, not
+assumed: `docs/releases/.gitkeep` is tracked and the existence assertion passes. The same case now pins the
+**set of six** hand-off folders and a segment-not-prefix check (`docs/releases-draft/` is still swept), inside
+the existing case so the case count does not move.
+
+Control: with `docs/releases/T-005-probe-note.md` planted (old directory, old environment variable, old
+namespace, old generator signature, old abbreviation) and the exemption commented out, the sweep goes red
+naming the note on **five labels**, and the new pin names the unexempted folder. With the exemption in place
+the same note passes. Restored and verified; the note was deleted.
+
+### W-1 - judged: widen, with one token refused on measurement
+
+| Candidate | Measured against the corpus | Ruling |
+|---|---|---|
+| singular path helper | 0 hits outside the exemptions | added |
+| dotted manifest key | 0 hits | added |
+| the five old test class names | exactly one file: `dev`'s rename recipe, which quotes them on purpose | added as one alternation pattern, one allowance row per name (each asserted live) |
+| bare quoted singular | **the both-quotes form hits `docs/backlog.md:46`** (ordinary prose in a document I do not own); the trailing-quote form hits `composer.lock:903` (`"web service"`) and four `docs/database.md` enum lists | **refused.** The reviewer's unsafety claim is verified |
+| quoted singular in **key position** (quote, word, quote, then `:`, `=>` or `]`) | 0 hits | added |
+
+The reviewer listed four class names; the recipe note lists five, and the fifth (the old generated-module
+reachability test) is in the pattern. Controls: control 1 fires every new label and tests the alternation
+**one branch at a time** (five examples), the key pattern in three spellings, and three prose lookalikes
+that must stay clean; control 2 demonstrates the new labels on historical records (`docs/qa/T-001` carries
+the quoted singular key and the class names, `docs/qa/T-002` the singular helper); the dotted key has no
+independent witness and is stated alongside the phpunit label as the two undemonstrated. Live: a scratch
+file holding one survivor of each turns the sweep red on exactly the four new labels. Sweep: 5 cases,
+**20 -> 35 assertions**, 5 passed. AC-5 remains true and is now proven over the whole reviewer list.
+
+### dev's guard - reproduced, not accepted
+
+| Check | Result |
+|---|---|
+| Registry **before** the fix (script restored to `174061a`'s three entries via `git show`, then `git checkout` and `md5sum -c` OK) | `names every probe` goes red naming **exactly** `modules\demo\tests\Feature\DeptracProbeTest.php`, `modules\host\tests\Integration\HostSuiteProbeTest.php`, `modules\host\tests\Integration\QaCollectionProbeTest.php`. The three paths in review R-1, no more, no fewer |
+| Registry after the fix | green, 11 assertions |
+| All six paths git-ignored | `git check-ignore -v` returns a rule for each (`modules/host/.gitignore:28,29,35,36`, `.gitignore:74,80`) |
+| Every registered path really removed (deviation 3) | mutation: script skips one entry -> `removes every planted probe` red at the survivors assertion; with the old three-path plant that mutation would have gone unseen |
+| BUG-1 reproduction, now with **all six** planted | control first: PHPStan 4 errors (`HostStanProbe.php` and `QaStanProbe.php`, twice each), Deptrac `Violations 3`. Then `composer check` from that same tree: **exit 0**, Pint passed, PHPStan `[OK] No errors`, Deptrac 0/0/0, Pest 314 / 1435, 94 s wall. All six gone afterwards |
+| W-2 | `HostTestAnalysisEnforcementTest` standalone is now **30** assertions; in the full run `1414 - 24 + 30 = 1420`. Same number in both modes, so the count no longer moves with collection |
+| `beforeEach` in `DeptracBoundaryEnforcementTest` | 3 cases / 13 assertions standalone, green |
+
+### The three deviations
+
+1. **`Helpers.php` / `packageTestFiles()` - verified; the claim of 17 is true.** I extracted the old
+   (`174061a`) and new `filesSpawningChildProcesses()` and ran each in its own process. My first attempt
+   produced two **empty** outputs that diffed IDENTICAL - a vacuous pass, because a path error killed both
+   runs and my stderr redirect hid it. Caught by checking the count; fixed. Real result: both print **17**
+   files and `diff` is empty. Positive control: the old file has 0 occurrences of `packageTestFiles`, the new
+   2. The fast/slow split is unchanged in shape: fast **257 / 980**, slow **57 / 455**, union **314 / 1435**.
+   dev's reasoning is also right: `ToolchainGroupCoverageTest` spawns nothing and would be invisible to a
+   spawn-filtered walk. **Survives.**
+2. **`hostDemoProbePath` -> `hostDemoProbeTarget` - verified.** `git grep hostDemoProbePath` finds only the
+   reviewer's own table in `docs/reviews/`. The rename is necessary: the `*ProbePath()` suffix is the
+   discovery key, so the old name would have been reported twice. **Survives.**
+3. **The `removes every planted probe` case plants every registered path - verified by the mutation above.**
+   The old title claimed all while planting three of six. **Survives.**
+
+### Item 4 - the planter shape, and the ruling
+
+`dev`'s guard keys on `function <anything>ProbePath(` in every `*Test.php` under `modules/*/tests` and
+`packages/*/tests`. Measured by planting scratch files and removing them:
+
+| Scratch shape | Result |
+|---|---|
+| in-scope planter, unregistered, in a `*Test.php` | **red**, naming `QaScratchProbe.php` and `tools/clean-probes.php`. The planter shape is caught |
+| planter whose path is built from `__DIR__` | **red**, `RuntimeException` "returns a path shape this reader does not understand". Loud, good |
+| planter whose target is under `storage/` | green. Excluded by the rule, not by an exemption, as intended |
+| planter in a file **not** named `*Test.php` | **green - invisible.** See BUG-4 |
+| a line comment containing the literal planter signature | **red, `RuntimeException` "could not find a single-return declaration of ..."**, forever, on a file that declares nothing |
+| hand-dropped file, no planter (my original BUG-3) | guard green, `probes:clean` exits 0 and leaves it, PHPStan reports 2 errors naming it. Unchanged, and as `dev` says |
+
+**The comment trap: the defence holds in the repository as it stands, but it is a convention, not a
+mechanism.** The reader does not strip comments. `dev`'s own file passes because its synthetic sources are
+named `synthetic*Target` and its comments never write the signature. The failure direction is closed (it
+goes red, never green) and the message names the function, so a maintainer greps and finds the comment. That
+is acceptable; the message could add "or a comment containing the signature", a one-line improvement and not
+a defect.
+
+**Ruling on the hand-dropped file: out of scope by design, and the narrowed claim is true as far as it goes.**
+`dev`'s sentence says the mechanism covers a *test that plants* a probe inside an analysed or collected path,
+and that a file dropped in by hand declares no planter and is nobody's probe. Both are accurate. The registry
+exists to delete files that a test's own cleanup was supposed to delete; a hand-dropped file has no such
+owner. The gate dying on it in static analysis, naming the file, **is** the detector. Closing it would need
+either "fail on any untracked analysed file" - which breaks every legitimate new test file during
+development - or a tracked-files allowlist, which is a different mechanism with a worse failure mode. **Do
+not re-raise this.** BUG-3 is closed as fixed for the planter shape and as declined for the file shape.
+"As far as it goes" is BUG-4 below: the script comment's reach is wider than the walk.
+
+### BUG-4 (minor, non-blocking, new) - the claim is wider than the walk
+
+- **Steps:** plant `tests/Feature/ZzQaScratchHelper.php` (no `Test.php` suffix) declaring an unregistered
+  `qaHelperProbePath()` returning an in-scope path; run `pest --filter='names every probe'`.
+- **Expected:** `modules/host/tools/clean-probes.php`'s comment says the test discovers "every `*ProbePath()`
+  under `modules/*/tests` and `packages/*/tests`".
+- **Actual:** green. The walk is `packageTestFiles()`, which is `*Test.php` only, so a planter declared in
+  `Helpers.php`, a `Fixtures/` file or any non-`Test.php` helper is not discovered. The test file's own
+  docblock says `*Test.php`; the script's comment drops the qualifier.
+- **Suspected location:** `modules/host/tools/clean-probes.php` (comment), `modules/host/tests/Helpers.php`
+  (`packageTestFiles()` name filter). Smallest fix: add "in files named `*Test.php`" to the script comment.
+  Alternatively widen the walk to `*.php` for this one check, at the price of reading `Helpers.php` and
+  fixtures. For `dev`; not mine to edit. Fails no acceptance criterion.
+
+### Counts, reconciled
+
+| Run | cases | assertions |
+|---|---|---|
+| `main` baseline | 304 | 1358 |
+| run 2 tree (`174061a`) | 314 | 1414 |
+| lead's measurement after `8e71bf0` | 314 | 1420 |
+| **this run, `60867da`, full via `composer check`** | **314** | **1435** |
+
+`1414 -> 1420` is `dev`'s two cases: `HostTestAnalysisEnforcementTest` 24 -> 30 in a full run (the case that
+planted three of six now plants six, +9; the W-2 conditional and its duplicate go, -3), case count
+unchanged. `1420 -> 1435` is mine: the sweep 20 -> 35 assertions, case count unchanged. Fast **257 / 980** +
+slow **57 / 455** = **314 / 1435**, so the split is whole. `314 - 10 = 304`: the case count still lands on the
+baseline. The assertion count no longer lands on `1358`; the rise since run 2 is all guard assertions,
+declared above.
+
+### Other commands
+
+`composer check` exit 0 (Pint passed, PHPStan `[OK] No errors`, Deptrac `Violations 0 / Skipped 0 /
+Warnings 0 / Errors 0`, Pest 314 passed / 1435 assertions, 80.42 s of Pest, 94 s wall) - run from a tree with
+all six probes planted. Every scratch file was removed afterwards.
+
+### For the next role and the lead
+
+- `docs/releases` is now exempt, so `devops` can write the T-005 release note without turning the gate red.
+- S-5, the working tree is the corpus: an untracked scratch note quoting the old vocabulary breaks
+  `composer check`. Recorded in my memory notes. Describe, do not quote.
+- The hand-off table is in the user's *global* `CLAUDE.md`, not the project's, so the six folder names are
+  pinned in the sweep test rather than read from a file.
+- W-3 (`HostTestSuiteCollectionTest.php:38`, FP-173) left alone as instructed.
+
+---
+
 ## Worktree state at hand-off
 
 `qa` committed nothing and pushed nothing. `git status --porcelain --untracked-files=all` after the
@@ -421,3 +571,9 @@ per-case mismatches. The cleanup script is genuinely tracked and all three probe
 New: BUG-3 (minor, non-blocking) — the probe-registry assertion compares two hand-kept lists, so it
 cannot see a probe a future test plants; demonstrated by planting an unregistered one and watching the
 case pass while `composer stan` reported it.
+Run 3: PASS -> PASS - review R-1/R-2/W-2 verified fixed by reproduction (guard red on exactly the three named
+paths with the old registry, green with the new; planter-shape plants caught; all six probes planted ->
+`composer check` exit 0). R-3 fixed by `qa`. W-1 widened with four labels, one candidate (bare quoted
+singular) refused on measurement. The three `dev` deviations survive inspection. `composer check` exit 0 at
+314 passed / 1435 assertions. New: BUG-4 (minor, non-blocking), the script comment is wider than the
+`*Test.php` walk.

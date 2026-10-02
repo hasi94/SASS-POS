@@ -145,6 +145,21 @@ existed - wrong addition list (27/132 vs 28/138) and a now-false claim that no s
 `expect(` lines had changed. Cheap rule: after the last fix lands, re-run `pest --log-junit` ×3 and
 the two git diffs before signing off, and label every figure with which tree it describes.
 
+**A repo-wide text sweep reads the working tree, not the commit (T-005 review S-5).** The
+vocabulary sweep's corpus is every file not git-ignored, so an *untracked scratch note* that quotes
+what the sweep forbids turns `composer check` red on one machine and green in CI. It caught a real
+one: the lead's own uncommitted backlog edit. Fix by describing the thing rather than quoting it;
+widening the sweep is the wrong reflex. Before certifying, `git status --short` and read every `??`
+and ` M` entry as potential corpus. Same family: the sweep must exempt ALL SIX hand-off folders -
+the release folder was missed (R-3) and would have gone red at the next role's step, so an
+exemption list is checked against the *set it is meant to mirror*, not against the folders that
+happen to hold a file today.
+
+**A diff of two empty outputs proves nothing.** Comparing a function's output before and after a
+refactor, I got IDENTICAL on the first try - because both runs had died on a bad require path and
+written nothing (stderr was sent to /dev/null). Always print the count and check it is the known
+number (17 spawning test files here) and that the "old" artefact genuinely lacks the new symbol.
+
 **How to apply.** (1) Reproduce the split from your own JUnit logs; never check their arithmetic.
 (2) Before believing any FP-156-style claim, `git log` first - T-004's whole line-ending
 deliverable existed only as an untracked file in run 1. (3) Serialise suite runs, and check the

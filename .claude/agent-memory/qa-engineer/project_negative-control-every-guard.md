@@ -170,5 +170,21 @@ core-dumped outright. Certify a backslash-bearing absence from PHP reading the
 file, or from a backslash-free regex (`Flexipos.{1,2}Service`) that has a demonstrated positive
 control. Pattern *files* (`grep -F -f pat.txt`) dodge the quoting entirely and are the safe form.
 
+**Test a discovery guard on the shape it discovers, not on the shape you first broke (T-005).**
+My first reproduction was a hand-dropped file; the fix discovers planting *functions*, so that
+reproduction could never go red. Plant the thing the guard is keyed on, then map its edges by
+experiment: a planter in an analysed path goes red; one with an unreadable path shape throws
+(loud, good); one under storage stays green (rule, not exemption, good); one declared in a file
+not named `*Test.php` is invisible (hole); a comment containing the literal planter signature
+fails closed forever with a misleading message (acceptable, and the defence is only that the repo
+never writes the literal). A hand-dropped file nobody plants is out of scope by design: the
+analyser dying on it, naming it, is the right detector; closing it would need a tracked-files
+allowlist, which breaks every legitimate new untracked test file.
+
+**Never add a bare quoted-singular token to a vocabulary sweep.** Measured: the both-quotes form
+hits ordinary quoted prose in the backlog, the trailing-quote form hits the lock file and the
+database enum lists. Key position only (quote, word, quote, then colon, arrow or bracket) has zero
+hits and a historical witness. Whatever token you add needs a planted survivor that turns it red.
+
 Related: [[module-host-fragile-areas]], [[qa-assert-contract-not-symptom]],
 [[tenancy-boundary-leak-surfaces]], [[gate-split-and-shared-state]].
