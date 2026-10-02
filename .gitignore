@@ -72,3 +72,9 @@ Thumbs.db
 # hidden: the tests still assert each probe is gone, and tools/clean-probes.php
 # exits non-zero if one cannot be removed.
 /modules/demo/tests/Feature/QaStanProbe.php
+# Its neighbour, planted by DeptracBoundaryEnforcementTest: the same argument
+# with a sharper edge, because this one declares a module test class importing
+# App\Support\ModuleHost\ModuleRegistry, so a committed copy is a boundary
+# violation inside the byte-compared demo tree that fails `composer deptrac` at
+# the gate's third step.
+/modules/demo/tests/Feature/DeptracProbeTest.php

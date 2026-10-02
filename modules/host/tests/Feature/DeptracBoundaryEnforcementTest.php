@@ -78,6 +78,18 @@ function runShippedDeptrac(): ProcessResult
     ]);
 }
 
+beforeEach(function () {
+    // Symmetry with the host probes, and for the same narrow reason: this
+    // protects the next *test run* from a leftover and nothing more. What
+    // protects the gate is `composer probes:clean`, the first entry of the check
+    // script, because a surviving copy of this probe - a module test class
+    // importing the host's ModuleRegistry - aborts `composer check` at
+    // @deptrac, the third of five steps, before any hook here could run. It
+    // cannot interfere with the plant-and-delete cycle below either: that
+    // script runs once, before Pest starts.
+    File::delete(deptracProbePath());
+});
+
 afterEach(function () {
     File::delete(deptracProbePath());
 });

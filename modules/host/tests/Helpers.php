@@ -143,19 +143,25 @@ function toolchainSourceSpawns(string $source): bool
 
 /**
  * Every *Test.php under every tests directory of a modules/ or packages/
- * package whose source starts a child process, relative to the repository root.
+ * package, as absolute paths.
  *
  * The same enumeration QaAssertionShapeGuardTest::qaShapeTestFiles() uses, minus
  * the throwaway packages other tests generate while they run: those come and go
- * inside a single suite run, so including them would make this list depend on
- * test order.
+ * inside a single suite run, so including them would make any list built from
+ * this one depend on test order.
+ *
+ * Declared separately from filesSpawningChildProcesses() below because a second
+ * registry check needs the same walk without the spawn filter: the probe
+ * registry check in HostTestAnalysisEnforcementTest discovers probe-planting
+ * functions, and one of the files declaring one (ToolchainGroupCoverageTest)
+ * deliberately spawns nothing. One walk, two filters.
  *
  * @return list<string>
  */
-function filesSpawningChildProcesses(): array
+function packageTestFiles(): array
 {
     $root = toolchainRepositoryRoot();
-    $spawners = [];
+    $files = [];
 
     foreach (['modules', 'packages'] as $group) {
         foreach (glob($root.DIRECTORY_SEPARATOR.$group.DIRECTORY_SEPARATOR.'*'.DIRECTORY_SEPARATOR.'tests', GLOB_ONLYDIR) ?: [] as $directory) {
@@ -164,17 +170,33 @@ function filesSpawningChildProcesses(): array
             }
 
             foreach (Finder::create()->in($directory)->files()->name('*Test.php') as $file) {
-                if (! toolchainSourceSpawns((string) file_get_contents($file->getPathname()))) {
-                    continue;
-                }
-
-                $spawners[] = str_replace(
-                    '\\',
-                    '/',
-                    substr($file->getPathname(), strlen($root) + 1)
-                );
+                $files[] = $file->getPathname();
             }
         }
+    }
+
+    sort($files);
+
+    return $files;
+}
+
+/**
+ * Every *Test.php under every tests directory of a modules/ or packages/
+ * package whose source starts a child process, relative to the repository root.
+ *
+ * @return list<string>
+ */
+function filesSpawningChildProcesses(): array
+{
+    $root = toolchainRepositoryRoot();
+    $spawners = [];
+
+    foreach (packageTestFiles() as $file) {
+        if (! toolchainSourceSpawns((string) file_get_contents($file))) {
+            continue;
+        }
+
+        $spawners[] = str_replace('\\', '/', substr($file, strlen($root) + 1));
     }
 
     sort($spawners);

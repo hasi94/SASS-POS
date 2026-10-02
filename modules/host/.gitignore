@@ -27,6 +27,13 @@
 # accident. The test still asserts they are gone, so this hides nothing.
 /tests/Feature/HostStanProbe.php
 /tests/Feature/HostDeptracProbe.php
+# The same for the two probes HostTestSuiteCollectionTest and
+# QaHostSuiteCollectionProofTest plant to prove a host test directory that is
+# neither Unit nor Feature is collected. These are named *Test.php because being
+# collected is the point, so a leftover copy runs as a test and is analysed by
+# both tools as well.
+/tests/Integration/HostSuiteProbeTest.php
+/tests/Integration/QaCollectionProbeTest.php
 Homestead.json
 Homestead.yaml
 Thumbs.db

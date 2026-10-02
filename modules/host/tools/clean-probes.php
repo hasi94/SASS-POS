@@ -7,12 +7,14 @@ declare(strict_types=1);
 | Remove planted probes, before anything analyses the tree
 |--------------------------------------------------------------------------
 |
-| Two test files plant a file carrying a deliberate defect, to prove the gate
+| Several test files plant a file carrying a deliberate defect, to prove the gate
 | can actually fail: HostTestAnalysisEnforcementTest plants a level 6 defect and
-| a boundary violation inside the host's own tests, and
-| QaTestCodeAnalysisCoverageTest plants a level 6 defect inside the demo
-| module's tests. Each deletes its own probe in a finally and in afterEach, and
-| each removes it again in beforeEach so a leftover cannot poison the next run.
+| a boundary violation inside the host's own tests, DeptracBoundaryEnforcementTest
+| and QaTestCodeAnalysisCoverageTest plant a boundary violation and a level 6
+| defect inside the demo module's tests, and HostTestSuiteCollectionTest and
+| QaHostSuiteCollectionProofTest plant collectable test files under
+| tests/Integration. Each deletes its own probe in a finally and in afterEach,
+| and removes it again in beforeEach so a leftover cannot poison the next run.
 |
 | None of that helps the gate. `composer check` runs lint, then stan, then
 | deptrac, then test - so a surviving probe aborts the run at the second or
@@ -27,10 +29,22 @@ declare(strict_types=1);
 | the `check` script. It is deliberately dependency-free and does not boot
 | Laravel: it has to work when the application cannot.
 |
-| The list below is the single source of truth. HostTestAnalysisEnforcementTest
-| asserts that it names every probe the suite can plant, so adding a probe
-| without registering it here fails the gate rather than silently reintroducing
-| the defect.
+| The list below is the single source of truth, and it is not trusted to be
+| complete: HostTestAnalysisEnforcementTest discovers every probe-planting
+| function the suite declares - every *ProbePath() under modules/*\/tests and
+| packages/*\/tests - evaluates the path each one returns, and fails if any of
+| those paths lies inside a PHPStan path, a Deptrac path or a phpunit suite
+| directory without appearing here. So adding a probe inside an analysed or
+| collected path without registering it fails the gate.
+|
+| That sentence used to claim the registry was complete while both sides of the
+| comparison were hand-kept literals; it named three probes and the suite planted
+| eight. The discovered half is what makes the claim checkable, and it went red
+| on three real paths the first time it ran.
+|
+| A probe outside all three registries needs no entry, and
+| ToolchainGroupCoverageTest's storage/app probe is one: nothing analyses or
+| collects storage/app, so the rule excludes it rather than an exemption list.
 |
 */
 
@@ -38,7 +52,10 @@ declare(strict_types=1);
 $probes = [
     'host/tests/Feature/HostStanProbe.php',
     'host/tests/Feature/HostDeptracProbe.php',
+    'host/tests/Integration/HostSuiteProbeTest.php',
+    'host/tests/Integration/QaCollectionProbeTest.php',
     'demo/tests/Feature/QaStanProbe.php',
+    'demo/tests/Feature/DeptracProbeTest.php',
 ];
 
 $modules = dirname(__DIR__, 2);
