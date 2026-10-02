@@ -130,3 +130,68 @@ The exemption-liveness assertion is already satisfied, because the directory exi
 **`clean-probes.php` is the right shape for its job**: dependency-free, boots no framework, deliberately `tools/` and not `bin/` because the root ignore file has `**/bin/`, marked `--list` output because this machine emits a startup warning on stdout, and a STDERR report plus exit 1 when a probe cannot be removed rather than silent success. The only thing wrong with it is the three paths in its array, not the design.
 
 **QA's report is the best on this project so far.** The planted-tree control run *before* the cleanup — PHPStan `Found 4 errors`, Deptrac `Violations 2`, then 314/1414 from the same untouched tree — is a positional proof rather than an assertion, and verifying the memory-file rename by blob identity rather than by a `| 0` stat is the right instinct. BUG-3 was correctly raised and correctly judged non-blocking against the acceptance criteria; the reviewer's disagreement is only with "it needs someone to add a new probe before it bites", and with the proposed predicate.
+
+---
+
+# Round 2 — re-check
+
+| | |
+|---|---|
+| Verdict | **APPROVE** — zero Criticals |
+| Date | 2026-10-02 |
+| Scope | `git diff 174061a..HEAD` — the changed items only; the rename was approved on measurement in round 1 and not re-reviewed |
+| Gate, measured by the reviewer | `composer check` exit 0 — Pest **314 passed, 1435 assertions**, 86.43s |
+| Production source touched this round | **none**: `git diff --name-only 174061a..HEAD | grep -c "/src/"` → 0 |
+
+R-1, R-2, R-3, W-1 and W-2 are all genuinely closed, each re-measured by the reviewer rather than taken from the reports. Four Warnings remain, all one family, all prose, none blocking — including two in the lead's own material and one in the reviewer's.
+
+## The arithmetic reconciles further than anyone claimed
+
+Per-class from the reviewer's own JUnit, the three classes that do not exist on `main` are `HostTestAnalysisCoverageTest` 1/12, `HostTestAnalysisEnforcementTest` 4/30 and `QaVocabularyRenameSweepTest` 5/35 = **10 cases / 77 assertions**. So `314 − 10 = 304` **and `1435 − 77 = 1358`** — both AC-1 dimensions land exactly on the baseline, and `1414 + 6 + 15 = 1435` confirms no pre-existing case moved. Split integrity re-verified: fast 257/980 and slow 57/455 union to the full run, intersection 0, **0 per-case assertion mismatches**.
+
+## R-1 closed
+
+Independent enumeration found **7** `*ProbePath()` declarations; six are in scope and the registry holds exactly those six, with the seventh (`storage/app`) excluded by rule. Measured both directions — a registry entry whose planter is deleted also goes red. All six are ignored, and in the right file for the right reason: the demo probes go in the **root** ignore file because `modules/demo` is the tree AC-17 compares byte for byte, so a `.gitignore` inside it would itself be the drift.
+
+**"Nothing else plants into an analysed path" was checked by hand**, enumerating every `File::put`/`file_put_contents` under the test trees and resolving each target. Everything else writes to `storage/`, to generated fixture packages the walk skips, to mutate-and-restore on tracked files, or to a variant `phpunit-*.xml` that is neither analysed nor collected.
+
+## R-2 closed, and better than the ruling asked for
+
+The reader **evaluates** each discovered planter's target from source rather than trusting a name, and **throws** on a shape it cannot read, naming the function and both ways out. The failure direction is closed: an unreadable planter goes red, never green. The case carries a positive control on the reader *and* a positive/negative control on the scope rule, so "in scope" is a decision rather than a coincidence and the `storage/` exclusion is proven to be by rule. The `function_exists` loop became a **cross-check** of source-read against returned path, which the reviewer called a strictly better answer to W-2 than the one it proposed.
+
+## R-3 closed, and W-1 — the reviewer was wrong and QA was right
+
+All six hand-off folders are exempt, the liveness loop fails on a vanished path, and segment-not-prefix matching is pinned. On W-1 the reviewer confirmed on measurement that there are **five** old test class names, not the four it named, and that QA's refusal of a bare quoted-singular token was correct — finding a better counterexample than its own two, in ordinary prose in a file QA does not own.
+
+## BUG-4 — the deferral ruling upheld, with a cost argument nobody had made
+
+No `*ProbePath()` declaration exists outside a `*Test.php` file anywhere, so a widened walk's first run is green. The reviewer then added a measurement that strengthens the deferral independently: `Helpers.php` itself matches all six spawn tokens by design, so widening the walk would make `filesSpawningChildProcesses()` report it as a spawner and oblige T-004's registry to carry it. **The widening is not a two-word change; it reaches into another task's mechanism.** FP-175's trigger makes the deferral recoverable rather than forgotten.
+
+It also endorsed keeping the two out-of-scope sibling comment corrections: fixing one copy of a false sentence and leaving two is the same defect with a smaller blast radius.
+
+## Warnings (none blocks the merge)
+
+- **W-1 — the lead's correction introduced a third wrong count.** The record figure was measured over four of the six folders the rule had just named, omitting `docs/decisions` and `docs/releases`. Measured at HEAD: **25 records across 31 tracked paths**, five each for T-001 to T-005, six `.gitkeep`. Not an arithmetic error but the same scope slip as BUG-4. **Closed by removing the count entirely** rather than refreshing it, since any absolute figure is wrong again at T-006; the by-folder rule and `qaVocabExemptPaths()` are the re-measurable form.
+- **W-2 — QA's "so a seventh folder cannot be forgotten the same way"** is a guarantee a literal six-name pin cannot provide. The reviewer explicitly applied the BUG-4 standard rather than a stricter one: narrow the sentence, do not build the mechanism, because discovering "every `docs/` subfolder must be exempt" would be wrong and green on its first run.
+- **W-3 — the gate-step ordinal is off by one** in `.gitignore:79` and a `beforeEach` comment: `check` is five steps with `@probes:clean` first, so deptrac is the **fourth**, and "third of five" sends a reader to `@stan`.
+- **W-4 — the QA report understates its own result**, saying the assertion count "no longer lands on 1358" when it lands exactly. The weaker statement would have been inherited by the next reviewer.
+
+## Suggestions
+
+`docs/backlog.md`'s "about 104 seconds warm" was an undated absolute in prose — the same family as round 1's S-6 — now replaced with the measured range, run count and conditions. The T-005 status cell was stale at the time of review and is updated at DONE. Two nits on comment phrasing and a missing memoisation, neither a defect.
+
+## The convention question — two rows, not one
+
+Asked whether this task's recurring defect was FP-171 or a new one, the reviewer argued for **two rows**, because the trigger and the check differ. FP-171 is the **time** axis: true when written, decayed; trigger is a number; remedy is a date, a ratio or an assertion. The new one is the **extent** axis: false the moment it was written; trigger is a **scope word**; check is "which line makes this true, and what input makes it false", then run that input. One row collapses to "prose can be wrong", which is unactionable.
+
+Its argument for making it a project convention rather than one role's memory is the distribution: **seven instances, four roles, zero self-caught** — four from the developer, one from the lead, one from QA, and one from the reviewer itself. The defect is invisible to its author by construction, so it is a cross-reading obligation. Filed as **FP-176**.
+
+## Done well
+
+The developer wrote the discovery assertion first and ran it red against the unfixed registry, naming exactly the three paths and no others, with QA reproducing it by restoring the three-entry script and verifying the restore by checksum — the sequence round 1 asked for and rarely gets done in that order. The scope rule is a rule rather than a list, reading PHPStan's, Deptrac's and phpunit's own configuration, and deliberately not subtracting phpunit's exclude list with the reason written down; the `storage/` probe needs no name anywhere, which is the test of the design. QA refused the reviewer's advice on measurement and was right twice, and caught its own vacuous pass by checking a count.
+
+On the lead: breaking the gate, having it reported rather than silently fixed, fixing it by describing rather than widening the sweep, and then writing the incident into the row as the reason the row exists — the reviewer called that the protocol working in one small loop, worth more than the paragraph it produced.
+
+## On the merge
+
+The reviewer stated plainly that its APPROVE is a judgement on the code and **is not consent to merge**: `CLAUDE.md` is byte-identical at HEAD (blob `b4577d9d7e…`, verified) and the step-8 correction remains **unacknowledged by the human**. Per round 1's S-1 the hazard is unchanged — between merge and acknowledgement the file every agent reads first points `cd` into the old directory nine times and positively asserts the rename has not happened. Approved, and not merged, until that acknowledgement comes from the human.
