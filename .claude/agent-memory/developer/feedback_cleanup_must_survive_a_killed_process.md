@@ -38,6 +38,21 @@ guarantee the code does not provide is worse than no prose, because the next tas
 inherits the claim. If I write "this closes X", I must have executed the failing
 case and watched it pass. I had not.
 
+**The part I had to learn three times, so it gets its own paragraph.** T-005 shipped
+this same defect in three different sentences - a `beforeEach` said to close the
+gate hole (BUG-1), a registry said to be complete (R-2), and a discovery walk said
+to cover `modules/*/tests` when it read `*Test.php` only (BUG-4). Each was caught by
+someone else and each cost a review round. Executing the headline claim is not
+enough: **every sentence written in the same commit as a mechanism is a claim about
+that mechanism, and each one needs the same treatment.** Before committing, re-read
+every comment the diff adds and ask, of each clause, "which line of code makes this
+true, and what input would make it false?" - then run that input. The cheap ones are
+scope words: "every", "any", "all", a glob, a directory. On BUG-4 the fix was two
+words of scope plus the residual written down; finding it cost a QA cycle. And when
+the reported instance has siblings in files I am already editing, fix them in the
+same commit and say so - correcting one copy of a false sentence and leaving two is
+the same defect with a smaller blast radius.
+
 **Supporting details worth not rediscovering:**
 - Make the remover idempotent (early-return when absent) so the same helper is
   safe before and after, and so a cleanup step is harmless on a clean tree.
