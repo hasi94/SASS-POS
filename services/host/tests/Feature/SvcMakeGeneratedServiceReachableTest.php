@@ -4,6 +4,8 @@ use App\Support\ServiceHost\ServiceRegistry;
 use Illuminate\Support\Facades\Artisan;
 use Symfony\Component\Finder\Finder;
 
+use function Pest\Laravel\get;
+
 /*
  * Adding a service must be a configuration change, never a code change: the
  * generator writes nothing inside services/host, and naming the package is
@@ -54,11 +56,11 @@ it('makes a generated package reachable purely by naming it', function () {
 
     expect(app(ServiceRegistry::class)->booted())->toContain('reachablefixture');
 
-    $this->get('/api/v1/reachablefixture/ping')
+    get('/api/v1/reachablefixture/ping')
         ->assertOk()
         ->assertJson(['service' => 'reachablefixture', 'status' => 'ok']);
 
-    $this->get('/health/ready')
+    get('/health/ready')
         ->assertOk()
         ->assertExactJson(['status' => 'ok', 'services' => ['demo', 'reachablefixture']]);
 });

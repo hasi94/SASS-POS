@@ -4,8 +4,12 @@ use App\Support\ServiceHost\ServiceRegistry;
 use App\Support\ServiceHost\UnknownServiceException;
 use Flexipos\Service\Demo\DemoServiceProvider;
 use Illuminate\Support\Facades\Route;
+use Tests\TestCase;
+
+use function Pest\Laravel\get;
 
 it('registers only the service named in SERVICES', function () {
+    /** @var TestCase $this */
     $this->bootHostWith('demo');
 
     expect(app(ServiceRegistry::class)->booted())->toBe(['demo'])
@@ -20,6 +24,7 @@ it('registers only the service named in SERVICES', function () {
 });
 
 it('registers a duplicated, whitespace padded name exactly once', function () {
+    /** @var TestCase $this */
     $this->bootHostWith(' demo , demo ');
 
     expect(app(ServiceRegistry::class)->booted())->toBe(['demo']);
@@ -30,10 +35,11 @@ it('registers a duplicated, whitespace padded name exactly once', function () {
 
     expect($pings)->toBe(1);
 
-    $this->get('/api/v1/demo/ping')->assertOk();
+    get('/api/v1/demo/ping')->assertOk();
 });
 
 it('is idempotent when the same service is booted twice', function () {
+    /** @var TestCase $this */
     $this->bootHostWith('demo');
 
     app(ServiceRegistry::class)->bootAll('demo');
@@ -53,16 +59,19 @@ it('parses a SERVICES value into a sorted, trimmed, de-duplicated list', functio
 });
 
 it('fails fast naming the unknown service when SERVICES lists a package that does not exist', function () {
+    /** @var TestCase $this */
     expect(fn () => $this->bootHostWith('demo,ghost'))
         ->toThrow(UnknownServiceException::class, 'ghost');
 });
 
 it('refuses to boot the host application itself as a service package', function () {
+    /** @var TestCase $this */
     expect(fn () => $this->bootHostWith('host'))
         ->toThrow(UnknownServiceException::class, 'host');
 });
 
 it('fails fast on a SERVICES entry that is not a plain service package name', function (string $entry) {
+    /** @var TestCase $this */
     expect(fn () => $this->bootHostWith($entry))
         ->toThrow(UnknownServiceException::class, $entry);
 })->with([
@@ -79,6 +88,7 @@ it('fails fast on a SERVICES entry that is not a plain service package name', fu
 ]);
 
 it('never reports an entry it did not actually register', function () {
+    /** @var TestCase $this */
     expect(fn () => $this->bootHostWith('demo,demo/../demo'))
         ->toThrow(UnknownServiceException::class);
 
@@ -88,23 +98,25 @@ it('never reports an entry it did not actually register', function () {
 
     expect(app(ServiceRegistry::class)->booted())->toBe(['demo']);
 
-    $this->get('/health/ready')
+    get('/health/ready')
         ->assertOk()
         ->assertExactJson(['status' => 'ok', 'services' => ['demo']]);
 });
 
 it('boots with zero services and still serves HTTP when SERVICES is empty', function () {
+    /** @var TestCase $this */
     $this->bootHostWith('');
 
     expect(app(ServiceRegistry::class)->booted())->toBe([]);
 
-    $this->get('/health/live')->assertOk();
+    get('/health/live')->assertOk();
 });
 
 it('boots with zero services when SERVICES is unset', function () {
+    /** @var TestCase $this */
     $this->bootHostWith(null);
 
     expect(app(ServiceRegistry::class)->booted())->toBe([]);
 
-    $this->get('/health/live')->assertOk();
+    get('/health/live')->assertOk();
 });

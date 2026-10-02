@@ -1,19 +1,24 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Tests\TestCase;
+
+use function Pest\Laravel\get;
 
 it('reports liveness', function () {
+    /** @var TestCase $this */
     $this->bootHostWith('');
 
-    $this->get('/health/live')
+    get('/health/live')
         ->assertOk()
         ->assertExactJson(['status' => 'ok']);
 });
 
 it('reports exactly the booted service identifiers', function () {
+    /** @var TestCase $this */
     $this->bootHostWith('demo');
 
-    $response = $this->get('/health/ready')->assertOk();
+    $response = get('/health/ready')->assertOk();
 
     $response->assertExactJson(['status' => 'ok', 'services' => ['demo']]);
 
@@ -21,9 +26,10 @@ it('reports exactly the booted service identifiers', function () {
 });
 
 it('reports an empty service list when the host booted with no services', function () {
+    /** @var TestCase $this */
     $this->bootHostWith('');
 
-    $response = $this->get('/health/ready')->assertOk();
+    $response = get('/health/ready')->assertOk();
 
     $response->assertExactJson(['status' => 'ok', 'services' => []]);
 
@@ -41,6 +47,7 @@ it('reports an empty service list when the host booted with no services', functi
  */
 
 it('answers liveness without touching the session store', function () {
+    /** @var TestCase $this */
     $this->bootHostWith('');
 
     // bootHostWith() calls refreshApplication(), which resets runtime config -
@@ -50,22 +57,24 @@ it('answers liveness without touching the session store', function () {
 
     // No migration ever runs in this suite, so a `sessions` table genuinely
     // does not exist. Inside the `web` group this would 500.
-    $this->get('/health/live')
+    get('/health/live')
         ->assertOk()
         ->assertExactJson(['status' => 'ok']);
 });
 
 it('answers readiness without touching the session store', function () {
+    /** @var TestCase $this */
     $this->bootHostWith('demo');
 
     config(['session.driver' => 'database']);
 
-    $this->get('/health/ready')
+    get('/health/ready')
         ->assertOk()
         ->assertExactJson(['status' => 'ok', 'services' => ['demo']]);
 });
 
 it('registers both probes outside every middleware group', function (string $name) {
+    /** @var TestCase $this */
     $this->bootHostWith('');
 
     $route = Route::getRoutes()->getByName($name);
@@ -75,6 +84,7 @@ it('registers both probes outside every middleware group', function (string $nam
 })->with(['health.live', 'health.ready']);
 
 it('keeps the root route inside the web group', function () {
+    /** @var TestCase $this */
     // D-18: only the two health routes move. If this ever comes back empty, the
     // `then` callback has swallowed routes/web.php instead of adding to it.
     //

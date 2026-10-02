@@ -6,6 +6,9 @@ use Composer\Autoload\ClassLoader;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
+use Tests\TestCase;
+
+use function Pest\Laravel\get;
 
 /*
  * QA attack proofs for T-002 AC-1, AC-2, AC-3 and AC-4.
@@ -481,13 +484,14 @@ it('refuses every other shape a provider key can name, each with its own message
 ]);
 
 it('still boots the committed demo package, so the rule blocks only what it should', function () {
+    /** @var TestCase $this */
     // A guard that also rejects a legitimate package is a defect, not a fix.
     $this->bootHostWith('demo');
 
     expect(app(ServiceRegistry::class)->booted())->toBe(['demo'])
         ->and(qaTrustLoader()->getPrefixesPsr4())->toHaveKey('Flexipos\\Service\\Demo\\');
 
-    $this->get('/api/v1/demo/ping')->assertOk()->assertJson(['service' => 'demo', 'status' => 'ok']);
+    get('/api/v1/demo/ping')->assertOk()->assertJson(['service' => 'demo', 'status' => 'ok']);
 });
 
 it('rejects a trailing newline in the shared name pattern itself', function () {

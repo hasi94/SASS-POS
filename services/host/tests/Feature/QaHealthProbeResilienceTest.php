@@ -2,6 +2,9 @@
 
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
+use Tests\TestCase;
+
+use function Pest\Laravel\get;
 
 /*
  * QA proofs for T-002 AC-7 and AC-8.
@@ -50,6 +53,7 @@ it('ships SESSION_DRIVER=database, so this is the shipped configuration and not 
 });
 
 it('takes a session-backed route down when the database is unreachable', function () {
+    /** @var TestCase $this */
     // The negative control for the two tests below. If this ever starts
     // answering 200, the "dead database" in them is not dead and they prove
     // nothing.
@@ -61,41 +65,45 @@ it('takes a session-backed route down when the database is unreachable', functio
 
     expect(File::exists(qaDeadDatabasePath()))->toBeFalse();
 
-    $this->get('/qa-session-probe')->assertStatus(500);
+    get('/qa-session-probe')->assertStatus(500);
 });
 
 it('answers liveness with 200 while the database is unreachable', function () {
+    /** @var TestCase $this */
     $this->bootHostWith('demo');
 
     qaBreakTheDatabase();
 
-    $response = $this->get('/health/live')->assertOk();
+    $response = get('/health/live')->assertOk();
 
     expect($response->json())->toBe(['status' => 'ok'])
         ->and($response->headers->get('content-type'))->toContain('application/json');
 });
 
 it('answers readiness with the booted services while the database is unreachable', function () {
+    /** @var TestCase $this */
     $this->bootHostWith('demo');
 
     qaBreakTheDatabase();
 
-    $this->get('/health/ready')
+    get('/health/ready')
         ->assertOk()
         ->assertExactJson(['status' => 'ok', 'services' => ['demo']]);
 });
 
 it('answers readiness with an empty list while the database is unreachable and no service is booted', function () {
+    /** @var TestCase $this */
     $this->bootHostWith('');
 
     qaBreakTheDatabase();
 
-    $this->get('/health/ready')
+    get('/health/ready')
         ->assertOk()
         ->assertExactJson(['status' => 'ok', 'services' => []]);
 });
 
 it('sets no session cookie on either probe, so nothing can reintroduce the dependency', function () {
+    /** @var TestCase $this */
     // A middleware-free route cannot start a session, and a probe that sets a
     // session cookie would be evidence one was started again.
     $this->bootHostWith('demo');
@@ -103,7 +111,7 @@ it('sets no session cookie on either probe, so nothing can reintroduce the depen
     foreach (['/health/live', '/health/ready'] as $uri) {
         $cookies = array_map(
             fn ($cookie): string => $cookie->getName(),
-            $this->get($uri)->assertOk()->baseResponse->headers->getCookies()
+            get($uri)->assertOk()->baseResponse->headers->getCookies()
         );
 
         expect($cookies)->toBe([], $uri);

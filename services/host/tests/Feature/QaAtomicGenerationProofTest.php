@@ -6,6 +6,8 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use Symfony\Component\Finder\Finder;
 
+use function Pest\Laravel\get;
+
 /*
  * QA proofs for T-002 AC-5 and AC-6.
  *
@@ -118,11 +120,11 @@ it('leaves nothing behind when generation fails on an early file, and the retry 
 
     expect(app(ServiceRegistry::class)->booted())->toContain($name);
 
-    $this->get("/api/v1/{$name}/ping")
+    get("/api/v1/{$name}/ping")
         ->assertOk()
         ->assertJson(['service' => $name, 'status' => 'ok']);
 
-    $this->get('/health/ready')->assertOk()->assertJsonPath('services', ['demo', $name]);
+    get('/health/ready')->assertOk()->assertJsonPath('services', ['demo', $name]);
 });
 
 it('refuses a genuinely existing package before writing or deleting anything', function () {

@@ -6,6 +6,9 @@ use App\Support\ServiceHost\UnknownServiceException;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
+use Tests\TestCase;
+
+use function Pest\Laravel\get;
 
 /*
  * QA tests for T-001 AC-22 / AC-28 robustness (run 1 BUG-2 and BUG-3, fixed in run 2).
@@ -29,6 +32,7 @@ afterEach(function () {
 });
 
 it('refuses a SERVICES entry that is not a plain service package name', function () {
+    /** @var TestCase $this */
     // services/demo/../demo/composer.json resolves on every OS, so before the fix
     // the registry accepted this, registered the demo provider, and then reported
     // the raw string "demo/../demo" as a booted service identifier.
@@ -37,6 +41,7 @@ it('refuses a SERVICES entry that is not a plain service package name', function
 });
 
 it('refuses a SERVICES entry whose case does not match the directory on disk', function () {
+    /** @var TestCase $this */
     // is_dir('services/Demo') answers yes on Windows and no on Linux. Validating
     // the name and comparing against a directory listing makes the same SERVICES
     // value behave identically in XAMPP development and in a Docker image.
@@ -45,17 +50,19 @@ it('refuses a SERVICES entry whose case does not match the directory on disk', f
 });
 
 it('fails the whole boot rather than dropping one bad entry out of several', function () {
+    /** @var TestCase $this */
     expect(fn () => $this->bootHostWith('demo,demo/../demo'))
         ->toThrow(UnknownServiceException::class, 'demo/../demo');
 });
 
 it('never reports a service from /health/ready without a matching registered provider', function () {
+    /** @var TestCase $this */
     $this->bootHostWith('demo');
 
     $booted = app(ServiceRegistry::class)->booted();
     $providers = array_keys(app()->getLoadedProviders());
 
-    expect($this->get('/health/ready')->assertOk()->json('services'))->toBe($booted);
+    expect(get('/health/ready')->assertOk()->json('services'))->toBe($booted);
 
     foreach ($booted as $name) {
         $matching = array_values(array_filter(

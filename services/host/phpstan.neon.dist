@@ -20,6 +20,10 @@ parameters:
         - config
         - database
         - routes
+        # The host's own test directory (FP-169). It was in neither registry, so
+        # the shared test infrastructure T-004 moved into it (Helpers.php,
+        # Pest.php, TestCase.php) was the only code here that nothing checked.
+        - tests
         # services/*
         - ../demo/src
         - ../demo/tests

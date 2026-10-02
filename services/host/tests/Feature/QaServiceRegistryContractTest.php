@@ -3,6 +3,9 @@
 use App\Support\ServiceHost\ServiceRegistry;
 use App\Support\ServiceHost\UnknownServiceException;
 use Illuminate\Support\Facades\File;
+use Tests\TestCase;
+
+use function Pest\Laravel\get;
 
 /*
  * QA tests for T-001 AC-18 through AC-23.
@@ -52,6 +55,7 @@ afterEach(function () {
 });
 
 it('fails fast when a named directory has no composer.json', function () {
+    /** @var TestCase $this */
     qaBrokenPackage('qabrokenfixture', null);
 
     expect(fn () => $this->bootHostWith('qabrokenfixture'))
@@ -61,6 +65,7 @@ it('fails fast when a named directory has no composer.json', function () {
 });
 
 it('fails fast when a service package manifest is not valid JSON', function () {
+    /** @var TestCase $this */
     qaBrokenPackage('qabrokenfixture', '{ this is not json');
 
     expect(fn () => $this->bootHostWith('qabrokenfixture'))
@@ -70,6 +75,7 @@ it('fails fast when a service package manifest is not valid JSON', function () {
 });
 
 it('fails fast when a service package declares no psr-4 namespace', function () {
+    /** @var TestCase $this */
     qaBrokenPackage('qabrokenfixture', (string) json_encode([
         'name' => 'flexipos/service-qabrokenfixture',
         'extra' => ['flexipos' => ['provider' => QA_BROKEN_NAMESPACE.'Provider']],
@@ -82,6 +88,7 @@ it('fails fast when a service package declares no psr-4 namespace', function () 
 });
 
 it('fails fast when a service package names no provider class', function () {
+    /** @var TestCase $this */
     qaBrokenPackage('qabrokenfixture', (string) json_encode([
         'name' => 'flexipos/service-qabrokenfixture',
         'autoload' => ['psr-4' => [QA_BROKEN_NAMESPACE => 'src/']],
@@ -94,6 +101,7 @@ it('fails fast when a service package names no provider class', function () {
 });
 
 it('fails fast when the named provider class cannot be autoloaded', function () {
+    /** @var TestCase $this */
     // Correctly scoped on purpose: everything about this manifest is legal
     // except that the class is not on disk, so the failure can only come from
     // the class_exists() branch this case is named after. With a foreign
@@ -123,6 +131,7 @@ it('fails fast when the named provider class cannot be autoloaded', function () 
 });
 
 it('names the offending service in the exception rather than the first one in the list', function () {
+    /** @var TestCase $this */
     $thrown = null;
 
     try {
@@ -145,14 +154,15 @@ it('keeps the booted list sorted and free of duplicates whatever order SERVICES 
 });
 
 it('serves liveness without a services key so the two health endpoints stay distinct', function () {
+    /** @var TestCase $this */
     $this->bootHostWith('demo');
 
-    $live = $this->get('/health/live')->assertOk();
+    $live = get('/health/live')->assertOk();
 
     expect($live->json())->toBe(['status' => 'ok'])
         ->and($live->headers->get('content-type'))->toContain('application/json');
 
-    $ready = $this->get('/health/ready')->assertOk();
+    $ready = get('/health/ready')->assertOk();
 
     expect($ready->json())->toBe(['status' => 'ok', 'services' => ['demo']]);
 });

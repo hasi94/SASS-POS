@@ -6,6 +6,9 @@ use Composer\Autoload\ClassLoader;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\ServiceProvider;
+use Tests\TestCase;
+
+use function Pest\Laravel\get;
 
 /*
  * T-002 FP-146 (T-001 review findings M-1, M-2, M-3).
@@ -312,7 +315,7 @@ it('still boots a correctly scoped service package and registers its prefix on t
     // the prefix it just added is visible through a fresh require.
     expect(trustLoader()->getPrefixesPsr4())->toHaveKey('Flexipos\\Service\\Trustfixture\\');
 
-    $this->get('/api/v1/trustfixture/ping')->assertOk();
+    get('/api/v1/trustfixture/ping')->assertOk();
 });
 
 it('returns Composer own cached class loader every time the autoload file is required', function () {
@@ -324,11 +327,12 @@ it('returns Composer own cached class loader every time the autoload file is req
 });
 
 it('boots the committed demo package unchanged under the tightened rule', function () {
+    /** @var TestCase $this */
     $this->bootHostWith('demo');
 
     expect(app(ServiceRegistry::class)->booted())->toBe(['demo']);
 
-    $this->get('/api/v1/demo/ping')->assertOk()->assertJson(['service' => 'demo', 'status' => 'ok']);
+    get('/api/v1/demo/ping')->assertOk()->assertJson(['service' => 'demo', 'status' => 'ok']);
 
-    $this->get('/health/ready')->assertOk()->assertExactJson(['status' => 'ok', 'services' => ['demo']]);
+    get('/health/ready')->assertOk()->assertExactJson(['status' => 'ok', 'services' => ['demo']]);
 });

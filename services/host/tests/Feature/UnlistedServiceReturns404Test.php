@@ -3,6 +3,9 @@
 use App\Support\ServiceHost\ServiceRegistry;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\File;
+use Tests\TestCase;
+
+use function Pest\Laravel\get;
 
 /*
  * A service package that exists on disk but is not named in SERVICES must cost
@@ -14,6 +17,7 @@ afterEach(function () {
 });
 
 it('does not route a service package that exists but is not listed in SERVICES', function () {
+    /** @var TestCase $this */
     expect(Artisan::call('svc:make', ['name' => 'unlistedfixture']))->toBe(0)
         ->and(File::exists(servicesPath('unlistedfixture').'/routes/api.php'))->toBeTrue();
 
@@ -21,9 +25,9 @@ it('does not route a service package that exists but is not listed in SERVICES',
 
     expect(app(ServiceRegistry::class)->booted())->toBe(['demo']);
 
-    $this->get('/api/v1/unlistedfixture/ping')->assertNotFound();
+    get('/api/v1/unlistedfixture/ping')->assertNotFound();
 
-    $this->get('/health/ready')
+    get('/health/ready')
         ->assertOk()
         ->assertExactJson(['status' => 'ok', 'services' => ['demo']]);
 });

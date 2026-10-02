@@ -42,6 +42,9 @@ function qaWriteSuiteConfig(string $fileName, callable $mutate): string
     return $path;
 }
 
+/**
+ * @param  list<string>  $arguments
+ */
 function qaSuiteChildRun(array $arguments): ProcessResult
 {
     return Process::path(base_path())->run(array_merge(
@@ -79,7 +82,13 @@ it('collects a new host test directory only because the Host suite is recursive'
             1
         );
 
-        expect($replaced)->toBeString()->not->toBe($xml);
+        // Two expectations, not one chain: toBeString() returns a mixin
+        // expectation that carries no ->not, so the chained form is
+        // unresolvable once this directory is statically analysed. Both
+        // assertions are kept - the replacement must have happened at all, and
+        // it must have changed something.
+        expect($replaced)->toBeString();
+        expect($replaced)->not->toBe($xml);
 
         return (string) $replaced;
     });
