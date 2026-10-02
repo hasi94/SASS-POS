@@ -8,3 +8,5 @@
 - [Clean up probe files immediately](feedback_clean_up_probe_files_immediately.md) — two leftover scratch scripts made the gate report 46 unrelated failures.
 - [A guard must not disturb what it measures](feedback_guard_must_not_disturb_what_it_measures.md) — four shapes of assertion that read as safeguards and assert nothing.
 - [Never edit files during a test run](feedback_never_edit_files_during_a_test_run.md) — and why a tight retry loop cannot fix a Windows rmdir flake, however many runs come back green.
+- [Cleanup must survive a killed process](feedback_cleanup_must_survive_a_killed_process.md) — a planted probe needs deleting in `beforeEach` too; a 300s timeout kill runs no teardown.
+- [Repo-wide rename recipe](project_repo_wide_rename_recipe.md) — two commits, enumerate-then-classify tokens, the protect list, and the Composer path-package traps.
