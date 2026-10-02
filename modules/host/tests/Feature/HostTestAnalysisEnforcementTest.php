@@ -41,6 +41,41 @@ function hostDeptracCachePath(): string
     return base_path('storage/framework/cache/.deptrac-hosttests.cache');
 }
 
+/**
+ * The probe QaTestCodeAnalysisCoverageTest plants inside the demo module.
+ *
+ * Named here only so the gate-cleanup registry can be checked against it; this
+ * file never relies on that test having run.
+ */
+function hostDemoProbePath(): string
+{
+    return modulesPath('demo').DIRECTORY_SEPARATOR.'tests'.DIRECTORY_SEPARATOR.'Feature'.DIRECTORY_SEPARATOR.'QaStanProbe.php';
+}
+
+/**
+ * Absolute paths the gate cleanup says it removes.
+ *
+ * @return list<string>
+ */
+function hostRegisteredProbePaths(): array
+{
+    $result = Process::path(base_path())->run([PHP_BINARY, base_path('tools/clean-probes.php'), '--list']);
+
+    $paths = [];
+
+    foreach (preg_split('/\R/', $result->output()) ?: [] as $line) {
+        $line = trim($line);
+
+        if (str_starts_with($line, 'probe ')) {
+            $paths[] = substr($line, strlen('probe '));
+        }
+    }
+
+    sort($paths);
+
+    return $paths;
+}
+
 function hostRunShippedStan(): ProcessResult
 {
     return Process::path(base_path())->run([
@@ -97,17 +132,22 @@ function hostRemoveProbe(string $path): void
 }
 
 beforeEach(function () {
-    // Load bearing, and not redundant with the afterEach below. No PHP-level
-    // teardown runs when the process is killed rather than finishing - a
-    // Composer process timeout, a Ctrl-C, a CI step limit - and that is exactly
-    // how a planted probe escapes: the measured incident was `composer check`
-    // being killed at its 300 s timeout mid-test, after which the next run's
-    // deptrac reported a violation in HostDeptracProbe.php and the gate was red
-    // for a reason that had nothing to do with the change under test. Cleaning
-    // up before planting is the only thing that survives a kill, because it
-    // moves the guarantee out of the dying process and into the next one.
+    // This protects the next *test run* from a leftover, and nothing more.
+    //
+    // It does NOT protect the gate, and an earlier version of this comment
+    // claimed it did. `composer check` runs lint, then stan, then deptrac, then
+    // test: a surviving probe aborts the run at the second or third step, before
+    // any test hook executes, so this hook is dead code in exactly the case it
+    // was written for. QA measured that by planting the probe by hand and
+    // reproducing the original two violations.
+    //
+    // What actually protects the gate is `composer probes:clean`, the first
+    // entry of the check script - the only place ahead of stan and deptrac. See
+    // tools/clean-probes.php. The two cases at the end of this file assert that
+    // wiring and that its registry names every probe the suite can plant.
     hostRemoveProbe(hostStanProbePath());
     hostRemoveProbe(hostDeptracProbePath());
+    hostRemoveProbe(hostDemoProbePath());
 });
 
 afterEach(function () {
@@ -115,6 +155,7 @@ afterEach(function () {
     // the process does finish.
     hostRemoveProbe(hostStanProbePath());
     hostRemoveProbe(hostDeptracProbePath());
+    hostRemoveProbe(hostDemoProbePath());
 
     File::delete(hostDeptracCachePath());
 });
@@ -193,4 +234,65 @@ it('fails Deptrac when a host test class imports a module internal', function ()
     expect(File::exists(hostDeptracProbePath()))->toBeFalse()
         ->and($clean->exitCode())->toBe(0)
         ->and($clean->output())->toContain('Violations           0');
+});
+
+/*
+ * QA BUG-1 and BUG-2. The two cases below are the ones that actually protect the
+ * gate; the beforeEach above only protects the next test run. See the comment on
+ * it, and tools/clean-probes.php.
+ */
+
+it('removes every planted probe before the gate reaches an analysing step', function () {
+    // All three planted at once, as a killed run would leave them.
+    File::put(hostStanProbePath(), "<?php\n\nfunction hostStanProbeUntyped(\$value)\n{\n    return \$value;\n}\n");
+    File::put(hostDeptracProbePath(), "<?php\n\nnamespace Tests\\Feature;\n\nclass HostDeptracProbe {}\n");
+    File::put(hostDemoProbePath(), "<?php\n\nfunction hostDemoProbeUntyped(\$value)\n{\n    return \$value;\n}\n");
+
+    expect(File::exists(hostStanProbePath()))->toBeTrue()
+        ->and(File::exists(hostDeptracProbePath()))->toBeTrue()
+        ->and(File::exists(hostDemoProbePath()))->toBeTrue();
+
+    // The real wiring, run the way the gate runs it.
+    $cleaned = Process::path(base_path())->run(['composer', 'run', 'probes:clean']);
+
+    expect($cleaned->exitCode())->toBe(0)
+        ->and(File::exists(hostStanProbePath()))->toBeFalse()
+        ->and(File::exists(hostDeptracProbePath()))->toBeFalse()
+        ->and(File::exists(hostDemoProbePath()))->toBeFalse();
+
+    /** @var array{scripts?: array<string, mixed>} $manifest */
+    $manifest = (array) json_decode((string) File::get(base_path('composer.json')), true);
+
+    /** @var array<string, mixed> $scripts */
+    $scripts = (array) ($manifest['scripts'] ?? []);
+
+    /** @var list<string> $check */
+    $check = (array) ($scripts['check'] ?? []);
+
+    // Position is the whole defect. check runs lint, stan, deptrac, test, so a
+    // cleanup anywhere after the first entry is a cleanup that a surviving probe
+    // has already pre-empted - which is exactly what BUG-1 was.
+    expect($check[0] ?? null)->toBe('@probes:clean')
+        ->and($scripts)->toHaveKey('probes:clean')
+        ->and(array_search('@stan', $check, true))->toBeGreaterThan(0);
+});
+
+it('names every probe the suite can plant in the gate cleanup registry', function () {
+    // Without this, adding a probe and forgetting to register it reintroduces
+    // BUG-2 silently: the new probe would simply never be cleaned.
+    $registered = hostRegisteredProbePaths();
+
+    $planted = [hostStanProbePath(), hostDeptracProbePath(), hostDemoProbePath()];
+    sort($planted);
+
+    expect($registered)->toBe($planted);
+
+    // And the demo probe is the one QaTestCodeAnalysisCoverageTest really uses,
+    // not a path this file invented. That file declares the function at
+    // collection time, so it is available here in a full run and in a filtered
+    // one alike; if it ever stops being, this assertion is skipped rather than
+    // wrong, and the toBe() above still pins the registry.
+    if (function_exists('qaStanProbePath')) {
+        expect($registered)->toContain(qaStanProbePath());
+    }
 });

@@ -80,7 +80,9 @@
             "@php artisan config:clear --ansi",
             "@php vendor/bin/pest --group=toolchain"
         ],
+        "probes:clean": "@php tools/clean-probes.php",
         "check": [
+            "@probes:clean",
             "@lint",
             "@stan",
             "@deptrac",
@@ -110,7 +112,8 @@
         "test": "Run the Pest test suite.",
         "test:fast": "Inner development loop only: the whole suite except the toolchain group (the tests that spawn a child process to boot a whole tool). Never the gate - use check.",
         "test:slow": "Only the toolchain group, so the split can be proved by count and by name.",
-        "check": "Run lint, stan, deptrac and test in sequence (CI gate)."
+        "probes:clean": "Delete any probe a killed run left behind. Each carries a deliberate defect, so a survivor aborts stan or deptrac before any test hook could remove it - which is why this runs first in check, not from a test.",
+        "check": "Run probes:clean, lint, stan, deptrac and test in sequence (CI gate)."
     },
     "extra": {
         "laravel": {

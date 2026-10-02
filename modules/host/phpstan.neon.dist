@@ -15,6 +15,11 @@ parameters:
     paths:
         # modules/host
         - app
+        # tools/clean-probes.php is the gate's first step, so it is load bearing
+        # and gets analysed like anything else. It boots no framework on purpose.
+        # Not bin/: the root .gitignore has **/bin/ for .NET build output, which
+        # would have kept this file out of git entirely.
+        - tools
         - bootstrap/app.php
         - bootstrap/providers.php
         - config

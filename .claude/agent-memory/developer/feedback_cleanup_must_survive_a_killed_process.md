@@ -1,45 +1,64 @@
 ---
 name: feedback-cleanup-must-survive-a-killed-process
-description: A test that plants a file must delete it in beforeEach as well as afterEach - a killed process runs no PHP teardown, and the leftover then fails the gate naming a file that looks like real code
+description: Cleanup for a planted probe belongs at the front of the composer check script, not in a test hook - check runs stan and deptrac before any test hook, so a survivor aborts the gate before a beforeEach could ever fire
 metadata:
   type: feedback
 ---
 
-Any test that writes a file into a directory a tool analyses must remove it
-**before it plants, not only after**. `finally` and `afterEach` are both correct
-and both useless when the process is *killed* rather than finishing.
+A test that plants a file carrying a deliberate defect must have that file removed
+by **a step at the front of the `composer check` script**. A test hook cannot do
+it. Neither can `finally` or `afterEach`.
 
-**Why:** on T-005 I added `HostTestAnalysisEnforcementTest`, which plants
-`HostDeptracProbe.php` (a deliberate boundary violation) and `HostStanProbe.php`
-(a deliberate level 6 defect) to prove `composer deptrac` and `composer stan` can
-actually fail. It deleted each one in a `finally` *and* in `afterEach`. Composer's
-**300 s per-process timeout** then killed `composer test` mid-run, so neither ran,
-and the probe survived into every later run: the gate went red with
-`Tests\Feature\HostDeptracProbe must not depend on …PingController`, which reads
-exactly like a real defect in real code. The same kill also left generated fixture
-modules behind, and because `phpunit.xml` globs `../*/tests`, every later child
-process collected them — 7 failures in files I had not touched. I then spent a
-long time chasing a phantom "3x slowdown" that was only a cold PHPStan result
-cache plus that leftover state. Warm and clean the gate was 85–103 s against a
-117 s baseline: there was no slowdown at all.
+**Why, in the order I learned it (two rounds, one QA defect):**
 
-**How to apply:**
-- `beforeEach` removes the probe too. That is the only step that survives a kill,
-  because the *next* process performs it.
-- Make the remover idempotent: early-return when the file is absent, so the same
-  helper is safe before and after.
-- It must **report, not assume**: throw a `RuntimeException` naming the file if it
-  cannot remove it. Never `expect()` — a teardown assertion silently inflates every
-  using test's assertion count, which is fatal on any task whose contract is
+1. `finally` + `afterEach` are both correct and both skipped when the process is
+   **killed** rather than finishing — a Composer process timeout (300 s here, and
+   the gate has run over it), Ctrl-C, a CI step limit. Measured: `composer check`
+   was killed mid-test and `HostDeptracProbe.php` survived into every later run.
+2. So I moved the cleanup into `beforeEach`, reasoning that the *next* process
+   performs it. **That was still wrong, and worse, I wrote in a code comment and
+   in this memory note that it closed the hole.** `composer check` runs
+   `lint`, `stan`, `deptrac`, `test` in that order. A surviving probe aborts the
+   run at step 2 or 3, so no test hook ever executes. The `beforeEach` is dead
+   code in precisely the case it was written for. QA found this by planting the
+   probe by hand and reproducing the original two violations.
+3. The fix that works: a `probes:clean` script as the **first entry** of `check`,
+   ahead of the first analysing step, implemented as a dependency-free PHP script
+   that does not boot the framework — it has to work when the application cannot.
+
+**The general rule, which is the part worth keeping:** a cleanup only protects the
+steps that run *after* it. Before claiming any guard closes a hole, name the exact
+execution order it depends on and check the guard is upstream of every step that
+could fail. Position is as load-bearing as existence, and it is worth an assertion
+of its own (`expect($check[0])->toBe('@probes:clean')`), because a cleanup that
+drifts to second place is silently useless again.
+
+**And the meta-lesson, which cost this project a QA round:** prose that claims a
+guarantee the code does not provide is worse than no prose, because the next task
+inherits the claim. If I write "this closes X", I must have executed the failing
+case and watched it pass. I had not.
+
+**Supporting details worth not rediscovering:**
+- Make the remover idempotent (early-return when absent) so the same helper is
+  safe before and after, and so a cleanup step is harmless on a clean tree.
+- It must **report, not assume**: exit non-zero / throw a `RuntimeException`
+  naming the file. Never `expect()` in a hook — a teardown assertion silently
+  inflates every using test's assertion count, fatal on any task whose contract is
   "counts do not change". See [[feedback-guard-must-not-disturb-what-it-measures]].
-- Keep the per-test `finally` on the plain non-throwing delete, so a cleanup
-  problem cannot mask the assertion result it runs after.
-- Git-ignore the probe filenames, so a copy left by a killed run cannot be
-  committed by accident. This hides nothing as long as the test still asserts the
-  probe is gone before it finishes.
-- **Diagnostic order, every time:** before believing any broad or unrelated
-  failure, run `git status --porcelain`, `ls` the fixture/module directories, and
-  check for leftover probes. Leftover state from a killed run is far more likely
-  than a real regression, and it is also the likeliest explanation for a sudden
-  "everything got slower". Related:
-  [[feedback-clean-up-probe-files-immediately]].
+- Keep one registry of probe paths and **assert it covers every probe the suite
+  plants**, or the next probe added is unprotected exactly as the first was. A
+  sibling test here had the same shape and no cleanup at all, and its probe path
+  was not even git-ignored, so a staging command could have committed a file
+  carrying a deliberate defect.
+- Git-ignore every probe path. Check with `git check-ignore -v`, do not assume.
+- **The root `.gitignore` here has `**/bin/`** (for .NET build output), so a
+  gate-critical script placed in any `bin/` directory is silently untracked. I hit
+  this and moved the script to `tools/`. Run `git check-ignore -v <path>` on any
+  new non-test file before believing it is committed.
+- **Diagnostic order, every time:** before believing any broad failure or any
+  apparent slowdown, run `git status --porcelain`, `ls` the fixture and module
+  directories, and look for leftover probes. A killed run's leftovers are far more
+  likely than a real regression, and they also explained an apparent 3x slowdown
+  that did not exist (it was a cold PHPStan result cache plus collected leftover
+  fixture modules). Related: [[feedback-clean-up-probe-files-immediately]],
+  [[project-repo-wide-rename-recipe]].

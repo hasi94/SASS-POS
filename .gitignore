@@ -62,3 +62,13 @@ Thumbs.db
 *.log
 /tmp
 /.scratch
+
+# Planted probes. Each carries a deliberate defect so a test can prove the gate
+# fails on it, and each is deleted again by the test and by `composer
+# probes:clean`. Ignored so a copy left behind by a killed run can never be
+# committed - this one sits inside the committed demo module, whose tree is
+# compared byte for byte, so a stray copy there is worse than elsewhere. The
+# host's own two probes are ignored in modules/host/.gitignore. Nothing is
+# hidden: the tests still assert each probe is gone, and tools/clean-probes.php
+# exits non-zero if one cannot be removed.
+/modules/demo/tests/Feature/QaStanProbe.php
