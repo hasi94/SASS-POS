@@ -10,3 +10,4 @@
 - [Never edit files during a test run](feedback_never_edit_files_during_a_test_run.md) — and why a tight retry loop cannot fix a Windows rmdir flake, however many runs come back green.
 - [Cleanup must survive a killed process](feedback_cleanup_must_survive_a_killed_process.md) — probe cleanup belongs first in `composer check`, not in a test hook: stan and deptrac run before any hook.
 - [Repo-wide rename recipe](project_repo_wide_rename_recipe.md) — two commits, enumerate-then-classify tokens, the protect list, and the Composer path-package traps.
+- [Defer in a comment, or file a row](feedback_defer_in_a_comment_or_file_a_row.md) — which residuals earn a backlog row, and why a declared deviation beats silent compliance.
