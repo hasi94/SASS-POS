@@ -51,6 +51,28 @@ verify the restore is byte-identical with `diff`.
 measures less than it claims. QA found one of them (a de-duplicated list compared against its
 own `array_unique()`), which is a fair catch; the scan for siblings found three more.
 
+**6. A registry check with a hand-kept list on *both* sides is not a check.** Comparing
+`tools/clean-probes.php`'s array against a trio written out in the test passed while the suite
+planted eight probes, and its comment claimed completeness. Every such check needs a
+*discovered* half, and the discovery key must be something the planters already carry. Measured
+on T-005: QA's proposed key (string literals matching `Probe\.php`) found **zero** matches,
+because the paths are `DIRECTORY_SEPARATOR` concatenations and two planted files are named
+`*ProbeTest.php`; the function-name convention (`/function\s+(\w*ProbePath)\s*\(/`) found all
+eight. Resolve each discovered path from the *source* and scope the requirement by rule - inside
+a PHPStan path, a Deptrac path or a phpunit suite directory - so the one probe under `storage/`
+is excluded by the rule and not by an exemption list.
+
+Item 1's trap returns here and is easy to walk into twice: the file holding the discovery regex
+must not contain `function <name>ProbePath(` in a comment or heredoc. Name synthetic control
+functions off-convention (`syntheticBaseTarget`), or the guard fails on a phantom probe whose
+file never exists.
+
+**7. `function_exists()` around an assertion is an assertion count that moves with collection.**
+A planter declared in another test file exists in a full run and in a `--filter` run, and not in
+a single-file run, so the case reports 2 assertions or 1 depending on what else was collected.
+Two fixes, both better: read what you need out of the other file's *source*, or put the helper in
+`tests/Helpers.php`, which Pest's BootFiles loads in every run mode.
+
 **How to apply:** whenever the deliverable is "prove coverage did not change", diff the
 per-test assertion counts from a `--log-junit` log taken *before* touching anything against
 one taken after, per test name — not the totals. Totals cannot tell "two dropped, two added"

@@ -18,6 +18,13 @@ files were deliberately unformatted, a test runs Pint over a storage path, and t
 cascaded. Deleting the two files took the run from 46 failures to 1. Diagnosing it cost more
 time than the fix it was supporting.
 
+**A second cause with the same shape, in team mode: the gate reads the working tree, not the
+commit.** The vocabulary sweep's corpus is "tracked plus untracked-and-not-ignored", so another
+agent's *uncommitted* edit to `docs/backlog.md` failed `composer check` in the middle of my own
+task, in a file I was forbidden to touch. Before fixing anything a gate names, compare the two:
+`git show HEAD:<file> | grep <token>` against `grep <token> <file>`. If the token is only in the
+working tree and the file is not in my diff, it is someone else's edit - report it, do not fix it.
+
 **How to apply:** a probe is finished when its output has been read. Delete it then, in the same
 Bash call. Before trusting any suite result that looks catastrophic and unrelated to the change,
 run `git status --porcelain` and `ls` the storage/fixture directories first — leftover state
