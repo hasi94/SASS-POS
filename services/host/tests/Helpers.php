@@ -58,6 +58,7 @@ function toolchainGroupFiles(): array
     return [
         'services/host/tests/Feature/ConfigCacheGuardTest.php',
         'services/host/tests/Feature/DeptracBoundaryEnforcementTest.php',
+        'services/host/tests/Feature/HostTestAnalysisEnforcementTest.php',
         'services/host/tests/Feature/HostTestSuiteCollectionTest.php',
         'services/host/tests/Feature/PintLintFixRoundTripTest.php',
         'services/host/tests/Feature/QaCacheGuardBranchesTest.php',

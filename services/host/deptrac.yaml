@@ -10,6 +10,14 @@ deptrac:
   # in src/ or in tests/.
   paths:
     - app
+    # The host's own test directory (FP-169). Unlike a service package's tests,
+    # this one needs a layer of its own: the host's Pest files declare no
+    # classes and the shared infrastructure declares Tests\*, which belonged to
+    # no layer, so nothing in here could ever be the depender in a rule and the
+    # path alone was inert. Measured: path only = 0 violations and no new
+    # covered class; path + the HostTests layer below = the import of a service
+    # internal from a host test becomes reportable.
+    - tests
     - ../demo/src
     - ../demo/tests
     - ../../packages/auth/src
@@ -28,6 +36,18 @@ deptrac:
       collectors:
         - type: classLike
           value: ^App\\.*
+
+    # The host's own test code (FP-169). Separate from HostApp so its ruleset can
+    # be the narrower one: a host test may reach the host application and any
+    # shared package, but never a service package's internals. Deliberately NOT
+    # granted any Service_* layer - that omission is the whole point, and it is
+    # what makes a host test importing a service internal a reportable
+    # violation. Intra-layer dependencies are allowed by Deptrac, so the
+    # Tests\Fixtures\DeptracViolation\* stand-ins stay silent here.
+    - name: HostTests
+      collectors:
+        - type: classLike
+          value: ^Tests\\.*
 
     # One layer per service package, so a dependency from one service onto
     # another is a violation instead of an internal edge of a shared layer.
@@ -78,6 +98,18 @@ deptrac:
   # service layer. packages/* layers depend on nothing (`~`).
   ruleset:
     HostApp:
+      - Package_Auth
+      - Package_Contracts
+      - Package_Eventbus
+      - Package_HttpClient
+      - Package_Kernel
+      - Package_PluginSdk
+      - Package_Testing
+
+    # The host's tests may use the host application and the shared packages.
+    # No Service_* layer appears here on purpose: see the layer comment above.
+    HostTests:
+      - HostApp
       - Package_Auth
       - Package_Contracts
       - Package_Eventbus
