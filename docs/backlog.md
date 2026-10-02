@@ -28,9 +28,18 @@
 | T-001 | Monorepo, backend toolchain and module host skeleton | old FP-003 to FP-005 | `ai/T-001-monorepo-service-host` | **DONE** — QA 32/32, review APPROVE, commit `741307c` |
 | T-002 | Host hardening from the T-001 review | old FP-146 to FP-153 | `ai/T-002-service-host-hardening` | **DONE** — QA 19/19, review APPROVE, commit `ad7fb27` |
 | T-003 | Convert the skeleton to master plus tenant connections | FP-201 | `ai/T-003-tenant-connections` (from T-002) | **DONE** — QA PASS 25/25, review APPROVE |
-| T-004 | Rename services to modules | FP-202 | not started | TODO — after T-003 |
+| T-004 | Gate speed and repository hygiene | FP-155, FP-156, FP-157, FP-164 | `ai/T-004-gate-speed-and-hygiene` | **DONE** — QA 20/20, review APPROVE, commits `643e220` and `bcd7595` |
+| T-005 | Rename services to modules | FP-202, FP-169 | `ai/T-005-rename-modules` (from main) | IN_REVIEW — QA PASS 26/26 (run 2), review round 1 **CHANGES REQUESTED** on 3 Criticals, fixes in flight |
 
-**Why FP-201 and FP-202 are split.** The rename is mechanical but touches every file, and burying a semantic change inside that much churn makes the diff unreviewable. FP-201 is what Phase 0 is blocked on; the rename blocks nothing, so it goes second and alone.
+**Why FP-201 and FP-202 are split.** The rename is mechanical but touches every file, and burying a semantic change inside that much churn makes the diff unreviewable. FP-201 was what Phase 0 was blocked on; the rename blocks nothing, so it goes second and alone.
+
+**T-005 scope.** The code and the forward-looking documents change. **The completed-task records do not** — they describe what was built and verified at the time, and rewriting them would falsify the record QA and the reviewer relied on. `Refference/` is the owner's source material and is never touched. FP-169 rides along because bringing the host's test directory into static analysis is what will catch a broken reference during a rename of this size.
+
+The rule is stated **by folder, not by counting files**, so a record added later is covered without anyone updating a number: `docs/specs`, `docs/plans`, `docs/qa`, `docs/reviews`, `docs/decisions` and `docs/releases` are exempt, as is `CLAUDE.md`. The live instrument is `QaVocabularyRenameSweepTest`, which asserts the exemptions and allowances rather than restating them here; read its `qaVocabExemptPaths()` for the current list.
+
+**Two counts in the original version of this paragraph were wrong, and are recorded rather than quietly replaced** (FP-171). It claimed "57 tracked files carry the old vocabulary"; the architect measured 78 while planning. It claimed "eighteen completed-task records"; measured 2026-10-02, there are **16** records — four each for T-001 to T-004 — across 20 tracked paths, the other four being `.gitkeep` files. Both numbers were written before the task ran and neither carried a date or a way to re-measure, which is the exact failure FP-171 exists to stop. Replaced above by a rule and an instrument instead of fresher numbers.
+
+**This table was itself stale** until 2026-10-02: it still described T-004 as the rename after T-004 had shipped as the gate work. Recorded rather than quietly corrected, because it is the same failure the T-004 review named as this project's recurring one.
 
 ### What survives the v0.4 change
 
@@ -61,10 +70,19 @@ The host that boots only the modules named in configuration, the generator, the 
 | FP-169 | Bring `modules/host/tests` into static analysis and the boundary check | TODO — before T-005 |
 | FP-170 | Give the fast loop a time dimension | TODO — after FP-165 |
 | FP-171 | A number written into prose carries its date, or becomes a ratio, or becomes an assertion | TODO — convention |
+| FP-172 | Give the test command headroom against the process timeout | TODO — before CI |
+| FP-173 | A teardown may delete a planted file, never its directory | TODO — reviewer W-3 (T-005) |
+| FP-174 | Give `CLAUDE.md` a standing accuracy assertion | TODO — with the task that next edits it |
+
+**FP-172 detail.** The package manager kills a script at 300 seconds by default. The gate runs about 104 seconds warm, so it looks safe, but a cold analysis cache alone pushed a run past 300 during T-005. The kill is the dangerous part rather than the delay: a killed process runs no cleanup, so a deliberately broken test probe survived and turned the gate red afterwards with a failure that named a file looking like real code, and leftover generated packages produced seven further unrelated failures. Raise the timeout, or make the gate resilient to being killed, before continuous integration meets a cold machine.
 
 **FP-168 detail.** Three readers have each found one instance of the same family: a teardown where something that can throw runs before something that restores, sometimes split across two functions so no proximity search can see it. QA closed the family with a one-off sweep by property rather than mechanism, scanning 74 teardown blocks with a negative control, and found exactly the one the reviewer predicted. A standing guard needs one level of call-graph reasoning plus a named exemption list for fixture builders, which is why it is a row rather than something added mid-commit.
 
 **FP-171 detail.** The reviewer's observation after four tasks: the recurring defect in this project is no longer false reasoning, it is absolute measurements written into prose with no date and no mechanism to re-measure them. Three of the four stale statements it found in T-004 were introduced by T-004 itself.
+
+**FP-173 detail.** `HostTestSuiteCollectionTest.php:38` runs `File::deleteDirectory(dirname(hostSuiteProbePath()))` in an `afterEach`, which removes `modules/host/tests/Integration` entirely after every case in the file rather than removing the one planted probe. Harmless while that directory holds nothing else, but FP-169 has just brought it into static analysis and the boundary check, so it now has more reason to hold real files — and the day a committed file lands there, a test run deletes it. The fix is `File::delete()` on the probe path plus a guarded `rmdir`. Left out of T-005 deliberately: it is pre-existing and the reviewer asked for a row rather than another change inside a rename.
+
+**FP-174 detail.** Both READMEs have a standing accuracy assertion; `CLAUDE.md`, the most-read forward-looking document in the repository and the first thing every agent is told to read, has none. That asymmetry is what let the guide keep nine command rows pointing into the former top-level directory, and a "Vocabulary note" paragraph asserting the rename had not happened, while the tree said otherwise. (Those rows are described rather than quoted here on purpose: this file is deliberately not exempt from the vocabulary sweep, so quoting the old name turns the gate red — which is exactly what the first draft of this paragraph did.) The assertion cannot be added by a task that must leave the file byte-identical — T-005's AC-25 and an accuracy assertion are contradictory by construction — so it belongs to whichever task next edits the guide, which is also when the pending step-8 correction lands. Until then the guide's command rows are known-wrong and the hazard is that an agent reads them and re-derives the old names.
 | ~~FP-144~~ | ~~Decide ERP scope questions~~ | **RESOLVED** by `Refference/ARCH.md`: database per tenant, ERP in scope, modular monolith |
 | ~~FP-145~~ | ~~Reserve ERP extension points~~ | **VOID** — the ERP domains are now designed directly rather than reserved for later |
 

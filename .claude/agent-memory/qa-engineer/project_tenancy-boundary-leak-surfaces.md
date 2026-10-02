@@ -77,4 +77,4 @@ method each honours - the T-003 plan's residual list was assembled by reasoning 
 `dd()`; (3) prove a stale-connection refusal is evidence by doing the same moves on an unguarded
 connection name first, where the held object silently repoints itself at the new database and
 returns its row. Full evidence: `docs/qa/T-003-tenant-connections.md`. Related:
-[[qa-negative-control-every-guard]], [[service-host-fragile-areas]].
+[[qa-negative-control-every-guard]], [[module-host-fragile-areas]].
