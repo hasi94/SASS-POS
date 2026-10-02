@@ -93,8 +93,14 @@ function hostRegisteredProbePaths(): array
 }
 
 /**
- * Every probe-planting function the suite declares, as function name =>
- * absolute path of the file that declares it.
+ * Every probe-planting function declared in a *Test.php file under
+ * modules/*\/tests or packages/*\/tests, as function name => declaring file.
+ *
+ * Not every planter the suite *could* declare: packageTestFiles() walks
+ * *Test.php only, so one declared in a Helpers.php or a fixtures class is not
+ * discovered (QA BUG-4, measured). Widening the walk to every .php would be
+ * green on today's tree - there is no such planter - so the scope is stated
+ * here and in tools/clean-probes.php rather than guessed at.
  *
  * The discovered half of the registry check. Without it both sides of that
  * comparison are hand-kept literals in two files and the case cannot fail on
@@ -162,9 +168,10 @@ function hostProbeTargetFromSource(string $source, string $function): string
 
     if (preg_match($declaration, $source, $matches) !== 1) {
         throw new RuntimeException(
-            'could not find a single-return declaration of '.$function.'() to read a probe path out of. '.
-            'A probe planter has to stay readable from source, or the gate cleanup registry stops being '.
-            'checked against it.'
+            'could not find a single-return declaration of '.$function.'() to read a probe path out of - '.
+            'either it is not one, or a comment containing the signature was discovered as one, because '.
+            'this reader does not strip comments. Rename the mention, or keep the planter readable from '.
+            'source: otherwise the gate cleanup registry stops being checked against it.'
         );
     }
 
@@ -455,10 +462,12 @@ it('fails Deptrac when a host test class imports a module internal', function ()
  * What they guarantee, stated no wider than it is: the first plants every path
  * the registry names and proves the gate's first step removes all of them; the
  * second compares that registry against a DISCOVERED set of probe planters -
- * every *ProbePath() the suite declares, with the path each returns evaluated
- * from its source - and fails on any discovered path inside a PHPStan path, a
- * Deptrac path or a phpunit suite directory that the registry does not name. A
- * probe outside all three needs no entry and gets none.
+ * every *ProbePath() declared in a *Test.php file, with the path each returns
+ * evaluated from its source - and fails on any discovered path inside a PHPStan
+ * path, a Deptrac path or a phpunit suite directory that the registry does not
+ * name. A probe outside all three needs no entry and gets none; a planter
+ * outside a *Test.php file is not discovered at all, which is BUG-4's residual
+ * and is written down on hostDiscoveredProbePlanters().
  *
  * Neither side is a hand-kept literal any more. That is the correction: the
  * earlier version compared two hand-kept lists and claimed completeness in
