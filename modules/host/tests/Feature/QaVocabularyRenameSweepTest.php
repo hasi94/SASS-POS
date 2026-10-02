@@ -89,6 +89,8 @@ function qaVocabLiteralTokens(): array
         'the former second boundary fixture' => $studly.'B',
         'the former stub directory' => 'stubs/'.$lower,
         'the former path helper' => $lower.'sPath',
+        'the former singular path helper' => $lower.'Path',
+        'the former dotted manifest key' => 'flexipos.'.$lower,
         'the former phpunit suite label' => 'name="'.$studly.'s"',
     ];
 }
@@ -115,7 +117,14 @@ function qaVocabCaselessTokens(): array
  * form, which differ only in the number of backslashes. The second catches the
  * old configuration key and the old health-response field - the quotes are what
  * separate them from ordinary English prose, which no pattern could safely
- * claim.
+ * claim. The third catches the singular spelling in KEY position only - a quote,
+ * the word, a quote, then a colon, an arrow or a closing bracket - because the
+ * bare quoted singular is NOT safe: MEASURED 2026-10-02, it reports a sentence of
+ * ordinary prose in docs/backlog.md, and its trailing-quote half reports
+ * composer.lock ("web service") and docs/database.md (enum(user, terminal,
+ * service)). In key position the same search reports nothing. The fourth catches
+ * the five test class names whose old word is followed by a word character, which
+ * none of the literals above can reach.
  *
  * @return array<string, non-empty-string>
  */
@@ -126,6 +135,9 @@ function qaVocabPatternTokens(): array
     return [
         'the former namespace root' => '/Flexipos.{1,2}'.$studly.'/',
         'the former quoted key or JSON field' => '/[\'"]'.$lower.'s[\'"]/',
+        'the former quoted singular key' => '/[\'"]'.$lower.'[\'"]\s*(?::|=>|\])/',
+        'the former test class names' => '/(?:'.$studly.'sEnvParsing|'.$studly.'NameValidation|Unlisted'.$studly.'Returns404|'.
+            'Generated'.$studly.'(?:TestDiscovery|Reachable))Test/',
     ];
 }
 
@@ -170,8 +182,28 @@ function qaVocabAllowances(): array
 {
     $lower = qaVocabFragments()['lower'];
     $short = qaVocabFragments()['short'];
+    $studly = qaVocabFragments()['studly'];
 
-    return [
+    // The developer's rename recipe quotes the five old test class names because
+    // quoting them is its whole point: it records what a word-boundary rule cannot
+    // reach. One row per name, so each is asserted live on its own.
+    $recipe = [];
+
+    foreach ([
+        $studly.'sEnvParsingTest',
+        'Qa'.$studly.'NameValidationTest',
+        'Unlisted'.$studly.'Returns404Test',
+        'QaGenerated'.$studly.'TestDiscoveryTest',
+        'Generated'.$studly.'ReachableTest',
+    ] as $name) {
+        $recipe[] = [
+            'literal' => $name,
+            'why' => 'the rename recipe quotes the old test class names, which is its point (review W-1)',
+            'paths' => ['.claude/agent-memory/developer/project_repo_wide_rename_recipe.md'],
+        ];
+    }
+
+    return array_merge($recipe, [
         [
             'literal' => $short.'_',
             'why' => 'the removed per-module connection prefix (T-003): one dead replacement key the '.
@@ -207,7 +239,7 @@ function qaVocabAllowances(): array
             'why' => 'the file name of a historical record, immutable for the same reason as the record itself (D-52)',
             'paths' => ['.claude/agent-memory/qa-engineer/project_module-host-fragile-areas.md'],
         ],
-    ];
+    ]);
 }
 
 /**
@@ -218,6 +250,14 @@ function qaVocabAllowances(): array
  * reasoning of the time and would be falsified by a rewrite (D-52), together
  * with T-005's own records, which necessarily quote what is being renamed; and
  * CLAUDE.md, the lead's file, which AC-25 requires to stay byte-identical.
+ *
+ * "Records" means ALL SIX hand-off folders, not the five that already held a T-005
+ * file. docs/releases is the sixth: a release note or PR description for this very
+ * task has to name the old directory, the old environment variable and the old
+ * namespace to say what changed, so leaving it swept would turn the gate red at
+ * the release step through no fault of its author (review R-3). The case that
+ * keeps the exemptions live pins the full set of six, so a seventh folder cannot
+ * be forgotten the same way.
  *
  * Dependency and build directories are NOT in this list: they are pruned by name
  * in qaVocabCorpus() and their absence cannot hide a tracked file, so an
@@ -234,6 +274,7 @@ function qaVocabExemptPaths(): array
         'docs/decisions',
         'docs/plans',
         'docs/qa',
+        'docs/releases',
         'docs/reviews',
         'docs/specs',
     ];
@@ -433,8 +474,13 @@ function qaVocabWitnesses(): array
             'the former top-level directory',
             'the former unknown-name exception',
         ],
+        'docs/qa/T-001-monorepo-'.$lower.'-host.md' => [
+            'the former quoted singular key',
+            'the former test class names',
+        ],
         'docs/qa/T-002-'.$lower.'-host-hardening.md' => [
             'the former path helper',
+            'the former singular path helper',
         ],
     ];
 }
@@ -448,10 +494,41 @@ it('reports a synthetic old identifier, in a path and in contents, case-sensitiv
     $all = implode("\n", array_merge(
         array_values(qaVocabLiteralTokens()),
         array_values(qaVocabCaselessTokens()),
-        ['Flexipos\\'.qaVocabFragments()['studly'].'\\Demo', "'".qaVocabFragments()['lower']."s'"],
+        [
+            'Flexipos\\'.qaVocabFragments()['studly'].'\\Demo',
+            "'".qaVocabFragments()['lower']."s'",
+            '"'.qaVocabFragments()['lower'].'": "demo"',
+            qaVocabFragments()['studly'].'sEnvParsingTest',
+        ],
     ));
 
     expect(array_keys(qaVocabFound($all)))->toBe(qaVocabLabels());
+
+    // The two W-1 patterns, one example at a time. The class-name pattern is an
+    // alternation, so one example per branch: a branch with a typo in it would
+    // otherwise hide behind the branches that work.
+    $studly = qaVocabFragments()['studly'];
+    $lower = qaVocabFragments()['lower'];
+
+    foreach ([
+        $studly.'sEnvParsingTest',
+        'Qa'.$studly.'NameValidationTest',
+        'Unlisted'.$studly.'Returns404Test',
+        'QaGenerated'.$studly.'TestDiscoveryTest',
+        'Generated'.$studly.'ReachableTest',
+    ] as $oldClass) {
+        expect(array_keys(qaVocabFound('class '.$oldClass.' extends TestCase')))->toBe(['the former test class names']);
+    }
+
+    // Key position is caught in all three spellings; the same word as plain
+    // English, quoted or at the end of a quoted phrase, is not.
+    foreach (['"'.$lower.'": 1', "'".$lower."' => 1", '$m[\''.$lower.'\']'] as $oldKey) {
+        expect(array_keys(qaVocabFound($oldKey)))->toBe(['the former quoted singular key']);
+    }
+
+    foreach (['the vocabulary says "'.$lower.'" where', '"web '.$lower.'"', 'enum(user, terminal, '.$lower.')'] as $prose) {
+        expect(qaVocabFound($prose))->toBe([]);
+    }
 
     // A path, not contents: the old directory name has to be caught even in a
     // file whose text is clean.
@@ -500,6 +577,7 @@ it('reports a synthetic old identifier, in a path and in contents, case-sensitiv
         ."Flexipos\\Module\\Demo\\DemoServiceProvider\n"
         ."MODULES=demo module:make Module_Demo flexipos/module-demo stubs/module\n"
         ."Illuminate\\Support\\ServiceProvider config/services.php src/Services/\n"
+        .'extra.flexipos.module $this->modulePath() ModulesEnvParsingTest {"module": "demo"}'."\n"
     ))->toBe([]);
 });
 
@@ -530,13 +608,17 @@ it('finds the old identifiers in the historical records it excludes', function (
     $demonstrated = array_values(array_unique($demonstrated));
     sort($demonstrated);
 
-    // Stated rather than discovered later: the phpunit suite label is the one
-    // token with no independent witness in a tracked record - nothing outside
-    // T-005's own documents ever quoted it. Its fragments are covered
+    // Stated rather than discovered later: the phpunit suite label and the dotted
+    // manifest key are the two tokens with no independent witness in a tracked
+    // record - nothing outside T-005's own documents ever quoted them. Their
+    // fragments are covered
     // compositionally: the studly fragment is witnessed by eight other tokens
     // above, and the surrounding literal is written out in full in this file
     // because it carries no old identifier of its own.
-    expect(array_values(array_diff(qaVocabLabels(), $demonstrated)))->toBe(['the former phpunit suite label']);
+    expect(array_values(array_diff(qaVocabLabels(), $demonstrated)))->toBe([
+        'the former dotted manifest key',
+        'the former phpunit suite label',
+    ]);
 });
 
 it('sweeps a corpus that really holds the repository', function () {
@@ -640,6 +722,19 @@ it('keeps every allowance and every exemption live', function () {
     }
 
     expect($missing)->toBe([], 'an exemption names a path that no longer exists: '.implode(', ', $missing));
+
+    // The hand-off folders are exempt as a SET (R-3): the release folder was the
+    // one missing, and it only mattered at the next role's step.
+    $handOff = ['decisions', 'plans', 'qa', 'releases', 'reviews', 'specs'];
+
+    expect(array_values(array_filter(
+        $handOff,
+        static fn (string $folder): bool => ! qaVocabIsExempt('docs/'.$folder.'/T-005-any-record.md')
+    )))->toBe([], 'a hand-off folder is swept, so the role that writes there turns the gate red');
+
+    // The match is a path-segment match, not a prefix match: a sibling that merely
+    // starts with an exempt name must still be swept.
+    expect(qaVocabIsExempt('docs/releases-draft/note.md'))->toBeFalse();
 
     // Every allowance must be needed: a row that redacts nothing the sweep would
     // otherwise report is dead weight pretending to be a justification.
