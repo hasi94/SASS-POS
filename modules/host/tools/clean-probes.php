@@ -34,8 +34,10 @@ declare(strict_types=1);
 | function the suite declares - every *ProbePath() under modules/*\/tests and
 | packages/*\/tests - evaluates the path each one returns, and fails if any of
 | those paths lies inside a PHPStan path, a Deptrac path or a phpunit suite
-| directory without appearing here. So adding a probe inside an analysed or
-| collected path without registering it fails the gate.
+| directory without appearing here. So a test that plants a probe inside an
+| analysed or collected path cannot leave it unregistered - no wider a claim than
+| that: a file dropped into the tree by hand declares no planter and is nobody's
+| probe, and the gate failing on it is the right answer.
 |
 | That sentence used to claim the registry was complete while both sides of the
 | comparison were hand-kept literals; it named three probes and the suite planted
