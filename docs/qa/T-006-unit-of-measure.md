@@ -4,7 +4,7 @@ Spec `docs/specs/T-006-unit-of-measure.md` (AC-1 to AC-67) · Plan `docs/plans/T
 Branch `ai/T-006-unit-of-measure`, 17 commits over base `47e226d`, nothing pushed. Measured on this machine on **2026-10-06**.
 No code, test or fixture was written: the task is documents, and nothing here needed a new test.
 
-## Verdict: PASS (run 9, final; one minor open, BUG-29; runs 1, 3, 4, 5, 7, 8 FAIL, runs 2 and 6 PASS, all kept as measured, with run 1 AC-52 corrected below)
+## Verdict: FAIL (run 10, narrow: one small correctness item, BUG-31, a one-clause fix; BUG-29 verified closed; runs 1, 3, 4, 5, 7, 8, 10 FAIL, runs 2, 6, 9 PASS, all kept as measured)
 
 Two acceptance criteria fail (AC-52, AC-63), both **minor** and both fixable by one sentence each.
 One **major** design defect (BUG-1) is not an AC failure as written but is the exact defect class the
@@ -433,3 +433,52 @@ I found no home that currently disagrees with another. Three candidates where th
 Checked and found to be single-homed or citations: the seven below-the-layer tables (§6.5 once, §14 cites it), the print-bearing set, the five-step ladder, `base_free` (one definition, check 3 and the `grn_items` row cite it), the eighteen movement types (one table, enum declares members, invariants cite it), and the ledger key (one declaration).
 
 Nothing in the coordinator's message measured wrong except "confirm both sentences point at the same open question" (BUG-29).
+
+Run 10: PASS -> FAIL, narrowly (R3-1 verified; AC-70 to AC-77 pass; invariant 2 lacks the reservation exclusion that invariant 1 got, BUG-31; AC-78 coverage gaps recorded; fragment-check of earlier absences found no false pass).
+
+---
+
+## Run 10 (tree at `170d7c8`, spec now 78 criteria)
+
+Gate by me: exit 0, PHPStan no errors, Deptrac 0, Pest **314 / 1435**, 81.02 s. Pipe scan: only FP-178. Nothing outside `docs/` in the diff. **Tally against 78: 78 pass by the letter** (AC-70 to AC-77 verified below; AC-78 carried out, with its findings recorded). **Verdict: FAIL, narrowly.** BUG-31 is the lead's own kind of correctness item (a nightly check that would fire on correct data), one clause to fix; everything else is minor.
+
+### 1. The nine new criteria, each run against the file
+| AC | Check | Result |
+|---|---|---|
+| 70 | The write-off section names two sources (rounding, "the smaller of its two"; the under-costed oversell, worked: receive 10 at 100, sell 15 at 100, receive 5 at 200 gives TV 1 000 - 1 500 + 1 000 = 500 at zero on-hand, correct); fires on `on_hand = 0` "never the size of the balance"; no tolerance test (the one `tolerance` hit is the sentence forbidding it); crossing past zero triggers nothing; a material write-off raises an adjustment for approval (`workflow_instance_id`, §6.15); the formula comment says "NOT a 'residue'". Every other "residue" hit (13 in database.md, 1 in the backlog, each read) is the quantity-rounding residue, the production last-line residual, or the 0.96-cent figure | PASS |
+| 71 | `avg_cost` holds its last value, then falls back to `products.cost_price`, which §6.3/§6.4 declare per stock unit; the ordinary-case reason (the first movement can be an offline outbound sale) is given | PASS |
+| 72 | §6.5 paragraph and note 11 agree: value-only correction = `revaluation` document, quantity-carrying correction = ordinary increase/decrease; document and movement are different enums | PASS |
+| 73 | All four item rows state their `unit_cost` basis in the row (verified in run 9, re-read now) | PASS |
+| 74 | The "most dangerous arithmetic" paragraph names `on_hand` taking `line.quantity`, the outbound `|base_quantity|` mirror, and the multiplier column, and ends "every quantity in this arithmetic is base; the only thing ever in a line unit is a price" | PASS |
+| 75 | §6.4: greatest `min_qty <= base_quantity`, and at equal `min_qty` the unit-matched row beats `NULL`; the 48-base line against rows at 1 and 24 gives the 24 row. One ambiguity noted, not failing: the same paragraph says the unit-qualified lookup is tried first, then NULL, which can contradict "greatest `min_qty` wins" if a NULL row at 24 competes with a unit-matched row at 1. State which rule is outer | PASS (note) |
+| 76 | The guard is validated on `UnitResolver`'s output with the gram-in-kilogram 0.001 reason, and stays labelled an assumption pending Q-9 | PASS |
+| 77 | `reorder_level`, `reorder_qty`, `max_level`, `min_order_qty` each declared `DECIMAL(18,4)` in the stock unit; `min_order_qty` says base although typed in cases | PASS |
+| 78 | Mapping done below | carried out; findings recorded |
+
+### AC-78: every closed Warning mapped to a criterion
+- **Round 1 (review W-1 to W-11):** W-1 `free_quantity NOT NULL DEFAULT 0` maps to AC-30; W-2 resolver-output guard to AC-76; W-3 `min_qty` to AC-75; W-4 reorder quantities to AC-77; W-7 stale FP-177 figure to AC-50; W-10 free-goods default to AC-30/AC-39.
+  **No criterion:** W-5 (§3.3 must not let a reader conclude the schema is clean), W-6 (sentinel chosen per type, `'-'` only for ULID columns), W-8 (T-006 row inside the build table), W-9 (`grn_return` in §15's dead-schema list), W-11 (the quantity-residue asymmetry with currency). I re-verified each against the file and all five are present and correct (§3.3 lines 128 to 134; §15 "Still dead ... `grn_return`"; the asymmetry paragraph at line 1034; the T-006 row at backlog line 33, inside the table). Each is a **finding under AC-78**: a Warning with no criterion. I cannot add criteria (the spec is `ba`'s); each wants one, citing the sentence above.
+- **Round 2 (five Warnings):** residue to AC-70; factor guard to AC-76; `min_qty` to AC-75; reorder quantities to AC-77; three cost columns to AC-73; plus the coordinator's W-2/W-3/W-5 to AC-71, AC-72, AC-74.
+- **Round 3:** W-1 (accumulator row cites rather than restates) and S-1 (note 9's workaround sentence) have **no criterion**. Both verified present: the `stock_levels` row says "updated by the three rules of §6.5 ... and not restated here (D-76)", and note 9 ends with the new-transfer-document workaround. Also findings under AC-78.
+
+### 2. R3-1 and the "Quantity moved" column
+- Three instances verified: `count` moves `difference` (48 + 24 = 72, not 48 + 72 = 120); the transfers use `base_qty_sent` / `base_qty_received`; the goods receipt moves `base_quantity + base_free`. The formula's `qty_moved` references the column. `base_paid` has no occurrence in any of the three files, checked with the joined-line search described below, not single-line grep.
+- The column is **complete at fifteen rows**: every row has a quantity cell (`grn_return` has a dash and a note).
+- **Reservation test:** `stock_reservations.quantity` is applied to `quantity_reserved` and never to `quantity_on_hand`. `quantity_on_hand` is named only in the `stock_levels` and `stock_batch_levels` rows, check 1 (which excludes the pair) and Q-11. Nothing writes reservation quantity into on-hand, so the exclusion in check 1 is right and the new cell is the first statement of where the quantity does go.
+
+### BUG-30 (minor)
+The cost column's multiplier for `transfer_out` still reads "`avg_cost`, per stock unit -> `base_quantity`", while the quantity column beside it says the row has **no** `base_quantity` (it is `base_qty_sent`). The formula says outbound uses `|qty_moved|`, so the multiplier cell is redundant and wrong. Say `base_qty_sent`, or "see Quantity moved".
+
+### BUG-31 (small correctness): nightly invariant 2 lacks the reservation exclusion
+Invariant 2: "`stock_movements.balance_after` equals the running sum of `quantity` in `created_at`/`id` order". The table now says a reservation movement's quantity is `stock_reservations.quantity`, nonzero, applied to `quantity_reserved`. Those rows carry a `quantity` that must not enter an **on-hand** running sum, and whose `balance_after` is an on-hand balance, so the check as written fires on every reservation: the same false positive BUG-6 removed from check 1. Add the same exclusion to check 2, and say the running sum is per (location, product), which the check omits.
+
+### 3. Fragment-check pass over earlier "absent" findings
+I rebuilt each of database.md, architecture.md and backlog.md as one line (newlines to spaces, runs squeezed) and searched for fragments of everything I had reported gone:
+`products.unit_id` (1: the change log's former-name mention), `cost_per_base` (1: the 99.9999 counter-example), `base_paid` (0), "divides by `unit_factor`" (0), "maintained on `stock_levels.avg_cost`" (0), "not settled / does not settle" (0), "three sources" (0), "prior layer" (0), the four-column key `reference_line_id, type, batch_key` (0), the old key text (2: both labelled as replaced), `unique (reference_line_id ...)` (**1**, the single declaration, so the five-column key holds at every site including wrapped ones), pre-T-005 vocabulary (0), "never invisible" (2: the `stock_transfers` row, **now qualified** "not yet backed by any movement; see §6.5 note 9 and FP-253", and note 9 quoting it, so **BUG-29 is closed**).
+The remaining hits are historical: "roughly 150 tables" and "exactly one home" in the backlog are the findings' own descriptions; "`on_hand x avg_cost`" in the backlog quotes v0.4. **I found no absence that was the search's.** My earlier absence reports in runs 1 to 7 used single-line greps; none of those facts has reappeared on a wrapped line.
+The stronger form, git-object comparison per warning, is already in run 8.
+
+### 4. W-1 and S-1
+Both verified present (see AC-78 above). Note 9 reads as a named question with the workaround, and keeps the part that is in scope.
+
+Nothing in the coordinator's message measured wrong. `ba`'s wrapped-line finding stands, and the joined-line search above is the form I will use.
