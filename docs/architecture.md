@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| Status | **v0.4** — master database plus one database per tenant, modular Laravel monolith |
-| Date | 2026-09-29 |
+| Status | **v0.5** — master database plus one database per tenant, modular Laravel monolith |
+| Date | 2026-10-06 |
 | Authoritative inputs | `Refference/ARCH.md` (product-owner decision, supersedes conflicting earlier guidance) · `Refference/ERP.md` (POS + ERP scope) · `Refference/saas_pos_master_spec.md` (original POS spec) · `docs/eventbus.md` (Redis Streams) · `docs/trade-off.md` (online sales never oversell) |
 | Related | [database.md](database.md) · [deployment-vps.md](deployment-vps.md) · [backlog.md](backlog.md) · [gap-analysis-erp.md](gap-analysis-erp.md) |
-| Change log | **v0.4:** database per tenant with a master database for identity and routing; fourteen services collapse to modules in one Laravel application; ERP domains in scope; per-tenant migration runner added as foundation work. v0.3: microservices with a schema per service. v0.2: Print Agent to C#/.NET. v0.1: initial modular monolith |
+| Change log | **v0.5:** the unit of measure becomes a first-class part of the model (FP-243). One base unit per product, conversion resolved once at the document line with the factor snapshotted on it, prices that carry their own unit, weighable goods and a barcode-rule parser, and repack as a real document. The till's replica and the dual calculation engine both grow to cover unit resolution, because an offline till that converts differently from the server writes a wrong quantity into a sale that is never rejected. Table count per tenant ≈190 → ≈193. See [database.md](database.md) v0.5. **v0.4:** database per tenant with a master database for identity and routing; fourteen services collapse to modules in one Laravel application; ERP domains in scope; per-tenant migration runner added as foundation work. v0.3: microservices with a schema per service. v0.2: Print Agent to C#/.NET. v0.1: initial modular monolith |
 
 **v0.4 supersedes v0.3's database-per-service design.** That design was a faithful answer to a microservice requirement but a poor answer for an ERP: a profit and loss statement spans sales, purchases, expenses, payroll and inventory, and separated schemas cannot join them. It was also the most complex option for a small team. `Refference/ARCH.md` replaces it.
 
@@ -66,7 +66,7 @@ A modular monolith, not microservices. Modules are Composer path packages under 
 | **Platform** | Master database: tenants, plans, subscriptions, licensing, feature flags, tenant-user access, the database mapping, platform admin and audit |
 | **Identity** | Login against the master; tenant-local employees, roles, permissions, cashier PINs |
 | **Organization** | Branches, warehouses, terminals, devices, settings hierarchy, number sequences |
-| **Catalog** | Products, variants, barcodes, categories, brands, units, modifiers, price lists, taxes, discounts |
+| **Catalog** | Products, variants, barcodes, categories, brands, modifiers, price lists, taxes, discounts — and the **unit model**: one base (stock) unit per product, purchase and sales units as line defaults, the conversion factors, the single resolver every other module calls, and the barcode rules that parse a scale label |
 | **Inventory** | Stock levels, the stock ledger, batches and serials, adjustments, transfers, reorder alerts |
 | **Purchasing** | Suppliers, purchase requests, purchase orders, goods receipts, supplier invoices, returns, supplier payments |
 | **Sales** | The till: sales, items, tenders, hold and recall, refunds, voids, cash shifts, approvals |
@@ -180,7 +180,7 @@ The single largest operational cost of this architecture, and therefore foundati
 - report which tenants are behind, and refuse to let the application serve a tenant whose schema is older than the code expects;
 - follow **expand and contract**: add in one release, backfill, switch, remove in a later one, so old and new code can both run during a rollout.
 
-**Server placement.** Tables, not disk, are the real ceiling. At roughly 150 tables per tenant, a thousand tenants is 150,000 tables on one server, and table-cache and metadata pressure bite well before storage does. Plan for a few hundred tenants per server. The mapping stores host and port precisely so tenants spread across servers, and a large customer can be moved to dedicated infrastructure by moving data and updating one row.
+**Server placement.** Tables, not disk, are the real ceiling. At roughly 190 tables per tenant — the figure [database.md](database.md) §10 computes, and the denominator of every capacity argument here — a thousand tenants is 190,000 tables on one server, and table-cache and metadata pressure bite well before storage does. Plan for a few hundred tenants per server. The mapping stores host and port precisely so tenants spread across servers, and a large customer can be moved to dedicated infrastructure by moving data and updating one row.
 
 ---
 
@@ -243,7 +243,7 @@ Unchanged in substance from v0.3 and still the hardest part of the product.
 - A completed, paid sale is a fact. The server records it; it never rejects it for business reasons.
 - Master data is server-authoritative. The till reads products, prices and taxes offline but never edits them, which removes most conflict cases.
 - Every offline record carries a client-generated identifier and a per-terminal sequence, so replays are idempotent.
-- The till holds a replica: products, prices, taxes, discounts, customers, payment methods, settings, printers, templates, and the cashier PIN and permission set that lets someone sign in with no internet.
+- The till holds a replica: products, prices, taxes, discounts, customers, payment methods, settings, printers, templates, and the cashier PIN and permission set that lets someone sign in with no internet. It also holds the **unit conversions and barcode rules**, without which an offline till that sells a case falls back to a different factor than the server and writes a quantity nobody authorised — into a sale that, by the first rule in this list, is never rejected.
 - Push is a batch of items acknowledged individually, so a partial failure is resumable. Pull is a delta by version, with a full snapshot for a new or recovered terminal.
 - Conflict rules are explicit: duplicates by identifier, oversell accepted and flagged, stale price kept as sold and reported, customer edits merged field by field with the discarded values audited, orders merged as an append-only stream.
 - Invoice numbers are allocated per terminal from a reserved prefix so a receipt is final at the moment it prints.
@@ -288,7 +288,7 @@ Two Angular applications in one workspace over a shared library holding the API 
 
 The till is an offline-first progressive web application with its local database and sync engine. The admin and ERP application is lazily loaded per area. Plugins ship as separately built remotes the shell loads at runtime and the service worker caches, so a plugin's user interface works offline too.
 
-The tax, discount and rounding engine exists twice, in PHP and TypeScript, driven by shared fixtures so a receipt printed offline matches the server total exactly.
+The tax, discount and rounding engine exists twice, in PHP and TypeScript, driven by shared fixtures so a receipt printed offline matches the server total exactly. **Unit resolution and barcode parsing belong to that engine and to those fixtures**, not beside it: the quantity is an input to every number the engine computes, so a till that resolves a factor differently produces a different total from the same basket, and the fixtures are the only thing that proves it does not.
 
 ---
 
@@ -339,7 +339,7 @@ The mapping table is what makes every step a data move plus a row update rather 
 
 ## 21. Testing
 
-Unit tests for the calculation engine, posting rules, conflict rules and the permission resolver. Feature tests per module against a two-tenant fixture. A generated cross-tenant suite that must pass to merge. Sync scenarios covering duplicates, ordering, dependencies and conflicts. Plugin lifecycle and isolation. Migration tests that run the tenant set against a fresh database and an existing one. Frontend unit and end-to-end tests including the offline sale. Print agent tests against a mock transport with golden output. Load tests for checkout latency and sync bursts.
+Unit tests for the calculation engine, posting rules, conflict rules and the permission resolver. Feature tests per module against a two-tenant fixture. A generated cross-tenant suite that must pass to merge. Sync scenarios covering duplicates, ordering, dependencies and conflicts. Plugin lifecycle and isolation. Migration tests that run the tenant set against a fresh database and an existing one. Frontend unit and end-to-end tests including the offline sale. Print agent tests against a mock transport with golden output. Load tests for checkout latency and sync bursts. **Quantity invariants run nightly and are tested like any other rule** (database.md §6.5): the maintained stock level equals the sum of the ledger, the running balance on the ledger is consistent, and a posted goods receipt's base quantities equal the movements it wrote — the last of those being the only check that spans the document boundary and therefore the only one that can see a unit-conversion bug. Three static tests guard the design rather than the behaviour: no unit column below the document layer, no `decimal()` without a precision in a tenant migration, and no partial unit column set on a document line.
 
 The gate runs formatting, static analysis, boundary rules and tests. It must stay fast enough that people keep running it.
 
@@ -359,6 +359,7 @@ The gate runs formatting, static analysis, boundary rules and tests. It must sta
 | 8 | Online sales strongly consistent on stock; offline sales are facts | Never oversell when connected; never reject a paid sale | Eventual stock everywhere |
 | 9 | Plugins in-process behind a hook gateway, licensed in the master | Full extension power with per-tenant licensing and crash isolation | Webhook-only plugins |
 | 10 | Table count, not disk, sets tenants per server | Metadata pressure bites first; the mapping already supports many servers | Assuming thousands of databases on one server |
+| 11 | **One base unit per product; convert once at the document line and snapshot the factor there; prices carry their own unit (U-1); weighable goods are a flag plus a barcode-rule table, not a product type (U-2); repack is a real document (U-3)** | The design already does exactly this for money — document currency, a snapshotted rate, a base amount — and never applied the same shape to quantity, which is why the goods-receipt unit and the selling unit had a conversion table and nothing downstream that used it. Snapshotting the factor is also what makes a rebuilt read model deterministic | **Derive every alternate-unit price by factor.** It cannot express a case discount, it is inverted in pharmacy, it is self-contradictory under rounding when 24 × 7.50 ≠ the shop's case price, and it would have to be undone later by changing a unique key on a till-replicated table — a full resync of every terminal |
 
 ---
 
@@ -371,3 +372,7 @@ The gate runs formatting, static analysis, boundary rules and tests. It must sta
 | 3 | Payment gateways at launch | None live; cash, card as reference, and credit |
 | 4 | Languages for the interface and receipts | English first, Sinhala and Tamil after |
 | 5 | Pilot domain name on the VPS | Pending |
+| 6 | Is the stock unit always the smallest sellable unit — i.e. is every conversion factor to base at least 1? | Yes, validated on the conversion rows (database.md Q-9) |
+| 7 | Is a product's stock unit immutable once stock has moved? | Yes, refused in the service layer; changing it is a new product (Q-10) |
+| 8 | Are fractional base quantities legal when the base unit is a countable `each`? | No — a unit with precision 0 makes the writer reject a fractional base quantity rather than round it (Q-11) |
+| 9 | Does a branch need its own default sale unit? | No for 1.0; a branch already overrides the price, and adding the column later is a terminal resync (Q-12) |
