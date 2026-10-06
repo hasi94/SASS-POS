@@ -601,7 +601,7 @@ erDiagram
 
 | Table | Columns / notes |
 |---|---|
-| stock_levels | `[ID]` `[TS]`, location_id FK, product_id FK, **quantity_on_hand, quantity_reserved, quantity_incoming (all `DECIMAL(18,4)`, all in the product's stock unit)**, **total_value — the accumulator and the authority** (`prior total + money in`, §6.5 D-76), **avg_cost (per stock unit) derived from it** as `total_value / on_hand`, last_movement_at, last_counted_at; unique (location_id, product_id). Only ever updated inside the same transaction as a movement, under `SELECT … FOR UPDATE` |
+| stock_levels | `[ID]` `[TS]`, location_id FK, product_id FK, **quantity_on_hand, quantity_reserved, quantity_incoming (all `DECIMAL(18,4)`, all in the product's stock unit)**, **total_value — the accumulator and the authority**, updated by the three rules of §6.5 (inbound, outbound and value-only) and **not restated here** (D-76), **avg_cost (per stock unit) derived from it** as `total_value / on_hand`, last_movement_at, last_counted_at; unique (location_id, product_id). Only ever updated inside the same transaction as a movement, under `SELECT … FOR UPDATE` |
 | **stock_movements** (append-only) | `[ID]` `[SYNC]` `[GL]`, location_id FK, product_id FK, batch_id FK NULL, serial_id FK NULL, type enum(opening, sale, sale_refund, sale_void, grn, grn_return, purchase_return, adjustment, count, transfer_out, transfer_in, wastage, expiry, production_in, production_out, correction, reservation, reservation_release), **quantity DECIMAL(18,4) signed — always in the product's stock unit, never in a document unit**, unit_cost (per stock unit), value signed, balance_after, reference_type VARCHAR(40), reference_id CHAR(26), **reference_line_id CHAR(26) NOT NULL**, **batch_key**, **serial_key** (generated, below), employee_id FK NULL, notes, created_at; **the idempotency key of §6.5** — declared there once, with its columns, its per-type `reference_line_id` table and the two bugs it fixes, and deliberately **not** restated here, because this document stated it two ways three lines of scroll apart until review round 2 (FP-181); indexes (location_id, product_id, created_at), (reference_type, reference_id), (created_at), (batch_id), (product_id) |
 | batches | `[ID]` `[TS]`, product_id FK, batch_no VARCHAR(60), mfg_date DATE NULL, **expiry_date DATE NULL**, supplier_id FK NULL, grn_item_id FK NULL, unit_cost, initial_quantity, status enum(active, quarantined, expired, recalled, depleted), notes; unique (product_id, batch_no), index (expiry_date, status) — drives the expiring-stock report and FEFO picking |
 | stock_batch_levels | location_id FK, product_id FK, batch_id FK, quantity_on_hand, quantity_reserved, `[TS]`; PK (location_id, batch_id). Kept in step with `stock_levels` in the same transaction; the sum over batches must equal the level, checked nightly |
@@ -699,23 +699,23 @@ grouping the types differently, and both correctness defects of that round were 
 a fact that will disagree with itself. Long reasoning lives in the notes beneath, so the cells stay
 scannable; **★ marks a row that was ruled rather than read off** an existing sentence.
 
-| `type` | `reference_line_id` is | `reference_type` | Branch | Inventory cost → multiplier | Note |
-|---|---|---|---|---|---|
-| `opening` | `stock_adjustment_items.id` | `stock_adjustment` | inbound | entered `unit_cost`, per **line** unit → `line.quantity` | ★1 |
-| `sale` | `sale_items.id` | `sale` | outbound | `avg_cost`, per **stock** unit → `base_quantity` | 2 |
-| `sale_refund`, `sale_void` | `sale_items.id` | `sale` | **inbound** | the refunded line's `unit_cost` snapshot, per **stock** unit → `base_quantity` | 3 |
-| `grn` | `grn_items.id` | `grn` | inbound | `landed_cost`, per **line** unit → `line.quantity` | 4 |
-| `grn_return` | **no document defines it** | — | — | — | 5 |
-| `purchase_return` | `purchase_return_items.id` | `purchase_return` | outbound | `avg_cost`, per **stock** unit → `base_quantity` | ★6 |
-| `adjustment` | `stock_adjustment_items.id` | `stock_adjustment` | **the sign decides** | increase: entered `unit_cost` per **line** unit → `line.quantity` · decrease: `avg_cost` → `base_quantity` | ★7 |
-| `count` | `stock_count_items.id` | `stock_count` | **the sign of `difference` decides** | `unit_cost` per **stock** unit → **`difference`**, which is already base | ★8 |
-| `wastage`, `expiry` | `stock_adjustment_items.id` | `stock_adjustment` | outbound | `avg_cost`, per **stock** unit → `base_quantity` | 2 |
-| `transfer_out` | `stock_transfer_items.id` | `stock_transfer` | outbound | `avg_cost`, per **stock** unit → `base_quantity` | 9 |
-| `transfer_in` | `stock_transfer_items.id` | `stock_transfer` | **inbound** | the sending movement's cost per **stock** unit → **`base_qty_received`** | ★9 |
-| `production_in` | `stock_production_items.id`, role `output` / `byproduct` | `stock_production` | **inbound** | **the line's `value`, read and not multiplied** | ★10 |
-| `production_out` | `stock_production_items.id`, role `input` | `stock_production` | outbound | **the line's `value`, read and not multiplied** | ★10 |
-| `correction` | the **correcting** `stock_adjustment_items.id` | `stock_adjustment` | **value-only**, or the sign decides where it carries a quantity | the signed `value` itself — no multiplier | ★11 |
-| `reservation`, `reservation_release` | `stock_reservations.id` | `sales_order` · `quotation` · `transfer` · `order` | **neither** | none — they carry no value at all | 12 |
+| `type` | `reference_line_id` is | `reference_type` | Branch | **Quantity moved** | Inventory cost → multiplier | Note |
+|---|---|---|---|---|---|---|
+| `opening` | `stock_adjustment_items.id` | `stock_adjustment` | inbound | `base_quantity` | entered `unit_cost`, per **line** unit → `line.quantity` | ★1 |
+| `sale` | `sale_items.id` | `sale` | outbound | `base_quantity` | `avg_cost`, per **stock** unit → `base_quantity` | 2 |
+| `sale_refund`, `sale_void` | `sale_items.id` | `sale` | **inbound** | `base_quantity` | the refunded line's `unit_cost` snapshot, per **stock** unit → `base_quantity` | 3 |
+| `grn` | `grn_items.id` | `grn` | inbound | **`base_quantity + base_free`** ★ — the **only** row where `base_free` exists | `landed_cost`, per **line** unit → `line.quantity` | 4 |
+| `grn_return` | **no document defines it** | — | — | — | — | 5 |
+| `purchase_return` | `purchase_return_items.id` | `purchase_return` | outbound | `base_quantity` | `avg_cost`, per **stock** unit → `base_quantity` | ★6 |
+| `adjustment` | `stock_adjustment_items.id` | `stock_adjustment` | **the sign decides** | `base_quantity`, signed | increase: entered `unit_cost` per **line** unit → `line.quantity` · decrease: `avg_cost` → `base_quantity` | ★7 |
+| `count` | `stock_count_items.id` | `stock_count` | **the sign of `difference` decides** | **`difference`**, signed — **not** `base_quantity`, which is the total counted | `unit_cost` per **stock** unit → **`difference`**, which is already base | ★8 |
+| `wastage`, `expiry` | `stock_adjustment_items.id` | `stock_adjustment` | outbound | `base_quantity` | `avg_cost`, per **stock** unit → `base_quantity` | 2 |
+| `transfer_out` | `stock_transfer_items.id` | `stock_transfer` | outbound | **`base_qty_sent`** — there is no `base_quantity` on this row | `avg_cost`, per **stock** unit → `base_quantity` | 9 |
+| `transfer_in` | `stock_transfer_items.id` | `stock_transfer` | **inbound** | **`base_qty_received`** — likewise | the sending movement's cost per **stock** unit → **`base_qty_received`** | ★9 |
+| `production_in` | `stock_production_items.id`, role `output` / `byproduct` | `stock_production` | **inbound** | `base_quantity` | **the line's `value`, read and not multiplied** | ★10 |
+| `production_out` | `stock_production_items.id`, role `input` | `stock_production` | outbound | `base_quantity` | **the line's `value`, read and not multiplied** | ★10 |
+| `correction` | the **correcting** `stock_adjustment_items.id` | `stock_adjustment` | **value-only**, or the sign decides where it carries a quantity | **zero** on a value-only correction; `base_quantity`, signed, where it carries one | the signed `value` itself — no multiplier | ★11 |
+| `reservation`, `reservation_release` | `stock_reservations.id` | `sales_order` · `quotation` · `transfer` · `order` | **neither** | **`stock_reservations.quantity`, applied to `quantity_reserved` and never to `quantity_on_hand`** ★ | none — they carry no value at all | 12 |
 
 **The ★ rows are all one question, the one D-71 answered first for the reservation pair: _what is the
 thing that happened once, and what was it worth?_** For a reservation it is the reservation, not the
@@ -749,7 +749,11 @@ line, not the header.
    movement. `difference` and `variance_value` are already base-only on that row, so `unit_cost` is
    per **stock** unit here and `variance_value = difference × unit_cost` closes. **This is the one
    item table in §6 whose `[UOM]` quantity is not the quantity that moves**, which is exactly why it
-   was the row that broke.
+   was the row that broke — twice: on the money side in QA run 7 and on the quantity side in review
+   round 3, because the formula had stopped choosing the cost and was still choosing the quantity.
+   The **Quantity moved** column exists so that neither side can be chosen anywhere but here: a
+   level holding 48 that receives `base_quantity` = 72 from a count that found 72 closes at **120**,
+   and invariant 1 cannot see it, because the movement row carries the same wrong number.
 9. ★ **`transfer_in` adds the value of what *arrived*** — `base_qty_received`, at the cost the
    sending movement used — so a **complete** intra-account transfer is value-neutral **by
    construction** rather than by two multiplications happening to agree. **What happens to the value
@@ -766,7 +770,11 @@ line, not the header.
    implement a guess from here. Note that the `stock_transfers` row (§6.5) carries the same unbacked
    claim from v0.4, that goods in transit "hit the `transit` location so they are never invisible";
    FP-253 has to reconcile that sentence too. Meanwhile D-73 keeps the shortfall visible in
-   `qty_variance`, which is a quantity statement and needs no value rule to be true.
+   `qty_variance`, which is a quantity statement and needs no value rule to be true — and **the
+   workaround that exists today is that a shortfall which later arrives is its own transfer
+   document**: a new header, a new line, a new ULID, which the key already separates. Said here so
+   that the first person to meet a short transfer uses it rather than building the two-hop shape
+   this note has just declined.
 10. ★ **Both production branches read the line's `value` and multiply nothing.** §6.5's apportionment
     puts the rounding residue **in the last output line's `value`**, so recomputing
     `unit_cost × base_quantity` would differ from it by that residue and
@@ -820,13 +828,21 @@ Rejected alternatives, both considered and both worse:
 The formula was never written down. It is, **in base units**:
 
 ```text
-inventory_cost = the movement's cost column AND its multiplier, per THE MOVEMENT TABLE above.
-                 Nothing here chooses them; the table is the only place they are decided.
-base_paid      = line.base_quantity                        -- the quantity that was paid for
-base_free      = ROUND(line.free_quantity × line.unit_factor, 4)        -- (†) defined ONCE, here
+qty_moved      = THE MOVEMENT TABLE's "Quantity moved" column, for this type
+inventory_cost = THE MOVEMENT TABLE's cost column AND its multiplier, for this type
+                 -- Nothing in this block chooses either. The table is the only place they
+                 -- are decided, for the QUANTITY exactly as for the cost: `difference` on a
+                 -- count, `base_qty_sent`/`base_qty_received` on a transfer, zero on a
+                 -- value-only correction. `line.base_quantity` is NOT the generic answer,
+                 -- and on two of those rows it does not exist at all.
+base_free      = ROUND(line.free_quantity × line.unit_factor, 4)
+                 -- (†) ONE definition, and it applies to exactly ONE row: `grn`, where the
+                 -- table folds it into the quantity moved. `free_quantity` is a goods-receipt
+                 -- column and nothing else has it — and in SQL a NULL addend would make the
+                 -- whole `on_hand` update NULL.
 
--- EVERY branch works on MAGNITUDES. An item line with a signed quantity (an adjustment, a
--- count's `difference`) selects its branch by the SIGN first, then enters it with |quantity|.
+-- EVERY branch works on MAGNITUDES. Where `qty_moved` is signed (an adjustment, a count's
+-- `difference`) the SIGN selects the branch first, then the branch runs on |qty_moved|.
 -- Without that, a decrease would add to on_hand.
 
 -- INBOUND: money in is exactly what §7.2 debits the inventory account
@@ -836,13 +852,13 @@ money_in      = ROUND(inventory_cost × the table's multiplier, 4)
                 --                     column where it names one            a count's `difference`)
                 -- an already-computed VALUE -> read it, multiply nothing  (a production output)
 total_value  += money_in                            -- ALWAYS, including from a negative balance
-on_hand      += base_paid + base_free               -- BASE, and paid AND free
+on_hand      += |qty_moved|                         -- the TABLE's column, already base
 
 -- OUTBOUND: money out is exactly what §7.1 credits the inventory account
-line_cost     = ROUND(|base_quantity| × avg_cost, 4)   -- or the line's `value`, where the table
+line_cost     = ROUND(|qty_moved| × avg_cost, 4)       -- or the line's `value`, where the table
                                                        -- names one (a production input)
 total_value  -= line_cost
-on_hand      -= |base_quantity|
+on_hand      -= |qty_moved|
 
 -- VALUE ONLY: a revaluation, or the zero-stock write-off below (NOT a "residue" — see below).
 -- Quantity does not move; `value` is signed and is exactly what §7.5 posts.
@@ -870,7 +886,7 @@ that nobody was charged.
 **Worked, with this document's own numbers**, because a sentence about this is not checkable and a
 table is. Ten cases received at a landed 4 800 each, two cases free, 24 singles to a case, from zero
 stock. `money_in` = 10 × 4 800 = **48 000**, which is exactly what §7.2 debits inventory (nobody
-invoices the free cases); `base_paid` = 240 and `base_free` = 48, so `on_hand` closes at **288**:
+invoices the free cases); the table's quantity moved for `grn` is `base_quantity + base_free` = 240 + 48, so `on_hand` closes at **288**:
 
 | | `avg_cost` (derived) | `on_hand` | `total_value` | GL inventory debit | Difference |
 |---|---|---|---|---|---|
@@ -990,7 +1006,7 @@ above shows. The write-off fires **only at exactly zero on-hand**, where there i
 left for the balance to be the value *of*. Said explicitly because adding a guard here is precisely how
 BUG-14 happened: a reset that looked like tidiness and was the destruction of a real balance.
 
-**This is the most dangerous arithmetic in the feature, and `money_in` from money moves *where* the danger is rather than removing it.** **The quantity side is where the factor lives, and every line there must use base.** `on_hand` is the sharpest: add `line.quantity` to it instead of `base_paid + base_free` and ten cases of 24 received at a landed 4 800 put 48 000 against **10** units instead of 288, `avg_cost` derives as 4 800 instead of 166.6667, and the balance sheet overstates inventory 24-fold — with no error, no warning and nothing to notice until a stock-take. The outbound `|base_quantity|` in `line_cost` is the same error mirrored, and the movement table's multiplier column is a third place to get it wrong. **Every quantity in this arithmetic is base; the only thing ever in a line unit is a price.** `unit_cost` on a **purchase** line is per **line unit** — it is what the supplier charges for a case — while `avg_cost` on a level is per **stock unit**, and the factor is the only thing between them. The one deliberate exception is a **cost snapshot on an outbound line** (`sale_items.unit_cost`, `stock_production_items.unit_cost`): those are copies of `avg_cost` and are therefore already per stock unit, so they multiply by `base_quantity`, not by `quantity`. Stated here because the two readings of one column name are exactly how a 24× error gets written by someone who read only half the design.
+**This is the most dangerous arithmetic in the feature, and `money_in` from money moves *where* the danger is rather than removing it.** **The quantity side is where the factor lives, and every line there must use base.** `on_hand` is the sharpest: add `line.quantity` to it instead of the table's quantity moved and ten cases of 24 received at a landed 4 800 put 48 000 against **10** units instead of 288, `avg_cost` derives as 4 800 instead of 166.6667, and the balance sheet overstates inventory 24-fold — with no error, no warning and nothing to notice until a stock-take. The outbound `|base_quantity|` in `line_cost` is the same error mirrored, and the movement table's multiplier column is a third place to get it wrong. **Every quantity in this arithmetic is base; the only thing ever in a line unit is a price.** `unit_cost` on a **purchase** line is per **line unit** — it is what the supplier charges for a case — while `avg_cost` on a level is per **stock unit**, and the factor is the only thing between them. The one deliberate exception is a **cost snapshot on an outbound line** (`sale_items.unit_cost`, `stock_production_items.unit_cost`): those are copies of `avg_cost` and are therefore already per stock unit, so they multiply by `base_quantity`, not by `quantity`. Stated here because the two readings of one column name are exactly how a 24× error gets written by someone who read only half the design.
 
 #### `stock_levels.quantity_incoming`
 

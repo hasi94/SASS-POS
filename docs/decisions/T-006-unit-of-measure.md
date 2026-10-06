@@ -358,3 +358,21 @@ question, because the first gets implemented and the second gets decided.** Reco
 silently deleted because `stock_transfers` has carried the same unbacked transit claim since v0.4,
 and FP-253 needs to know the sentence exists in two places. Reversible: yes — nothing was built.
 
+D-83 | Review round 3 R3-1: the movement table decided each type's **cost** and the formula still
+decided the **quantity** generically, as `base_paid = line.base_quantity`. Three instances, all
+verified: a count line's `base_quantity` is the *total counted*, so a level holding 48 that receives
+72 from a count which found 72 closes at **120** and invariant 1 cannot see it; `stock_transfer_items`
+has `base_qty_sent`/`base_qty_received` and **no `base_quantity` at all** (D-58), so the symbol was
+undefined for both transfer types; and `base_free` was marked "(†) defined ONCE" while
+`free_quantity` exists on **one** of the inbound branch's seven sources, where a NULL addend would
+make the whole `on_hand` update NULL. | A seventh column, **"Quantity moved"**, on the movement table,
+and the formula's quantity lines defer to it exactly as its cost lines already did: `on_hand ±=
+|qty_moved|`. `base_free` is folded into that column on the `grn` row — the only row that has it —
+and its definition says so. | The table was normative for everything the ledger stores **except the
+one column it is built on**, which is the kind of gap that survives review because each half reads
+correctly on its own. Two rows needed a ruling rather than a read-off and are marked ★: `grn`, which
+is now the only place `base_free` applies, and the **reservation pair**, whose quantity column no
+sentence in the document had ever named — `stock_reservations.quantity`, applied to
+`quantity_reserved` and never to `quantity_on_hand`. The rest were readable from note 8, note 9 or
+D-58 and are not marked. Same move as R2-2 on the other half of the same expression. Reversible: yes.
+
