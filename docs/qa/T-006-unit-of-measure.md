@@ -4,7 +4,7 @@ Spec `docs/specs/T-006-unit-of-measure.md` (AC-1 to AC-67) · Plan `docs/plans/T
 Branch `ai/T-006-unit-of-measure`, 17 commits over base `47e226d`, nothing pushed. Measured on this machine on **2026-10-06**.
 No code, test or fixture was written: the task is documents, and nothing here needed a new test.
 
-## Verdict: FAIL (run 3; run 1 FAIL, run 2 PASS, both kept below as measured)
+## Verdict: FAIL (run 4; run 1 FAIL, run 2 PASS, run 3 FAIL, all kept below as measured)
 
 Two acceptance criteria fail (AC-52, AC-63), both **minor** and both fixable by one sentence each.
 One **major** design defect (BUG-1) is not an AC failure as written but is the exact defect class the
@@ -208,3 +208,35 @@ Gate by me: exit 0, PHPStan no errors, Deptrac 0, Pest **314 / 1435**, 192.85 s 
 I agree with the architect's refusal. The schema has one `received_at`/`received_by` on the header and one `qty_received` pair per line, so receiving is one event per line, and `partially_received` is realisable as "some lines short or absent, shortfall in `qty_variance`". The residual unrecordable case is a short line whose remainder arrives later; D-73 names it and routes it to FP-253 instead of inventing a receiving table. That is a gap, not a contradiction, and the correct place for it. One request for FP-253: say whether `qty_variance` is a final shortfall or pending, because the answer decides whether a later arrival is a new document.
 
 Nothing in the coordinator's message measured wrong except the claim that the formula dilutes (BUG-10) and the claim that the review round left no grn_items contradiction.
+Run 4: FAIL -> FAIL (BUG-10/11/12 closed; the D-76 accumulator rule is contradicted by the negative-stock reset, BUG-14, and D-74 keeps a stale "exactly", BUG-13).
+
+---
+
+## Run 4 (tree at `158b30c`)
+
+Gate by me: exit 0, PHPStan no errors, Deptrac 0, Pest **314 / 1435**, 91.42 s. Criteria: **67 pass, 0 fail, 0 n/a** against the documents as they now stand; two spec criteria are stale by design (AC-30 and AC-39 describe the superseded "not settled" and numerator, and should be re-worded by `ba`). Verdict is FAIL on BUG-14.
+
+### Re-test
+
+| Item | Result |
+|---|---|
+| BUG-10 first example | 10 + 2 free, 24/case, landed 4 800: cost_per_base 200, base_paid 240, base_free 48. Both-in-numerator: 288 x 200 = 57 600, +9 600. Denominator-only: money 48 000, avg 48 000 / 288 = 166.6667, value 48 000 = GL debit. Correct |
+| BUG-10 prior-stock example (the unverified one) | 100 on hand at 150 = 15 000; money in 240 x 200 = 48 000; total 63 000; quantity 100 + 240 + 48 = 388; 63 000 / 388 = 162.371134..., stated 162.3711. **Correct** |
+| D-76 residue | 48 000 / 288 = 166.666667, stored 166.6667; 166.6667 x 288 = **48 000.0096**. Correct, 0.96 cent |
+| BUG-11 | The `grn_items` row now says `unit_cost` and `landed_cost` per line unit, and the deferral sentence is gone (grep for "does not settle" finds nothing in database.md, architecture.md or backlog.md) |
+| BUG-12 | The R-2 table was in fact complete on the 18 types; the gap was the production **role**. `role = wastage` writes no movement: inputs leave on `production_out` in full, outputs arrive on `production_in`, wastage is the difference, so a movement would remove it twice and break check 1. Reasoning correct; it feeds `wastage_value` and the §7.5 Dr wastage expense. Closed |
+| D-74 no path to the old reading | The denominator-only rule, the two-reading balance-sheet naming and "full cost is a defect, not an option" are all present; only presentation is left open. **But** see BUG-13 |
+
+### BUG-13 (minor)
+D-74 (rewritten) still says "free-in-the-denominator-only gives 166.6667 x 288 = **48 000 exactly**". Per D-76 and §6.5 it is 48 000.0096, and `total_value` ties only because it is the accumulator. A reader of D-74 alone is told the avg_cost product ties exactly, which is the overclaim D-76 corrected. Fix: "48 000 when total_value is the accumulator (D-76)".
+
+### BUG-14 (major): the accumulator rule is not consistent with the `on_hand <= 0` reset, so the "by construction" tie fails after negative stock
+- The formula sets `prior = 0` whenever `on_hand <= 0`, a guard I recommended in run 1 for the zero/negative denominator, written before `total_value` became the authority. With `total_value` as the accumulator the reset discards a real balance.
+- **Reproduce:** location at 0 stock. An offline sale drives it to -5 at snapshot cost 100: `total_value` = -500, GL credits inventory 500. A receipt of 10 at 100 follows. Formula: `prior = 0`, so `total_value` = 1 000 at on_hand 5. The inventory account holds 1 000 - 500 = **500**. Stock ledger says 1 000: a permanent 500 overstatement, with the document claiming reconciliation by construction.
+- **Expected:** `total_value_new = total_value + money_in` always, including when negative; `avg_cost` derived as `total_value / on_hand` only where `on_hand > 0` (and a stated value, e.g. last cost, when `on_hand <= 0`, since the derivation divides by zero at exactly zero stock).
+- **Also unstated:** how an **outbound** movement updates `total_value` (the row only defines inbound). Natural rule: minus the same `line_cost` the sale posts to the ledger. Without it, the last unit sold leaves a sub-cent `total_value` at on_hand 0 that nothing clears.
+- **Suspected location:** `docs/database.md` §6.5 formula block and "The guard is on the prior layer" paragraph; `stock_levels` row; D-76.
+
+I previously accepted a self-correction chain on this paragraph three times; this defect is again an arithmetic claim never run on its own edge. Note it is partly mine: the original guard was my BUG-5 suggestion.
+
+Nothing in the coordinator's message measured wrong.
