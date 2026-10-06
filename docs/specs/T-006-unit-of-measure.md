@@ -244,10 +244,16 @@ Numbering starts at AC-1 for T-006. "§" without a file means `docs/database.md`
 - **AC-29** (sales order progress, D-59): Given `sales_order_items`, then `delivered_quantity` and
   `invoiced_quantity` are **in base** with no second column, and the row explains the asymmetry with
   `purchase_order_items.received_quantity`.
-- **AC-30** (free goods, D-60): Given `grn_items`, then `free_quantity` is in the line's `unit_id`,
-  converts with the **same** snapshotted `unit_factor`, the movement is written for
-  `base_quantity + ROUND(free_quantity × unit_factor, 4)`, and the row says whether free goods dilute
-  `avg_cost` is **not settled by this task**.
+- **AC-30** (free goods, D-60 as superseded by D-74): Given the `grn_items` row, then
+  `free_quantity` is `DECIMAL(18,4) NOT NULL DEFAULT 0`, is in the line's `unit_id`, converts with the
+  **same** snapshotted `unit_factor`, and the movement is written for
+  `base_quantity + ROUND(free_quantity × unit_factor, 4)`; **and the row states that free units enter
+  stock at zero cost** (lower `avg_cost`, leave `total_value` tied to the inventory account) with a
+  pointer to §6.5 / D-74. The row must **not** say the dilution question is unsettled, deferred or "not
+  settled by this task" (that was the superseded design; `qa` greps the row and §6.5 for "not settle",
+  "deliberately" and "dilute" and reads each hit). Given §6.5, then the free quantity appears in the
+  **denominator only** of the weighted average, and full-cost free goods are called a **defect**, not
+  an alternative a tenant may choose. Fails if the row and §6.5 disagree on any of these.
 
 ### Factor resolution, guards and precision
 
@@ -298,12 +304,33 @@ Numbering starts at AC-1 for T-006. "§" without a file means `docs/database.md`
 
 ### Valuation, price variance, rollups, incoming (§6.5, §6.6, §7.2)
 
-- **AC-39** (formula): Given §6.5 "Valuation, and the formula", then the formula is written with
-  `cost_per_base = line.unit_cost / line.unit_factor` and
-  `new_avg = (on_hand × avg_cost + base_qty_in × cost_per_base) / (on_hand + base_qty_in)`, with the
-  zero-denominator guard (`new_avg = cost_per_base`). `qa` computes the worked example in the text
-  (a case of 24 at 4 800 becomes 200 per single) and confirms 4 800 / 24 = 200 and that the
-  stated consequence (inventory overstated by a factor of 24) follows.
+- **AC-39** (formula, as shipped after D-72, D-74): Given §6.5 "Valuation, and the formula", then
+  the formula divides the **inventory cost** by `unit_factor` (`cost_per_base = line.inventory_cost /
+  line.unit_factor`, where `inventory_cost` is `grn_items.landed_cost` on a receipt and `unit_cost` on
+  any other inbound movement); money in is `base_paid × cost_per_base` with `base_paid =
+  line.base_quantity`; quantity in is `base_paid + base_free` with `base_free = ROUND(free_quantity ×
+  unit_factor, 4)`; the prior layer is `on_hand × avg_cost` only when `on_hand > 0`, else zero (the
+  guard is on the prior layer, not on a zero denominator). `qa` recomputes both worked tables from
+  the document's own numbers: 4 800 / 24 = 200; `base_paid` 240, `base_free` 48; 240 × 200 / 288 =
+  166.6667 and `total_value` 48 000 against a GL debit of 48 000; the rejected reading gives 57 600,
+  a difference of +9 600; and 100 on hand at 150 plus the receipt gives (15 000 + 48 000) / 388 =
+  162.3711. Fails if any figure does not recompute or if the formula still puts `free_quantity` in
+  the numerator.
+- **AC-68** (`total_value` is the authority, D-76): Given §6.5 and the `stock_levels` row, then
+  `total_value` is stated to be the **accumulator** (`prior total + money in`) and `avg_cost` is
+  **derived** from it (`total_value / on_hand`), and the two places agree. `qa` recomputes the
+  residue the text cites: 288 × 166.6667 = 48 000.0096, a 0.96-cent residue against 48 000. Fails if
+  any sentence in either document still describes `avg_cost` as the stored authority or the two
+  columns as symmetric "maintained" columns (grep `avg_cost` and `total_value` in both documents
+  and read each hit; the §6.5 sentence "`stock_levels` already describes `total_value` as
+  maintained" is allowed only if the row now says authority). The document says §7.1 "already gives
+  rounding an account"; `qa` confirms §7.1 does.
+- **AC-69** (`landed_cost` per line unit, D-72): Given the `grn_items` row and §6.5, then
+  `landed_cost` is stated **per line unit**, like `unit_cost`, and is the column the average cost
+  and the §7.2 inventory debit are built from; §6.5 states the reconciliation
+  `SUM(stock_levels.total_value)` = balance of the inventory account the products resolve to. D-57's
+  two readings of `unit_cost` (AC-28) are unchanged. Fails if `landed_cost` is described as a line
+  total or left without a unit basis.
 - **AC-40** (variance): Given §7.2, then purchase price variance is computed **per base unit on
   both sides** (`line_total / base_quantity` of the invoice line against that of the receipt line)
   and states the 24× fictional-variance failure it prevents; and `supplier_invoice_items` and
@@ -452,7 +479,8 @@ Numbering starts at AC-1 for T-006. "§" without a file means `docs/database.md`
   `SUM(stock_movements.quantity)` per posted receipt per product. The pre-existing check
   `SUM(stock_batch_levels) = stock_levels` is documented as **structurally blind** to a conversion
   bug (both sides are written from one already-converted value) and kept. Check 3 uses the same
-  expression as the posting rule in the `grn_items` row (AC-30); `qa` confirms the two expressions are
+  expression as the posting rule in the `grn_items` row (AC-30), and therefore the same
+  quantity-in as the formula's denominator (AC-39); `qa` confirms the two expressions are
   identical, because the invariant is only meaningful if it mirrors the posting.
 - **AC-62**: Given arch §21, then quantity invariants "run nightly" and are named as three, with the
   third described as the only one that spans the document boundary.
@@ -493,7 +521,8 @@ Numbering starts at AC-1 for T-006. "§" without a file means `docs/database.md`
 - Any implementation: migrations, models, `UnitResolver`, the barcode parser, the TypeScript engine,
   the replica payload. These belong to FP-230, FP-231, FP-236, FP-237, FP-250 to FP-257.
 - Live-weight scale hardware and the print-agent integration: FP-258, Phase 6 (owner U-2).
-- Whether free goods dilute `avg_cost` (`grn_items` row: deliberately not settled).
+- Whether the free-goods benefit is also *disclosed* as a purchase discount received (presentation
+  only; free goods themselves are settled, D-74).
 - The depletion posting rule for `modifiers.linked_product_id` (belongs to the restaurant workstream).
 - FIFO costing (Q-3), unchanged.
 - Recording the CQRS direction in the architecture document (owed, not this task).
@@ -595,8 +624,12 @@ documents; each blocks only the later work that would depend on the answer.
    which breaks the rule that nothing re-resolves after the line is written for this one table. *If not:*
    a recipe written before a correction keeps the old factor until someone edits it. Reversible by
    backfill over tens of rows per tenant. [Not blocking; default stands.]
-6. **Does free goods (`free_quantity`) dilute `avg_cost`?** Explicitly not settled by this task
-   (§6.6). Owner / valuation decision for FP-255. [Not blocking this task.]
+6. **Should the free-goods benefit also be disclosed as a purchase discount received?** The
+   valuation itself is settled (D-74): free units enter at zero cost, in the denominator only, and the
+   full-cost reading is a defect. What remains is presentation, which changes no column and no
+   total; a finance question for the owner and FP-255. *If disclosed:* a discount-received posting
+   alongside the receipt. *If not:* the benefit is absorbed silently into the cost of what is on hand.
+   [Not blocking.] (Replaces the earlier "does free goods dilute `avg_cost`" question, now settled.)
 
 ## Assumptions
 
