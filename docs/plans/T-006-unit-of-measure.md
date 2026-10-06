@@ -326,6 +326,15 @@ section could cite an earlier one rather than forward-reference it.
       would keep; it is also the argument I used myself in D-73 and then failed to apply one round
       later, to a question whose candidate fix touches the very key this task spent four rounds
       stabilising. D-82.
+- [x] **Step 20 — review round 3 (one Critical, three instances, one column).** Fixed in `8693325`.
+      The movement table decided each type's **cost** and the formula still decided the **quantity**
+      generically, so the table was normative for everything the ledger stores **except the one
+      column it is built on**. That gap survived two QA runs and a review because **each half reads
+      correctly on its own** — which is the thing to take from it: consolidating a fact is only
+      finished when *every* question about the set is answered in the one place, and "the cost is
+      decided here" invites exactly the assumption that the quantity is decided somewhere sensible.
+      Count failed at the same row and the same magnitude as QA run 7, on the other side of the same
+      line. D-83.
 
 ---
 
