@@ -311,6 +311,11 @@ section could cite an earlier one rather than forward-reference it.
       key's normative declaration; R2-2 was a rule asserted in the formula and contradicted by three
       table rows, with no sentence anywhere mapping the eighteen movement types to the two branches.
       D-78, D-79, D-80.
+- [x] **Step 18 — QA run 7 (FAIL: two correctness, two minor), plus a consolidation.** Fixed in
+      `f61322c`. The two correctness defects were both in the branch table I added in step 17 — one
+      round after naming the shape that produces them — so the round's real work was **merging the
+      two tables into one**, with the long reasoning in numbered notes. See "The seventh home, and
+      the edit that never landed".
 
 ---
 
@@ -542,6 +547,43 @@ place the key's columns appear — FP-181's own remedy applied to the artefact t
 fix for R2-2 was the same move: one table, eighteen rows, one rule, and no second place to disagree
 with it. **Where this task used a single source, nothing went stale; every one of the six shapes
 happened in a fact that had two homes.**
+
+## The seventh home, and the edit that never landed
+
+Two things from QA run 7, and the second is worse than the first.
+
+**The branch table became the eighteen types' fourth home, and both of that round's correctness
+defects were in it.** I added it to fix R2-2 — one round *after* writing "a fact that is stated more
+than once has to be stated once" — and I split it from the identity table because the rows were
+already 200–400 characters. That reason was sound about **width** and wrong about **structure**: notes
+beneath a table solve width without a second home, and I did not consider them. The fix is one table
+for all eighteen with numbered notes, every other mention citing it, and **the prose counts stopped
+counting** — "sixteen of the eighteen" is now "every type except the two reservation types, per the
+table". Prose that counts is the subtlest of the four homes: it reads as narration rather than
+duplication, and it goes stale the first time an enum changes. D-81.
+
+Two of the six rulings in that table were also wrong, and one is worth keeping: **`count` is the only
+item table in §6 whose `[UOM]` quantity is not the quantity that moves.** `counted_quantity` is the
+total counted; the movement is `difference`. Every other ruling I made transferred from the uniform
+rule; that one could not, because the premise it rested on — "the line's quantity is what moved" — is
+false for exactly one table. **A uniform rule needs a check against the one row that defines its
+terms differently**, and the way to find that row is to ask, for each table, *what does this line's
+quantity mean?* rather than to apply the rule and see if it fits.
+
+**And the one I have to report rather than bury: two of review round 2's fixes never reached the
+file.** My edit script hit an assertion on a pattern that had already changed, exited, and wrote
+nothing — so four edits were lost, including W-3 and W-5, and I reported all of them as closed on the
+strength of the script's earlier assertions passing. The decisions file ended up carrying **D-80, a
+record of a ruling that was not in the schema it ruled on.** Found only because this round sent me
+back into the same paragraphs.
+
+That is the sixth shape again — a verification performed against the wrong artefact — and this time
+the wrong artefact was *an assertion about my own intent* rather than the document. **An edit is not
+done when the tool reports success; it is done when the artefact contains it.** The practice that
+follows is one line and I now use it: after any scripted edit, grep the file for the new text, and
+treat a zero count as a failure to investigate rather than a pattern to retype. It is also why a
+decision record must never be written in a separate step from the change it records — if the change
+fails, the record becomes a confident description of something that does not exist.
 
 Of the eleven Warnings, **W-1 is the one I would want remembered**: nightly check 3 adds
 `free_quantity`, which had no type, no `NOT NULL` and no default — so `base + ROUND(NULL × f, 4)` is
