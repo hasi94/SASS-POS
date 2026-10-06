@@ -107,7 +107,17 @@ That turns an unkeepable resolution into a bounded task: **when you declare an a
 
 **Three instances on one task is why this is a row.** `total_value` against the inventory account (D-72), `total_value` against `avg_cost` (D-76, which caused a major), and `stock_productions`' header values against the item rows' `value`, where §6.5 asserts an identity over them and neither side is named the authority. The generalisation is deliberately about **redundancy rather than fix ordering**, because redundancy is findable by reading the schema while which-fix-came-first is only findable by reading history.
 
-**Four lesser instances carried here rather than fixed**, all found by QA's sweep: `qty_variance` and `difference` stored as derived values; `sale_items.line_cost` described as a rounded product in one place and as a plain multiplication in its own row; and `quantity`/`unit_factor`/`base_quantity`, where base wins but nothing says what happens if the three disagree after a correction.
+**Seven further instances are carried here rather than fixed**, because all of them are findable by reading the schema, which is the argument for a row rather than another fix round. Three found by the architect's own sweep and ordered by how load-bearing they are:
+
+1. **`ar_documents.balance_due` is defined as "(generated or maintained)"** — the authority question written into the column definition **as an either/or**. The only place in the document where an undeclared authority is not merely absent but explicitly left open, against `amount_allocated` and `SUM(ar_allocations.amount)`. The sharpest instance on the task, and it sits in the receivables subledger that aging, statements and overdue reports all read.
+2. **§7.4 reads both sides of one unnamed identity inside a single journal entry** — the payroll posting generates its debit lines from the payslip detail grouped by account, then credits net pay payable as a sum of the payslip headers. Detail for one leg, header for the other, in an entry that must balance. If they ever disagree the posting service rejects the entry, which is a good failure mode and an avoidable one.
+3. **§7.1 asserts a double equality with no direction** — a posting amount equal to both the sum of the sale lines' cost and the sale header's cost total.
+
+Four found by QA: `qty_variance` and `difference` stored as derived values; `sale_items.line_cost` described as a rounded product in one place and as a plain multiplication in its own row; and `quantity`/`unit_factor`/`base_quantity`, where base wins but nothing says what happens if the three disagree after a correction.
+
+**One near-miss deliberately excluded, with its reasoning**, because the distinction is what keeps this row from swallowing everything: `stock_levels.quantity_reserved` against the sum of open reservations. The identity is *implied and never asserted anywhere*, so it is a **missing invariant rather than an undeclared authority** — a different defect. It belongs to FP-250 as a fourth nightly check, not here.
+
+**The rule, stated plainly now that there are enough witnesses to stop hedging:** *an identity between a summary and its detail needs a declared direction, or it gets answered twice* — which is literally what happened to the average cost, three rounds apart.
 
 **FP-181 and FP-182 detail — why four rows and not one.** After T-005 the reviewer argued for two convention rows rather than one, on the test that a row is only useful if its **trigger** and its **check** are distinct. T-006 produced twelve-plus defects across five roles with **none caught by its own author**, and applying the same test to them separates into four shapes, of which FP-171 and FP-176 cover only two.
 
