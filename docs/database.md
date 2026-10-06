@@ -575,10 +575,14 @@ for the unit actually being sold** — if it can, then `price_list_items.unit_id
 moment anyone also sets a volume break, and the case price a shop typed is silently replaced by
 24 × the single price, which is the exact substitution U-1 was approved to prevent.
 
-There is a second reason, and it is the one that would generate support tickets: `price_list_items`
-is **replicated to every till**. If `min_qty` were outer, adding one volume break on the stock-unit
-row would change **every case price in the shop** with no edit to any case row — action at a distance
-that nobody would predict from the data they just touched.
+There is a second reason, and it decides the question **without appealing to commercial intent at
+all**: if `min_qty` were outer, adding one volume break on the stock-unit row would change **every
+case line at or above that break** with no edit to any case row — action at a distance that nobody
+would predict from the data they just touched. That is an argument about **where the price is
+decided**, and it holds on a single server with no tills in the world. Replication is not the
+mechanism, only the **blast radius**: because `price_list_items` is replicated, the surprise would
+reach tills in the field before anyone saw it in the back office. A deployment with no tills is not
+safer, it is only slower to find out.
 
 This is a consequence of U-1 rather than a new decision, so it is ruled here and not put to the
 owner (D-84).
@@ -1059,7 +1063,7 @@ The only quantity invariant v0.4 had is **structurally blind**: `SUM(stock_batch
 | # | Check, per night | Catches |
 |---|---|---|
 | 1 | `stock_levels.quantity_on_hand` = `SUM(stock_movements.quantity)` per (location, product), **summing every `type` except `reservation` and `reservation_release`** | the maintained level drifting from the append-only ledger it is derived from — the one comparison between a cache and its source |
-| 2 | `stock_movements.balance_after` equals the running sum of `quantity` **per (location, product)**, in `created_at`/`id` order, **summing every `type` except `reservation` and `reservation_release`** — the same exclusion as check 1, for the same reason (**sampled**, not every row) | movements written out of order, or a level updated without a movement |
+| 2 | `stock_movements.balance_after` equals the running sum of `quantity` **per (location, product)**, in `created_at`/`id` order, **summing every `type` except `reservation` and `reservation_release`** — the same exclusion as check 1, **and for a second reason** (**sampled**, not every row) | movements written out of order, or a level updated without a movement |
 | 3 | `SUM(grn_items.base_quantity + base_free)` = `SUM(stock_movements.quantity)` per posted goods receipt per product, where `base_free` is the single definition (†) in the formula above — **not restated here**, because this expression had three homes until QA run 7 and is the expression that produced both BUG-10 and the NULL defect in this very check | **a conversion applied twice, or not at all** — the only check of the three that spans the document boundary, and therefore the only one that can see a unit bug |
 
 **One asymmetry with the currency axis that the snapshot does not remove.** `base_quantity` is `ROUND(quantity × unit_factor, 4)` from a `DECIMAL(18,6)` factor, so a line can shed up to 1e-4 of a base unit. On the money axis double entry forces residue to surface — the entry would not balance — and §7.1 gives it a Rounding account to land in. **Quantity has no balancing constraint and no such account: the residue is accepted and lands nowhere.** Worse, all three invariants above compare a number against a copy of itself computed by the same expression, so they are **structurally blind to residue** in exactly the way the batch-sum check is blind to conversion — the blindness this document is otherwise careful to name, so it is named here too. The residue is **zero** under Q-9's proposed answer, because an integral factor ≥ 1 times a quantity rounded to 4 places needs no rounding at all. That is one more reason the tight answer to Q-9 is the cheap one.

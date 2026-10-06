@@ -388,9 +388,13 @@ statement about *the unit being sold*; a `NULL` row is a statement about the sto
 arithmetic. If a derivation can outrank a typed price for the unit actually being sold, then
 `price_list_items.unit_id` buys nothing the moment anyone also sets a volume break — the typed case
 price is silently replaced by 24 × the single price, which is the exact substitution U-1 was approved
-to prevent. A second reason is independent of intent and decides it on its own: the table is
-**replicated to every till**, so with `min_qty` outer, adding one volume break on the stock-unit row
-would change **every case price in the shop** with no edit to any case row. Note that the pre-existing
+to prevent. A second reason is independent of intent and decides it on its own: with `min_qty`
+outer, adding one volume break on the stock-unit row would change **every case line at or above that
+break** with no edit to any case row — an argument about **where the price is decided**, which holds
+on a single server with no tills at all. (Corrected after QA run 11: I first wrote this as a
+*replication* argument and as "every case price in the shop". Replication is only the **blast
+radius** — it decides where the surprise surfaces first, not whether it exists — and the overstated
+count was the overclaim shape inside a sentence written to justify a ruling.) Note that the pre-existing
 clause "at equal `min_qty` the unit-matched row beats the `NULL` fallback" shows the question was
 half-seen when it was written: the author handled the tie and not the ordering. It is removed as
 subsumed, because leaving it would suggest equality is the only case that matters. Reversible: yes —
