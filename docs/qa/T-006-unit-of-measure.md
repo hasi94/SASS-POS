@@ -4,7 +4,7 @@ Spec `docs/specs/T-006-unit-of-measure.md` (AC-1 to AC-67) · Plan `docs/plans/T
 Branch `ai/T-006-unit-of-measure`, 17 commits over base `47e226d`, nothing pushed. Measured on this machine on **2026-10-06**.
 No code, test or fixture was written: the task is documents, and nothing here needed a new test.
 
-## Verdict: PASS (run 6; runs 1, 3, 4, 5 FAIL and run 2 PASS, all kept below as measured)
+## Verdict: FAIL (run 7, two correctness defects in the new branch table; runs 1, 3, 4, 5 FAIL, run 2 and run 6 PASS, all kept below as measured)
 
 Two acceptance criteria fail (AC-52, AC-63), both **minor** and both fixable by one sentence each.
 One **major** design defect (BUG-1) is not an AC failure as written but is the exact defect class the
@@ -310,3 +310,41 @@ Gate by me: exit 0, PHPStan no errors, Deptrac 0, Pest **314 / 1435**, 80.19 s. 
 - **BUG-21 (minor): the `revaluation`/`correction` pairing is real but not a full enum reconciliation.** `stock_adjustments.type` = increase, decrease, wastage, opening, revaluation; movement types from adjustments = `adjustment`, `wastage`, `expiry`, `opening`, `correction`. `revaluation` -> `correction` is right, and `increase`/`decrease` -> `adjustment` (or `correction`, row 707). `expiry` has no adjustment type (it would be `wastage` with a reason code) and `correction` has three producers. Not an orphaned member in the schema-breaking sense; worth one sentence in FP-184 or FP-250.
 
 Nothing in the coordinator's message measured wrong except "verify there is no fourth instance": there is (BUG-19), and "exactly one home" (BUG-18).
+Run 7: PASS -> FAIL (R2-1/R2-2 fixes verified; the new branch table has two rows that cannot be implemented as written, BUG-22 and BUG-23, plus BUG-24 and BUG-25).
+
+---
+
+## Run 7 (tree at `02b994a`)
+
+Gate by me: exit 0, PHPStan no errors, Deptrac 0, Pest **314 / 1435**, 79.09 s. Pipe scan: only FP-178. **Tally against 69: 69 pass, 0 fail by the letter of the criteria**; the verdict is FAIL on correctness defects in the branch table that no criterion covers. I am telling you plainly: **two correctness defects, BUG-22 and BUG-23. Reopen.**
+
+### AC-36 and AC-38: pass, and would fail on regression
+- Every site: the five-column key `unique (reference_line_id, product_id, type, batch_key, serial_key)` is declared **once** in database.md (lines 669-671). The `stock_movements` row (605), §11 (1575) and the partitioning note (1584) now name "the idempotency key of §6.5, whose columns live there and nowhere else". I grepped `reference_line_id` and `unique (` across database.md, architecture.md and backlog.md: no four-column statement exists anywhere in the three documents. The old key `(reference_type, reference_id, product_id, batch_id, type)` survives only as the replaced key (lines 674, 1575). AC-38 passes.
+- **Fail-ability:** I checked it by pattern, not by editing the documents (not mine to edit): the criterion's search, `reference_line_id` in a parenthesised list or "unique (" near `stock_movements`, would hit a restored four-column statement at any of the four sites, and a restored copy anywhere would show up as a second declaration of the columns, which the "exactly one site" check also catches. The spec's own line 291 (the five columns) is the only other statement and agrees. PASS.
+- Your run-6 pass of 69/69 did certify the superseded key (the criterion then asserted four columns). That is now corrected in the criterion; nothing in my run-6 evidence for AC-36 stands.
+
+### R2-2 verified
+Refund: 1 case sold at avg 200, factor 24 removes 24 x 200 = 4 800; the line-quantity reading adds back 1 x 200 = 200, understating by 4 600: correct. Transfer: 10 cases x 24 = 240 base x 200 = 48 000 removed; line-quantity adds back 2 000, losing 46 000 / 48 000 = **95.83 %**: correct. The branch table has all 18 types (counted by group: opening 1, grn 1, sale 1, refund/void 2, grn_return 1, purchase_return 1, adjustment/count 2, wastage/expiry 2, transfer_out 1, transfer_in 1, production_out 1, production_in 1, correction 1, reservation pair 2 = 18).
+
+### BUG-22 (major, correctness): the `count` increase branch cannot be computed
+The table sends `adjustment` and `count` to "the sign of the quantity decides: increase: the entered `unit_cost`, per **line** unit -> `line.quantity`". For `adjustment` that works: the item line carries `quantity`/`base_quantity` signed. For **`count` it does not**: a `stock_count_items` line's `quantity` is `counted_quantity`, the **total counted** (say 50 sacks), while the movement's quantity is `difference`, which the row defines as **base only**. Multiplying `counted_quantity` by `unit_cost` books the whole count as inbound; there is no line-unit form of the difference to multiply (converting needs `difference / unit_factor`, the rounded quotient the document just removed from the money path). Worked: system 48 singles, counted 50 (2 sacks of 25 at factor 25 -> hmm use factor 24: counted 3 cases = 72, system 48, difference 24): the movement should add 24 base units; the table's reading values 3 cases = 72 units of cost. **Fix:** count increases take `unit_cost` per **stock** unit (as the §7.5 `variance_value` is already base) and multiply `base difference`, or the count item states `unit_cost` per line unit and a line-unit difference.
+
+### BUG-23 (correctness, small but breaks a stated identity): `production_in` multiplier ignores the residual line
+The row takes "the apportioned `stock_production_items.unit_cost` per stock unit -> `base_quantity`". §6.5's rule is that the **last output line absorbs the rounding residual** so `SUM(output value) + wastage_value = input_value` exactly, and the residual lives in the line's **`value`** column, not in `unit_cost x base_quantity`. `ROUND(base_quantity x unit_cost, 4)` differs from `value` on the last line by the residual (cents), so the stock ledger gains `SUM(ROUND(base x unit_cost))` while the journal and `input_value` use `SUM(value)`. Fix: `production_in` money_in = the line's `value`.
+
+### BUG-24 (minor): `transfer_in` after a short receipt
+"Adds the value its matching `transfer_out` removed" is unambiguous only when received = sent. For a short receipt (`qty_received < qty_sent`, shortfall in `qty_variance`), adding the full value over fewer units inflates the destination's `avg_cost`; adding `received x avg` makes the shortfall vanish from a no-entry intra-account transfer (the very neutrality the row defends), unless the in-transit location keeps it. Say which.
+
+### BUG-25 (minor): sign convention on the outbound branch
+Outbound is written `line_cost = ROUND(base_quantity x avg_cost, 4)`, `total_value -= line_cost`, `on_hand -= base_quantity`, with positive magnitudes. `stock_adjustment_items.quantity` and `base_quantity` are **both signed**, so a decrease carries a negative `base_quantity` and the formula would add to `on_hand`. State "outbound uses the magnitude" or write the decrease as `+= signed value`. Also `sale_refund` with a null `refund_of_item_id` (refund without a receipt) has no "original line's snapshot"; the table does not say what it takes.
+
+### Attack on the sign-decided rows: summary
+Right idea, two real holes. For `adjustment` the line carries both signs, so deciding the branch per line is sound (BUG-25 aside). For `count` it breaks on the quantity definition (BUG-22). For a `correction` carrying a quantity: sign-decided is stated but "no multiplier" is also stated, and `value` is the amount; consistent only if `value` already carries cost, which the document says.
+
+### FP-186: a seventh fact with two or more homes
+1. **The free-quantity expression `base_quantity + ROUND(free_quantity x unit_factor, 4)`** is stated in three places: the formula's `base_free` (729), nightly check 3 (955) and the `grn_items` row (987), each saying it is "the same expression" as the others. This is AC-61's own concern, a sentence guarding three copies.
+2. **The list of eighteen movement types** has four homes: the `stock_movements` enum (605), the `reference_line_id` table, the branch table, and counts in prose ("sixteen of the eighteen", check 1's exclusion, the two-reservation exclusion repeated in the branch table). Adding a type means editing all; the architect's own remedy is a single table with a column per question.
+3. **The `production_in`/`production_out` role mapping** (output/byproduct vs input) is stated in the R-2 row (706) and the branch table (774).
+Item 2 is the one most likely to rot.
+
+Nothing in the coordinator's message measured wrong; the claim that exactly one site declares the key columns is true.
