@@ -560,6 +560,8 @@ erDiagram
   STOCK_ADJUSTMENTS ||--o{ STOCK_ADJUSTMENT_ITEMS : lines
   STOCK_TRANSFERS ||--o{ STOCK_TRANSFER_ITEMS : lines
   STOCK_COUNTS ||--o{ STOCK_COUNT_ITEMS : lines
+  STOCK_PRODUCTIONS ||--o{ STOCK_PRODUCTION_ITEMS : lines
+  PRODUCTS ||--o{ STOCK_PRODUCTION_ITEMS : consumed_or_made
   STOCK_MOVEMENTS }o--o| STOCK_CONFLICTS : may_open
   STOCK_MOVEMENTS {
     ulid id PK
@@ -573,24 +575,116 @@ erDiagram
     decimal balance_after
     string reference_type
     ulid reference_id
+    ulid reference_line_id
     ulid journal_entry_id
   }
 ```
 
 | Table | Columns / notes |
 |---|---|
-| stock_levels | `[ID]` `[TS]`, location_id FK, product_id FK, quantity_on_hand, quantity_reserved, quantity_incoming, avg_cost, total_value (= on_hand × avg_cost, maintained), last_movement_at, last_counted_at; unique (location_id, product_id). Only ever updated inside the same transaction as a movement, under `SELECT … FOR UPDATE` |
-| **stock_movements** (append-only) | `[ID]` `[SYNC]` `[GL]`, location_id FK, product_id FK, batch_id FK NULL, serial_id FK NULL, type enum(opening, sale, sale_refund, sale_void, grn, grn_return, purchase_return, adjustment, count, transfer_out, transfer_in, wastage, expiry, production_in, production_out, correction, reservation, reservation_release), quantity DECIMAL signed, unit_cost, value signed, balance_after, reference_type VARCHAR(40), reference_id CHAR(26), employee_id FK NULL, notes, created_at; **unique (reference_type, reference_id, product_id, batch_id, type)** = the idempotency key that makes replaying a sale harmless; indexes (location_id, product_id, created_at), (reference_type, reference_id), (created_at), (batch_id) |
+| stock_levels | `[ID]` `[TS]`, location_id FK, product_id FK, **quantity_on_hand, quantity_reserved, quantity_incoming (all `DECIMAL(18,4)`, all in the product's stock unit)**, avg_cost (per stock unit), total_value (= on_hand × avg_cost, maintained), last_movement_at, last_counted_at; unique (location_id, product_id). Only ever updated inside the same transaction as a movement, under `SELECT … FOR UPDATE` |
+| **stock_movements** (append-only) | `[ID]` `[SYNC]` `[GL]`, location_id FK, product_id FK, batch_id FK NULL, serial_id FK NULL, type enum(opening, sale, sale_refund, sale_void, grn, grn_return, purchase_return, adjustment, count, transfer_out, transfer_in, wastage, expiry, production_in, production_out, correction, reservation, reservation_release), **quantity DECIMAL(18,4) signed — always in the product's stock unit, never in a document unit**, unit_cost (per stock unit), value signed, balance_after, reference_type VARCHAR(40), reference_id CHAR(26), **reference_line_id CHAR(26) NOT NULL**, **batch_key**, **serial_key** (generated, below), employee_id FK NULL, notes, created_at; **unique (reference_line_id, type, batch_key, serial_key)** = the idempotency key that makes replaying a sale harmless; indexes (location_id, product_id, created_at), (reference_type, reference_id), (created_at), (batch_id), (product_id) |
 | batches | `[ID]` `[TS]`, product_id FK, batch_no VARCHAR(60), mfg_date DATE NULL, **expiry_date DATE NULL**, supplier_id FK NULL, grn_item_id FK NULL, unit_cost, initial_quantity, status enum(active, quarantined, expired, recalled, depleted), notes; unique (product_id, batch_no), index (expiry_date, status) — drives the expiring-stock report and FEFO picking |
 | stock_batch_levels | location_id FK, product_id FK, batch_id FK, quantity_on_hand, quantity_reserved, `[TS]`; PK (location_id, batch_id). Kept in step with `stock_levels` in the same transaction; the sum over batches must equal the level, checked nightly |
 | serials | `[ID]` `[TS]`, product_id FK, serial_no VARCHAR(80), batch_id FK NULL, location_id FK NULL, status enum(in_stock, reserved, sold, returned, in_repair, scrapped, transferred), grn_item_id FK NULL, sale_item_id FK NULL, sold_at, warranty_until DATE NULL, notes; unique (product_id, serial_no), index (status, location_id) |
 | stock_reservations | `[ID]` `[TS]`, location_id FK, product_id FK, batch_id FK NULL, quantity, reference_type enum(sales_order, quotation, transfer, order), reference_id, expires_at, status enum(active, consumed, released, expired); index (reference_type, reference_id), (expires_at, status) |
-| stock_adjustments / stock_adjustment_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, location_id FK, type enum(increase, decrease, wastage, opening, revaluation), reason_code, reason, status enum(draft, pending_approval, approved, posted, cancelled), workflow_instance_id FK NULL, total_value, posted_at, posted_by · item `[ID]`, adjustment_id FK CASCADE, product_id FK, batch_id FK NULL, serial_id FK NULL, quantity signed, unit_cost, value, notes |
-| stock_counts / stock_count_items | header `[ID]` `[TS]` `[BY]`, number unique, location_id FK, type enum(full, cycle, spot), scope JSON (categories, bins), status enum(draft, counting, review, posted, cancelled), frozen_at, posted_at, adjustment_id FK NULL (the adjustment it generated) · item `[ID]`, count_id FK CASCADE, product_id FK, batch_id FK NULL, system_qty, counted_qty, difference, unit_cost, variance_value, counted_by FK employees NULL, counted_at, recount_of_item_id FK NULL |
-| stock_transfers / stock_transfer_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, from_location_id FK, to_location_id FK, status enum(draft, pending_approval, approved, in_transit, partially_received, received, cancelled), workflow_instance_id FK NULL, shipped_at, shipped_by, received_at, received_by, carrier, tracking_ref, notes · item `[ID]`, transfer_id FK CASCADE, product_id FK, batch_id FK NULL, qty_sent, qty_received, qty_variance, unit_cost, variance_reason. Goods in transit hit the `transit` location so they are never invisible |
+| stock_adjustments / stock_adjustment_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, location_id FK, type enum(increase, decrease, wastage, opening, revaluation), reason_code, reason, status enum(draft, pending_approval, approved, posted, cancelled), workflow_instance_id FK NULL, total_value, posted_at, posted_by · item `[ID]` `[UOM]`, adjustment_id FK CASCADE, product_id FK, batch_id FK NULL, serial_id FK NULL, **quantity and base_quantity both signed**, unit_cost, value, notes |
+| stock_counts / stock_count_items | header `[ID]` `[TS]` `[BY]`, number unique, location_id FK, type enum(full, cycle, spot), scope JSON (categories, bins), status enum(draft, counting, review, posted, cancelled), frozen_at, posted_at, adjustment_id FK NULL (the adjustment it generated) · item `[ID]` `[UOM]`, count_id FK CASCADE, product_id FK, batch_id FK NULL, **counted_quantity** (the `[UOM]` `quantity`, in `unit_id` — the unit the human actually counted in), **system_qty, difference, variance_value: base only**, unit_cost, counted_by FK employees NULL, counted_at, recount_of_item_id FK NULL. A storekeeper counts **sacks**, and the variance posts straight to the general ledger (§7.5), so a unitless count sheet is a journal entry built on a guess |
+| stock_transfers / stock_transfer_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, from_location_id FK, to_location_id FK, status enum(draft, pending_approval, approved, in_transit, partially_received, received, cancelled), workflow_instance_id FK NULL, shipped_at, shipped_by, received_at, received_by, carrier, tracking_ref, notes · item `[ID]` `[UOM]`, transfer_id FK CASCADE, product_id FK, batch_id FK NULL, **qty_sent / qty_received in `unit_id`** for display, **base_qty_sent / base_qty_received** the authority (the `[UOM]` `quantity`/`base_quantity` pair, twice, because a transfer records two events), qty_variance **in base**, unit_cost, variance_reason. Goods in transit hit the `transit` location so they are never invisible |
+| **stock_productions** | `[ID]` `[TS]` `[BY]` `[GL]`, number unique, location_id FK, **type enum(repack, assemble, disassemble, recipe)**, production_date, status enum(draft, posted, cancelled), source_product_id FK products NULL (the bill-of-materials parent it came from), input_value, output_value, wastage_value, posted_at, posted_by FK employees NULL, notes; index (location_id, production_date), (status) |
+| **stock_production_items** | `[ID]` `[UOM]`, production_id FK CASCADE, **role enum(input, output, byproduct, wastage)**, product_id FK, batch_id FK NULL (inputs **pick** a batch, outputs **create** one), expected_quantity DECIMAL(18,4) NULL, unit_cost, cost_share_percent DECIMAL(9,4) NULL, value, batch_no / expiry_date / mfg_date (outputs only — they create the `batches` row), notes; index (production_id, role) |
 | stock_conflicts | `[ID]` `[TS]`, location_id FK, product_id FK, movement_id FK, reference_type, reference_id, terminal_id FK NULL, expected_qty, resulting_qty, status enum(open, resolved, ignored), resolution, resolved_by FK employees NULL, resolved_at, notes. Raised when an offline sale lands and drives stock negative at a location that forbids it |
 
+#### Units stop at the document line
+
+**Conversion happens exactly once, when a document line is written, and nowhere else. Below the document layer there are no units.**
+
+This is the second dimension of a rule §7 already states for money — *amounts are in the document currency with `base_debit`/`base_credit` in the company currency at the document's rate* — and v0.4 simply never applied it to quantity. The shapes line up exactly:
+
+| | Money (v0.4, already designed) | Quantity (v0.5, this section) |
+|---|---|---|
+| What the user entered | `currency` on the header | `unit_id` on the line |
+| The rate it was converted at | `exchange_rate DECIMAL(18,8)`, snapshotted | `unit_factor DECIMAL(18,6)`, snapshotted |
+| The converted value everything downstream reads | `base_debit` / `base_credit` | `base_quantity` |
+| Where the rate came from | `exchange_rates` | `unit_conversions` + the `units` chain |
+| What the ledger stores | company currency | the product's stock unit |
+
+Therefore **`stock_movements`, `stock_levels`, `stock_batch_levels`, `batches`, `stock_reservations`, `purchase_price_history` and `journal_lines` carry no `unit_id` column, ever.** Their quantities are base by definition. A reader who needs to know what the clerk typed follows `reference_line_id` back to the line, which carries the unit, the factor and the original number — the same way a reader who needs the invoice currency reads the document, not the ledger.
+
+This one rule is what stops the design growing twenty unit-bearing tables and twenty places to get the conversion wrong, which is how the v0.4 shape was already heading: four line tables had a unit and nothing else did. **A static test asserts the absence** (§14), because a boundary that is only described is a boundary that grows a column in the third sprint.
+
+#### The factor is snapshotted, not resolved
+
+Every line stores the `unit_factor` it actually used. Re-sizing a case from 24 to 12 next year changes new documents and **cannot retro-change last year's goods receipt**, its landed cost, or the average cost that was computed from it.
+
+Two things follow that are easy to miss:
+
+- **The snapshot is the effective-dating that `tax_rates` needed a whole table for** (§6.4). A rate that lives on the line needs no `effective_from`, no `effective_to` and no resolution-by-document-date, because the line *is* the date-stamped fact. The same trick is available here for free and is the reason `unit_conversions` needs no effective dating.
+- **It is a hard dependency of any read model.** A projection is rebuilt by replaying source rows; if the factor were resolved at read time, every rebuild would silently re-quantify history against today's case size. Snapshotting is what makes a rebuild deterministic — which matters a great deal more now that the owner has set a CQRS direction (2026-10-06) whose architecture revision is still owed.
+
+#### The ledger idempotency key
+
+v0.4's key was `(reference_type, reference_id, product_id, batch_id, type)`. It is replaced:
+
+```sql
++ reference_line_id CHAR(26) NOT NULL                                         -- the line that caused the movement
++ batch_key  CHAR(26) GENERATED ALWAYS AS (COALESCE(batch_id,  '-')) STORED
++ serial_key CHAR(26) GENERATED ALWAYS AS (COALESCE(serial_id, '-')) STORED
+  unique (reference_line_id, type, batch_key, serial_key)
+```
+
+`reference_type` leaves the key — a ULID is globally unique, so the document type adds nothing to it — and `(reference_type, reference_id)` stays as a plain non-unique index for "show me this document's movements". `product_id` and `batch_id` demote to ordinary indexed columns. **Header-level movements** (`opening`, `correction`) have no line, so they use the header's own ULID as `reference_line_id`.
+
+**This fixes two bugs, and the second is worse than the first.**
+
+1. **It could not express the owner's own scenario.** A goods receipt of 2 cases **plus** 3 loose singles of one product is two lines → two `grn` movements with an identical old key → **unique constraint violation**, and the receipt cannot be saved at all. Receiving one product in two units on one document is not an edge case; it is the thing the product owner asked about.
+2. **It enforced nothing where it was needed most.** `batch_id` is nullable and MySQL treats NULLs as distinct in a unique index, so for `tracking_mode = quantity` — most products in most shops — the old key permitted **unlimited duplicates**. Replay protection was weakest exactly where it is most used, and a retried offline sync would have doubled stock out silently. The generated `COALESCE` columns are the fix: `'-'` is a real value, so the uniqueness is real.
+
+Rejected alternatives, both considered and both worse:
+
+- **Add `unit_id` to the key.** It still collides when two lines of the same product in the same unit arrive from two purchase orders on one receipt, and it does nothing about the NULL hole.
+- **A `split_no` counter on the movement.** It needs a deterministic allocation order to be idempotent across a replay, which is precisely what a line ULID already gives for free.
+
+**MariaDB 10.4 parity holds.** Stored generated columns in an index already have precedent in this design: §14 records that indexed custom fields use stored generated columns there, because MariaDB 10.4 has no functional indexes. This key uses the same mechanism, so it works on both engines with no branch.
+
+#### Valuation, and the formula
+
 **Valuation** is weighted average per (location, product), maintained on `stock_levels.avg_cost` at every inbound movement. Batches carry `unit_cost` for traceability and expiry, not for valuation; FIFO/FEFO *picking* uses batches, FIFO *costing* is out of scope for 1.0 (§16 Q-3).
+
+The formula was never written down. It is, **in base units**:
+
+```text
+cost_per_base = line.unit_cost / line.unit_factor
+new_avg       = (on_hand × avg_cost + base_qty_in × cost_per_base)
+                / (on_hand + base_qty_in)          -- guard: if the denominator is 0, new_avg = cost_per_base
+```
+
+**This division is the most dangerous arithmetic in the feature.** A case of 24 received at 4 800 must become 200 per single *before* it touches `avg_cost`; receive it unconverted and `avg_cost` becomes 4 800, `total_value` becomes on-hand × 4 800, and the balance sheet overstates inventory by a factor of 24 — with no error, no warning and nothing to notice until a stock-take. `unit_cost` on a line is per **line unit**; `avg_cost` on a level is per **stock unit**; the factor is the only thing between them.
+
+#### `stock_levels.quantity_incoming`
+
+v0.4 declared the column and never said who writes it. The rule, zero new columns: `quantity_incoming` = `SUM(base_quantity − received_base_quantity)` over **open purchase order lines** for that `(purchase_orders.location_id, product_id)`, maintained when a purchase order is approved, received against, or closed. Both sides of that subtraction are base, which is the whole point of `received_base_quantity` existing (§6.6).
+
+#### Repack and break-bulk (owner decision U-3)
+
+`stock_movements.type` has shipped `production_in` and `production_out` since v0.3 with **no table able to be their `reference_type`** — dead schema at the centre of the inventory module. `stock_productions` + `stock_production_items` give them a document.
+
+- **One table with a `role` column, not separate input and output tables.** Disassembly has many outputs plus a remainder — a 25 kg sack becomes 24 one-kilogram bags plus dust — and one table makes "value in = value out" a single aggregate with a `GROUP BY role` instead of a join between two tables that must be kept consistent.
+- **Yield is a report, not a column.** `expected_quantity` on an output line is what lets variance flag theft or a mis-set machine; `yield_percent` derives from the posted lines whenever anyone asks. A repack bill of materials is `product_components`, which already exists and already carries a unit.
+- **Cost apportionment.** Inputs consume at the location's `avg_cost`, so `input_value = SUM(input base_quantity × avg_cost)`. That value is apportioned to outputs by `cost_share_percent`, which defaults to **relative sales value** (a chicken breast is worth more than a wing, and splitting cost by weight would price the breast at a loss) and falls back to **base-quantity-proportional** for a pure repack, where every output is the same good in a smaller bag. **The last output line absorbs the rounding residual**, so `SUM(output value) + wastage_value = input_value` exactly: a one-cent leak per repack is a trial balance that does not tie, which is a week of someone's life.
+- **Posting.** Value-neutral when every product involved resolves to the same inventory account → **no journal entry at all**, exactly the existing intra-account `stock_transfer` rule (§7.5). With per-product `inventory_account_id` overrides, or any `wastage` line, the entry is Dr output inventory + Dr wastage expense · Cr input inventory, with `source_type = stock_production` and `source_purpose = production`.
+
+#### Three nightly quantity invariants
+
+The only quantity invariant v0.4 had is **structurally blind**: `SUM(stock_batch_levels) = stock_levels` compares two unitless numbers that were written from the same already-converted value inside one transaction, so a conversion bug satisfies it perfectly. It is kept — it catches a real class of bug, the two rows drifting apart — but it cannot see a unit error, and this paragraph exists so that nobody later deletes the three below as redundant.
+
+| # | Check, per night | Catches |
+|---|---|---|
+| 1 | `stock_levels.quantity_on_hand` = `SUM(stock_movements.quantity)` per (location, product) | the maintained level drifting from the append-only ledger it is derived from — the one comparison between a cache and its source |
+| 2 | `stock_movements.balance_after` equals the running sum of `quantity` in `created_at`/`id` order (**sampled**, not every row) | movements written out of order, or a level updated without a movement |
+| 3 | `SUM(grn_items.base_quantity)` = `SUM(stock_movements.quantity)` per posted goods receipt per product | **a conversion applied twice, or not at all** — the only check of the three that spans the document boundary, and therefore the only one that can see a unit bug |
+
+Check 3 is the one that matters for this feature: it compares what the document says it received with what the ledger says arrived, across the exact boundary where conversion happens.
 
 ### 6.6 Purchasing
 
