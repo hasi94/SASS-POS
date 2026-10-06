@@ -550,7 +550,38 @@ Label printing needs nothing new: `printers.type = label` and `print_templates.t
 
 Price resolution (server `pricing.quote` and the POS engine use the same order): customer price list → customer-group list → active promotion lists by priority → branch list → `product_branches.selling_price` → `products.selling_price`.
 
-**The six steps keep their shape; each one is now unit-qualified.** Within each of the first four steps the lookup is tried twice — first `unit_id = :line_unit`, then `unit_id IS NULL` — and the first hit wins. **`min_qty` needs the same treatment, for the same reason `unit_key` does:** a 48-base line qualifies for the rows at `min_qty = 1` *and* `min_qty = 24`, so "first hit wins" decides nothing by itself. The rule is **the greatest `min_qty ≤ base_quantity`**, and at equal `min_qty` the unit-matched row beats the `NULL` fallback. A `NULL` row means *priced per stock unit*, so the price is derived: `unit_price = stock_unit_price × unit_factor`. The last two steps are per stock unit by definition and always derive: **`products.selling_price`, `min_selling_price`, `msrp`, `cost_price` and `product_branches.selling_price` are all per stock unit.** That is one sentence and zero columns, and it is the sentence v0.4 never contained.
+**The six steps keep their shape; each one is now unit-qualified — and the unit test is the OUTER
+one.** Within each of the first four steps, for this price list and this product:
+
+1. take the rows with **`unit_id = :line_unit`** and `min_qty ≤ base_quantity`, and of those the one
+   with the **greatest `min_qty`**. If one exists, that is the price, and it is used as typed.
+2. Otherwise take the rows with **`unit_id IS NULL`** and `min_qty ≤ base_quantity`, again the
+   greatest `min_qty`, and **derive**: `unit_price = stock_unit_price × unit_factor`.
+3. Otherwise this step has no price for this line; go to the next step of the ladder.
+
+So **`min_qty` orders rows *within* a unit match and never across one.** The two rules were both
+stated here and neither was declared outer until `ba` found it, and they disagree on the pair that
+distinguishes them — which is the pair worth writing down, because it decides what a customer pays:
+
+| A `NULL` row at `min_qty` 24 against a unit-matched row at `min_qty` 1 | picks |
+|---|---|
+| **unit test outer** — the rule above | the **unit-matched** row, at `min_qty` 1 |
+| `min_qty` test outer | the `NULL` row, at `min_qty` 24 |
+
+**The unit test is outer because that is what U-1 bought**, and the argument is the one directly
+below: a unit-matched row is the shop's statement about *the unit it is selling*, while a `NULL` row
+is a statement about the stock unit plus arithmetic. **A derivation must never outrank a typed price
+for the unit actually being sold** — if it can, then `price_list_items.unit_id` buys nothing the
+moment anyone also sets a volume break, and the case price a shop typed is silently replaced by
+24 × the single price, which is the exact substitution U-1 was approved to prevent.
+
+There is a second reason, and it is the one that would generate support tickets: `price_list_items`
+is **replicated to every till**. If `min_qty` were outer, adding one volume break on the stock-unit
+row would change **every case price in the shop** with no edit to any case row — action at a distance
+that nobody would predict from the data they just touched.
+
+This is a consequence of U-1 rather than a new decision, so it is ruled here and not put to the
+owner (D-84).
 
 **Why prices carry their own unit (owner decision U-1).** Derivation alone cannot express what shops actually charge:
 

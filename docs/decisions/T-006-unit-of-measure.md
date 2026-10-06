@@ -376,3 +376,23 @@ sentence in the document had ever named — `stock_reservations.quantity`, appli
 `quantity_reserved` and never to `quantity_on_hand`. The rest were readable from note 8, note 9 or
 D-58 and are not marked. Same move as R2-2 on the other half of the same expression. Reversible: yes.
 
+D-84 | §6.4 carried **two** price-resolution rules — "unit-matched first, then `NULL`, first hit wins"
+and "the greatest `min_qty ≤ base_quantity`" — and **neither was declared the outer one**. They
+disagree on a `NULL` row at `min_qty` 24 against a unit-matched row at `min_qty` 1, which decides what
+a customer pays. Found by `ba` (F-11), who correctly declined to pick. | **The unit test is OUTER.**
+A unit-matched row at any qualifying `min_qty` beats a `NULL` row at any `min_qty`; `min_qty` orders
+rows **within** a unit match and never across one; a `NULL` match is reached only when no
+unit-matched row qualifies. Stated in §6.4 with the worked pair. | **Ruled here rather than put to
+the owner, because the commercial intent was settled when U-1 was.** A unit-matched row is the shop's
+statement about *the unit being sold*; a `NULL` row is a statement about the stock unit plus
+arithmetic. If a derivation can outrank a typed price for the unit actually being sold, then
+`price_list_items.unit_id` buys nothing the moment anyone also sets a volume break — the typed case
+price is silently replaced by 24 × the single price, which is the exact substitution U-1 was approved
+to prevent. A second reason is independent of intent and decides it on its own: the table is
+**replicated to every till**, so with `min_qty` outer, adding one volume break on the stock-unit row
+would change **every case price in the shop** with no edit to any case row. Note that the pre-existing
+clause "at equal `min_qty` the unit-matched row beats the `NULL` fallback" shows the question was
+half-seen when it was written: the author handled the tie and not the ordering. It is removed as
+subsumed, because leaving it would suggest equality is the only case that matters. Reversible: yes —
+but not after a tenant has priced anything, since the two readings charge different amounts.
+
