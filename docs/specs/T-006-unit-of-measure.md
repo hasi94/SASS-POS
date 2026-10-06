@@ -618,6 +618,15 @@ text at this pass, not at the time the Warning was raised, which `ba` cannot see
   row beats the `NULL` fallback**; and must say why "first hit wins" alone decides nothing (a
   48-base line qualifies at `min_qty` 1 and 24). Fails if either tiebreak is missing. Worked check
   for `qa`: with rows at `min_qty` 1 and 24 and a 48-base line, the 24 row wins.
+  **Tightened after QA run 9: the document must also state which rule is the OUTER one.** Two rules
+  are in play: (i) the unit-qualified lookup is tried first with `unit_id = :line_unit`, then with
+  `unit_id IS NULL`, and (ii) the greatest `min_qty ≤ base_quantity` wins. They give different answers
+  when a `NULL` row at `min_qty` 24 and a unit-matched row at `min_qty` 1 both qualify: if (i) is
+  outer the unit-matched row at 1 wins; if (ii) is outer the `NULL` row at 24 wins. The document must
+  say which, with a worked example of exactly that pair. **As read, §6.4 states (i) in one sentence
+  and (ii) with a tiebreak in the next and never orders them, so this criterion FAILS** (Finding F-11).
+  The criterion does not pick the answer: which row wins is a pricing rule, and `architect` owns the
+  design while the owner owns the commercial intent.
 - **AC-76** (the factor guard is validated on the resolver's output, §6.3): the "every factor to base
   is ≥ 1" guard must be stated as validated on **`UnitResolver`'s output, not on `unit_conversions`**,
   with the reason that ladder step 3 (the `units.base_unit_id` / `factor` chain, which has no product
@@ -632,9 +641,62 @@ text at this pass, not at the time the Warning was raised, which `ba` cannot see
   supplier's unit, converted at entry. Fails if any of the four is left without a unit statement.
   (As read: all four declared.)
 - **AC-78** (process, so the next Warning is not taken on trust): for each review round, `qa` lists
-  every Warning the reviewer reports closed, and for each either points at the criterion above that
-  covers it or adds one. A Warning with no criterion is itself a finding. The mechanism is the same
-  as AC-52: a criterion that cites the section, so a claimed change that was never written fails.
+  every Warning the reviewer reports closed, and for each either points at the criterion that covers
+  it or adds one. A Warning with no criterion is itself a finding. Same mechanism as AC-52: a
+  criterion that cites the section, so a claimed change that was never written fails. **First run:**
+  QA found seven closed Warnings with no criterion; they are AC-79 to AC-85 (W-5, W-6, W-8, W-9, W-11,
+  W-1, S-1). QA had already verified each present and correct, so none was a defect.
+- **AC-79** (W-5, §3.3 does not claim a clean schema): the §3.3 bullet on unique keys over a nullable
+  column must (a) say the convention is applied at **the sites found so far** and name them
+  (`stock_movements.batch_key` and `serial_key`, `price_list_items.unit_key`,
+  `unit_conversions.product_key`), (b) point at **FP-180's eleven further keys** the rule reaches and
+  that do not yet carry it, and (c) say a reader should not conclude the schema is clean. Fails if the
+  text reads as complete, omits the FP-180 pointer, or the count of eleven disagrees with
+  `docs/backlog.md` FP-180 (`qa` reads both). (As read: present; the backlog's count is for `qa`.)
+- **AC-80** (W-6, the sentinel is chosen per type): the same bullet must say `'-'` is correct **only
+  for a ULID `CHAR(26)` column** (a 26-character identifier cannot equal a one-character sentinel),
+  that the argument fails at a `VARCHAR(30)` column such as `journal_entries.source_purpose`, where
+  `'-'` is a legal value, and that for such a column the sentinel is a value the domain cannot
+  produce and **must be stated in that column's row**. Fails if the bullet presents `'-'` as the
+  universal sentinel, or if any non-ULID unique-key sentinel in §6 uses `'-'` without saying why it is
+  safe. (As read: stated; `qa` greps §6 for `COALESCE(` and reads each sentinel against its column
+  type, and records that all current sites are `CHAR(26)` ULID columns.)
+- **AC-81** (W-8, the backlog row is in the table): in `docs/backlog.md`, the T-006 row must sit
+  **inside** the "Active build" table, as a row with the same five cells (ID, Title, Covers, Branch,
+  Status) and directly under the T-005 row, not as a paragraph of pipe-separated text beside it.
+  `qa` checks the lines either side are table rows and that the file renders as one table (no blank
+  line between T-005 and T-006). Fails if the row is detached, has a different cell count, or is
+  duplicated as prose. (As read: in the table, five cells.) The row's status text is the lead's and
+  is not checked.
+- **AC-82** (W-9, §15 is not presented as complete): §15 must record **`grn_return`** as a
+  `stock_movements.type` member with no document defining it (`purchase_returns` is §6.6's only
+  return document), as **still dead** and **not retired**, with the reason (it is unclear whether it
+  meant "refused at the door" or a duplicate of `purchase_return`) and the owner of the follow-up
+  (FP-255). The same fact must appear in the §6.5 movement table (`grn_return` row, "no document
+  defines it") and agree with §15. Fails if §15 presents the `production_in` / `production_out` case
+  as the whole of the dead-schema list, or if the two places disagree. (As read: both present.)
+- **AC-83** (W-11, the quantity residue is named): §6.5 "Three nightly quantity invariants" must
+  state that `base_quantity = ROUND(quantity × unit_factor, 4)` can shed up to 1e-4 of a base unit;
+  that on the money axis double entry forces residue to surface (§7.1 Rounding account) whereas
+  **quantity has no balancing constraint and no such account, so the residue is accepted and lands
+  nowhere**; that **all three invariants are structurally blind to it** because each compares a number
+  with a copy computed by the same expression; and that the residue is **zero under Q-9's proposed
+  answer** (an integral factor ≥ 1). Fails if any of the four statements is missing, or if it says
+  the residue is detected. (As read: all four present.)
+- **AC-84** (W-1, the `stock_levels` row cites rather than restates): the `stock_levels` row must
+  say `total_value` is the accumulator and authority, **cite §6.5** for how it is updated (inbound,
+  outbound, value-only) and **not restate** any one of the three updates, and `avg_cost` is derived
+  from it. Fails if the row contains an update formula (for example `prior total + money in`) of its
+  own, because a partial restatement is a second home that goes stale. `qa` also confirms that no
+  other row in §6 states the idempotency key or an update rule that §6.5 owns (the `stock_movements`
+  row cites §6.5 for the key; this is the same rule). (As read: the row cites and does not restate.)
+- **AC-85** (S-1, the transfer workaround is stated): movement-table note 9 (`transfer_in`) must
+  state the workaround that exists today: **a shortfall that later arrives is its own transfer
+  document** (new header, new line, new ULID), which the idempotency key already separates, and say
+  it is stated so nobody builds the two-hop shape from this note. It must continue to say the value
+  treatment of a short receipt is **unresolved and goes to FP-253**. Fails if the workaround is
+  absent, or if the note claims the value question is answered. (As read: present; the note ends
+  with the workaround sentence.)
 
 ## Out of scope
 
@@ -726,6 +788,13 @@ as written until QA run 2 passes them.
   as "the accumulator and the authority" and the sentence goes on to say it states which of the two is
   the authority; AC-68 reads it in that context. Lesson recorded: a multi-line sentence needs a
   multi-line search, and a "search returns none" claim is only as good as the search.
+- **F-11 (AC-75), live:** §6.4 states "tried twice, unit-matched then `NULL`, first hit wins" and, one
+  sentence later, "the greatest `min_qty ≤ base_quantity`, and at equal `min_qty` the unit-matched row
+  beats the `NULL` fallback". Neither is declared the outer rule, and they disagree for a `NULL` row at
+  `min_qty` 24 against a unit-matched row at 1. Found by QA run 9 through AC-75; **a document defect,
+  not a criterion defect, and a candidate for the architect.** `ba`'s view is that it should go to
+  the architect as a defect (it decides which price a customer is charged and is unresolvable by a
+  reader), with the commercial intent for the pair left to the owner if the architect cannot tell.
 - **F-10 (AC-36), recorded as live when raised; re-read at the last pass: the four-column string no
   longer appears in `docs/database.md` (search), so it appears fixed. `qa` re-verifies at every site,
   including any wrapped across lines.** Original account: the `stock_movements` row in §6.5 (line 605), §11 "Idempotency uniques"
