@@ -245,7 +245,13 @@ from it** as `total_value / on_hand`, rounded for display and for the outbound c
 guard moves to the **derivation**, where `avg_cost` holds its last value because there is nothing to
 divide by; **outbound movements subtract exactly the `line_cost` §7.1 credits inventory**; and at
 exactly zero on-hand any remaining `total_value` is rounding residue, written off through the
-inventory-adjustment account so both sides return to zero together. | The
+inventory-adjustment account so both sides return to zero together. **Amended again after QA run 5:**
+`money_in` is `ROUND(quantity × inventory_cost, 4)` — money computed from money, not from a rounded
+per-base cost, which would shed 0.0001 per line (BUG-16); the write-off and a `revaluation` are
+**value-only `correction` movements** with `quantity = 0`, because `stock_levels` is only ever
+updated alongside a movement (BUG-17); and the claim that the leak lands in §7.1's rounding account
+is **withdrawn** — that is the tender-rounding account, and the leak needs no account at all,
+because `line_cost` is credited to inventory and debited to cost of goods as one number. | The
 reverse order makes the balance-sheet figure a product of a rounded average, so it misses the
 inventory account by a sub-cent on most receipts and by more as quantities grow — and D-72's whole
 point is that those two numbers must be the same number. Accumulating value and deriving the average
@@ -253,4 +259,16 @@ makes the reconciliation hold **by construction**; the rounded average then leak
 of goods on a sale, where `sale_items.unit_cost` snapshots it anyway and §7.1 already gives rounding
 an account. Found by writing the example rather than the sentence, which is the third time on this
 task that running an arithmetic claim has changed it. Reversible: yes.
+
+D-77 | `stock_productions.input_value` / `output_value` / `wastage_value` against the `value` column on
+each `stock_production_items` row: §6.5 asserts `SUM(output value) + wastage_value = input_value` and
+named neither side the authority. Found by the sweep I asked for after D-76, and the **third** instance
+of this shape on one task. | **The item rows are the authority; the three header values are derived**
+as `SUM(value)` grouped by `role`. | Forced by the design's own residual rule: the rounding residue is
+absorbed **on the last output line**, so the lines are what get computed and the header can only be
+their sum — the reverse direction would have the header rounding to something no set of lines adds up
+to. It is also the house pattern (`account_balances` rebuilds from `journal_lines`; `total_value` leads
+`avg_cost` by D-76). The general rule, now stated three times on this task: **an identity between a
+summary and its detail needs a declared direction, or it gets answered twice** — which is exactly what
+happened with `avg_cost`, three rounds apart. Reversible: yes.
 
