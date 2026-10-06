@@ -4,7 +4,7 @@ Spec `docs/specs/T-006-unit-of-measure.md` (AC-1 to AC-67) · Plan `docs/plans/T
 Branch `ai/T-006-unit-of-measure`, 17 commits over base `47e226d`, nothing pushed. Measured on this machine on **2026-10-06**.
 No code, test or fixture was written: the task is documents, and nothing here needed a new test.
 
-## Verdict: FAIL (run 8, one correctness defect in the transfer-through-transit rule; earlier passes corrected below; runs 1, 3, 4, 5, 7 FAIL, runs 2 and 6 PASS, all kept as measured)
+## Verdict: PASS (run 9, final; one minor open, BUG-29; runs 1, 3, 4, 5, 7, 8 FAIL, runs 2 and 6 PASS, all kept as measured, with run 1 AC-52 corrected below)
 
 Two acceptance criteria fail (AC-52, AC-63), both **minor** and both fixable by one sentence each.
 One **major** design defect (BUG-1) is not an AC failure as written but is the exact defect class the
@@ -398,3 +398,38 @@ Line ~945 says rounding "is the smallest of **its three sources**" and then name
 
 ### Process finding I take on board
 Run 7's AC-36 re-verification was by grep over three documents and by pattern; this round I added a git-object comparison of the two trees for each warning. That is what separates "the text is in the file now" from "the text was in the file when I passed it", and it is what I should have run when W-3/W-5 were first claimed.
+Run 9: FAIL -> PASS (BUG-26/27/28 closed; BUG-29 minor left open; run 1's AC-52 evidence restated as the sample it was).
+
+---
+
+## Run 9 (tree at `5e2fdae`, final verification)
+
+Gate by me: exit 0, PHPStan no errors, Deptrac 0, Pest **314 / 1435**, 109.95 s (cold). Pipe scan: only FP-178. **Tally against 69: 69 pass, 0 fail, 0 n/a. Verdict PASS, plainly.** One minor (BUG-29) is open; it is not a correctness defect and I do not ask for a reopen.
+
+### The three fixes
+- **BUG-26 closed.** All four rows carry their basis in the row itself: `stock_adjustment_items` per **line** unit (entered price on an increase, a decrease valued at average); `stock_count_items` per **stock** unit with `variance_value = difference x unit_cost`, citing note 8; `stock_transfer_items` per **stock** unit (the sending cost the receiving movement re-adds, note 9); `stock_production_items` per **stock** unit with "the movement reads `value`, not this column", note 10. Your first grep was wrong because it stopped at a cell boundary; mine was by `grep -o` into the column text, and all four are present. Agreed with the guard: suspect the check before the artefact.
+- **BUG-28 closed:** "three sources" is now two; the formula block no longer says "residue".
+- **BUG-27 withdrawn as a named question, not softened.** Note 9 states what is unresolved ("the value of a short receipt ... this note deliberately does not answer it"), names both candidate shapes ((a) a location in the key, (b) separate transit types), says why neither belongs to a units task (identical at factor 1), routes it to FP-253 together with the final-or-pending `qty_variance` question, and says "nobody should implement a guess from here". What stays in scope, a **complete** transfer being neutral by construction, is correct. That reads as a question.
+
+### BUG-29 (minor): one sentence asserts, the other defers
+You asked me to confirm both sentences point at the same open question. They do not. Note 9 says the `stock_transfers` row carries the same unbacked claim and that FP-253 must reconcile it. But the **`stock_transfers` row itself (line 612) still ends "Goods in transit hit the `transit` location so they are never invisible"** with no pointer: a reader of the row alone is still told the unimplementable thing. `grep -c 'never invisible'` is 2: that row and the note quoting it. One clause on the row ("— not yet backed by any movement; §6.5 note 9, FP-253") closes it. It is a v0.4 claim, flagged where a reader of the design will meet it, so I class it minor.
+
+### Your question 2: anything in runs 1 to 7 a reader would take as settled and is not
+I re-ran the state-dependent facts at HEAD (not from my reports):
+- AC-4/65/66: **nothing outside `docs/`** in `git diff --name-only 47e226d..HEAD`. Still true.
+- AC-6: **10** rows "widened by T-006". Still true.
+- AC-50 / index: sums to **193**, true count 196 (tables untouched since). Still true.
+- AC-23/53: seventeen tagged rows, §14: fourteen document-and-quad tables, twelve with a plain pair, three exempt by name. Still true.
+- AC-67: no line removed from the decisions file since the spec's parent commit (`git diff e1c5d26^ HEAD`, zero `-` lines), so D-57 to D-65 are byte-identical. The later "rewritten in place" entries (D-74, D-76, D-78) are all after D-65.
+- AC-52 references into the new notes (§6.5 notes 8, 9, 10, "note 11 of the movement table") resolve to the notes with those numbers.
+- **One correction to run 1:** I wrote that I "followed every `§` added by the diff (about 60 refs)". I **sampled** them: about 15 to 20 read individually against their target section, including the whole spec "minimum set" for §3.1, §6.3, §6.5, §12.2, §14, §15 and the architecture references. Only one mismatch surfaced (§9.4, BUG-3). The claim "every" overstated it. The fix rounds changed the reference set, and the notes above were verified this run, but I cannot assert that all ≈60 were read.
+- Run 6's PASS and run 7's "consistent" were already corrected in run 8. Nothing else in runs 1-7 now reads as settled when it is not; the intermediate figures (192, "five exemptions", "sixteen") are labelled as measured on the trees they describe.
+
+### Your question 3: an eighth or ninth home
+I found no home that currently disagrees with another. Three candidates where the same fact is stated twice and would rot, all agreeing today:
+1. **Which master-data tables degenerate the `[UOM]` tag**: §3.1 (names `price_list_items`, `product_barcodes`, `modifiers`, and `product_components` as the fourth) and §14's exemption list (the same three by name, `product_components` explicitly not exempt). Two homes of one list.
+2. **The `stock_levels` row's `total_value` description** ("the accumulator and the authority (`prior total + money in`)") restates a *partial* form of the rule; §6.5 has three updates (inbound `money_in`, outbound `- line_cost`, value-only `+ value`). The row would mislead a reader who stops there; it should cite §6.5 rather than restate.
+3. **§3.3's "used at three sites and on four columns"** is a prose count of the same kind as "sixteen of the eighteen": correct today (stock_movements `batch_key`/`serial_key`, `price_list_items.unit_key`, `unit_conversions.product_key`), stale the first time FP-180 applies the convention to its eleven further sites.
+Checked and found to be single-homed or citations: the seven below-the-layer tables (§6.5 once, §14 cites it), the print-bearing set, the five-step ladder, `base_free` (one definition, check 3 and the `grn_items` row cite it), the eighteen movement types (one table, enum declares members, invariants cite it), and the ledger key (one declaration).
+
+Nothing in the coordinator's message measured wrong except "confirm both sentences point at the same open question" (BUG-29).
