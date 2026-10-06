@@ -111,6 +111,14 @@ This is FP-186's shape with the wrong artefact being **an assertion about one's 
 
 The second is the structural half and the cheaper one: it removes the *compounding*, which is what made this expensive, without requiring anybody to remember the first.
 
+**FP-186's live candidates — three facts stated twice that agree *today*.** Found by `qa` sweeping for an eighth home after the six known ones were consolidated. None is a defect yet, which is the point of listing them: the shape is cheap to fix while the two copies still match and expensive once one has moved.
+
+1. **The degenerate-`[UOM]` table list** appears in §3.1 and again in §14's exemption list.
+2. **The `stock_levels` row restates `total_value` as "prior total + money in"** while §6.5 now carries **three** updates to it — inbound, outbound and value-only. The row should cite §6.5 rather than restate it. **This is the one to fix first**, because §6.5 *gained* an update after the row was written, which is precisely how the first instance of this defect happened.
+3. **§3.3's "three sites and four columns"** is a prose count, and it goes stale the moment FP-180 applies the convention to its eleven further sites. A count in prose is the subtlest of the homes — it reads as narration rather than duplication.
+
+**Six facts that had multiple homes when T-006 began now have one each**, confirmed by `qa`: the seven below-the-layer tables, the print-bearing set, the factor-resolution ladder, the free-quantity expression, the eighteen movement types, and the ledger key.
+
 **FP-186 detail — the one the other five reduce to.** T-006 produced six distinct defect shapes and nine convention rows. The architect's closing observation collapses them, and it is a measurement over the whole task rather than a theory:
 
 > **Where this task used a single source, nothing went stale. Every one of the six shapes happened in a fact that had two homes.**
