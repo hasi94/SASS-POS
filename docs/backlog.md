@@ -30,7 +30,7 @@
 | T-003 | Convert the skeleton to master plus tenant connections | FP-201 | `ai/T-003-tenant-connections` (from T-002) | **DONE** — QA PASS 25/25, review APPROVE |
 | T-004 | Gate speed and repository hygiene | FP-155, FP-156, FP-157, FP-164 | `ai/T-004-gate-speed-and-hygiene` | **DONE** — QA 20/20, review APPROVE, commits `643e220` and `bcd7595` |
 | T-005 | Rename services to modules | FP-202, FP-169 | `ai/T-005-rename-modules` (from main) | **DONE** — QA PASS 26/26 (run 3), review **APPROVE** (round 2; round 1 was CHANGES REQUESTED on 3 Criticals). Gate exit 0, 314 passed / 1435 assertions. **Not yet merged**: the step-8 `CLAUDE.md` correction is still unacknowledged by the human, and per reviewer S-1 the merge and that edit belong in the same step |
-| T-006 | The unit model: GRN unit is not the selling unit | FP-243, and amendments to FP-230/231/233/234/236/237/250/253/254/255 | `ai/T-006-unit-of-measure` (from the T-005 tip) | IN_DEV — documents first, no migration cost |
+| T-006 | The unit model: GRN unit is not the selling unit | FP-243, and amendments to FP-230/231/233/234/236/237/250/253/254/255 | `ai/T-006-unit-of-measure` (from the T-005 tip) | IN_REVIEW — QA PASS 69/69 (run 9), review rounds 1 and 2 CHANGES REQUESTED and closed, round 3 in progress. Gate exit 0, 314 passed / 1435 assertions |
 
 **Why FP-201 and FP-202 are split.** The rename is mechanical but touches every file, and burying a semantic change inside that much churn makes the diff unreviewable. FP-201 was what Phase 0 was blocked on; the rename blocks nothing, so it goes second and alone.
 
@@ -91,6 +91,10 @@ The host that boots only the modules named in configuration, the generator, the 
 | FP-185 | T-006's residual stale prose: three wording items QA passed the task with | TODO — none is correctness; recorded rather than fixed, on purpose |
 | FP-186 | A fact stated more than once has to be stated once | TODO — convention, and the one the other five reduce to |
 | FP-187 | An edit is done when the artefact contains it, not when the tool reports success | TODO — convention; a failed script reported four closures and wrote nothing |
+
+**FP-172 fired for real on 2026-10-06, and that moves it from a row to a task.** During T-006 the gate exceeded **420 seconds** wall on a cold cache, the package manager's 300-second per-script timeout killed the test step, and the run reported **exit 1 with no test failure** — a false red on a clean tree. The re-run was exit 0 at 156 seconds. So the hazard this row has described since T-004 is no longer hypothetical: it has now produced a wrong answer about whether the code works, which is the one thing a gate exists to avoid.
+
+**The mitigation T-005 built did its job**, which is the other half worth recording: the killed run left no surviving probes to poison the re-run, because `probes:clean` runs as the first step of `check`. That is exactly the scenario it was positioned for, and it was positioned there after a killed run in T-005 turned the gate red with a failure naming a file that looked like real code. **The cleanup held; the timeout is what remains.**
 
 **FP-172 detail.** The package manager kills a script at 300 seconds by default. The gate runs 79-137 seconds warm on the development machine (measured 2026-10-02, five runs across the lead, `qa` and the reviewer, warm analysis cache), so it looks safe, but a cold analysis cache alone pushed a run past 300 during T-005. The kill is the dangerous part rather than the delay: a killed process runs no cleanup, so a deliberately broken test probe survived and turned the gate red afterwards with a failure that named a file looking like real code, and leftover generated packages produced seven further unrelated failures. Raise the timeout, or make the gate resilient to being killed, before continuous integration meets a cold machine.
 
