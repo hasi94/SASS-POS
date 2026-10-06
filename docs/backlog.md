@@ -30,7 +30,6 @@
 | T-003 | Convert the skeleton to master plus tenant connections | FP-201 | `ai/T-003-tenant-connections` (from T-002) | **DONE** — QA PASS 25/25, review APPROVE |
 | T-004 | Gate speed and repository hygiene | FP-155, FP-156, FP-157, FP-164 | `ai/T-004-gate-speed-and-hygiene` | **DONE** — QA 20/20, review APPROVE, commits `643e220` and `bcd7595` |
 | T-005 | Rename services to modules | FP-202, FP-169 | `ai/T-005-rename-modules` (from main) | **DONE** — QA PASS 26/26 (run 3), review **APPROVE** (round 2; round 1 was CHANGES REQUESTED on 3 Criticals). Gate exit 0, 314 passed / 1435 assertions. **Not yet merged**: the step-8 `CLAUDE.md` correction is still unacknowledged by the human, and per reviewer S-1 the merge and that edit belong in the same step |
-
 | T-006 | The unit model: GRN unit is not the selling unit | FP-243, and amendments to FP-230/231/233/234/236/237/250/253/254/255 | `ai/T-006-unit-of-measure` (from the T-005 tip) | IN_DEV — documents first, no migration cost |
 
 **Why FP-201 and FP-202 are split.** The rename is mechanical but touches every file, and burying a semantic change inside that much churn makes the diff unreviewable. FP-201 was what Phase 0 was blocked on; the rename blocks nothing, so it goes second and alone.
