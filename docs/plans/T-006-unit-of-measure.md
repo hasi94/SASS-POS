@@ -538,8 +538,10 @@ be lost:
   stays true if something checks, which is the lesson of `QaVocabularyRenameSweepTest`. (2)
   `decimal()` without a precision is forbidden in a tenant migration. (3) The `[UOM]` tag is
   **complete wherever it is claimed** — a unit column on all seventeen tagged tables, plus
-  `unit_factor` and one base column per entered quantity column on the thirteen document-line
-  tables, with the four master-data tables exempt **by name**. §14 carries the exemption list in
+  `unit_factor` and one base column per entered quantity column on **fourteen** of them, with the
+  **three** that cannot pass exempt **by name** (review S-2: `product_components` is master data but
+  passes unaided, and exempting a table that would pass is how an exemption list becomes a list of
+  tables nobody checks). §14 carries the exemption list in
   full. It is written that way because the first draft specified it as "all four columns on every
   tagged table", and MEASURED, that would have failed on **five of the seventeen** on the day it was
   written (`price_list_items`, `product_barcodes`, `modifiers` for the degenerate tag;
