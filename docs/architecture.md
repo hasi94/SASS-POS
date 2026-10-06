@@ -180,7 +180,7 @@ The single largest operational cost of this architecture, and therefore foundati
 - report which tenants are behind, and refuse to let the application serve a tenant whose schema is older than the code expects;
 - follow **expand and contract**: add in one release, backfill, switch, remove in a later one, so old and new code can both run during a rollout.
 
-**Server placement.** Tables, not disk, are the real ceiling. At roughly 190 tables per tenant — the figure [database.md](database.md) §10 computes, and the denominator of every capacity argument here — a thousand tenants is 190,000 tables on one server, and table-cache and metadata pressure bite well before storage does. Plan for a few hundred tenants per server. The mapping stores host and port precisely so tenants spread across servers, and a large customer can be moved to dedicated infrastructure by moving data and updating one row.
+**Server placement.** Tables, not disk, are the real ceiling. At roughly 190 tables per tenant — [database.md](database.md) §10 computes ≈193 core plus ≈10 plugin and models a rounded 200, and that figure is the denominator of every capacity argument here — a thousand tenants is on the order of 200,000 tables on one server, and table-cache and metadata pressure bite well before storage does. Plan for a few hundred tenants per server. The mapping stores host and port precisely so tenants spread across servers, and a large customer can be moved to dedicated infrastructure by moving data and updating one row.
 
 ---
 

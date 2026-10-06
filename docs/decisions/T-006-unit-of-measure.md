@@ -112,6 +112,16 @@ make the parse result depend on row order, which is the worst kind of intermitte
 when someone adds a rule. `priority` still earns its keep for rules of different lengths that share
 a prefix. Reversible: yes.
 
+**D-64 mechanism corrected, 2026-10-06, after QA run 1 (BUG-2).** The ruling above is unchanged and
+still right; the *mechanism* I wrote for it does not exist. "Unique among active rows" was written as
+`unique (prefix, length) where active`, and **neither MySQL 8.4 nor MariaDB 10.4 has a partial or
+filtered unique index**, so that constraint could not be created. It is now a stored generated column
+`active_prefix = IF(is_active, prefix, NULL)` with `unique (active_prefix, length)`, which is the
+mirror of the §3.3 sentinel pattern: NULL-distinctness is the *problem* in three other keys and the
+*mechanism* here, letting any number of retired rules share a prefix while only one live rule claims
+it. Recorded rather than rewritten, because "the decision was right and the SQL was not" is a more
+useful thing for the next reader to find than a clean entry.
+
 D-65 | The brief says an `embedded_price` scale label leaves the line "flagged", without saying
 where the flag lives. | One boolean on the sale line: `sale_items.price_from_label`. | A flag with
 no column is not a flag. Naming it costs one boolean on a table that is not replicated to the till,
@@ -146,3 +156,22 @@ D-69 | `ba` had no shell and could not run `git diff 47e226d..HEAD`. How are cri
 handled? | They are marked "diff" and assigned to `qa`; every other criterion is checked against the current
 text. | Reading the working tree is what `ba` could do; claiming a diff was inspected would be false.
 Reversible: yes.
+
+D-70 | `sale_items.refunded_quantity` sits on a document line, so §6.3's "in the stock unit unless the
+line says otherwise" does not reach it, and no row said which unit it was in. A line sold as 2 cases
+with one single refunded has two readings. QA raised it as BUG-8. | **Base**, by the same rule as
+D-59, and stated in the row. | It is a **rollup**, not an entered quantity: it accumulates from refund
+documents that may each be written in a different unit, which is exactly the test D-59 applied to
+`sales_order_items.delivered_quantity`. Applying the existing precedent rather than inventing a second
+rule also keeps §14's completeness list unchanged, since a rollup is not an entered quantity and needs
+no unit of its own. Reversible: yes.
+
+D-71 | The new ledger key contains `type`, so a reservation that is taken, released and taken again
+against one line would collide on `(reference_line_id, 'reservation', '-', '-')`. QA flagged it as a
+residue for FP-250 (note N-4). | For `reservation` and `reservation_release`, `reference_line_id` is
+the **`stock_reservations.id`**, not the ordering line's. | Three reservations are three rows with
+three ULIDs, so the key separates them with no counter and no extra column, and a release carries its
+own reservation's id under a different `type`. It is still "the line that caused the movement" — for a
+reservation the reservation *is* the line. The alternative, excluding the two types from the unique
+key, would remove replay protection from the only movement types a sync retry is likely to duplicate.
+Settled here rather than left to FP-250 because the key is this task's deliverable. Reversible: yes.
