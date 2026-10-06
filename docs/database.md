@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| Status | **DRAFT v0.4** — companion to [architecture.md](architecture.md) v0.4. Supersedes the v0.3 database-per-service design in full |
-| Date | 2026-09-29 |
-| Decision source | [`Refference/ARCH.md`](../Refference/ARCH.md) (product owner, authoritative) §2, §3, §8, §23 · ERP scope from [`Refference/ERP.md`](../Refference/ERP.md) §31 · gaps closed: [gap-analysis-erp.md](gap-analysis-erp.md) Q-1 … Q-6, G-1 … G-18 |
+| Status | **DRAFT v0.5** — companion to [architecture.md](architecture.md) v0.5. Supersedes the v0.3 database-per-service design in full |
+| Date | 2026-10-06 |
+| Decision source | [`Refference/ARCH.md`](../Refference/ARCH.md) (product owner, authoritative) §2, §3, §8, §23 · ERP scope from [`Refference/ERP.md`](../Refference/ERP.md) §31 · gaps closed: [gap-analysis-erp.md](gap-analysis-erp.md) Q-1 … Q-6, G-1 … G-18 · unit model: owner decisions U-1 … U-3 of 2026-10-06 ([decisions/T-006-unit-of-measure.md](decisions/T-006-unit-of-measure.md)) |
 | Engine | MySQL 8.4 LTS (Docker dev, VPS, cloud). XAMPP mode uses MariaDB 10.4 with the notes in §14. InnoDB, `utf8mb4_0900_ai_ci`; id columns `ascii_bin` |
-| Change log | **v0.4**: thirteen service schemas replaced by **one master database + one database per tenant**; `tenant_id` **removed from every tenant table**; cross-module foreign keys allowed and encouraged; projections, `*_refs` tables, inbox events and saga tables deleted; ERP domains added (double-entry accounting, AR/AP, cash & bank, expenses, HR, payroll, commission, warehouses, batch/serial, workflow engine); identity split between master login and tenant employee; tenant→database mapping, provisioning and per-tenant migration runner designed. v0.3 column design carried over wherever it still fits |
+| Change log | **v0.5** (FP-243): the **unit of measure** becomes the second dimension of the rule §7 already states for currency. `products.unit_id` renamed `stock_unit_id` and declared the base; a symmetric `sales_unit_id` added; the `[UOM]` column set defined in §3.1 and applied to sixteen line and master tables; conversion declared to happen **once, at the document line**, with the factor **snapshotted** on the line and no `unit_id` below the document layer; one factor-resolution ladder with a `dimension` guard; the `stock_movements` idempotency key rebuilt on `reference_line_id` plus generated batch/serial keys; prices carry a unit (owner U-1); weighable goods and a `barcode_rules` parser (U-2); repack as a real `stock_productions` document (U-3), which retires the dead `production_in`/`production_out` movement types; the weighted-average formula, the price-variance basis and three nightly quantity invariants written down; every bare `DECIMAL` given an explicit precision. Three new tables, ≈190 → ≈193 per tenant. **v0.4**: thirteen service schemas replaced by **one master database + one database per tenant**; `tenant_id` **removed from every tenant table**; cross-module foreign keys allowed and encouraged; projections, `*_refs` tables, inbox events and saga tables deleted; ERP domains added (double-entry accounting, AR/AP, cash & bank, expenses, HR, payroll, commission, warehouses, batch/serial, workflow engine); identity split between master login and tenant employee; tenant→database mapping, provisioning and per-tenant migration runner designed. v0.3 column design carried over wherever it still fits |
 
 **Contents**
 1 [What changed and why](#1-what-changed-and-why) ·
@@ -96,12 +96,19 @@ Rules that follow from the topology, and that the code must enforce:
 | `[SYNC]` | `origin ENUM('online','offline')`, `terminal_id CHAR(26) NULL`, `device_id CHAR(26) NULL`, `client_seq BIGINT NULL`, `client_created_at DATETIME(3) NULL`, `sync_status ENUM('synced','conflict','review')`, `synced_at DATETIME(3) NULL` | only on entities the POS can create offline |
 | `[BR]` | `branch_id CHAR(26) NOT NULL` FK `branches` | on every branch-scoped business row |
 | `[GL]` | `journal_entry_id CHAR(26) NULL` FK `journal_entries` | on documents that post to the ledger; null until posted |
+| `[UOM]` | `unit_id CHAR(26) NOT NULL` FK `units`, `quantity DECIMAL(18,4)` **in `unit_id`**, `unit_factor DECIMAL(18,6)` **snapshotted at entry**, `base_quantity DECIMAL(18,4)` = `ROUND(quantity × unit_factor, 4)` | on every **document line** that carries a quantity. `unit_code VARCHAR(50)` is added as well on **print-bearing** lines, generalising the snapshot `sale_items` already carries so a reprint shows the unit that was sold. The quantity axis of `[GL]`'s currency axis — see §6.5 |
 
 **There is no `[TENANT]` tag.** Nothing in a tenant database carries `tenant_id`. If a table needs to know which tenant it belongs to, it is in the wrong database.
 
+**`[UOM]` degenerates on master data.** Four of the tables it is applied to are definitions rather than document lines, and they take only the part that means something: `price_list_items` takes `unit_id` alone (the unit the price is *per*; its `min_qty` is a base threshold), `product_barcodes` takes `unit_id` plus a pack `quantity`, `modifiers` takes `linked_unit_id` plus `linked_quantity`, and `product_components` takes the full quad with the factor snapshotted when the bill of materials row is written, so re-sizing a case does not silently re-scale every recipe.
+
 ### 3.2 Types
 
-Money `DECIMAL(18,4)` · quantity `DECIMAL(18,4)` · rate/percentage `DECIMAL(9,4)` · exchange rate `DECIMAL(18,8)` · codes `VARCHAR(50)` · names `VARCHAR(150)` · enumerations `VARCHAR(30)` with application enums (written `enum(...)` below) · `JSON` with application schemas · business dates `DATE` in the branch timezone · all `DATETIME(3)` in UTC.
+Money `DECIMAL(18,4)` · quantity `DECIMAL(18,4)` · **unit conversion factor `DECIMAL(18,6)`** · rate/percentage `DECIMAL(9,4)` · exchange rate `DECIMAL(18,8)` · codes `VARCHAR(50)` · names `VARCHAR(150)` · enumerations `VARCHAR(30)` with application enums (written `enum(...)` below) · `JSON` with application schemas · business dates `DATE` in the branch timezone · all `DATETIME(3)` in UTC.
+
+**One precision authority each, and a fixed rounding order.** Every stored quantity is `DECIMAL(18,4)`; every conversion factor is `DECIMAL(18,6)`; `units.precision` is **display and input rounding only, never storage** (`CHECK (precision BETWEEN 0 AND 4)`). The order is fixed and identical in the PHP and the TypeScript engine: **round the entered `quantity` to `units.precision` first, then compute `base_quantity`.** Rounding in the other order lets the till and the server disagree in the fourth decimal, which is a receipt that does not match the ledger.
+
+**A bare `DECIMAL` is a bug, not a shorthand.** In MySQL `DECIMAL` with no precision is `DECIMAL(10,0)` — an integer — so a bare quantity column truncates 0.5 kg to zero. The convention above is what a column *should* be, not what the engine will infer, so every column below states its precision explicitly and §14 records the static test that forbids `decimal()` without precision in a tenant migration.
 
 ### 3.3 Rules
 
@@ -237,7 +244,8 @@ This is the heart of the architecture. Everything else can be rebuilt; a wrong o
 
 Resolution and caching:
 
-- `TenantConnectionResolver` reads `tenant_databases` + `database_servers` (single joined query, cached in Redis for 300 s under key `tenant:conn:<tenant_id>:<credential_version>`), resolves the secret (cached in memory for the process lifetime only, never in Redis), and calls `config()->set('database.connections.tenant', …)` + `DB::purge('tenant')`.
+- `TenantConnectionResolver` reads `tenant_databases` + `database_servers` (single joined query, cached in Redis for 300 s under key **`tenant:conn:<tenant_id>`**), resolves the secret, and calls `config()->set('database.connections.tenant', …)` + `DB::purge('tenant')`. **The cache key is the tenant id alone** (FP-158): `credential_version` is a *value* inside the cached mapping, not part of the key, because the version is only known after the mapping has been read — a key that contained it could never be constructed for the lookup that is meant to produce it.
+- **The resolved secret is cached against the version it belongs to, not for the process lifetime** (FP-158): the in-memory entry is keyed `<tenant_id>:<credential_version>`, so the rotation two bullets down invalidates it by construction — a worker that still holds version 7 and then reads a mapping at version 8 resolves the secret again instead of reusing a password the server no longer accepts. Secrets are never written to Redis, and a connection failure on an authentication error drops the entry and retries the resolve exactly once.
 - Any write to `tenant_databases` bumps `credential_version` or `updated_at` and publishes `tenant.mapping.changed`, which evicts the cache on every node.
 - Status gates the connection: `active` → read/write; `read_only` and `archived` → connection forced `read-only` and writes rejected at the repository layer; `migrating`, `provisioning`, `moving`, `restoring`, `suspended`, `failed` → HTTP 503 for that tenant with `Retry-After`, everyone else unaffected.
 - Rotation: generate a new password → write the new secret version → `ALTER USER … IDENTIFIED BY` → bump `credential_version` → evict caches. Old connections finish their request; new ones use the new secret. Failure at any step leaves the old secret valid, so rotation is safe to retry.
@@ -333,15 +341,15 @@ POS terminal
 
 ## 6. Tenant database
 
-One per shop. **No `tenant_id` anywhere.** Foreign keys across module boundaries are normal. ≈190 tables at full ERP scope (≈95 after Phase 2, before finance and HR land) — see §10 for what that count costs on a shared server.
+One per shop. **No `tenant_id` anywhere.** Foreign keys across module boundaries are normal. ≈193 tables at full ERP scope (≈98 after Phase 2, before finance and HR land) — see §10 for what that count costs on a shared server.
 
 | § | Domain (= Laravel module) | Tables |
 |---|---|---|
 | 6.1 | Organisation and locations | 9 |
 | 6.2 | Access control | 8 |
-| 6.3 | Catalog | 12 |
+| 6.3 | Catalog | 13 |
 | 6.4 | Pricing and tax | 9 |
-| 6.5 | Inventory | 13 |
+| 6.5 | Inventory | 15 |
 | 6.6 | Purchasing | 14 |
 | 6.7 | Sales and POS (incl. restaurant) | 15 |
 | 6.8 | Payments | 6 |
@@ -420,7 +428,11 @@ erDiagram
   CATEGORIES ||--o{ CATEGORIES : parent
   CATEGORIES ||--o{ PRODUCTS : classifies
   BRANDS ||--o{ PRODUCTS : brands
-  UNITS ||--o{ PRODUCTS : measured_in
+  UNITS ||--o{ PRODUCTS : stocked_in
+  UNITS ||--o{ PRODUCTS : purchased_in
+  UNITS ||--o{ PRODUCTS : sold_in
+  UNITS ||--o{ UNIT_CONVERSIONS : converts
+  PRODUCTS ||--o{ UNIT_CONVERSIONS : scoped_by
   PRODUCTS ||--o{ PRODUCTS : variant_of
   PRODUCTS ||--o{ PRODUCT_BARCODES : scanned_by
   PRODUCTS ||--o{ PRODUCT_LOCATIONS : stocked_at
@@ -437,10 +449,14 @@ erDiagram
     ulid parent_id FK
     ulid category_id FK
     ulid tax_group_id FK
+    ulid stock_unit_id FK
+    ulid purchase_unit_id FK
+    ulid sales_unit_id FK
     decimal cost_price
     decimal selling_price
     bool track_stock
     string tracking_mode
+    bool is_weighable
     ulid income_account_id FK
     ulid cogs_account_id FK
     ulid inventory_account_id FK
@@ -451,17 +467,55 @@ erDiagram
 |---|---|
 | categories | `[ID]` `[TS]` `[SOFT]`, parent_id FK NULL, code unique, name, path VARCHAR(500) (materialised for reporting roll-ups), depth, image_path, kitchen_station_id FK NULL, colour, income_account_id FK accounts NULL, sort_order, is_active |
 | brands | `[ID]` `[TS]` `[SOFT]`, code, name unique, logo_path, is_active |
-| units | `[ID]` `[TS]`, code unique, name, precision TINYINT, base_unit_id FK NULL, factor DECIMAL(18,6), is_active |
-| unit_conversions | `[ID]`, product_id FK NULL (null = global), from_unit_id FK, to_unit_id FK, factor DECIMAL(18,6); unique (product_id, from_unit_id, to_unit_id). Buy in cases, sell in units |
-| products | `[ID]` `[TS]` `[SOFT]` `[BY]` `[CF]`, type enum(simple, variant_parent, variant, service, bundle, composite), parent_id FK NULL, sku VARCHAR(50) unique, name, short_name VARCHAR(40), description, category_id FK, brand_id FK NULL, unit_id FK, purchase_unit_id FK NULL, tax_group_id FK, purchase_tax_group_id FK NULL, kitchen_station_id FK NULL, cost_price, selling_price, min_selling_price, msrp, **track_stock** BOOL, **tracking_mode** enum(none, quantity, batch, serial) (closes G-8), shelf_life_days INT NULL, is_sellable, is_purchasable, is_active, allow_price_override, allow_discount, weight, dimensions JSON, variant_options JSON, variant_values JSON, image_path, sort_order, **income_account_id / cogs_account_id / inventory_account_id** FK accounts NULL (override the category and company defaults for posting, §7), version BIGINT. Indexes (category_id), (brand_id), (is_active, is_sellable), (parent_id), FULLTEXT (name, short_name, sku) |
-| product_barcodes | `[ID]`, product_id FK CASCADE, barcode VARCHAR(64) unique, unit_id FK NULL, quantity DECIMAL DEFAULT 1, is_primary |
+| units | `[ID]` `[TS]`, code unique, name, **dimension enum(count, mass, volume, length, area) NOT NULL**, precision TINYINT with `CHECK (precision BETWEEN 0 AND 4)` (**display and input rounding only, never storage** — §3.2), base_unit_id FK NULL, factor DECIMAL(18,6), is_active. `dimension` is what refuses a kilogram-to-litre conversion, which the v0.4 shape accepted silently |
+| unit_conversions | `[ID]`, product_id FK NULL (null = global), from_unit_id FK, to_unit_id FK, factor DECIMAL(18,6); unique (product_id, from_unit_id, to_unit_id). Buy in cases, sell in units. **Resolution is not a query against this table from wherever a quantity is needed** — it is step 1 and 2 of the one ladder below, through `UnitResolver`, and both units must share a `dimension` |
+| products | `[ID]` `[TS]` `[SOFT]` `[BY]` `[CF]`, type enum(simple, variant_parent, variant, service, bundle, composite), parent_id FK NULL, sku VARCHAR(50) unique, name, short_name VARCHAR(40), description, category_id FK, brand_id FK NULL, **stock_unit_id FK units NOT NULL** (the base — every stored quantity for this product is in this unit), **purchase_unit_id FK NULL**, **sales_unit_id FK NULL** (both are **UI defaults for a document line, never authorities**), tax_group_id FK, purchase_tax_group_id FK NULL, kitchen_station_id FK NULL, cost_price, selling_price, min_selling_price, msrp (**all four per stock unit**), **track_stock** BOOL, **tracking_mode** enum(none, quantity, batch, serial) (closes G-8), **is_weighable BOOL**, **price_mode enum(per_unit, per_weight, open_price)**, **plu_code VARCHAR(10) NULL unique** (the scale's own item number, **not** the SKU), shelf_life_days INT NULL, is_sellable, is_purchasable, is_active, allow_price_override, allow_discount, weight, dimensions JSON, variant_options JSON, variant_values JSON, image_path, sort_order, **income_account_id / cogs_account_id / inventory_account_id** FK accounts NULL (override the category and company defaults for posting, §7), version BIGINT. Indexes (category_id), (brand_id), (is_active, is_sellable), (parent_id), (plu_code), FULLTEXT (name, short_name, sku) |
+| product_barcodes | `[ID]` `[UOM]`, product_id FK CASCADE, barcode VARCHAR(64) unique, unit_id FK NULL, **quantity DECIMAL(18,4) DEFAULT 1** (the pack size this barcode means), is_primary |
+| **barcode_rules** | `[ID]` `[TS]`, code unique, name, **kind enum(embedded_weight, embedded_price, plu, gs1_128, isbn, internal)**, prefix VARCHAR(4), length TINYINT, plu_offset TINYINT, plu_length TINYINT, value_offset TINYINT, value_length TINYINT, **value_decimals TINYINT**, check_digit_scheme enum(none, ean13, gs1_mod10), lookup enum(plu, sku, barcode), unit_id FK units NULL, priority SMALLINT, is_active; unique (prefix, length) where active. **~5–20 rows per tenant** — a scale family, not a product attribute |
 | product_locations | product_id FK, location_id FK, is_available BOOL, reorder_level, reorder_qty, max_level, bin_location VARCHAR(40), `[TS]`; PK (product_id, location_id) |
 | product_branches | product_id FK, branch_id FK, is_available BOOL, selling_price NULL (branch override), `[TS]`; PK (product_id, branch_id) |
 | product_suppliers | `[ID]`, product_id FK, supplier_id FK, supplier_sku, lead_time_days, min_order_qty, last_cost, is_preferred; unique (product_id, supplier_id). Feeds purchase suggestions and the price-history report |
-| product_components | `[ID]`, parent_product_id FK, component_product_id FK, quantity, unit_id FK, wastage_percent, is_optional, sort_order; unique (parent_product_id, component_product_id). One table serves **bundles, kits, composites and restaurant recipes** (closes G-13). `products.type` decides whether selling the parent depletes components (composite/recipe) or the components sell as a set (bundle) |
+| product_components | `[ID]` `[UOM]`, parent_product_id FK, component_product_id FK, wastage_percent, is_optional, sort_order; unique (parent_product_id, component_product_id). One table serves **bundles, kits, composites and restaurant recipes** (closes G-13), and a repack bill of materials needs no new table (§6.5). `products.type` decides whether selling the parent depletes components (composite/recipe) or the components sell as a set (bundle). The recipe is written in the unit the chef thinks in; `base_quantity` is what depletes stock |
 | modifier_groups | `[ID]` `[TS]` `[SOFT]`, name, min_select, max_select, is_required, sort_order |
-| modifiers | `[ID]`, group_id FK CASCADE, name, price_delta, cost_delta, linked_product_id FK NULL (depletes stock), kitchen_note, sort_order, is_active |
+| modifiers | `[ID]`, group_id FK CASCADE, name, price_delta, cost_delta, linked_product_id FK NULL (depletes stock), **linked_quantity DECIMAL(18,4) NULL**, **linked_unit_id FK units NULL**, kitchen_note, sort_order, is_active. "Depletes stock" with no quantity and no unit was unimplementable; this is the shape `product_components` already proves. Cheap insurance on a **replicated** table — adding the two columns later changes the POS replica payload and forces a resync of every terminal. **The depletion posting rule is deliberately unspecified here** and belongs to the restaurant workstream |
 | product_modifier_groups | product_id FK, group_id FK, sort_order; PK (product_id, group_id) |
+
+#### The base unit
+
+**`products.stock_unit_id` is the base unit, and the rename is the fix.** v0.4 called this column `unit_id` and never said in prose what it meant, so the meaning drifted: four line tables carried a unit, nothing else did, and nothing declared what unit the rest were in. A name that carries the meaning cannot drift. Every quantity stored anywhere in this database for a product is in that product's stock unit unless it sits on a document line that says otherwise.
+
+`purchase_unit_id` and `sales_unit_id` are symmetric and both nullable, and both are **UI defaults for a document line, never authorities**. A goods receipt defaults to the purchase unit and a till line to the sales unit, and either can be changed on the line — a pharmacy receives a carton, a box or a strip of the same product from the same supplier in the same week. Reading a stored quantity and multiplying by `purchase_unit_id`'s factor because "that is how we buy it" is exactly the bug this model exists to prevent.
+
+**`stock_unit_id` is immutable once a movement exists** for that product. The service layer refuses the change; there is no restatement document, because the honest alternative is a document that re-expresses every historical movement and nobody will build it. Changing the stock unit of a product with history is a new product.
+
+#### Factor resolution: one ladder, one caller
+
+`UnitResolver` is the only code that converts. It resolves `(product, from_unit)` to a factor into the product's stock unit in this order, mirroring the price ladder of §6.4:
+
+1. **product-scoped** `unit_conversions` (`product_id = :product`) — this product's case holds 24;
+2. **global** `unit_conversions` (`product_id IS NULL`) — a case holds 12 here unless told otherwise;
+3. the **`units.base_unit_id` / `units.factor` chain** — gram to kilogram, the dimension's own arithmetic;
+4. **`1`** when the line unit *is* the stock unit;
+5. **reject.** There is no sixth step. An unresolvable unit is a validation error on the document, never a silent `1` — a silent `1` sells a case for the price of a single and takes one unit out of stock.
+
+Two guards on top of the ladder:
+
+- **Cross-dimension conversion is refused.** `units.dimension` exists for this. The v0.4 shape would accept a `unit_conversions` row from kilogram to litre and apply it, which is how a shop ends up selling 12 litres of rice.
+- **Every factor to base is ≥ 1.** The stock unit is the atom: the smallest thing the shop sells, counts or holds. That keeps ledger arithmetic integral and keeps `base_quantity` from being a repeating decimal. This is an **assumption the owner is being asked to confirm** (§16 Q-9), not a settled rule, because a trade that stocks in metres and sells in centimetres would need the opposite.
+
+#### Weighable goods (owner decision U-2)
+
+`products.type` is **not** extended. That enum is the bundle/variant/composite axis, and a `weighable` member there would make weighable mutually exclusive with `variant`, which kills three grades of rice as three variants of one parent. Weighability is a separate axis: `is_weighable`, `price_mode` and `plu_code`.
+
+**Barcode resolution order**, and it is an order rather than a strategy:
+
+1. **Exact `product_barcodes` lookup first.** The existing hot single-column unique index, unchanged, serves ~99 % of scans and nothing about it changes.
+2. **On a miss**, match `barcode_rules` by `prefix` + `length` in `priority` order, **in memory, from the replica**. No SQL prefix scan, no `LIKE 'xx%'` on a growing table, and the till keeps working offline — which is the point, because a scale label is scanned at the busiest terminal in the shop.
+3. `kind = embedded_weight` yields a `quantity` and a `unit_id` for the line; `kind = embedded_price` fixes `line_total` from the label and **back-computes** the quantity at the resolved unit price, and the line is flagged as price-derived so a report can find the labels a scale mis-priced.
+
+One rule serves four thousand PLUs. Per-product prefix columns would mean four thousand copies of one fact and no way to onboard a second scale with a different prefix, which is why this is a rules table and not three columns on `products`.
+
+Label printing needs nothing new: `printers.type = label` and `print_templates.type = label` already exist (§6.17).
 
 ### 6.4 Pricing and tax
 
@@ -473,11 +527,24 @@ erDiagram
 | tax_groups | `[ID]` `[TS]`, code unique, name, is_inclusive BOOL, is_default, is_active |
 | tax_group_taxes | tax_group_id FK CASCADE, tax_id FK, sequence TINYINT; PK (tax_group_id, tax_id) |
 | price_lists | `[ID]` `[TS]` `[SOFT]`, code unique, name, type enum(standard, customer_group, promotion, branch), currency, priority SMALLINT, starts_at, ends_at, is_active |
-| price_list_items | `[ID]`, price_list_id FK CASCADE, product_id FK, min_qty DECIMAL DEFAULT 1, price, discount_percent NULL; unique (price_list_id, product_id, min_qty) |
+| price_list_items | `[ID]` `[UOM]`, price_list_id FK CASCADE, product_id FK, **unit_id CHAR(26) NULL FK units** (the unit this `price` is *per*; **`NULL` = priced per stock unit, derive by factor**), **min_qty DECIMAL(18,4) DEFAULT 1** (a volume break on **base** quantity), price, discount_percent NULL; **unique (price_list_id, product_id, unit_id, min_qty)** |
 | price_list_assignments | `[ID]`, price_list_id FK, scope_type enum(branch, customer_group, customer), scope_id CHAR(26), priority; unique (scope_type, scope_id, price_list_id) |
 | discounts | `[ID]` `[TS]` `[SOFT]` `[BY]`, code unique, name, type enum(percentage, fixed, buy_x_get_y), value, scope enum(item, bill), applies_to JSON (products, categories, brands), min_amount, max_discount, requires_approval BOOL, approval_threshold, workflow_definition_id FK NULL, starts_at, ends_at, usage_limit, used_count, is_active, sales_discount_account_id FK accounts NULL |
 
 Price resolution (server `pricing.quote` and the POS engine use the same order): customer price list → customer-group list → active promotion lists by priority → branch list → `product_branches.selling_price` → `products.selling_price`.
+
+**The six steps keep their shape; each one is now unit-qualified.** Within each of the first four steps the lookup is tried twice — first `unit_id = :line_unit`, then `unit_id IS NULL` — and the first hit wins. A `NULL` row means *priced per stock unit*, so the price is derived: `unit_price = stock_unit_price × unit_factor`. The last two steps are per stock unit by definition and always derive: **`products.selling_price`, `min_selling_price`, `msrp`, `cost_price` and `product_branches.selling_price` are all per stock unit.** That is one sentence and zero columns, and it is the sentence v0.4 never contained.
+
+**Why prices carry their own unit (owner decision U-1).** Derivation alone cannot express what shops actually charge:
+
+- the **case discount is near-universal** — a case of 24 at 179 when a single is 7.50, because the shop wants the case moved;
+- **pharmacy inverts it** — a loose tablet is priced *above* one tenth of a strip, because breaking the strip is a service;
+- derivation is **self-contradictory under rounding**: 24 × 7.50 = 180, the shop prices the case at 179, and no rounding rule reconciles those two numbers for the same product at the same moment;
+- the unique key on `price_list_items` is on a **till-replicated** table, and changing a unique key after launch forces a full resync of every terminal in the field.
+
+**And `min_qty` alone cannot cover it**, which is the tempting cheap answer. `min_qty` is a volume break on *base* quantity, so `min_qty = 24` charges the case price to a customer who picks 24 loose singles off the shelf — and the case discount exists precisely to stop that. Buying a sealed case and assembling 24 singles are different transactions with different handling costs, and only the unit distinguishes them.
+
+Derivation survives as a **declared fallback at the bottom of the ladder**, not as the mechanism: a tenant who never prices a case still gets a correct case price, and a tenant who does gets the number they typed.
 
 ### 6.5 Inventory
 
