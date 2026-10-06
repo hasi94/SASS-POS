@@ -115,6 +115,12 @@ This is FP-186's shape with the wrong artefact being **an assertion about one's 
 
 The second is the structural half and the cheaper one: it removes the *compounding*, which is what made this expensive, without requiring anybody to remember the first.
 
+**The refinement that cost two QA runs and a review round: consolidating a fact is only finished when every question about the set is answered in the one place.** T-006's movement table answered identity and cost for all eighteen movement types and left the **quantity that moves** to a generic line three rows below. The table's own sentence — *"nothing here chooses them; the table is the only place they are decided"* — then actively invited the assumption that the quantity had been decided somewhere sensible. It had not: it was wrong for one type (a count that found 72 units closing a level at 120, with the invariant blind because both sides carried the same wrong number), undefined for two (the transfer pair carries a sent/received pair and no single quantity column at all), and defined against a column that exists on one inbound source of seven, where a NULL addend takes the whole update to NULL.
+
+**A partial consolidation reads *more* trustworthy than no consolidation**, which is why this survived two QA runs and a review round: each half is correct on its own, and finding it required asking **what the table does not say** rather than whether what it says is right.
+
+**And a consolidation can introduce the defect it was built to prevent.** The free-quantity term was marked "defined ONCE, here" specifically to kill a duplicate definition — correctly — and that marker is what made a goods-receipt-only column read as universal. The duplicate went; the ambiguity moved. So the check on a consolidation is not "is the fact now in one place" but **"is every question the set raises answered there"**.
+
 **FP-186's live candidates — three facts stated twice that agree *today*.** Found by `qa` sweeping for an eighth home after the six known ones were consolidated. None is a defect yet, which is the point of listing them: the shape is cheap to fix while the two copies still match and expensive once one has moved.
 
 1. **The degenerate-`[UOM]` table list** appears in §3.1 and again in §14's exemption list.
