@@ -111,3 +111,11 @@ than the uniqueness. | Two active rules matching the same prefix and length cann
 make the parse result depend on row order, which is the worst kind of intermittent bug: it changes
 when someone adds a rule. `priority` still earns its keep for rules of different lengths that share
 a prefix. Reversible: yes.
+
+D-65 | The brief says an `embedded_price` scale label leaves the line "flagged", without saying
+where the flag lives. | One boolean on the sale line: `sale_items.price_from_label`. | A flag with
+no column is not a flag. Naming it costs one boolean on a table that is not replicated to the till,
+and it is the only way to find the lines whose **quantity was computed from money** rather than the
+other way round — which is what an embedded-price label does, and the thing a mis-configured scale
+corrupts silently. Not added to `order_items`: a restaurant does not scan scale labels, and the
+column can follow if one ever does. Reversible: yes.
