@@ -703,7 +703,7 @@ Without `product_id` the first two **cannot be saved at all** — unique violati
 | `count` | `stock_count_items.id` | `stock_count` |
 | `transfer_out` | `stock_transfer_items.id` | `stock_transfer` |
 | `transfer_in` | `stock_transfer_items.id` — **one per line, because receiving a transfer is one event** ★. The header carries a single `received_at`/`received_by`, so `partially_received` means *some lines short or not arrived*, with the shortfall in `qty_variance`, not *this line arrived twice*. Receiving one line in instalments would need a receiving document this schema does not have; that is named here rather than invented, and it is a question for FP-253 | `stock_transfer` |
-| `production_in`, `production_out` | `stock_production_items.id` (role `output`/`byproduct` and `input` respectively) | `stock_production` |
+| `production_in`, `production_out` | `stock_production_items.id` — `production_in` for role `output` and `byproduct`, `production_out` for role `input`. **Role `wastage` writes no movement at all**: the quantity already left on the input's `production_out`, and wastage is what did not come back, so writing one would remove it twice. A wastage line is a **value** line — it feeds `wastage_value` and the Dr wastage expense of §7.5, and `SUM(output value) + wastage_value = input_value` is where it shows up | `stock_production` |
 | `correction` | the **correcting** `stock_adjustment_items.id` ★, never the row being corrected — §3.3 says a correction is a new row and never an `UPDATE`, which positively invites several corrections against one original, and keying on the original would permit exactly one. Note that `stock_adjustments.type` has no `correction` member: the correcting document is an ordinary `increase`/`decrease` adjustment, and the **movement type** is what marks it as a correction | `stock_adjustment` |
 | `reservation`, `reservation_release` | `stock_reservations.id` (D-71) | `sales_order` · `quotation` · `transfer` · `order` |
 
@@ -724,16 +724,45 @@ The formula was never written down. It is, **in base units**:
 
 ```text
 cost_per_base = line.inventory_cost / line.unit_factor
-                -- inventory_cost = grn_items.landed_cost on a receipt, line.unit_cost elsewhere
+                -- inventory_cost = grn_items.landed_cost on a receipt (per LINE unit),
+                --                  line.unit_cost on any other inbound movement
+base_paid     = line.base_quantity                        -- the quantity that was paid for
+base_free     = ROUND(line.free_quantity × line.unit_factor, 4)   -- the bonus, same factor
 
-if on_hand <= 0:                                   -- nothing to average against
-    new_avg = cost_per_base
-else:
-    new_avg = (on_hand × avg_cost + base_qty_in × cost_per_base)
-              / (on_hand + base_qty_in)
+prior = on_hand > 0 ? on_hand × avg_cost : 0       -- nothing to average against at or below zero
+prior_qty = on_hand > 0 ? on_hand : 0
+
+new_avg = (prior + base_paid × cost_per_base)       -- money: PAID quantity only
+        / (prior_qty + base_paid + base_free)       -- quantity: paid AND free
 ```
 
-**`base_qty_in` includes the free quantity.** It is `base_quantity + ROUND(free_quantity × unit_factor, 4)` — the same expression as the posting rule and as nightly check 3, which is what keeps the three agreeing. So the formula as written **does** dilute `avg_cost` with bonus goods: ten cases bought and two free are twelve cases of stock at the price of ten, which is the common and defensible reading. The open question (§6.6) is therefore not *whether* this reading is implemented but whether a tenant should be able to choose the other one, where free goods enter at zero cost and leave `avg_cost` alone. Saying which way the default falls is better than leaving the formula's own input undefined, which is what this paragraph previously did.
+**The free quantity is in the denominator only, and that is the whole of it.** Money in is what was
+paid; quantity in is what arrived. Putting `base_free` in the numerator as well would book cost that
+nobody was charged.
+
+**Worked, with this document's own numbers**, because a sentence about this is not checkable and a
+table is. Ten cases received at a landed 4 800 each, two cases free, 24 singles to a case, from zero
+stock. `cost_per_base` = 4 800 / 24 = **200**; `base_paid` = 240; `base_free` = 48; the general ledger
+debits inventory 10 × 4 800 = **48 000** (§7.2 posts landed cost, and nobody invoices the free cases):
+
+| | `new_avg` | on hand | `total_value` | GL inventory debit | Difference |
+|---|---|---|---|---|---|
+| **Free quantity in both numerator and denominator** | 288 × 200 / 288 = **200.00** | 288 | **57 600** | 48 000 | **+9 600 on one receipt** |
+| **Free quantity in the denominator only** — the rule above | 240 × 200 / 288 = **166.6667** | 288 | **48 000** | 48 000 | **0** |
+
+The second line ties, and it ties *exactly* — which is the test, not a preference: `total_value` is the
+balance-sheet figure and it has to equal the account the receipt debited. It keeps tying with stock
+already on hand, because the numerator is always *prior value plus money actually spent*: 100 on hand
+at 150 plus this receipt gives 162.3711 over 388 units = 63 000 = 15 000 + 48 000.
+
+**So the two readings are named by what they do to the balance sheet, which is the only thing that
+separates them.** Free units at **zero cost** lowers `avg_cost` and ties to the ledger. Free units at
+**full cost** leaves `avg_cost` untouched and **overstates inventory** by the value of the bonus,
+permanently and on every receipt — so it is not a second option a tenant might prefer, it is a defect,
+and it is the one this paragraph specified until QA worked the arithmetic (D-74). What is genuinely
+still open is **presentation, not valuation**: whether the benefit should also be *disclosed* — as a
+purchase discount received — rather than absorbed silently into the cost of what is on hand. That
+changes no column and no total, and it is a finance question for the owner.
 
 **The cost it averages is the one the general ledger debits.** On a goods receipt that is
 `grn_items.landed_cost` — supplier price **plus** the apportioned `other_charges` — because §7.2 posts
@@ -751,13 +780,15 @@ products equals the balance of the inventory account those products resolve to (
 `inventory_account_id` where products override it. That equality is the point of valuing both sides
 from one number, and it is the obvious nightly check for FP-250 to add once the ledger exists.
 
-**The guard is `on_hand <= 0`, not `on_hand + base_qty_in = 0`.** A zero denominator is the obvious
-case and the less likely one. The real one is **negative** on-hand, which this design explicitly
+**The guard is on the prior layer, not on the denominator.** A zero denominator is the obvious case
+and the less likely one, and it cannot occur on a real receipt anyway, since something arrived. The real one is **negative** on-hand, which this design explicitly
 allows: §12.2 accepts an offline sale that drives stock negative, because the sale already happened.
 Weighting an existing cost by a negative quantity gives a negative numerator, a denominator that may
 be small, zero or negative, and an `avg_cost` that is enormous or below zero — at which point
 `total_value` is a negative inventory balance on the balance sheet. When on-hand is zero or negative
-there is no prior layer to average against, so the arriving cost simply becomes the cost.
+there is no prior layer to average against, so the formula runs with `prior = 0` and `prior_qty = 0`:
+the arriving cost becomes the cost — or, on a receipt carrying free goods, the **paid** cost spread
+over everything that arrived, which is the same rule and not a second one.
 
 **This division is the most dangerous arithmetic in the feature.** A case of 24 received at 4 800 must become 200 per single *before* it touches `avg_cost`; receive it unconverted and `avg_cost` becomes 4 800, `total_value` becomes on-hand × 4 800, and the balance sheet overstates inventory by a factor of 24 — with no error, no warning and nothing to notice until a stock-take. `unit_cost` on a **purchase** line is per **line unit** — it is what the supplier charges for a case — while `avg_cost` on a level is per **stock unit**, and the factor is the only thing between them. The one deliberate exception is a **cost snapshot on an outbound line** (`sale_items.unit_cost`, `stock_production_items.unit_cost`): those are copies of `avg_cost` and are therefore already per stock unit, so they multiply by `base_quantity`, not by `quantity`. Stated here because the two readings of one column name are exactly how a 24× error gets written by someone who read only half the design.
 
@@ -814,7 +845,7 @@ erDiagram
 | suppliers | `[ID]` `[TS]` `[SOFT]` `[BY]` `[CF]`, code unique, name, legal_name, contact_name, phone, email, address JSON, tax_no, currency, payment_terms_days, credit_limit, opening_balance, payable_account_id FK accounts NULL, default_expense_account_id FK NULL, bank_details JSON, is_active, notes |
 | purchase_requests / purchase_request_items | header `[ID]` `[TS]` `[BY]`, number unique, branch_id FK, location_id FK, requested_by FK employees, required_date, status enum(draft, pending_approval, approved, rejected, converted, cancelled), workflow_instance_id FK NULL, notes · item `[ID]` `[UOM]`, request_id FK CASCADE, product_id FK, estimated_cost, supplier_id FK NULL, purchase_order_item_id FK NULL. Closes G-9 |
 | purchase_orders / purchase_order_items | header `[ID]` `[TS]` `[BY]` `[CF]`, number unique, supplier_id FK, branch_id FK, location_id FK (delivery target), request_id FK NULL, order_date, expected_date, status enum(draft, pending_approval, approved, sent, partially_received, received, closed, cancelled), workflow_instance_id FK NULL, currency, exchange_rate, subtotal, discount_total, tax_total, shipping, total, received_value, terms, notes · item `[ID]` `[UOM]`, order_id FK CASCADE, product_id FK, description, **received_quantity** (in the order's `unit_id`, for display on a document the supplier sees) and **received_base_quantity DECIMAL(18,4)** (the authority), unit_cost, discount_percent, tax_group_id FK, tax_amount, line_total, expected_date. The `partially_received → received` transition compares **base to base**: receipts against one order line arrive in whatever unit the lorry brought, so comparing `received_quantity` with `quantity` closes an order that is half empty |
-| grns / grn_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, supplier_id FK, order_id FK NULL (direct receipts allowed), location_id FK, received_date, status enum(draft, posted, cancelled), supplier_dn_no, currency, exchange_rate, subtotal, tax_total, other_charges, total, posted_at, posted_by, notes · item `[ID]` `[UOM]`, grn_id FK CASCADE, order_item_id FK NULL, product_id FK, **free_quantity DECIMAL(18,4) NOT NULL DEFAULT 0** (in the line's `unit_id`, converted with the **same** snapshotted `unit_factor`; `NOT NULL DEFAULT 0` because nightly check 3 and the posting rule both add it, and `base + ROUND(NULL × f, 4)` is NULL, which would make the check fail on every line that carries no bonus — most of them), unit_cost (per line unit), landed_cost (after apportioning other charges), tax_group_id FK, tax_amount, line_total, **batch_no, expiry_date, mfg_date** (create/find the `batches` row), serial_numbers JSON (create `serials` rows), notes. Posting writes `grn` movements **in base** for `base_quantity + ROUND(free_quantity × unit_factor, 4)` — bonus goods are physical stock and must arrive in the ledger; whether they also dilute `avg_cost` is a valuation question this task deliberately does not settle — updates `avg_cost` through the formula of §6.5, and creates the journal entry of §7.2. Two lines of the same product in different units on one receipt is the ordinary case, not an edge case |
+| grns / grn_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, supplier_id FK, order_id FK NULL (direct receipts allowed), location_id FK, received_date, status enum(draft, posted, cancelled), supplier_dn_no, currency, exchange_rate, subtotal, tax_total, other_charges, total, posted_at, posted_by, notes · item `[ID]` `[UOM]`, grn_id FK CASCADE, order_item_id FK NULL, product_id FK, **free_quantity DECIMAL(18,4) NOT NULL DEFAULT 0** (in the line's `unit_id`, converted with the **same** snapshotted `unit_factor`; `NOT NULL DEFAULT 0` because nightly check 3 and the posting rule both add it, and `base + ROUND(NULL × f, 4)` is NULL, which would make the check fail on every line that carries no bonus — most of them). **Free units enter stock at zero cost**, so they lower `avg_cost` and leave `total_value` tied to the inventory account (§6.5, D-74), unit_cost **per line unit**, **landed_cost per line unit** (unit cost after apportioning `other_charges`; it is **this** column the average cost and the ledger are both built from, §6.5 and §7.2, so storing a line *total* here is the 24× error one column over from the one D-57 exists to prevent), tax_group_id FK, tax_amount, line_total, **batch_no, expiry_date, mfg_date** (create/find the `batches` row), serial_numbers JSON (create `serials` rows), notes. Posting writes `grn` movements **in base** for `base_quantity + ROUND(free_quantity × unit_factor, 4)` — bonus goods are physical stock and must arrive in the ledger — updates `avg_cost` through the formula of §6.5, and creates the journal entry of §7.2. Two lines of the same product in different units on one receipt is the ordinary case, not an edge case |
 | purchase_returns / purchase_return_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, supplier_id FK, grn_id FK NULL, location_id FK, return_date, reason, status enum(draft, posted, cancelled), totals, debit_note_no · item `[ID]` `[UOM]`, return_id FK CASCADE, grn_item_id FK NULL, product_id FK, batch_id FK NULL, unit_cost, tax_amount, line_total. A return may be in a different unit from the receipt — a shop returns one broken bottle out of a received case — and where `grn_item_id` is set the line **inherits that receipt line's `unit_factor`** rather than re-resolving it (§6.5), so a factor edited after the receipt cannot make a return remove a different quantity than it put in. The original GRN is never modified |
 | supplier_invoices / supplier_invoice_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique (internal), supplier_invoice_no, supplier_id FK, invoice_date, due_date, status enum(draft, pending_approval, approved, posted, partially_paid, paid, disputed, cancelled), workflow_instance_id FK NULL, currency, exchange_rate, subtotal, tax_total, other_charges, total, amount_paid, balance_due, ap_document_id FK NULL, notes · item `[ID]` `[UOM]`, invoice_id FK CASCADE, grn_item_id FK NULL, product_id FK NULL, expense_account_id FK accounts NULL (non-stock lines), description, unit_cost, tax_group_id FK, tax_amount, line_total (`unit_id` is nullable in practice only for a non-stock line, which has no product and therefore no stock unit). **A distinct entity from the GRN** (closes G-9): goods can arrive before the invoice, and the price on the invoice may differ — the difference posts to purchase price variance |
 | supplier_payments / supplier_payment_allocations | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, supplier_id FK, payment_date, financial_account_id FK (which cash/bank account paid), method enum(cash, bank_transfer, cheque, card, other), reference, currency, exchange_rate, amount, unallocated_amount, status enum(draft, posted, cancelled, bounced), cheque_no, cheque_date, notes · allocation `[ID]`, payment_id FK CASCADE, ap_document_id FK, amount, discount_taken, `[TS]`; unique (payment_id, ap_document_id) |

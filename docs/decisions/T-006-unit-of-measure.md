@@ -200,13 +200,23 @@ Reversible: yes.
 
 D-74 | `base_qty_in` in the valuation formula was undefined, and nightly check 3 forces it to include
 the free quantity, so the formula silently closed the free-goods question D-60 left open. Raised as
-review W-10. | **Free goods dilute `avg_cost`**: `base_qty_in = base_quantity + ROUND(free_quantity ×
-unit_factor, 4)`, the same expression as the posting rule and check 3. The *other* reading — free
-goods enter at zero cost and leave `avg_cost` alone — remains the open question, now stated as a
-choice rather than as an ambiguity. | Ten cases bought and two free are twelve cases of stock at the
-price of ten, which is the common and defensible default. Leaving the formula's own input undefined
-was the real defect: it meant the answer depended on who implemented it. **Still the owner's to
-switch**, and switching it is a configuration flag, not a schema change. Reversible: yes.
+review W-10, **then corrected after QA run 3 (BUG-10) — the first answer was wrong, and this entry
+is rewritten rather than appended to, because the version below is the rule and a reader following
+the old one would overstate inventory.** | **Free units enter stock at zero cost.** The free quantity
+appears in the **denominator only**: money in is `base_quantity × cost_per_base`, quantity in is
+`base_quantity + ROUND(free_quantity × unit_factor, 4)`. `avg_cost` falls and
+`stock_levels.total_value` stays equal to the inventory account the receipt debited. | **The test is
+arithmetic, not preference.** Ten cases at a landed 4 800, two free, 24 per case, from zero stock: the
+ledger debits 48 000, and free-in-the-denominator-only gives 166.6667 × 288 = **48 000 exactly**,
+while free-at-full-cost gives 200.00 × 288 = **57 600** — overstating inventory by 9 600 on a single
+receipt, permanently, against the very reconciliation D-72 had just added one paragraph earlier.
+My first answer said free goods "dilute" and then wrote a formula that put the free quantity in the
+**numerator as well**, which is not dilution: it books cost nobody was charged. So the honest naming
+is by balance-sheet effect — zero cost ties, full cost overstates — and full cost is therefore a
+**defect, not a second option a tenant might prefer**, which is what the superseded version offered.
+What is genuinely still open is **presentation**: whether the benefit is also disclosed as a purchase
+discount received rather than absorbed into the cost of goods on hand. That changes no column and no
+total, and it is the owner's. Reversible: yes.
 
 D-75 | The new ledger key dropped `product_id`, which assumed one movement per line per type — and
 this document describes three cases where one line moves several products. Raised as review R-1, the
