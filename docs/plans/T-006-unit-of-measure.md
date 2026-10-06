@@ -218,12 +218,16 @@ columns given explicit precision.
 + reference_line_id CHAR(26) NOT NULL                                         -- the line that caused the movement
 + batch_key  CHAR(26) GENERATED ALWAYS AS (COALESCE(batch_id,  '-')) STORED
 + serial_key CHAR(26) GENERATED ALWAYS AS (COALESCE(serial_id, '-')) STORED
-  unique (reference_line_id, type, batch_key, serial_key)
+  unique (reference_line_id, product_id, type, batch_key, serial_key)
 ```
 
 `reference_type` leaves the key; `(reference_type, reference_id)` stays a non-unique index;
-`product_id`/`batch_id` demote to plain indexed columns; header-level movements (`opening`,
-`correction`) use the header's own ULID. MariaDB 10.4 parity holds because §14 already records
+`batch_id` demotes to a plain indexed column. **`product_id` stays**, because one line can move
+several products — a composite's components, a depleting modifier, an opening load — and §6.5 now
+carries a row per movement type saying what `reference_line_id` names, plus the rule that a line
+writes at most one movement per `(product_id, batch_id, serial_id, type)` with duplicates aggregated.
+Dropping `product_id` was the one design regression this task introduced; see "Found by review, not
+by me". MariaDB 10.4 parity holds because §14 already records
 stored generated columns in indexes as the workaround for its missing functional indexes.
 
 **Enums extended:** `journal_entries.source_type` and `number_sequences.document_type` both gain
@@ -285,6 +289,9 @@ section could cite an earlier one rather than forward-reference it.
 - [x] **Step 12 — QA run 1 (FAIL: 65/67, one major, seven minor)**, fixed in `13cc57f` and this
       file. See "Found by QA, not by me" below; the major one is the only defect on this task that
       was a **design** error rather than a count or a citation.
+- [x] **Step 13 — review round 1 (CHANGES REQUESTED: 4 Critical, 11 Warning, 7 Suggestion)**,
+      fixed in `5d5074c`. See "Found by review, not by me"; R-1 is the only **regression** on this
+      task, and the fix round introduced it rather than the original pass.
 
 ---
 
@@ -404,6 +411,50 @@ D-59's existing rule); and this plan's bare-`DECIMAL` count was wrong (BUG-7, C-
 
 Also closed from QA's notes rather than its bug list: `architecture.md` §7 attributed "190" to a §10
 that now computes 193 — the new number going stale in the very sentence that fixed the old "150".
+
+## Found by review, not by me
+
+Round 1 was **CHANGES REQUESTED**: four Criticals, eleven Warnings, seven Suggestions — every Critical
+a single sentence, three of the four in §6.5. The reviewer's verdict on the model was that it holds;
+the defects were on sentences. Closed in `5d5074c`. The one worth reading:
+
+**I dropped `product_id` from the ledger key and argued only the column next to it.** The prose
+justified removing `reference_type` (a ULID is globally unique), said `product_id` and `batch_id`
+"demote to ordinary indexed columns", and then argued only `batch_id`'s demotion — which `batch_key`
+genuinely covers. `product_id`'s was never argued, and it was wrong: this document describes **three**
+cases where one line moves several products, and two of them could not have been saved at all. A
+composite or recipe depletes its components from one `sale_items` line; a **depleting modifier** adds
+another product against the same line, from the `linked_quantity`/`linked_unit_id` columns *this task
+added*; and an opening load writes one movement per `stock_adjustment_items` row — which also makes
+"`opening` is header-level" wrong one section after the adjustment schema says otherwise. **The v0.4
+key handled all three**, because it carried `product_id`. So the round that closed BUG-1 opened a
+regression of the same family: a unique violation on every restaurant recipe and every kit.
+
+**The lesson is narrower than BUG-1's and worth keeping separately:** when a column leaves a key, the
+argument has to be made *for that column*, not for the key. I wrote one argument covering two
+removals and checked it against one of them. A list of what a key no longer contains is a list of
+claims, and each needs its own sentence — which is now what §6.5 has, as a row per movement type.
+
+The other three Criticals: the snapshot protected the original document and not the one that reverses
+it, so a return re-resolved the factor and could remove a different quantity than the receipt put in
+(**R-3** — and the reviewer is right that **D-58 already derives this rule for the harder case**, so I
+had it where it was hardest and never asked it on the easy one); the valuation formula averaged
+`unit_cost` while §7.2 debits inventory at **landed cost**, which would have diverged the stock ledger
+from the general ledger by the freight on every receipt, permanently (**R-4**, D-72); and "one event
+per line per type" was still assumed for `correction` and `transfer_in` after D-71 had found exactly
+that bug for the reservation pair (**R-2**, now a table of all eighteen types, D-73).
+
+**One place I did not take the reviewer's reading.** R-2 proposed that a transfer line can be received
+in instalments and the key must separate them. The header carries a single `received_at`/`received_by`,
+so the schema's own columns say receiving is **one event**, and `partially_received` means *some lines
+short*. Instalment receipts would need a receiving document this schema does not have, and inventing
+one inside a unit task is how a second undiscussed design lands in a document nobody re-reads. Named
+as a gap for FP-253 instead (D-73).
+
+Of the eleven Warnings, **W-1 is the one I would want remembered**: nightly check 3 adds
+`free_quantity`, which had no type, no `NOT NULL` and no default — so `base + ROUND(NULL × f, 4)` is
+NULL, `SUM` skips the row, and the check fails on **every** receipt line without a bonus. That is the
+cry-wolf argument I had just written, inside my own fix for a cry-wolf defect, two rounds running.
 
 ## Decisions
 
