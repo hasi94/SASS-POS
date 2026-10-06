@@ -286,11 +286,26 @@ Numbering starts at AC-1 for T-006. "§" without a file means `docs/database.md`
 
 ### The ledger idempotency key (§6.5, §11)
 
-- **AC-36**: Given the `stock_movements` row and §6.5 "The ledger idempotency key", then the key is
-  `unique (reference_line_id, type, batch_key, serial_key)`, where `reference_line_id CHAR(26) NOT
-  NULL`, and `batch_key` / `serial_key` are `CHAR(26) GENERATED ALWAYS AS (COALESCE(..., '-')) STORED`.
-  `(reference_type, reference_id)` remains as a plain non-unique index. Header-level movements
-  (`opening`, `correction`) use the header's own ULID as `reference_line_id`.
+- **AC-36** (rewritten after review round 2; the earlier wording certified a superseded key): Given
+  §6.5 "The ledger idempotency key", then the key is the **five**-column
+  `unique (reference_line_id, product_id, type, batch_key, serial_key)`, where `reference_line_id
+  CHAR(26) NOT NULL` and `batch_key` / `serial_key` are `CHAR(26) GENERATED ALWAYS AS (COALESCE(...,
+  '-')) STORED`. `(reference_type, reference_id)` remains a plain non-unique index. **The criterion
+  covers every site, not one:** `qa` searches `docs/database.md`, `docs/architecture.md` and
+  `docs/backlog.md` for `reference_line_id` inside a parenthesised key list and for the phrase
+  "unique (" near `stock_movements`, and **every** statement of the key (at least the `stock_movements`
+  row in §6.5, §6.5's code block, §11 "Idempotency uniques", and the partitioning note after the §11
+  profile table) must list `product_id`. A four-column key at any site fails the criterion, even if
+  §6.5's block is right. The criterion must not be satisfied by a document that is internally
+  consistent but wrong: `qa` also reads the §6.5 table of the eighteen movement types to confirm the
+  key can hold, i.e. that a line writing several products (a composite sale, a depleting modifier, an
+  opening load) is not rejected by it. This spec does **not** restate what `reference_line_id` names
+  per type; the eighteen-row table in §6.5 is the single authority and any restatement here would go
+  stale. In particular this spec no longer says that `opening` or `correction` movements are
+  header-level; the table marks `opening` and `correction` as line-level (★).
+  *At the time of this pass the four-column key still appears at three sites in `docs/database.md`
+  (the `stock_movements` row, §11 "Idempotency uniques", and the partitioning note); the criterion
+  therefore fails until they are fixed (Finding F-10).*
 - **AC-37**: Given the same section, then the two fixed bugs are both stated with their cause: (1) a
   receipt of 2 cases plus 3 loose singles of one product is two lines and collided on the old key;
   (2) a nullable `batch_id` in a unique key means NULLs are distinct, so there was no uniqueness for
@@ -298,7 +313,7 @@ Numbering starts at AC-1 for T-006. "§" without a file means `docs/database.md`
   `split_no` counter) are recorded.
 - **AC-38**: Given §11 "Idempotency uniques" and §14, then §11 lists the new key and not the old
   one `(reference_type, reference_id, product_id, batch_id, type)` as current (it may appear
-  as the thing replaced), and §14 says the generated-column mechanism works on MariaDB 10.4 with no
+  as the thing replaced), and lists the **five**-column key of AC-36, not the four-column one, and §14 says the generated-column mechanism works on MariaDB 10.4 with no
   engine branch. `qa` greps both documents for the old key text and reads each hit as "replaced",
   never "current".
 
@@ -335,10 +350,14 @@ Numbering starts at AC-1 for T-006. "§" without a file means `docs/database.md`
        variant gives 1 000 and 200.00 against 500, a difference of +500. (qa also confirms the
        "reset" row is a value-only reset: its `on_hand` stays 5, so 1 000 / 5 = 200.00 is the
        arithmetic of that variant, not of a variant that also zeroed quantity.)
-  - **Rounding symmetry, to be checked and reported rather than assumed:** `line_cost` is stated
-    with `ROUND(..., 4)`. `qa` reads whether `money_in` is stated with its rounding and equals the
-    §7.2 inventory debit exactly; at the time of writing the document's `money_in` is written
-    `base_paid × cost_per_base` with no `ROUND` (Finding F-8).
+  - **Rounding symmetry:** both sides are rounded to four places. `money_in = ROUND(line.quantity ×
+    inventory_cost, 4)` (**money from money, in line units**, paid quantity only; it is not
+    `base_paid × cost_per_base`) and `line_cost = ROUND(base_quantity × avg_cost, 4)`. `qa` reads that
+    `money_in` equals the §7.2 inventory debit exactly. `cost_per_base` may appear in §6.5 only as a
+    labelled counter-example (the divided-cost route loses precision before it is multiplied back); if
+    it appears in the formula block as the source of `money_in`, the criterion fails (Finding F-8).
+  - A **value-only** movement (a revaluation, the zero-stock residue write-off) is stated as
+    `total_value += value` with `on_hand` unchanged, `value` signed and exactly what §7.5 posts.
   - And when on-hand returns to exactly zero, the residue left in `total_value` is written off
     through the §7.5 adjustment account on both sides (document states it; `qa` confirms §7.5 does).
 - **AC-68** (`total_value` is the authority, D-76): Given §6.5 and the `stock_levels` row, then
@@ -613,16 +632,28 @@ as written until QA run 2 passes them.
 - **F-7 (AC-27): "print-bearing" is not enumerated.** Only `sale_items`, `order_items`, `quotation_items`
   are stated to carry `unit_code`; a printed purchase order or transfer note is not mentioned.
   Logged as D-66, not changed.
-- **F-8 (AC-39), live at the time of the final pass:** `money_in` in the §6.5 formula block is
-  written `base_paid × cost_per_base` with no `ROUND`, while `line_cost` is `ROUND(..., 4)`. The relay
-  I was given showed `money_in = ROUND(quantity × landed_cost, 4)`, which is a different expression
-  (line quantity times line-unit cost, not base quantity times a divided cost) and does not match the
-  document as I read it. Either the document changed after I read it or the relay was a paraphrase;
-  the criterion requires that `money_in` equal the §7.2 debit exactly and be stated with its rounding.
-- **F-9 (AC-68), live at the time of the final pass:** §6.5 opens "weighted average ... maintained on
-  `stock_levels.avg_cost` at every inbound movement", and a later sentence says `stock_levels` "already
-  describes `total_value` as maintained". Both sit beside the decision that `avg_cost` is derived.
-  The lead reports the architect is fixing the sentence; AC-68 stays as written.
+- **F-8 (AC-39): RESOLVED, and the record corrected.** Earlier I recorded a "mismatch" between the
+  relayed `money_in = ROUND(quantity × landed_cost, 4)` and the document's then-current
+  `base_paid × cost_per_base` with no `ROUND`, and left it open as "document changed or relay was a
+  paraphrase". The truth: the relayed expression was a **proposal**, relayed to me as if shipped; it
+  has since shipped. The document (§6.5 formula block, read again in this pass) now says
+  `money_in = ROUND(line.quantity × inventory_cost, 4)`, money from money in line units, and
+  `cost_per_base` survives only as a worked counter-example. I read the document before it landed, so
+  my "live" entry described a state that was true when read and stale when kept. AC-39's rounding
+  bullet is rewritten to the shipped expression.
+- **F-9 (AC-68): RESOLVED in the document.** The two sentences saying `avg_cost` was "maintained at
+  every inbound movement" and that `stock_levels` "already describes `total_value` as maintained"
+  no longer appear (search returns none, this pass). AC-68 stays as written.
+- **F-10 (AC-36), live:** the `stock_movements` row in §6.5 (line 605), §11 "Idempotency uniques"
+  (line 1511) and the partitioning note after the §11 profile table (line 1520) of `docs/database.md`
+  still state the **four**-column key `(reference_line_id, type, batch_key, serial_key)`. §6.5's own
+  code block states the five-column key. **This is the mechanism by which AC-36 once passed while
+  certifying the superseded key**: my earlier wording matched the stale sites. It was my criterion
+  that had gone stale in the same direction as the document, so a pass was evidence against the fix.
+  AC-36 now fails until all three sites are corrected. (The coordinator counted two sites; I count
+  three at the line numbers above.) Separately, the note at line 1520 records that no monthly
+  partitioning can be created on `stock_movements` because neither unique key contains `created_at`;
+  that is stated in the document as pre-existing and unresolved, not a T-006 criterion.
 
 ## Open questions
 
