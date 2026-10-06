@@ -84,28 +84,37 @@ the gate's own code prints when it ends a step because the time limit was reache
 - **AC-3** (bounded): Given the final `composer.json`, When `qa` searches the `check`, `test`, `test:fast`
   and `test:slow` scripts and `config`, Then none sets the timeout to 0 or calls
   `Composer\Config::disableProcessTimeout` (D-2). `dev` keeps that call, which already exists.
-- **AC-4** (a kill is not a pass, and is not silent): Given the gate run with
-  `COMPOSER_PROCESS_TIMEOUT=2` and a test step that is still running at 2 seconds, When the limit is
-  reached, Then the exit status is non-zero **and** the output contains the sentinel, naming the step and the
-  limit in force and stating that no test result was produced.
+- **AC-4** (a kill of the test step is not a pass, and is not silent; per-step form, D-10): Given
+  `composer test` (the gate's test step, run on its own) with `COMPOSER_PROCESS_TIMEOUT=2` and the suite
+  still running at 2 seconds, When the limit is reached, Then the exit status is non-zero **and** the
+  output contains the sentinel, naming the step and the limit in force and stating that no test result was
+  produced. The whole-gate form is AC-45. The original wording ("the gate run with a 2-second limit") was
+  unachievable: at that limit Composer kills `lint` first and the test step never starts, so no sentinel can
+  appear and the criterion would fail for a reason unrelated to the mechanism.
 - **AC-5** (negative control, a failure is not a kill): Given a deliberately failing test (planted with the
   existing probe mechanism and removed afterward) and the normal limit, When the gate runs, Then the exit
   status is non-zero, the output names the failing test, and the output does **not** contain the sentinel.
 - **AC-6** (a pass is not a kill): Given a clean tree and the normal limit, When the gate runs to completion,
   Then the exit status is 0 and the sentinel is absent.
-- **AC-7** (what the new check can fail): AC-4 is red against the T-006 tip, whose output on a kill is
-  Composer's own message with no sentinel. `qa` runs AC-4 there and reports it **(diff)**.
+- **AC-7** (what the new check can fail): AC-4 (per-step form) is red against the T-006 tip, whose output
+  on a kill is Composer's own message with no sentinel. `qa` runs AC-4 there and reports it **(diff)**.
 - **AC-8** (no wreckage after a kill): Given a run ended as in AC-4, When `composer check` is run again
   with the normal limit, Then it exits 0, so no probe or generated package survived. `probes:clean` is still
   the first step of `check`.
 - **AC-9** (margin reported on every completed run): Given a gate that ran to completion, When it ends,
   Then the last line states elapsed seconds, the limit in force and their ratio (D-4).
-- **AC-10** (margin warning that can fire): Given `COMPOSER_PROCESS_TIMEOUT` set so the slowest step takes
-  more than half but less than all of it, When the gate completes, Then the output carries a low-headroom
+- **AC-10** (margin warning that can fire): Given `composer test` run on its own (per-step form, D-10)
+  with `COMPOSER_PROCESS_TIMEOUT` set so the step takes more than half but less than all of it, When the gate completes, Then the output carries a low-headroom
   warning and the exit status is 0. Given a normal limit and a normal run, the warning is absent.
 - **AC-11** (a number carries its date or is a ratio, FP-171): Given every place the change writes a
   duration or a limit (the `scripts-descriptions` text, any comment, the QA report), When read, Then each is
   a ratio, or carries the date measured and the command that re-measures it. This one is by reading.
+- **AC-45** (whole-gate form of AC-4, gated on AC-1; D-10): Given S per step from AC-1 and a
+  `COMPOSER_PROCESS_TIMEOUT` chosen **between the longest of `lint`, `stan` and `deptrac` and the cold wall
+  time of the test step** (so only the test step can reach it), When `composer check` runs, Then `lint`,
+  `stan` and `deptrac` complete, the test step is ended, the exit status is non-zero and the sentinel
+  appears. `qa` states the limit chosen and the AC-1 numbers it was derived from. It cannot be run before
+  AC-1 exists; until then it is pending, not failed.
 - **AC-12** (other scripts untouched): `test:fast` still excludes the `toolchain` group, `test:slow` still
   runs only it, `lint`, `stan` and `deptrac` are unchanged, and `check` still runs its five steps in the
   same order.
@@ -240,7 +249,7 @@ These test the ways a code task most often passes for the wrong reason.
   final code change to the gate, not from the 2026-10-06 incident figures, which are the motivation and not
   the evidence.
 - **AC-44** (the timeout setting is not itself the fix for the wrong problem): AC-4 uses a limit forced
-  below the step's duration, so it proves the sentinel regardless of how generous the real limit is. A
+  below the test step's duration, so it proves the sentinel regardless of how generous the real limit is. A
   generous limit alone, with no sentinel, fails AC-4 and AC-7.
 
 ## Out of scope
@@ -270,7 +279,10 @@ These test the ways a code task most often passes for the wrong reason.
    `config()->set()` plus `purge()` teardown, and a design that changes the stanza's shape or the teardown
    would touch it. **This is the architect's call and possibly the owner's; `ba` has not assumed either
    way.** Not blocking the start of work. **BLOCKING for any edit to either document.** [architect / owner]
-2. **The backlog's FP-161 remedy may not be enough.** It says: generate a random token per scope, hold it
+2. **RESOLVED (architect, plan 29c45ac): AC-14 stands unchanged.** Mechanism: a per-`enter()` token plus a
+   private digest of the whole canonical stanza, so a copied token cannot keep the digest valid. A sentinel
+   object was also refuted (a copy carries the same instance). Kept below for the record.
+   **The backlog's FP-161 remedy may not be enough.** It says: generate a random token per scope, hold it
    on the scoped object, compare that. But the token must be written into the stanza for the connection
    to carry it, and `config()` is readable by any code in scope, so a forger of capability F2 copies the
    token and changes only the database. AC-14 requires that to be refused. Satisfying it needs the stanza's
@@ -278,7 +290,10 @@ These test the ways a code task most often passes for the wrong reason.
    merely a token that sits beside it. `ba` states the requirement and leaves the mechanism to `architect`;
    if the architect finds AC-14 unattainable, that is a change to the requirement and goes to the lead
    before `dev` starts. [architect, BLOCKING for FP-161's plan]
-3. **Can the gate print its own sentinel on a kill?** If Composer aborts the script on its timeout before
+3. **RESOLVED by measurement (architect): my premise was false.** Composer is late, never early (a 2 s
+   limit let the child run about 3.0 s), and child output written before the kill survives. The sentinel is
+   printable; AC-4 and AC-7 change only in scope (per-step, D-10). Kept below for the record.
+   **Can the gate print its own sentinel on a kill?** If Composer aborts the script on its timeout before
    any project code runs, the sentinel in AC-4 needs a step that owns its own timer (as
    `tools/clean-probes.php` is a project step today). `ba` does not know which is feasible. If neither is,
    AC-4 and AC-7 need rewording by `ba` before `dev` starts. [architect, BLOCKING for FP-172's plan]
@@ -288,8 +303,7 @@ These test the ways a code task most often passes for the wrong reason.
 ## Assumptions
 
 - Composer's `process-timeout` applies per spawned process, so S is the slowest single process and not the
-  sum. This is why the incident's 420 s total produced a kill at 300 s on one step. If Composer instead
-  applies it to the whole script, AC-2 compares against the whole step's cold wall time.
+  sum. Now measured by the architect (`check` is five independent processes), no longer an assumption.
 - `COMPOSER_PROCESS_TIMEOUT` overrides the configured value, which is what lets AC-4 and AC-10 force a kill
   without waiting minutes.
 - SQLite file databases in `packages/kernel/tests/Support/tenancy-fixture.php` remain the fixture for

@@ -44,6 +44,17 @@ for any of them. | The requester asked for absence plus a positive control. | Re
 D-8 | Which criteria need the diff or history? | Those marked "(diff)". `ba` has no shell in this session.
 They are for `qa` or `reviewer` to run. | Same handover as T-006. | Reversible: yes.
 
+D-10 | How is AC-4 reworded after the architect measured that a 2 s limit kills `lint` first? | AC-4 and
+AC-10 become per-step (`composer test` run alone, limit forced). The whole-gate form is a second criterion,
+AC-45, gated on the AC-1 numbers: a limit between the longest of the other steps and the cold test step.
+AC-45 is pending until AC-1 exists, not failed. | The per-step form always works and still tests the
+mechanism; the whole-gate form is the real scenario but needs measured numbers. Both can fail (AC-7 shows
+the per-step one red at the T-006 tip). | Reversible: yes.
+
+D-11 | Q2 and Q3 closed. | Q3: sentinel printable (Composer late, output survives), no change to D-3. Q2:
+AC-14 unchanged, content-bound digest per the plan. | Measured by the architect, not assumed. | Reversible:
+yes.
+
 D-9 | Are the criteria that pin today's mechanisms (the reflection test of `guardedConnections`, the
 Event::fake test that declines to assert the hole) allowed to change? | Yes, and only those, each listed by
 name in the plan and in the QA report. | They assert the thing being removed. Any other edited test is
