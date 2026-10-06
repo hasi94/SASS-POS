@@ -175,3 +175,49 @@ own reservation's id under a different `type`. It is still "the line that caused
 reservation the reservation *is* the line. The alternative, excluding the two types from the unique
 key, would remove replay protection from the only movement types a sync retry is likely to duplicate.
 Settled here rather than left to FP-250 because the key is this task's deliverable. Reversible: yes.
+
+D-72 | Which cost does the weighted average consume? §7.2 posts **Dr Inventory at landed cost** while
+the formula averaged `grn_items.unit_cost`, and `stock_levels.total_value` is the balance-sheet
+figure. Raised as review R-4. | **The inventory cost**: `grn_items.landed_cost` on a receipt,
+`unit_cost` on any other inbound movement that has no apportionment. **`landed_cost` is per line
+unit**, exactly like `unit_cost` beside it, so it divides by `unit_factor` too. And the
+reconciliation is stated: `SUM(stock_levels.total_value)` equals the balance of the inventory account
+those products resolve to. | Averaging supplier price while the ledger debits landed cost diverges by
+the freight on **every receipt, permanently**, with nothing in the design to reconcile them — two
+inventory values, both called inventory. D-57 ruled on `unit_cost` across four tables and never
+reached the column that actually values inventory, which is the same "one name, two readings" trap
+one column to the left. Reversible: yes, but not after a tenant has posted receipts.
+
+D-73 | Can one `stock_transfer_items` line be received in instalments? The header's status enum names
+`partially_received`, the line has one `qty_received` pair, and the ledger key would collide on a
+second `transfer_in`. Raised as review R-2. | **No: receiving a transfer is one event per line.** The
+header carries a single `received_at`/`received_by`, so `partially_received` means *some lines short
+or not arrived*, with the shortfall in `qty_variance`. | The alternative is to invent a receiving
+document the schema does not have, and inventing one inside a unit-of-measure task is how a second
+undiscussed design lands in a document nobody re-reads. Named as a gap for FP-253 instead. The
+reading also matches the columns that exist: one `received_at` on the header is one receiving event.
+Reversible: yes.
+
+D-74 | `base_qty_in` in the valuation formula was undefined, and nightly check 3 forces it to include
+the free quantity, so the formula silently closed the free-goods question D-60 left open. Raised as
+review W-10. | **Free goods dilute `avg_cost`**: `base_qty_in = base_quantity + ROUND(free_quantity ×
+unit_factor, 4)`, the same expression as the posting rule and check 3. The *other* reading — free
+goods enter at zero cost and leave `avg_cost` alone — remains the open question, now stated as a
+choice rather than as an ambiguity. | Ten cases bought and two free are twelve cases of stock at the
+price of ten, which is the common and defensible default. Leaving the formula's own input undefined
+was the real defect: it meant the answer depended on who implemented it. **Still the owner's to
+switch**, and switching it is a configuration flag, not a schema change. Reversible: yes.
+
+D-75 | The new ledger key dropped `product_id`, which assumed one movement per line per type — and
+this document describes three cases where one line moves several products. Raised as review R-1, the
+one design regression this task introduced. | **`product_id` returns to the key**:
+`unique (reference_line_id, product_id, type, batch_key, serial_key)`. And the rule the key now
+states is written beside it: **a line writes at most one movement per
+`(product_id, batch_id, serial_id, type)`**, so the same component or modifier appearing twice on one
+line is **aggregated into one movement**. | A composite sale, a depleting modifier and an opening
+load all write several movements from one row, and without `product_id` the first two could not be
+saved at all — a unique violation on every recipe and every kit. It is one column in an index on an
+empty table and it costs neither of the two fixes the key exists for. The aggregation half matters as
+much: without it the key is a constraint the writer has to dodge rather than a statement about the
+world. Reversible: yes, today; not once a tenant holds movements.
+
