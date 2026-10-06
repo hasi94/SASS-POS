@@ -95,11 +95,12 @@ Because everything lives in one database per tenant, **foreign keys across modul
 
 ```text
 flexipos/
-├── app/                      the Laravel host: bootstrap, tenant resolver, module loader
-├── modules/<Module>/         one package per module above
-│   ├── src/ (Http, Models, Services, Listeners, Hooks, Console)
-│   ├── routes/  database/migrations/  config/  tests/
-│   └── composer.json + ModuleServiceProvider
+├── modules/                  the host application and one package per module above
+│   ├── host/                 the Laravel host: bootstrap, tenant resolver, module loader
+│   └── <module>/
+│       ├── src/ (Http, Models, Services, Listeners, Hooks, Console)
+│       ├── routes/  database/migrations/  config/  tests/
+│       └── composer.json + <Module>ServiceProvider
 ├── packages/
 │   ├── kernel/               TenantContext, connection switching, settings, audit, idempotency
 │   ├── contracts/            module contracts, DTOs, domain events, hook definitions
@@ -114,6 +115,11 @@ flexipos/
 ├── infra/                    docker, compose, nginx, CI
 └── docs/
 ```
+
+> The host application is a sibling of the modules under `modules/`, not a top-level `app/`
+> (T-005, D-43): the generator, the boundary check and every relative path in the toolchain are
+> built on that sibling relationship. The two migration trees under `database/` below are the
+> FP-203 / FP-204 target, not the shipped tree.
 
 Two migration trees is the important detail. Master migrations run once. Tenant migrations run once **per tenant database**, tracked per tenant.
 

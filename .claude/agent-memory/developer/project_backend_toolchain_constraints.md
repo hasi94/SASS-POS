@@ -1,17 +1,17 @@
 ---
 name: project-backend-toolchain-constraints
-description: Non-obvious constraints of the FlexiPOS backend toolchain (Deptrac, PHPStan, PHPUnit, Pint, Pest, Composer path repos) that shaped services/host and will bite again
+description: Non-obvious constraints of the FlexiPOS backend toolchain (Deptrac, PHPStan, PHPUnit, Pint, Pest, Composer path repos) that shaped modules/host and will bite again
 metadata:
   type: project
 ---
 
-Toolchain facts discovered while building and then QA-fixing the `services/host` skeleton
+Toolchain facts discovered while building and then QA-fixing the `modules/host` skeleton
 (T-001). They are not visible from reading the config files, so they get relitigated
 otherwise.
 
 - **Globbing is per-tool, not a project style choice.** `phpunit.xml` `<directory>`
   **does** expand `../*/tests`; PHPStan `paths` and Deptrac `paths` **reject** wildcards
-  outright (`Path ...\services\*\src does not exist` / `InvalidPathException`). Tested on
+  outright (`Path ...\modules\*\src does not exist` / `InvalidPathException`). Tested on
   PHPStan 2.2 and Deptrac 2.0.4. So `phpunit.xml` is self-maintaining and the other two
   stay literal, guarded by `QaToolchainRegistryCoverageTest`. A Deptrac layer also cannot
   be globbed by design - it is a named, ruleset-addressable unit.
@@ -27,13 +27,13 @@ otherwise.
   `phpstan.neon.dist` but plain `deptrac.yaml`.
 - **Composer path packages need an explicit `version` field.** Without one Composer derives
   `dev-<current git branch>`, which fails `minimum-stability: stable` and makes
-  `composer.lock` branch-dependent. Everything under `packages/*` and `services/*` pins
+  `composer.lock` branch-dependent. Everything under `packages/*` and `modules/*` pins
   `"version": "0.1.0"`.
-- **Pest refuses to bind the same TestCase to one file twice.** A service package's test
+- **Pest refuses to bind the same TestCase to one file twice.** A module's test
   binds `Tests\TestCase` itself, so `tests/Pest.php` must NOT list that directory in
   `->in()`.
 - **Pint already excludes `vendor`, `storage` and `bootstrap/cache`** when given a
-  directory, so `pint --test .. ../../packages` covers every service and package without
+  directory, so `pint --test .. ../../packages` covers every module and package without
   walking `vendor`, and `storage/` is a safe place for lint fixtures. Pint does **not**
   touch `*.stub` files, so a stub must be hand-written in the exact shape Pint wants for
   the generated `.php` output, or `composer lint` fails on the generated package.
@@ -55,10 +55,10 @@ otherwise.
 - **PHPStan level 6 does not flag an untyped *closure* parameter**, only functions and
   methods; a probe meant to prove a path is analysed must use something like a missing
   iterable value type or a wrong argument type.
-- **Never `md5_file()` generated output against a checked-out tree.** `svc:make` always
-  writes LF (`SvcMakeCommand::stub()` strips CRLF), but only `services/host/` has a
+- **Never `md5_file()` generated output against a checked-out tree.** `module:make` always
+  writes LF (`ModuleMakeCommand::stub()` strips CRLF), but only `modules/host/` has a
   `.gitattributes` and `core.autocrlf` is `true` on this machine, so a fresh clone or a
-  branch switch materialises `services/demo` as CRLF and every raw-byte comparison goes
+  branch switch materialises `modules/demo` as CRLF and every raw-byte comparison goes
   red for someone who changed nothing. Hash
   `md5(str_replace("\r\n", "\n", file_get_contents(...)))` whenever the two sides came
   from different producers; raw `md5_file()` is only safe when comparing a tree against
@@ -99,4 +99,4 @@ a decision that had been written down differently.
 
 **How to apply:** check these before "fixing" the corresponding config, and before
 proposing a glob, a `.dist` rename, a version-field removal or a `Pest.php` `->in()`
-addition. Related: [[project-servicehost-boot-contract]].
+addition. Related: [[project-modulehost-boot-contract]].

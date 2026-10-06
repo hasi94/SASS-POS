@@ -43,4 +43,4 @@ fact from an inherited one. So: when a belief is overturned, grep for every plac
 over a silent edit, so the next reader can see the claim was actually checked. Before repeating
 any mechanism claim, re-derive it: read the source *and* measure it.
 
-Related: [[service-host-fragile-areas]], [[qa-negative-control-every-guard]].
+Related: [[module-host-fragile-areas]], [[qa-negative-control-every-guard]].

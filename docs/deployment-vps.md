@@ -32,7 +32,7 @@ Internet ──443──► CloudPanel Nginx (existing)  site: pos.<domain>  (re
                         ▼  (loopback only)
                  ┌──────────────────────────── Docker: network pos_edge ────────────────────────────┐
                  │  pos-gateway (Traefik 3)  ─► /            → pos-web   (nginx, Angular static)    │
-                 │                           ─► /api/v1/*    → pos-api   (host-all: 13 services)    │
+                 │                           ─► /api/v1/*    → pos-api   (host-all: 13 modules)     │
                  │                           ─► /health/*    → pos-api                              │
                  └───────────────┬──────────────────────────────────────────────────────────────────┘
                                  │ network pos_backend (internal: true)
@@ -50,8 +50,8 @@ POS terminals and the Print Agent reach the platform only through `https://pos.<
 |---|---|---|---|---|---|
 | pos-gateway | traefik:3 | routing, rate limit, access log | 64 MB | 0.1 | dashboard disabled; file provider |
 | pos-web | nginx:alpine | Angular admin + POS static files | 32 MB | 0.1 | immutable asset caching |
-| pos-api | flexipos/host (php:8.3-fpm-alpine + nginx) | all 13 services, `SERVICES=all` | 384 MB | 0.6 | `pm=dynamic`, `max_children=6`, `memory_limit=96M`, OPcache on, `realpath_cache` tuned |
-| pos-worker | flexipos/host | `svc:consume` per service group + Laravel queues + outbox relay (supervisord, 3 processes) | 256 MB | 0.3 | processes: relay+consumers, queue:default, queue:sync |
+| pos-api | flexipos/host (php:8.3-fpm-alpine + nginx) | all 13 modules, `MODULES=all` | 384 MB | 0.6 | `pm=dynamic`, `max_children=6`, `memory_limit=96M`, OPcache on, `realpath_cache` tuned |
+| pos-worker | flexipos/host | `module:consume` per module group + Laravel queues + outbox relay (supervisord, 3 processes) | 256 MB | 0.3 | processes: relay+consumers, queue:default, queue:sync |
 | pos-scheduler | flexipos/host | `schedule:run` every minute | 48 MB | 0.05 | could be a cron in pos-worker to save 48 MB |
 | pos-mysql | mysql:8.4 | master DB + tenant DBs | 640 MB | 0.5 | `innodb_buffer_pool_size=256M`, `innodb_log_file_size=128M`, `max_connections=60`, `performance_schema=OFF`, binlog ON (7 days) for point-in-time restore |
 | pos-redis-data | redis:7-alpine | streams, queues, locks | 128 MB | 0.1 | `maxmemory 96mb`, `maxmemory-policy noeviction`, AOF `everysec`, streams capped by `MAXLEN` |
@@ -99,7 +99,7 @@ Uninstall is `docker compose down -v` plus deleting the CloudPanel site; nothing
 
 | Task | How |
 |---|---|
-| Deploy a release | CI builds tagged images → on VPS: `compose pull`, `run --rm pos-api php artisan svc:migrate --all` (expand-only), `compose up -d` (≈ 5–10 s API restart; acceptable for pilot), verify `/health/ready` |
+| Deploy a release | CI builds tagged images → on VPS: `compose pull`, `run --rm pos-api php artisan module:migrate --all` (expand-only), `compose up -d` (≈ 5–10 s API restart; acceptable for pilot), verify `/health/ready` |
 | Rollback | `compose up -d` with previous tags; expand-only migrations keep old code working |
 | Logs | `docker compose logs -f pos-api`, json-file driver with `max-size=20m`, `max-file=5` |
 | Backups | nightly dumps per schema + MySQL binlog (7 days) for point-in-time; restore drill monthly; per-tenant export via `php artisan tenant:export <id>` |

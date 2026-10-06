@@ -1,0 +1,47 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: 6
+
+    # Analysis paths are listed literally (no globs): the host application itself,
+    # every packages/*/src, every modules/*/src and every modules/*/tests. Adding
+    # a new shared package or a new, permanent module means adding one line
+    # per directory here.
+    #
+    # Test code is analysed too: a module's test file is as capable of a level 6
+    # mistake as its source, and leaving tests out meant the only code that ever
+    # touches another layer on purpose was the code nothing checked.
+    paths:
+        # modules/host
+        - app
+        # tools/clean-probes.php is the gate's first step, so it is load bearing
+        # and gets analysed like anything else. It boots no framework on purpose.
+        # Not bin/: the root .gitignore has **/bin/ for .NET build output, which
+        # would have kept this file out of git entirely.
+        - tools
+        - bootstrap/app.php
+        - bootstrap/providers.php
+        - config
+        - database
+        - routes
+        # The host's own test directory (FP-169). It was in neither registry, so
+        # the shared test infrastructure T-004 moved into it (Helpers.php,
+        # Pest.php, TestCase.php) was the only code here that nothing checked.
+        - tests
+        # modules/*
+        - ../demo/src
+        - ../demo/tests
+        # packages/*
+        - ../../packages/auth/src
+        - ../../packages/contracts/src
+        - ../../packages/eventbus/src
+        # Str::studly('http-client') === 'HttpClient'; the directory stays kebab-case.
+        - ../../packages/http-client/src
+        - ../../packages/kernel/src
+        - ../../packages/kernel/tests
+        # Str::studly('plugin-sdk') === 'PluginSdk'; the directory stays kebab-case.
+        - ../../packages/plugin-sdk/src
+        - ../../packages/testing/src
+
+    tmpDir: storage/framework/cache/phpstan

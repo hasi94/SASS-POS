@@ -1,0 +1,10 @@
+<?php
+
+use Flexipos\Module\{{studly}}\Http\Controllers\PingController;
+use Illuminate\Support\Facades\Route;
+
+Route::middleware('api')
+    ->prefix('{{prefix}}')
+    ->group(function (): void {
+        Route::get('/ping', [PingController::class, 'index'])->name('{{name}}.ping');
+    });

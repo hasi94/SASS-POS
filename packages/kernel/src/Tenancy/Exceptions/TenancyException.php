@@ -12,7 +12,7 @@ use RuntimeException;
  *
  * 1. the offending tenant identifier is always in the message, because a
  *    refusal nobody can attribute to a tenant is not actionable (the same
- *    convention App\Support\ServiceHost\UnknownServiceException follows);
+ *    convention App\Support\ModuleHost\UnknownModuleException follows);
  * 2. a tenant database credential is never in the message, in a property, or in
  *    any argument of any frame of the trace.
  */
