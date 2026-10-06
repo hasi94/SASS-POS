@@ -1141,7 +1141,7 @@ Then on payment (`source_type = payroll_payment`): Dr net pay payable · Cr bank
 
 | Source | Posting |
 |---|---|
-| stock adjustment / count variance | Dr or Cr inventory · contra to inventory-gain or inventory-loss (`account_mappings['adjustment.gain'|'adjustment.loss']`); wastage goes to a wastage expense account. **The variance is `base_quantity`-derived**: a count entered in sacks is converted on the line before `difference` and `variance_value` exist at all (§6.5) |
+| stock adjustment / count variance | Dr or Cr inventory · contra to inventory-gain or inventory-loss (`account_mappings['adjustment.gain'\|'adjustment.loss']`); wastage goes to a wastage expense account. **The variance is `base_quantity`-derived**: a count entered in sacks is converted on the line before `difference` and `variance_value` exist at all (§6.5) |
 | **stock production** (repack, assemble, disassemble, recipe) | **no entry** when every product involved resolves to the same inventory account — the value simply moves between products, exactly like the intra-account transfer rule below. With a per-product `inventory_account_id` override or any `wastage` line: Dr output inventory + Dr wastage expense · Cr input inventory, `source_type = stock_production`, `source_purpose = production`. `SUM(output value) + wastage_value = input_value` exactly, by putting the rounding residual on the last output line (§6.5) |
 | stock transfer between locations | no entry when both locations share one inventory account; Dr receiving-location inventory · Cr sending-location inventory when they do not (branch-level inventory accounts) |
 | customer payment | Dr bank/cash · Cr AR, plus `ar_allocations` and `customer_ledger` |
