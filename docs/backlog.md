@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| Status | **v0.4** — restructured for master plus tenant databases and the modular monolith |
-| Date | 2026-09-29 |
+| Status | **v0.5** — restructured for master plus tenant databases and the modular monolith; the unit model added in T-006 |
+| Date | 2026-10-06 |
 | Design inputs | [architecture.md](architecture.md) v0.5 · [database.md](database.md) v0.5 · `Refference/ARCH.md` · `Refference/ERP.md` · [deployment-vps.md](deployment-vps.md) |
 | Status flow | `TODO → SPEC → PLANNED → IN_DEV → IN_QA → IN_REVIEW → DONE` (or `BLOCKED`) |
 | Branches | `ai/<ID>-<slug>` |
-| Change log | v0.4: phases follow `Refference/ARCH.md` section 21; ERP is in scope; v0.3's service-per-schema rows are retired. v0.3: 16 phases for fourteen services |
+| Change log | v0.5: T-006 widens ten Phase 1 and 2 rows for the unit model and adds FP-243, FP-257, FP-258; FP-177 to FP-182 filed. v0.4: phases follow `Refference/ARCH.md` section 21; ERP is in scope; v0.3's service-per-schema rows are retired. v0.3: 16 phases for fourteen services |
 
 ---
 
@@ -86,6 +86,7 @@ The host that boots only the modules named in configuration, the generator, the 
 | FP-180 | Apply the §3.3 nullable-key convention to the eleven sites it does not yet cover | TODO — **before the first per-tenant migration**; two of the eleven are correctness, not hygiene |
 | FP-181 | One authority per number; no absolute count in prose the repository can derive | TODO — convention, third sibling to FP-171 and FP-176 |
 | FP-182 | A claim that names its own evidence is checked by opening what it names | TODO — convention, fourth sibling |
+| FP-183 | `payslips` has no `number` column but `payslip` is a document type | TODO — payroll decision: add the column or drop the enum member |
 
 **FP-172 detail.** The package manager kills a script at 300 seconds by default. The gate runs 79-137 seconds warm on the development machine (measured 2026-10-02, five runs across the lead, `qa` and the reviewer, warm analysis cache), so it looks safe, but a cold analysis cache alone pushed a run past 300 during T-005. The kill is the dangerous part rather than the delay: a killed process runs no cleanup, so a deliberately broken test probe survived and turned the gate red afterwards with a failure that named a file looking like real code, and leftover generated packages produced seven further unrelated failures. Raise the timeout, or make the gate resilient to being killed, before continuous integration meets a cold machine.
 
@@ -224,7 +225,7 @@ Products, cart, sales, payments, returns, discounts, customers, receipts, offlin
 | FP-252 | Batches, serial numbers and expiry tracking | BE | TODO |
 | FP-253 | Adjustments, transfers, opening stock, reorder alerts, conflicts | BE | TODO — **widened by T-006**: item lines carry the unit quad; a stock count is entered in the unit the human counted |
 | FP-254 | Suppliers, purchase requests and purchase orders | BE | TODO — **widened by T-006**: line unit quads, and the received rollup compares base to base |
-| FP-255 | Goods receipts, supplier invoices, returns and supplier payments | BE | TODO — **widened by T-006**: receive in a different unit from the order, and price variance normalised per base unit |
+| FP-255 | Goods receipts, supplier invoices, returns and supplier payments | BE | TODO — **widened by T-006**: receive in a different unit from the order, and price variance normalised per base unit. Also settle `grn_return`, a movement type with no document defining it — either give it one or drop it, but do not guess which of the two readings was meant |
 | FP-256 | Inventory and purchasing screens | FE | TODO |
 | FP-257 | Repack and break-bulk: the production document, apportionment and labels | BE | TODO (T-006) — **last in Phase 2**, it is the only row that reads a maintained average cost |
 
@@ -267,6 +268,7 @@ Products, cart, sales, payments, returns, discounts, customers, receipts, offlin
 
 | ID | Task | Stream | Status |
 |---|---|---|---|
+| FP-258 | Live-weight scale through the print agent | PA, BE | TODO (T-006, deferred to this phase deliberately; the label-printing scale needs no integration at all) |
 | FP-290 | Bank reconciliation against statements | BE | TODO |
 | FP-291 | Budgeting | BE | TODO |
 | FP-292 | Asset management | BE | TODO |
@@ -274,7 +276,6 @@ Products, cart, sales, payments, returns, discounts, customers, receipts, offlin
 | FP-294 | Reporting and analytics layer, and dashboards | BE, FE | TODO |
 | FP-295 | Notification channels and templates | BE | TODO |
 | FP-296 | Reference plugins proving the extension points | BE, FE | TODO |
-| FP-258 | Live-weight scale through the print agent | PA, BE | TODO (T-006, deferred here deliberately) |
 
 ## Phase 7 — Ecosystem
 
