@@ -119,3 +119,30 @@ and it is the only way to find the lines whose **quantity was computed from mone
 other way round — which is what an embedded-price label does, and the thing a mis-configured scale
 corrupts silently. Not added to `order_items`: a restaurant does not scan scale labels, and the
 column can follow if one ever does. Reversible: yes.
+
+---
+
+## Part 3 — decisions made by `ba` while writing the spec (after the implementation)
+
+D-66 | Which tables are "print-bearing" and so carry `unit_code`? `docs/database.md` §3.1 defines the
+rule but does not list the set. | The spec checks only the three tables whose rows say so
+(`sale_items`, `order_items`, `quotation_items`) and records that no other row mentions `unit_code`.
+It does not assert that a printed purchase order or transfer note is missing one. | Asserting a gap
+would be inventing a business rule; asserting nothing would hide the ambiguity. The finding goes to
+the lead as F-7 instead. Reversible: yes.
+
+D-67 | The static test "every `[UOM]` table has all four columns" (§14) cannot hold for the three
+degenerate tags or the differently named quantity columns. Is that a defect or acceptable? | A defect in
+the text, reported as F-3 and written as AC-53 failing until §14 or §3.1 names the exemptions. The spec
+does not soften the criterion. | The instruction was to write the criterion anyway where something was
+decided but not done. Reversible: yes.
+
+D-68 | The brief says sixteen `[UOM]` tables; the text, counted, has seventeen. Which is right? | Neither
+is chosen. AC-23 requires the documents to state one number or name the exclusion; F-1 reports it. |
+Choosing would mean deciding which table is not a document-line table, and that is `architect`'s
+design, not `ba`'s. Reversible: yes.
+
+D-69 | `ba` had no shell and could not run `git diff 47e226d..HEAD`. How are criteria about what changed
+handled? | They are marked "diff" and assigned to `qa`; every other criterion is checked against the current
+text. | Reading the working tree is what `ba` could do; claiming a diff was inspected would be false.
+Reversible: yes.
