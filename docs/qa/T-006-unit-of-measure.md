@@ -4,7 +4,7 @@ Spec `docs/specs/T-006-unit-of-measure.md` (AC-1 to AC-67) · Plan `docs/plans/T
 Branch `ai/T-006-unit-of-measure`, 17 commits over base `47e226d`, nothing pushed. Measured on this machine on **2026-10-06**.
 No code, test or fixture was written: the task is documents, and nothing here needed a new test.
 
-## Verdict: PASS (run 2; run 1 was FAIL, kept below as measured)
+## Verdict: FAIL (run 3; run 1 FAIL, run 2 PASS, both kept below as measured)
 
 Two acceptance criteria fail (AC-52, AC-63), both **minor** and both fixable by one sentence each.
 One **major** design defect (BUG-1) is not an AC failure as written but is the exact defect class the
@@ -171,3 +171,40 @@ Intentional NULLs (not defects): `products.plu_code`, `customers` phone, `ar_doc
 Not blocking T-006 (no AC covers it, the keys are v0.4's, nothing is built). Recommend one backlog row alongside FP-179, to be settled before the first per-tenant migration; the two that matter most are `number_sequences` and `journal_entries`.
 
 Anything in the coordinator's message that measured wrong: nothing. "Four sites" is the count found, and my sweep finds at least eleven more.
+Run 3: PASS -> FAIL (review round introduced BUG-10: the free-goods dilution claim is false for the formula as written, and the new reconciliation breaks on it).
+
+---
+
+## Run 3 (tree at `60f0107`)
+
+Gate by me: exit 0, PHPStan no errors, Deptrac 0, Pest **314 / 1435**, 192.85 s (cold; the coordinator's 82 s and my 68 s were warm). Pipe scan: only FP-178. Criteria: **65 pass, 2 fail (AC-30, AC-39), 0 n/a.**
+
+### BUG-10 (major, introduced by the review round): free goods do not dilute `avg_cost`, and the new reconciliation breaks on them
+- **Symptom:** §6.5 now says "the formula as written **does** dilute `avg_cost` with bonus goods: ten cases bought and two free are twelve cases of stock at the price of ten" (D-74), and §6.5 R-4 says `SUM(stock_levels.total_value)` equals the inventory account balance.
+- **Reproduce with the document's own numbers:** on_hand 0; receive 10 cases at landed 4 800 per case, 24 per case, plus 2 free cases. `cost_per_base` = 4 800 / 24 = 200. `base_qty_in` = 240 + 48 = 288. `new_avg` = (0 + 288 x 200) / 288 hmm, on_hand <= 0 so `new_avg` = 200: **not diluted** (a diluted average is 10/12 x 200 = 166.67). `total_value` = 288 x 200 = **57 600**. The GL debit (§7.2, Dr Inventory at landed cost of the paid lines) is 10 x 4 800 = **48 000**. They differ by the free goods at full price, on every receipt that carries a bonus. With on_hand > 0 the same: the free base units are weighted at full cost, so the average ends at the paid price and value is overstated.
+- **Expected:** to dilute, the free units enter at zero cost: `new_avg = (on_hand x avg + paid_base_qty x cost_per_base) / (on_hand + base_qty_in)`, with `base_qty_in` (incl. free) only in the denominator. Then value = 48 000 and reconciles.
+- **Second symptom, same cause:** the `grn_items` row (line 817) still says "whether they also dilute `avg_cost` is a valuation question this task deliberately does not settle", contradicting §6.5 and D-74. That is why AC-30 and AC-39 fail on this tree.
+- **Also:** D-74 calls the alternative "free goods enter at zero cost and leave `avg_cost` alone"; entering at zero cost is the diluting reading, so the description of the choice is muddled too.
+- **Suspected location:** `docs/database.md` §6.5 "Valuation, and the formula" (lines ~727-745) and the `grn_items` row; `docs/decisions/` D-74.
+
+### BUG-11 (minor)
+`landed_cost` is declared per line unit only in §6.5 prose and D-72. The `grn_items` row says "landed_cost (after apportioning other charges)", beside `unit_cost (per line unit)`, and never states a unit; an implementer reading the row can store a line total. Say "per line unit" in the row.
+
+### BUG-12 (minor, gap)
+`stock_production_items.role = wastage` has no movement type in the R-2 table (`production_in` = output/byproduct, `production_out` = input). Either wastage lines write no movement (value only) or they write one under a named type; the table is silent although it claims every type is covered.
+
+### Re-test of the review round
+
+| Item | Result |
+|---|---|
+| R-1 key `(reference_line_id, product_id, type, batch_key, serial_key)` | Holds. Original fix 1 intact (two receipt lines have distinct line ULIDs); fix 2 intact (`batch_key`/`serial_key` generated from nullable columns and `NOT NULL` themselves, `'-'` sentinel). Composite, modifier and opening cases are covered by the table and the at-most-one rule. A line drawing one product from two batches differs on `batch_key`. §11 and the §6.5 DDL agree. No remaining "header-level movement" wording in database.md, architecture.md or backlog |
+| R-2 table | Complete at **18**: I counted rows against the enum (opening; sale, sale_refund, sale_void; grn; grn_return; purchase_return; adjustment, wastage, expiry; count; transfer_out; transfer_in; production_in, production_out; correction; reservation, reservation_release) and every enum member appears once. Each row names the right line table and `reference_type`, and reservation `reference_type`s match the `stock_reservations` enum. `grn_return` honestly says no document defines it, backed by FP-255. Gap: BUG-12 |
+| R-3 | 10 x 24 = 240 base; re-resolved at 12 removes 120; **120 stranded** — arithmetic correct. "Check 3 covers receipts only" and check 1 blind: true as written. The four referencing columns exist in their rows |
+| R-4 | The averaging of `inventory_cost` and the stated reconciliation are right in principle, but see BUG-10 for the free-goods break. I found no other section naming a different number for the inventory balance (§7.2 Dr at landed cost, §7.5 intra-account rules and COGS from `line_cost`: consistent) |
+| §14 counts | 17 - 3 exempt = **14**; of those, `quantity`/`base_quantity` on **12** (all but `stock_count_items`, `stock_transfer_items`), which I enumerated by name. Both correct. `product_components` passes the quad unaided, so no exemption |
+| Backlog | T-006 row now sits inside the build table; FP-177 says 193 vs 196 consistently; FP-180 to FP-183 present |
+
+### Ruling on transfer instalments (D-73)
+I agree with the architect's refusal. The schema has one `received_at`/`received_by` on the header and one `qty_received` pair per line, so receiving is one event per line, and `partially_received` is realisable as "some lines short or absent, shortfall in `qty_variance`". The residual unrecordable case is a short line whose remainder arrives later; D-73 names it and routes it to FP-253 instead of inventing a receiving table. That is a gap, not a contradiction, and the correct place for it. One request for FP-253: say whether `qty_variance` is a final shortfall or pending, because the answer decides whether a later arrival is a new document.
+
+Nothing in the coordinator's message measured wrong except the claim that the formula dilutes (BUG-10) and the claim that the review round left no grn_items contradiction.
