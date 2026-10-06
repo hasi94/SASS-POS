@@ -4,7 +4,7 @@ Spec `docs/specs/T-006-unit-of-measure.md` (AC-1 to AC-67) · Plan `docs/plans/T
 Branch `ai/T-006-unit-of-measure`, 17 commits over base `47e226d`, nothing pushed. Measured on this machine on **2026-10-06**.
 No code, test or fixture was written: the task is documents, and nothing here needed a new test.
 
-## Verdict: FAIL (run 10, narrow: one small correctness item, BUG-31, a one-clause fix; BUG-29 verified closed; runs 1, 3, 4, 5, 7, 8, 10 FAIL, runs 2, 6, 9 PASS, all kept as measured)
+## Verdict: PASS (run 11, final; two wording notes, no correctness defect open; runs 1, 3, 4, 5, 7, 8, 10 FAIL, runs 2, 6, 9, 11 PASS, all kept as measured)
 
 Two acceptance criteria fail (AC-52, AC-63), both **minor** and both fixable by one sentence each.
 One **major** design defect (BUG-1) is not an AC failure as written but is the exact defect class the
@@ -482,3 +482,39 @@ The stronger form, git-object comparison per warning, is already in run 8.
 Both verified present (see AC-78 above). Note 9 reads as a named question with the workaround, and keeps the part that is in scope.
 
 Nothing in the coordinator's message measured wrong. `ba`'s wrapped-line finding stands, and the joined-line search above is the form I will use.
+
+Run 11: FAIL -> PASS (BUG-30, BUG-31, F-11 verified closed; AC-79 to AC-85 pass; fragment pass over the last three rounds clean; two wording notes, no correctness defect).
+
+---
+
+## Run 11 (tree at `ba5174e`, spec now 85 criteria)
+
+Gate by me: exit 0, PHPStan no errors, Deptrac 0, Pest **314 / 1435**, 92.05 s. Pipe scan: only FP-178. Nothing outside `docs/` in the diff. **Tally against 85: 85 pass, 0 fail, 0 not applicable. Verdict: PASS, plainly.** I found no correctness defect; the two findings below are wording and can be filed.
+
+### 1. The three closed items
+- **BUG-30:** the `transfer_out` row now reads `base_qty_sent` in both the quantity and the multiplier cells, "there is no `base_quantity` on this row". Closed.
+- **BUG-31:** check 2 now reads "per (location, product), in `created_at`/`id` order, summing every `type` except `reservation` and `reservation_release`". The paragraph "Why checks 1 and 2 name an exclusion" gives check 1's reason (those rows move `quantity_reserved`, not on-hand) and check 2's **own** second reason (the rows carry a nonzero `stock_reservations.quantity` and never move `balance_after`). Both stated. **No third check needs it**: the only sums over `stock_movements.quantity` in the document are checks 1 and 3 (`SUM(stock_movements` appears at exactly those two table rows), check 3 covers posted goods receipts and so only `grn` rows, and the old batch-sum check compares two level tables, not movements. Closed.
+- **F-11 (the §6.4 ruling):** three numbered steps (unit-matched rows with `min_qty <= base_quantity`, greatest `min_qty`, used as typed; otherwise `NULL` rows, greatest `min_qty`, derive; otherwise no price at this step), the two-row table showing both readings of the pair (NULL row at 24 against a unit-matched row at 1), the ruling that `min_qty` orders rows within a unit match and never across one, and D-84. Present and consistent.
+
+### The replication argument, tested
+Claim: with the threshold rule outer, adding one volume break on the stock-unit row would change every case price in the shop with no edit to any case row. Worked: a case row `unit_id = case, min_qty = 1` at 179; the shop adds a `NULL` row `min_qty = 24` for singles (a bulk break). A 24-base case line qualifies for both; threshold-outer picks the `NULL` row at 24, so the case line is priced by derivation and the typed case price 179 is silently replaced. So **the argument holds, and it needs no view of commercial intent.** Two precisions, neither changing the ruling: (a) it changes every case line **at or above the break's threshold**, not "every case price" (a break at 100 leaves a 24-base case line alone but changes a 120-base line); (b) the **replication adds nothing to the logic**: the substitution is identical on the server and on the till, so the argument is a data-locality one (an edit to one row changes the price resolved from another). The replicated point is only that the tills would show it in the field before anyone saw it in the data. The ruling stands on U-1 plus locality; the owner's intent is not needed.
+
+### 2. AC-79 to AC-85, each run against the file
+| AC | Check | Result |
+|---|---|---|
+| 79 | §3.3 names the sites found (`batch_key`, `serial_key`, `unit_key`, `product_key`), says "those are the sites that were found, not the sites that exist", points at FP-180's eleven keys, and says a reader should not conclude the schema is clean. Backlog FP-180 says "eleven sites" and "two of the eleven are correctness"; my own run-2 sweep counted eleven candidates, which agrees | PASS |
+| 80 | §3.3 says `'-'` is only correct for a ULID column and gives `journal_entries.source_purpose VARCHAR(30)` as the failing case. `grep COALESCE(`: five sites (the §3.3 template, `unit_conversions.product_key`, `price_list_items.unit_key`, `batch_key`, `serial_key`), **all `CHAR(26)` ULID columns using `'-'`**; the mirror `barcode_rules.active_prefix` uses `IF(is_active, prefix, NULL)` and no sentinel. No non-ULID column anywhere uses the ULID sentinel, so no live defect | PASS |
+| 81 | `docs/backlog.md`: the T-006 row sits directly under T-005 with five cells (cell counts 5 and 5), no blank line between, and exactly one row begins `| T-006` | PASS |
+| 82 | §15 records `grn_return` as still dead and not retired, with the reason and FP-255; the movement table's `grn_return` row says "no document defines it" and agrees | PASS |
+| 83 | All four statements present: up to 1e-4 shed, "no balancing constraint and no such account: the residue is accepted and lands nowhere", all three invariants "structurally blind to residue", residue zero under Q-9's proposed answer | PASS |
+| 84 | The `stock_levels` row says `total_value` is the accumulator and authority, "updated by the three rules of §6.5 ... and **not restated here** (D-76)", `avg_cost` derived; it contains no update formula (`prior total + money in` occurs once, in §6.5 prose, not in the row). The ledger key is declared once and only cited elsewhere | PASS |
+| 85 | Note 9 states the workaround ("a shortfall which later arrives is its own transfer document": new header, new line, new ULID, which the key separates), the reason it is stated, and keeps the value treatment unresolved and routed to FP-253 | PASS |
+
+### 3. Fragment pass over what the last three rounds added
+I rebuilt the three documents as single lines and searched fragments (not whole sentences): `base_paid` (0), `cost_per_base` (1, the counter-example), `products.unit_id` (1, former name), "divides by `unit_factor`" (0), "maintained on `stock_levels.avg_cost`" (0), "three sources" (0), "prior layer" (0), the four-column key (0), `unique (reference_line_id ...)` (1, the single declaration), the old key (2, both labelled replaced), "never invisible" (2, row qualified and note quoting it), "balance_after equals the running sum of quantity in" (0, i.e. the old unqualified wording of check 2 is gone), pre-T-005 vocabulary (0), "ten bare" (0), "not settled/does not settle" (0), "exactly one home" and "roughly 150 tables" (1 each, in the backlog's own descriptions of the findings). "first hit wins" is now 0 in database.md (rewritten as the three numbered steps, which state the same behaviour as "Otherwise" fall-through, so AC-8 still holds). **No absence is the search's.**
+
+### Two wording findings (file them; neither is correctness)
+1. **Check 2's table cell says "the same exclusion as check 1, for the same reason"**, while the paragraph beneath gives check 2 a second, different reason. The cell should say "same exclusion, and for a second reason; see below".
+2. The replication argument in §6.4 says "every case price in the shop"; it is every case line at or above the break (see the precision above). The point of the argument stands.
+
+Nothing in the coordinator's message measured wrong. On your note about my contribution: the git-object-per-warning method and the joined-line search are the two checks I would keep; the second is the cheap one and the first is the one that caught a stale pass of my own.
