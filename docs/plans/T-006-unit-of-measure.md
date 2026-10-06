@@ -292,6 +292,8 @@ section could cite an earlier one rather than forward-reference it.
 - [x] **Step 13 — review round 1 (CHANGES REQUESTED: 4 Critical, 11 Warning, 7 Suggestion)**,
       fixed in `5d5074c`. See "Found by review, not by me"; R-1 is the only **regression** on this
       task, and the fix round introduced it rather than the original pass.
+- [x] **Step 14 — QA run 3 (FAIL: one major, two minor)**, fixed in `b52301a`. BUG-10 is the
+      W-10 fix from step 13 being wrong in the opposite direction; see below.
 
 ---
 
@@ -451,6 +453,17 @@ short*. Instalment receipts would need a receiving document this schema does not
 one inside a unit task is how a second undiscussed design lands in a document nobody re-reads. Named
 as a gap for FP-253 instead (D-73).
 
+**And the W-10 fix in that same commit was wrong, which QA run 3 caught.** I wrote that the formula
+"does dilute" `avg_cost` with free goods — and then defined its input as `base_qty_in = paid + free`
+used in the **numerator as well as** the denominator, which is not dilution at all: it books cost
+nobody was charged, leaves the average unchanged at 200, and overstates `total_value` by 9 600 on a
+single ten-case receipt. **It broke the R-4 reconciliation added four paragraphs earlier, in the same
+commit.** The fix is one term in one place — the free quantity belongs in the denominator only — and
+§6.5 now carries the two readings as a worked table against the general ledger debit, because the
+claim is checkable in four numbers and my sentence about it was not. Third lesson of the same shape:
+**a formula is not a claim until it has been run.** I asserted a behaviour and specified its
+opposite, in a paragraph whose own next sentence was a reconciliation the opposite breaks.
+
 Of the eleven Warnings, **W-1 is the one I would want remembered**: nightly check 3 adds
 `free_quantity`, which had no type, no `NOT NULL` and no default — so `base + ROUND(NULL × f, 4)` is
 NULL, `SUM` skips the row, and the check fails on **every** receipt line without a bonus. That is the
@@ -493,10 +506,14 @@ rules, so they were **not** decided here.
   scale streaming a live weight to the browser.
 - **Repack implementation** → **FP-257**, last in Phase 2. It is the only row that reads a
   *maintained* average cost, so it cannot be built before the valuation formula it depends on.
-- **Whether free goods dilute `avg_cost`.** A valuation decision, not a schema one. The document
-  states that the quantity must arrive in the ledger (it is physical stock) and says in terms that
-  the dilution question is not settled here. Settling it in a schema pass would have been a finance
-  decision taken by the wrong role.
+- **How free goods are *presented*, not how they are valued.** This started as a deferral — "a
+  valuation decision, not a schema one" — and the deferral did not survive, because the formula had
+  to say what its own input was and therefore decided the question either way (review W-10, then
+  QA BUG-10). It is now settled: **free units enter at zero cost**, because that is the only reading
+  under which `total_value` equals the inventory account the receipt debited. The arithmetic is in
+  §6.5 as a two-row table so the next reader can check it rather than trust it. What is still deferred
+  is presentation — whether the benefit is also disclosed as a purchase discount received — which
+  changes no column and no total (D-74).
 - **FIFO costing** — already deferred by §16 Q-3 and untouched.
 - **The restaurant depletion posting rule** for `modifiers.linked_product_id`. The columns are added
   because the table is **replicated** and adding them later changes the replica payload; the posting
