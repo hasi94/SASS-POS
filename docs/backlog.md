@@ -31,6 +31,8 @@
 | T-004 | Gate speed and repository hygiene | FP-155, FP-156, FP-157, FP-164 | `ai/T-004-gate-speed-and-hygiene` | **DONE** — QA 20/20, review APPROVE, commits `643e220` and `bcd7595` |
 | T-005 | Rename services to modules | FP-202, FP-169 | `ai/T-005-rename-modules` (from main) | **DONE** — QA PASS 26/26 (run 3), review **APPROVE** (round 2; round 1 was CHANGES REQUESTED on 3 Criticals). Gate exit 0, 314 passed / 1435 assertions. **Not yet merged**: the step-8 `CLAUDE.md` correction is still unacknowledged by the human, and per reviewer S-1 the merge and that edit belong in the same step |
 
+| T-006 | The unit model: GRN unit is not the selling unit | FP-243, and amendments to FP-230/231/233/234/236/237/250/253/254/255 | `ai/T-006-unit-of-measure` (from the T-005 tip) | IN_DEV — documents first, no migration cost |
+
 **Why FP-201 and FP-202 are split.** The rename is mechanical but touches every file, and burying a semantic change inside that much churn makes the diff unreviewable. FP-201 was what Phase 0 was blocked on; the rename blocks nothing, so it goes second and alone.
 
 **T-005 scope.** The code and the forward-looking documents change. **The completed-task records do not** — they describe what was built and verified at the time, and rewriting them would falsify the record QA and the reviewer relied on. `Refference/` is the owner's source material and is never touched. FP-169 rides along because bringing the host's test directory into static analysis is what will catch a broken reference during a rename of this size.
@@ -87,6 +89,14 @@ The host that boots only the modules named in configuration, the generator, the 
 **FP-171 detail.** The reviewer's observation after four tasks: the recurring defect in this project is no longer false reasoning, it is absolute measurements written into prose with no date and no mechanism to re-measure them. Three of the four stale statements it found in T-004 were introduced by T-004 itself.
 
 **FP-173 detail.** `HostTestSuiteCollectionTest.php:38` runs `File::deleteDirectory(dirname(hostSuiteProbePath()))` in an `afterEach`, which removes `modules/host/tests/Integration` entirely after every case in the file rather than removing the one planted probe. Harmless while that directory holds nothing else, but FP-169 has just brought it into static analysis and the boundary check, so it now has more reason to hold real files — and the day a committed file lands there, a test run deletes it. The fix is `File::delete()` on the probe path plus a guarded `rmdir`. Left out of T-005 deliberately: it is pre-existing and the reviewer asked for a row rather than another change inside a rename.
+
+**T-006 / FP-243 detail — why a rename task is followed by a unit task.** The product owner asked on 2026-10-06 whether the design had considered that the receiving unit and the selling unit differ, and that this varies by industry. It had, partly, and that is the problem: the catalog carries a per-product conversion table whose own note describes buying in cases and selling in units, a product has a purchase unit distinct from its other unit, and barcodes carry a pack quantity. **But the unit stops at the document edge.** Only four line tables carry a unit at all; the ledger, levels, batches, reservations, transfers, adjustments, counts, returns, supplier invoices, price history, quotations, sales orders and restaurant order items all hold a bare quantity, and **no sentence anywhere in `docs/database.md` states what unit any of them is in.**
+
+The fix is to do for quantity exactly what the design already does for money: declare one base, snapshot the rate on the document line, and store the converted value beside the original. `journal_lines` already carries a currency, an exchange rate and a base amount; quantities had a catalog table and nothing else. That asymmetry is the whole of FP-243.
+
+**It also closes a latent defect on the owner's own example.** The stock ledger's replay key is scoped to the document, so a receipt of two cases **plus** three loose singles of one product — two lines — produces two movements with an identical key and violates the unique index. Separately, a nullable column in that key means the database treats the rows as distinct, so replay protection did not work at all for products tracked by quantity only, which is most of them. Both are fixed by keying the **line** instead of the document, with generated non-null columns for the batch and serial parts.
+
+**Why now rather than later:** nothing is implemented. FP-230 and FP-250 to FP-256 are TODO and the only migrations in the repository are the framework's own. The same change after launch is a column sweep across sixteen tables, a unique-index rebuild on a live append-only ledger holding roughly 1.5 million rows per tenant per year, and a full resync of every terminal in the field because the price table is replicated. Three new tables, 190 to 193 per tenant, which moves the server ceiling by about four tenants.
 
 **FP-176 detail.** FP-171's sibling on a different axis, and the reviewer argued for two rows rather than one because the trigger and the check differ. **FP-171 is the time axis:** the sentence was true when written and decayed; the trigger is a number; the check is "re-measure it"; the remedy is a date, a ratio or an assertion. **FP-176 is the extent axis:** the sentence was false the moment it was written, because the mechanism never did what it said; the trigger is a **scope word** — *every, any, all, each*, a glob, a directory, an ordinal; the check is "which line of code makes this true, and what input makes it false" — then run that input; the remedy is to narrow the sentence or execute the claim. Collapsed into one row it becomes "prose can be wrong", which is unactionable.
 
@@ -148,30 +158,32 @@ Products, cart, sales, payments, returns, discounts, customers, receipts, offlin
 
 | ID | Task | Stream | Status |
 |---|---|---|---|
-| FP-230 | Catalog: products, variants, barcodes, categories, brands, units, modifiers | BE | TODO |
-| FP-231 | Taxes, price lists and discounts, with the shared calculation engine in PHP and TypeScript | BE, FE | TODO |
+| FP-230 | Catalog: products, variants, barcodes, categories, brands, units, modifiers | BE | TODO — **widened by T-006**: unit dimension, the resolver and its snapshot contract, the stock/purchase/sales unit split, weighable flags and PLU, and `barcode_rules` with a parser in both engines. Depends FP-243 |
+| FP-231 | Taxes, price lists and discounts, with the shared calculation engine in PHP and TypeScript | BE, FE | TODO — **widened by T-006**: prices carry a unit, so a case can price at other than a clean multiple of the single. Unit resolution joins the shared engine under the same fixtures |
 | FP-232 | Customers, groups, credit ledger and loyalty | BE | TODO |
-| FP-233 | Sales: cart, tenders, hold and recall, refunds, voids, cash shifts | BE | TODO |
-| FP-234 | Stock validated and decremented inside the sale transaction, rejecting insufficient stock | BE | TODO |
+| FP-233 | Sales: cart, tenders, hold and recall, refunds, voids, cash shifts | BE | TODO — **widened by T-006**: sale lines carry the unit quad |
+| FP-234 | Stock validated and decremented inside the sale transaction, rejecting insufficient stock | BE | TODO — **widened by T-006**: conversion resolves *before* the row lock, and the ledger is written in base units |
 | FP-235 | Terminal-prefixed invoice numbering, final at print time | BE | TODO |
-| FP-236 | Till application: product grid, scanning, cart, payment, refund | FE | TODO |
-| FP-237 | Offline: local database, replica, sync push and pull, conflict rules | BE, FE | TODO |
+| FP-236 | Till application: product grid, scanning, cart, payment, refund | FE | TODO — **widened by T-006**: scan resolves through `barcode_rules`, and weighable lines are entered by weight |
+| FP-237 | Offline: local database, replica, sync push and pull, conflict rules | BE, FE | TODO — **widened by T-006**: the replica must carry unit conversions and barcode rules, or an offline till computes a different quantity than the server |
 | FP-238 | Offline cashier sign-in with cached PIN and permissions | BE, FE | TODO |
 | FP-239 | Printing: printers, routes, templates, and the agent integration | BE, PA, FE | TODO |
 | FP-240 | Admin application shell, navigation and the catalog and customer screens | FE | TODO |
 | FP-241 | Suspension must reach an offline till (terminal token and replica expiry) | BE, FE | TODO — **before the first paying customer** |
+| FP-243 | The unit model: base unit, the conversion boundary, the valuation formula | BE (architect, documents only) | IN_DEV (T-006) — **gates FP-230** |
 
 ## Phase 2 — Inventory and purchasing
 
 | ID | Task | Stream | Status |
 |---|---|---|---|
-| FP-250 | Stock levels and the append-only stock ledger | BE | TODO |
+| FP-250 | Stock levels and the append-only stock ledger | BE | TODO — **widened by T-006**: the new ledger idempotency key, the base-only boundary, the weighted-average formula, and three nightly quantity invariants |
 | FP-251 | Warehouses, and stock held per location rather than per branch | BE | TODO |
 | FP-252 | Batches, serial numbers and expiry tracking | BE | TODO |
-| FP-253 | Adjustments, transfers, opening stock, reorder alerts, conflicts | BE | TODO |
-| FP-254 | Suppliers, purchase requests and purchase orders | BE | TODO |
-| FP-255 | Goods receipts, supplier invoices, returns and supplier payments | BE | TODO |
+| FP-253 | Adjustments, transfers, opening stock, reorder alerts, conflicts | BE | TODO — **widened by T-006**: item lines carry the unit quad; a stock count is entered in the unit the human counted |
+| FP-254 | Suppliers, purchase requests and purchase orders | BE | TODO — **widened by T-006**: line unit quads, and the received rollup compares base to base |
+| FP-255 | Goods receipts, supplier invoices, returns and supplier payments | BE | TODO — **widened by T-006**: receive in a different unit from the order, and price variance normalised per base unit |
 | FP-256 | Inventory and purchasing screens | FE | TODO |
+| FP-257 | Repack and break-bulk: the production document, apportionment and labels | BE | TODO (T-006) — **last in Phase 2**, it is the only row that reads a maintained average cost |
 
 ## Phase 3 — Finance
 
@@ -219,6 +231,7 @@ Products, cart, sales, payments, returns, discounts, customers, receipts, offlin
 | FP-294 | Reporting and analytics layer, and dashboards | BE, FE | TODO |
 | FP-295 | Notification channels and templates | BE | TODO |
 | FP-296 | Reference plugins proving the extension points | BE, FE | TODO |
+| FP-258 | Live-weight scale through the print agent | PA, BE | TODO (T-006, deferred here deliberately) |
 
 ## Phase 7 — Ecosystem
 
