@@ -124,3 +124,63 @@ The distribution argument is the same as after T-005 and stronger: **twelve-plus
 Two approved tasks are now stacked behind one acknowledgement: T-005 is DONE and unmerged, gated on the human acknowledging the `CLAUDE.md` correction, and T-006 is branched from that unmerged tip. `CLAUDE.md` still cites v0.4 of two documents that are at v0.5 — the same hazard the T-005 review named, one task deeper.
 
 **FP-174** ("give `CLAUDE.md` a standing accuracy assertion — with the task that next edits it") is the row that closes this family permanently, and the task that edits that line is the one that should carry it.
+
+---
+
+# Round 2 — re-check
+
+| | |
+|---|---|
+| Verdict | **CHANGES REQUESTED** — two Criticals, both one-table fixes, both in the artefact that changed most |
+| Gate, measured by the reviewer | exit 0 — PHPStan no errors, Deptrac 0 violations, Pest **314 passed (1435 assertions)**, 89.98s |
+| Not re-litigated | the design, the currency analogy, the boundary, the tag census, the index audit. Round 1 approved those on measurement |
+
+Both Criticals were **the same defect in two artefacts**: a corrected rule that landed in one place and not in the others stating the same rule. One was the fix to round 1's own R-1, live in the prose and absent from the table row an implementer writes the migration from.
+
+## Two corrections to the lead's brief
+
+**The diff range given to the reviewer did not contain the fix to three of its four Criticals.** The fix commit sits two commits before the range's base, so "re-check the changed items" over that range would have shown one Critical's re-fixes and none of the other three. The reviewer re-derived from the current text instead, and flagged it as *the same mechanism by which R2-1 survived six QA runs: the diff that was re-read did not contain the change being verified.*
+
+**And "no header-level movement wording remains" was wrong** — it remained in the spec's AC-36, which the §6.5 table now overturns. It remained in the design document nowhere, which is presumably what had been measured.
+
+## R2-1 — the key stated seven times, four of them stale
+
+The five-column key was correct in the SQL block, the plan and the decisions file, and **stale in the `stock_movements` table row, in §11's idempotency list, in the partitioning paragraph, and in AC-36.**
+
+The row is the one that matters: **every other key in the document is declared in its table row, so that row is the normative declaration and it is what the migration gets written from.** So the Critical raised in round 1 was still live at both sites where it would actually be implemented.
+
+**AC-36 compounded it rather than catching it:** the criterion certified the *superseded* key, so a QA pass on AC-36 became **evidence against** the fix. Run 6 passed 69/69 with AC-36 satisfied by two stale rows.
+
+Fixed by **deleting three statements rather than correcting four** — the columns now appear once and the other sites name them. The plan's copy is labelled as a copy with the normative site named, on the grounds that *a copy which does not declare itself is the defect.*
+
+## R2-2 — an implementer following the document exactly produced the error
+
+The inbound branch asserted every inbound cost is per **line** unit. The document states in two other places that a refund's cost column is a copy of the average and therefore per **stock** unit.
+
+Measured: a 1-case refund at average 200 and factor 24 added **200** against **4,800** removed — inventory understated by 4,600 on every multi-unit refund, permanently, breaking the reconciliation on the second transaction any shop performs. An intra-account transfer of 10 cases lost **95.83%** of the value moved **with no journal entry to notice**, because §7.5 posts none for a transfer within one account.
+
+The reviewer's framing: **no sentence mapped the eighteen movement types to the two branches**, so for the five types that return or relocate already-valued stock the document did not say which applied. Both readings were available and neither was named. Unlike the earlier finding that an implementer *might reach for* the wrong column, here the document itself instructed the error.
+
+Fixed with a branch table carrying each type's branch, cost column and unit basis. **Six rows were rulings rather than read-offs**, of which the sharpest: for `adjustment` and `count`, **the sign of the quantity decides the branch** — nothing had said a signed type could have one branch, and it cannot.
+
+## Warnings
+
+Five, all closed. The residue description invited a tolerance test that would have stranded a material balance (reproduced at 500 from a genuine cost mismatch, not a crumb); the factor guard was specified on a table the factor can bypass via the unit chain, which matters more now that weighable goods put mass in scope; the volume-break lookup had the same "first hit wins is meaningless" problem a sentinel had just fixed one dimension over; three human-entered reorder quantities had no stated basis, and a buyer types a minimum order in **cases**; and three cost columns had no reading at all.
+
+## The reviewer's judgements
+
+**On the fifth defect shape (FP-184):** the right row, and the architect's framing better than the lead's. Its sharpest observation — *an equals sign between two stored columns is not a direction* — is the diagnostic an implementer can actually apply, and is why v0.4 *looked* as though it had named an authority while having declared a formula. **The exclusion is right and the line is cleaner than the row stated it:** an undeclared authority produces two different answers to one question; a missing invariant produces no check of a single answer.
+
+**On the sorting question:** endorsed, and for a reason beyond the stated one — it is **answerable without knowing the consequence**, which is what makes it survive contact with a tired reviewer at the end of a long task. "Is it correctness?" requires working the arithmetic first, which is exactly the step that fails when people are stopping. And it should be run one step further than it was: **the spec is a record someone implements from, because QA implements its pass/fail from it** — which is how AC-36 came to certify a superseded key through six runs.
+
+**On the lead's scope line:** stopping was right and **the severity curve is the right instrument while the count is not** — 9, 4, 3, 2, 3, 3 looks flat, while what closed went from a reintroduced null key and an inventory overstatement to sentences. *A fix round that closes sentences at the cost of a round is a net loss, and a reviewer who demands a seventh round for wording is asking for the eighth.* But **the line was applied to three artefacts when there were five**, which is why R2-1 exists — itself the overclaim defect, in a count.
+
+**On CQRS, an argument the architect had not claimed:** round 1 noted that the snapshotted factor is correct under all three flavours, which was luck. **The accumulator decision is not.** It makes the inventory total a maintained stateful accumulator and declares it authoritative — fine under code-level separation, a read model requiring rebuild-by-replay under projections, and not a column at all under event sourcing, where the authority question reopens with a different answer. **So the flavour now reaches into the one number the balance sheet is read from.**
+
+## On the process facts
+
+The lead's self-report was called *the most useful artefact produced this round*. The architect's measurement — **every arithmetic or counting claim it made that it did not independently re-derive was wrong, and none that it did re-derive was** — is, with that many trials, strong enough to act on, and is the empirical basis the convention rows had been missing when they were argued for after T-005. *They were filed on a taxonomy and are now filed on data.*
+
+**The convention's author being its most frequent instance is the expected outcome, not an embarrassment**, because both rows exist on the premise that the defect is invisible to its author. What worked is that every correction came from an agent that re-derived rather than trusted — including one with no shell, which caught a proposal-presented-as-shipped by reading the live text and naming both candidate explanations rather than picking one.
+
+**And the reviewer corrected its own round 1:** it had framed the transfer-instalment question as "either reading is a defect, and the ambiguity is the defect". The architect declined it with a measurement and QA ruled in the architect's favour. The reviewer's verdict on itself: *it is a missing capability, not a contradiction, which is a materially different thing and routes to a different row.*
