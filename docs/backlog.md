@@ -91,6 +91,7 @@ The host that boots only the modules named in configuration, the generator, the 
 | FP-185 | T-006's residual stale prose: three wording items QA passed the task with | TODO — none is correctness; recorded rather than fixed, on purpose |
 | FP-186 | A fact stated more than once has to be stated once | TODO — convention, and the one the other five reduce to |
 | FP-187 | An edit is done when the artefact contains it, not when the tool reports success | TODO — convention; a failed script reported four closures and wrote nothing |
+| FP-188 | Collapse whitespace before asserting a phrase is present or absent | TODO — convention; a search reporting absence without looking. Three instances, one stood three rounds |
 
 **FP-172 fired for real on 2026-10-06, and that moves it from a row to a task.** During T-006 the gate exceeded **420 seconds** wall on a cold cache, the package manager's 300-second per-script timeout killed the test step, and the run reported **exit 1 with no test failure** — a false red on a clean tree. The re-run was exit 0 at 156 seconds. So the hazard this row has described since T-004 is no longer hypothetical: it has now produced a wrong answer about whether the code works, which is the one thing a gate exists to avoid.
 
@@ -145,7 +146,7 @@ The sixth shape is its own row because it is the only one that is not a defect o
 
 **The same mechanism outside the documents**, worth recording because it shows the shape is not about prose: the lead handed the reviewer a diff range that did not contain the commit fixing three of the four findings being re-checked, so the re-check would have reported on the range rather than on the work. *A check performed against the wrong artefact reports on the artefact, not on the thing.* The cheap guard is the same as the fix — derive the range from the thing being checked rather than from a remembered commit.
 
-**A search that returns nothing is a claim, and it fails in the dangerous direction.** Two instances on T-006, one hour apart, both in checks run to verify a fix had landed:
+**FP-188 detail — a search that returns nothing is a claim, and it fails in the dangerous direction.** Two instances on T-006, one hour apart, both in checks run to verify a fix had landed:
 
 - A grep for a column's basis stopped at a **markdown cell boundary** and reported three of four rows missing it. All four were present. **False fail** — noticed within a minute, because the result was surprising.
 - A grep for a superseded sentence returned nothing and was read as "it is gone". The sentence spans a **line wrap**, so a search for the whole of it fails while a search for its second half succeeds. **False pass** — nobody noticed for three rounds, because the result was what everyone expected.
