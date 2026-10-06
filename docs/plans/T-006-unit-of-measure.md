@@ -334,7 +334,13 @@ section could cite an earlier one rather than forward-reference it.
       finished when *every* question about the set is answered in the one place, and "the cost is
       decided here" invites exactly the assumption that the quantity is decided somewhere sensible.
       Count failed at the same row and the same magnitude as QA run 7, on the other side of the same
-      line. D-83.
+      line. D-83. **And the column then created a defect one invariant over** (QA run 10, BUG-31):
+      nightly check 2 sums `quantity`, and naming the reservation quantity for the first time put
+      nonzero rows into that sum which never move `balance_after`, so it needed check 1's exclusion
+      too. That sharpens the lesson rather than adding one: **naming a quantity that was previously
+      unnamed changes every rule that sums quantities** — FP-184's authority argument pointed at an
+      invariant instead of a column. Three times now a consolidation has produced the defect it was
+      meant to prevent: the branch table (three), the "(†) defined ONCE" marker (one), and this.
 
 ---
 
