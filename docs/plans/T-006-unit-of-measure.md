@@ -1,7 +1,7 @@
 # Plan: T-006 The unit-of-measure model
 
 Spec: `docs/specs/T-006-unit-of-measure.md` · Decisions: `docs/decisions/T-006-unit-of-measure.md`
-(owner U-1 to U-3; D-57 to D-65) · Covers **FP-243**, gates **FP-230**, widens ten rows, opens
+(owner U-1 to U-3; **D-57 to D-65** plus **D-70 and D-71** mine, D-66 to D-69 `ba`'s) · Covers **FP-243**, gates **FP-230**, widens ten rows, opens
 **FP-257** and **FP-258** · Branch `ai/T-006-unit-of-measure` from `62cd25d`.
 
 **This plan is written after the work, not before it.** The design was briefed to me outside the
@@ -153,7 +153,7 @@ Two consequences worth stating because they are what make this cheap rather than
 | 6.5 | ERD; `stock_levels`, `stock_movements`, three item tables, **`stock_productions`** + **`stock_production_items`** (new); six new prose blocks |
 | 6.6 | five line tables; `received_base_quantity`; `purchase_price_history` normalised |
 | 6.7 | four line tables; `sale_items.price_from_label` |
-| 6.10–6.15 | ten bare `DECIMAL`s given precisions; `journal_entries.source_type` += `stock_production` |
+| 6.10–6.15 | **eight** of the eleven bare `DECIMAL`s given precisions — the other three sit in §6.3 `product_barcodes`, §6.4 `price_list_items` and §6.5 `stock_movements`, fixed with those rows; `journal_entries.source_type` += `stock_production` |
 | 6.18 | replica list += `unit_conversion`, `barcode_rule`, with the blast-radius paragraph |
 | 7, 7.2, 7.5 | the quantity twin of the currency bullet; price variance per base unit; count variance; the production posting row |
 | 10, 11 | the three tables priced at the hard cap; the new ledger key; `plu_code`; barcode rules are not a hot lookup |
@@ -170,7 +170,7 @@ contents · §15 the dual engine · §21 invariants and static tests · §22 dec
 
 Part 1: owner U-1/U-2/U-3 on record, because `docs/database.md` cites them and a design document
 should not be the only place a business decision lives. Part 2: **D-57 to D-65**, continuing from
-D-56.
+D-56, with **D-70 and D-71** appended after QA run 1 and D-64's mechanism corrected in place.
 
 ### Not touched
 
@@ -209,7 +209,7 @@ whole quad but snapshots at BOM-write time (D-62).
 `price_list_items.unit_id` and a new unique `(price_list_id, product_id, unit_id, min_qty)` ·
 `purchase_order_items.received_base_quantity` · `stock_count_items.counted_qty` →
 `counted_quantity` + the quad · `stock_transfer_items` base sent/received pair ·
-`sale_items.price_from_label` · `modifiers.linked_quantity` / `linked_unit_id` · ten bare `DECIMAL`
+`sale_items.price_from_label` · `modifiers.linked_quantity` / `linked_unit_id` · eleven bare `DECIMAL`
 columns given explicit precision.
 
 **The ledger key**, which is the one piece of this that would be expensive later:
@@ -282,6 +282,9 @@ section could cite an earlier one rather than forward-reference it.
       never enumerated; and `product_barcodes.unit_id` was nullable in the table row but not in the
       note. The same shape as the three I had just caught in the brief, now in my own output — which
       is the argument for FP-176 being a cross-reading obligation rather than one role's discipline.
+- [x] **Step 12 — QA run 1 (FAIL: 65/67, one major, seven minor)**, fixed in `13cc57f` and this
+      file. See "Found by QA, not by me" below; the major one is the only defect on this task that
+      was a **design** error rather than a count or a citation.
 
 ---
 
@@ -327,12 +330,19 @@ direction to the owner with its date, and noted that the architecture revision i
 not use the brief's term "claim-mark projection", which I could not source. This is the finding that
 this plan file exists because of.
 
-**C-3 — there are ten bare `DECIMAL`s, not five.** MEASURED: the five named, **plus**
-`expense_categories.approval_threshold`, `expense_categories.budget_monthly`,
-`salary_structure_components.amount`, `salary_structure_components.percent`,
-`workflow_instances.amount`. The instruction said "every bare occurrence", so all ten were fixed;
-`grep DECIMAL | grep -v 'DECIMAL('` now matches only the change-log sentence. Related and
-deliberately **not** changed: `employee_salary_components.amount`/`percent` and
+**C-3 — there are **eleven** bare `DECIMAL`s, not five, in nine table rows.** Corrected after QA run 1
+(BUG-7): this plan first said ten, and ten is wrong. MEASURED on the base document,
+`git show 47e226d:docs/database.md | grep -coE 'DECIMAL([^(]|$)'` = **11**, in these nine rows — the
+five the brief named (`product_barcodes.quantity`, `price_list_items.min_qty`,
+`payslip_lines.quantity`, `journal_lines.tax_base`, `statutory_rates.floor`), plus
+`expense_categories.approval_threshold` and `budget_monthly`, `salary_structure_components.amount`
+and `percent`, `workflow_instances.amount`, **and `stock_movements.quantity DECIMAL signed`** — which
+is the one I fixed without counting, because it was already in front of me as part of rewriting that
+row for the new idempotency key. So the deliverable was complete and only the arithmetic about it was
+not: all eleven are fixed, and `grep DECIMAL | grep -v 'DECIMAL('` now matches prose only.
+The signed-quantity column on the stock ledger is the one I would least have wanted to leave as
+`DECIMAL(10,0)`, which is a fair argument for counting a sweep rather than totting it up from a list.
+Related and deliberately **not** changed: `employee_salary_components.amount`/`percent` and
 `price_list_items.price` are **untyped**, not bare — the §3.2 convention covers them and there is no
 `DECIMAL` keyword for MySQL to read as `(10,0)`. The hazard is the word without the precision, and
 §3.2 now says so.
@@ -358,10 +368,47 @@ that is what the generalisation is anchored to.
 
 ---
 
+## Found by QA, not by me
+
+Run 1 was a FAIL: 65 of 67 criteria, one major and seven minor. All eight are closed in `13cc57f`
+and in this file. The one worth reading is BUG-1, because it is the only defect on this task that was
+a **design** error rather than a count, a citation or a scope:
+
+**I reintroduced, in §6.4, the exact defect I had just finished documenting in §6.5.** The price key
+was specified `unique (price_list_id, product_id, unit_id, min_qty)` over a **nullable** `unit_id`, so
+two rows both meaning *priced per stock unit* for one list, product and break were both legal and row
+order decided which one priced a sale. Three sections earlier, this plan's own text calls that NULL-
+distinctness hole "the second bug, and the worse" of the two in the v0.4 ledger key, and fixes it with
+a generated `COALESCE` column. I wrote the diagnosis and the cure, and then did not apply either one
+section later — in the one table the POS replicates to every till, whose unique key cannot be changed
+after launch without the resync that is the entire reason U-1 was decided now rather than deferred.
+QA found it by applying the document's own reasoning to the document, and also found the same shape on
+`unit_conversions`, which ladder step 2 had just made load-bearing.
+
+The fix was not two patched keys. The pattern is named once in **§3.3** as a convention — a nullable
+column whose `NULL` is a *meaningful value* gets a stored generated sentinel, and the key is built on
+the sentinel — and cited from all three sites, plus its mirror at `barcode_rules.active_prefix`, where
+NULL-distinctness is the mechanism rather than the bug. Four columns, three sites, one rule, and the
+next nullable unique key somebody designs has somewhere to look. **The lesson I would keep:** a
+defect I have just written a paragraph about is not thereby a defect I will notice; the paragraph
+needs to become a rule in the conventions section, where the next design reads it, or it protects
+only the table it was written about.
+
+The other seven: `unique ... where active` could not be built on either engine (BUG-2, so D-64's
+ruling stands and its SQL does not); §9.4's one-step prohibition is about renaming a **table**, not a
+column (BUG-3, AC-52); the immutability paragraph had no pointer to Q-10 (BUG-4, AC-63); the valuation
+formula guarded a zero denominator when the real hazard is the **negative** on-hand this design
+explicitly allows (BUG-5); nightly check 1 did not say whether the two reservation types are summed
+(BUG-6, which also settled QA's N-4 as D-71); `refunded_quantity` had no stated unit (BUG-8, D-70 by
+D-59's existing rule); and this plan's bare-`DECIMAL` count was wrong (BUG-7, C-3 above).
+
+Also closed from QA's notes rather than its bug list: `architecture.md` §7 attributed "190" to a §10
+that now computes 193 — the new number going stale in the very sentence that fixed the old "150".
+
 ## Decisions
 
 Nine decisions the brief did not settle are recorded in
-`docs/decisions/T-006-unit-of-measure.md` as **D-57 to D-65** and are not restated here. The three a
+`docs/decisions/T-006-unit-of-measure.md` as **D-57 to D-65**, plus **D-70** (`refunded_quantity` is base, by D-59's rule) and **D-71** (a reservation's `reference_line_id` is its own reservation row) added after QA run 1. They are not restated here. The three a
 reviewer should read first:
 
 - **D-57** — `unit_cost` means per **line unit** on a purchase line and per **stock unit** on an
