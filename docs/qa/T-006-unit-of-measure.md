@@ -4,7 +4,7 @@ Spec `docs/specs/T-006-unit-of-measure.md` (AC-1 to AC-67) · Plan `docs/plans/T
 Branch `ai/T-006-unit-of-measure`, 17 commits over base `47e226d`, nothing pushed. Measured on this machine on **2026-10-06**.
 No code, test or fixture was written: the task is documents, and nothing here needed a new test.
 
-## Verdict: FAIL (run 4; run 1 FAIL, run 2 PASS, run 3 FAIL, all kept below as measured)
+## Verdict: FAIL (run 5; run 1 FAIL, run 2 PASS, run 3 FAIL, run 4 FAIL, all kept below as measured)
 
 Two acceptance criteria fail (AC-52, AC-63), both **minor** and both fixable by one sentence each.
 One **major** design defect (BUG-1) is not an AC failure as written but is the exact defect class the
@@ -240,3 +240,47 @@ D-74 (rewritten) still says "free-in-the-denominator-only gives 166.6667 x 288 =
 I previously accepted a self-correction chain on this paragraph three times; this defect is again an arithmetic claim never run on its own edge. Note it is partly mine: the original guard was my BUG-5 suggestion.
 
 Nothing in the coordinator's message measured wrong.
+Run 5: FAIL -> FAIL (BUG-13/14 closed; AC-68 fails on a leftover sentence, BUG-15; BUG-16 money_in precision; BUG-17 write-off has no ledger row; AC-39 text stale again).
+
+---
+
+## Run 5 (tree at `2ebbdd7`; the spec is now 69 criteria)
+
+Gate by me: exit 0, PHPStan no errors, Deptrac 0, Pest **314 / 1435**, 82.54 s. **Tally against 69: 67 pass, 2 fail (AC-39, AC-68), 0 n/a.**
+
+### Re-test
+
+| Item | Result |
+|---|---|
+| Identity | Where on-hand is positive before the receipt, `avg_cost` = TV / on_hand, so after: (TV + money_in) / (on_hand + paid + free) = (prior value + money in) / (prior qty + qty in). **Holds**, with "prior value" meaning the accumulator, not `on_hand x rounded avg` |
+| Negative case, recomputed | on_hand -5, TV -500; receive 10 at 100 (paid 1 000): TV 500, on_hand 5, avg 100.00, GL -500 + 1 000 = 500: ties. The reset variant: TV 1 000, avg 200.00, +500: as stated. Correct |
+| Worked tables | 57 600 / 288 = 200.00, 48 000 / 288 = 166.6667; 15 000 + 48 000 = 63 000, / 388 = 162.3711; 48 000.0096. All recompute. The relabelling to `money_in`/`on_hand` left every number intact |
+| Residue at zero | Real (3 units for 100, avg 33.3333, line cost 99.9999: 0.0001 left). See below on what the write-off does not catch |
+| D-74 "exactly" | Gone |
+
+### AC-68 FAILS: BUG-15 (minor)
+§6.5 line 721, the opening sentence of "Valuation": "weighted average per (location, product), **maintained on `stock_levels.avg_cost` at every inbound movement**". That is exactly the sentence AC-68 forbids (avg_cost described as the stored authority), two paragraphs above the rule that says otherwise. The `grn_items` row (line 892) also says posting "updates `avg_cost` through the formula", which is imprecise in the same direction. Also: AC-68 asks me to confirm §7.1's rounding account; it exists but it is the **tender-rounding** account (`sale.rounding`, "Rounding <=0.05"), not a COGS rounding account, and D-76 says the average's leak lands in COGS where "§7.1 already gives rounding an account". With `line_cost` credited and debited as one number there is no leak to a rounding account at all; the sentence is loose, not harmful.
+
+### AC-39 FAILS (spec text stale, not the document)
+AC-39 still says "the prior layer is `on_hand x avg_cost` only when `on_hand > 0`, else zero (the guard is on the prior layer)". The shipped design is the opposite (guard on the derivation; accumulator unconditional); `ba`'s re-word (`5479dc6`) predates the BUG-14 fix. The document is right; the spec needs a re-word.
+
+### BUG-16 (minor): `money_in` is not defined at a precision, so it can differ from the GL debit
+Formula: `money_in = base_paid x cost_per_base`, `cost_per_base = landed_cost / unit_factor`, and the text says money in "is exactly what §7.2 debits". Case: 1 unit of a 3-per-case product at landed 100 per case. `cost_per_base` = 33.3333 (4 dp) x `base_paid` 3 = **99.9999**; the GL debits 100. Same residue as D-76, one step earlier. Define `money_in = ROUND(quantity x landed_cost, 4)` (what the GL debits) and derive `cost_per_base` only for display, or state the precision of `cost_per_base`.
+
+### BUG-17 (minor): the zero-stock write-off has no ledger row
+"Whatever `total_value` still holds is written off through §7.5's inventory-adjustment account" but `stock_levels` is "only ever updated in the same transaction as a movement", and the write-off is a value change at quantity 0. No movement type, `reference_line_id` or `reference_type` is given for it (the 18-row R-2 table has none, and the key needs one). Say which type carries it (e.g. `adjustment` with `quantity = 0`, value = -residue) and what its reference is.
+
+### What else can leave non-zero `total_value` at zero on-hand
+- **Not caught, undefined:** `stock_adjustments.type = revaluation` changes value with no quantity; no movement type or formula line covers it, and at exactly zero stock it leaves value there by design.
+- **Not caught:** a write-off trigger is stated for "returns to exactly zero". On-hand crossing from positive straight past zero to negative leaves a legitimate (negative) balance, which is correct and needs no write-off; I found no case where on-hand is below zero and the balance is residue, so not triggering there is right. But the document does not say so; one clause would stop an implementer writing it off.
+- The write-off itself returns both sides together, so the level/account tie survives.
+
+### Third instance of column redundancy (as asked)
+Reading the schema for columns that hold the same information, with no authority declared:
+1. `stock_productions.input_value` / `output_value` / `wastage_value` against the `value` of the item rows, which §6.5 uses in the identity `SUM(output value) + wastage_value = input_value`: the header carries the aggregates and the items carry the parts, and neither is named the authority. Most like the `total_value` case because the identity is the reconciliation.
+2. `stock_transfer_items.qty_variance` (= sent - received, base) and `stock_count_items.difference` / `variance_value` (= counted base - `system_qty`): stored derived values; `system_qty` is a snapshot, so `difference` is only derivable from it.
+3. `sale_items.line_cost` against `base_quantity x unit_cost`, with `sales.cost_total` = SUM(`line_cost`) (this one names its authority). `line_cost` is a `ROUND(..., 4)` product in the new outbound rule but "`base_quantity x unit_cost`" unrounded in the `sale_items` row.
+4. `base_quantity` against `quantity` x `unit_factor`: authority is stated (`base_quantity`), but `quantity` and `unit_factor` are also stored, and nothing says which wins if they disagree after a correction.
+Item 1 is the one I would act on.
+
+Nothing in the coordinator's message measured wrong; "every number re-verified" holds, and the claim that no stale sentence remains does not (BUG-15).
