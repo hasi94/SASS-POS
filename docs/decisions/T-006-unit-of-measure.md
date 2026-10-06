@@ -180,8 +180,10 @@ D-72 | Which cost does the weighted average consume? §7.2 posts **Dr Inventory 
 the formula averaged `grn_items.unit_cost`, and `stock_levels.total_value` is the balance-sheet
 figure. Raised as review R-4. | **The inventory cost**: `grn_items.landed_cost` on a receipt,
 `unit_cost` on any other inbound movement that has no apportionment. **`landed_cost` is per line
-unit**, exactly like `unit_cost` beside it, so it divides by `unit_factor` too. And the
-reconciliation is stated: `SUM(stock_levels.total_value)` equals the balance of the inventory account
+unit**, exactly like `unit_cost` beside it, so `money_in` multiplies it by the **line** quantity and
+the unit factor never touches the money side at all (corrected here after QA run 5 — this entry
+originally said it "divides by `unit_factor` too", which was the per-base expression BUG-16 removed).
+And the reconciliation is stated: `SUM(stock_levels.total_value)` equals the balance of the inventory account
 those products resolve to. | Averaging supplier price while the ledger debits landed cost diverges by
 the freight on **every receipt, permanently**, with nothing in the design to reconcile them — two
 inventory values, both called inventory. D-57 ruled on `unit_cost` across four tables and never
@@ -203,8 +205,13 @@ the free quantity, so the formula silently closed the free-goods question D-60 l
 review W-10, **then corrected after QA run 3 (BUG-10) — the first answer was wrong, and this entry
 is rewritten rather than appended to, because the version below is the rule and a reader following
 the old one would overstate inventory.** | **Free units enter stock at zero cost.** The free quantity
-appears in the **denominator only**: money in is `base_quantity × cost_per_base`, quantity in is
-`base_quantity + ROUND(free_quantity × unit_factor, 4)`. `avg_cost` falls and
+moves the **quantity** and not the **money**: `money_in` is `ROUND(line.quantity × inventory_cost, 4)`
+on the **paid** quantity in line units, while `on_hand` takes
+`base_quantity + ROUND(free_quantity × unit_factor, 4)`. (This entry first wrote the money as
+`base_quantity × cost_per_base`; that is the per-base expression **BUG-16** removed, because
+re-multiplying a rounded quotient leaves 99.9999 against a debit of 100.0000. Corrected here after QA
+run 6 flagged that an implementer reads *this* record for the reasoning behind the formula, so a
+stale expression here is wrong code rather than an inaccurate sentence.) `avg_cost` falls and
 `stock_levels.total_value` stays equal to the inventory account the receipt debited. | **The test is
 arithmetic, not preference.** Ten cases at a landed 4 800, two free, 24 per case, from zero stock: the
 ledger debits 48 000. Free-in-the-denominator-only puts **48 000** into `total_value` and derives

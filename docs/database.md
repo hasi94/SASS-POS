@@ -807,9 +807,9 @@ agree with that account. Averaging `unit_cost` instead would value the stock led
 and the ledger account at landed cost, diverging by the freight on **every receipt, permanently**,
 with nothing to reconcile them. Inbound movements with no apportionment — an adjustment, a production
 output — have only `unit_cost`, and that is their inventory cost. **`grn_items.landed_cost` is per
-line unit**, exactly like `unit_cost` beside it, which is why it divides by `unit_factor` too (D-57
-ruled on `unit_cost` across four tables and did not reach the column that actually values inventory;
-D-72 closes that).
+line unit**, exactly like `unit_cost` beside it, which is why `money_in` multiplies it by the **line**
+quantity and the unit factor never touches it (D-57 ruled on `unit_cost` across four tables and did
+not reach the column that actually values inventory; D-72 closes that).
 
 **The reconciliation is stated, not assumed:** `SUM(stock_levels.total_value)` over a location's
 products equals the balance of the inventory account those products resolve to (§7), per
