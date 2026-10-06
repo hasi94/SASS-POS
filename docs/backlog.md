@@ -30,7 +30,7 @@
 | T-003 | Convert the skeleton to master plus tenant connections | FP-201 | `ai/T-003-tenant-connections` (from T-002) | **DONE** — QA PASS 25/25, review APPROVE |
 | T-004 | Gate speed and repository hygiene | FP-155, FP-156, FP-157, FP-164 | `ai/T-004-gate-speed-and-hygiene` | **DONE** — QA 20/20, review APPROVE, commits `643e220` and `bcd7595` |
 | T-005 | Rename services to modules | FP-202, FP-169 | `ai/T-005-rename-modules` (from main) | **DONE** — QA PASS 26/26 (run 3), review **APPROVE** (round 2; round 1 was CHANGES REQUESTED on 3 Criticals). Gate exit 0, 314 passed / 1435 assertions. **Not yet merged**: the step-8 `CLAUDE.md` correction is still unacknowledged by the human, and per reviewer S-1 the merge and that edit belong in the same step |
-| T-006 | The unit model: GRN unit is not the selling unit | FP-243, and amendments to FP-230/231/233/234/236/237/250/253/254/255 | `ai/T-006-unit-of-measure` (from the T-005 tip) | IN_REVIEW — QA PASS 69/69 (run 9), review rounds 1 and 2 CHANGES REQUESTED and closed, round 3 in progress. Gate exit 0, 314 passed / 1435 assertions |
+| T-006 | The unit model: GRN unit is not the selling unit | FP-243, and amendments to FP-230/231/233/234/236/237/250/253/254/255 | `ai/T-006-unit-of-measure` (from the T-005 tip) | **DONE** — QA PASS 85/85 (run 11), review **APPROVE** (round 5; rounds 1-4 were CHANGES REQUESTED, 21 findings, 9 Critical, all closed on measurement). Gate exit 0, 314 passed / 1435 assertions. **Not yet merged**: `CLAUDE.md` still awaits the human, with T-005 and T-006 both behind it |
 
 **Why FP-201 and FP-202 are split.** The rename is mechanical but touches every file, and burying a semantic change inside that much churn makes the diff unreviewable. FP-201 was what Phase 0 was blocked on; the rename blocks nothing, so it goes second and alone.
 
@@ -134,7 +134,9 @@ The second is the structural half and the cheaper one: it removes the *compoundi
 
 **Six facts that had multiple homes when T-006 began now have one each**, confirmed by `qa`: the seven below-the-layer tables, the print-bearing set, the factor-resolution ladder, the free-quantity expression, the eighteen movement types, and the ledger key.
 
-**FP-186 detail — the one the other five reduce to.** T-006 produced six distinct defect shapes and nine convention rows. The architect's closing observation collapses them, and it is a measurement over the whole task rather than a theory:
+**FP-186 detail — the one the other defect shapes reduce to.** T-006 produced the convention rows marked as such in the table above. They split into two kinds: **defect shapes** — FP-171, FP-176, FP-181, FP-182, FP-184 and this row — and **verification conventions**, FP-187 and FP-188, which are not defects of authorship at all but ways a check can report on itself instead of on the artefact. FP-180 appears in a grep for the word because it *applies* the nullable-key convention rather than being one.
+
+**The count is deliberately not stated here, and that is FP-181 enforcing itself.** This sentence previously said "six distinct defect shapes and nine convention rows"; the table held eight, the lead said ten in a hand-over, and the reviewer repeated nine in a report **arguing for FP-181 and FP-182** without running the nine-second grep — three authors, three figures, for a number the repository derives. Naming the rows is re-derivable; counting them goes stale the next time one is filed. The architect's closing observation collapses them, and it is a measurement over the whole task rather than a theory:
 
 > **Where this task used a single source, nothing went stale. Every one of the six shapes happened in a fact that had two homes.**
 

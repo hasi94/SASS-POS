@@ -184,3 +184,92 @@ The lead's self-report was called *the most useful artefact produced this round*
 **The convention's author being its most frequent instance is the expected outcome, not an embarrassment**, because both rows exist on the premise that the defect is invisible to its author. What worked is that every correction came from an agent that re-derived rather than trusted — including one with no shell, which caught a proposal-presented-as-shipped by reading the live text and naming both candidate explanations rather than picking one.
 
 **And the reviewer corrected its own round 1:** it had framed the transfer-instalment question as "either reading is a defect, and the ambiguity is the defect". The architect declined it with a measurement and QA ruled in the architect's favour. The reviewer's verdict on itself: *it is a missing capability, not a contradiction, which is a materially different thing and routes to a different row.*
+
+---
+
+# Round 3 — re-check
+
+| | |
+|---|---|
+| Verdict | **CHANGES REQUESTED** — one Critical, three instances, one table column closed all three |
+| Gate, measured by the reviewer | exit 0, Pest **314 passed (1435 assertions)**, 81.47s |
+
+Both round-2 Criticals closed, and R2-1 *"closed better than I asked"* — deletion over correction being the whole of FP-186. All five Warnings verified against the text rather than the report.
+
+**R3-1 — the table decided the cost per type and the formula still decided the *quantity* generically.** The table had six columns and none was the quantity that moves. Three instances:
+
+- **`count`**: the document's own worked example came out 3× wrong. A level holding 48 that adds the line's base quantity — 72, the *total counted* — from a count which found 72 **closes at 120**. And invariant 1 compares the level against the movement sum, so if the movement row carries the same wrong number both sides are wrong together and the check passes. **The same row QA had fixed on the money side three rounds earlier, at the same magnitude.**
+- **both transfer types**: the symbol did not exist. Those lines carry a sent/received pair and no single base quantity at all, which is the earlier decision's whole point — so the formula's term was simply undefined, and the guess that moves the wrong quantity out of the source was available.
+- **the free-quantity term**: marked "defined ONCE, here" while referencing a column that exists on **one inbound source of seven**, where a NULL addend takes the whole update to NULL. The marker was added to kill a duplicate definition and **moved the ambiguity rather than removing it.**
+
+Closed with a "Quantity moved" column. Two rows were rulings rather than read-offs, and the second is a new fact about the schema: the goods receipt folds the free quantity in, which localises the marker; and **the reservation pair names a quantity column no sentence in the document had ever named.** The invariant excluded the pair and the table said "neither branch" — both statements about where the quantity does *not* go.
+
+**Warnings:** the accumulator row restated one of three update rules as if it were the rule, and a deferral note was one sentence short of naming the workaround that already exists.
+
+## Corrections to the lead's brief
+
+**The tree was not clean** when the reviewer measured it — two uncommitted hunks, deliberate work in progress, committed moments later. Its point stood: *the recorded gate result and the tip were not the same artefact.* **And QA's multiple-homes sweep had not found the seventh home** — the eighteen movement types had one, but the *quantity that moves* had one generic statement and two per-type statements in notes, and they disagreed. The sweep was looking for another home of the type *list*; this was another home of a *rule*.
+
+## Judgements
+
+**On the disclosure that two Warnings were reported closed and never written:** *"the single best process event on this task."* An agent self-reporting an error that no check in the system can detect is the hardest behaviour to get and the most valuable, because it is the only thing that works on the class of defect nobody is looking for. The remedy was right as far as it went and **one practice short** — the third leg was that no acceptance criterion covered a reviewer Warning across three rounds, so QA's reports carried a stale pass. *A review finding reported closed becomes an acceptance criterion, or nobody verifies it.*
+
+**On withdrawing the transit claim rather than building it:** upheld, with the reason that makes it decisive — **both candidate fixes changed the normative movement table itself**, which had existed for one round. Building either would have meant re-deriving fifteen rows, a branch column and twelve notes in the same round they were written. *"That is the highest-cost-of-being-wrong edit available in the document."* And labelling the pre-existing v0.4 instance beat deleting it, because a reader who remembers the transit location now gets told why it does not work.
+
+**On rounds 7–9 being justified:** decisively, and with the rule that guards against over-applying its own earlier stop ruling — **a round that creates a new normative artefact earns the round that reviews it.** Three of the consolidated table's fifteen rows were wrong on arrival. *"The instrument was right both times — the input changed."*
+
+**On severity versus reopen:** the architect's correction endorsed, with a third input added — **what it costs if it is settled later**, which is the asymmetry that drove every good call on the task.
+
+---
+
+# Round 4 — re-check
+
+| | |
+|---|---|
+| Verdict | **CHANGES REQUESTED** — one Critical, two lines in one file, *"the smallest finding I have raised on this task"* |
+| Gate, measured by the reviewer | exit 0, Pest **314 passed (1435 assertions)**, 84.59s |
+
+R3-1 closed completely and *"better than I asked"*, verified on joined text per the task's own new practice. Criteria at 85, no gaps.
+
+**R4-1 — the criterion governing the formula still certified two rules the review had removed as Criticals.** The deliverable was clean; the contract written against it was not. AC-39's inbound bullet carried the superseded per-base expression **and** the un-branched inbound cost rule — and **bullet 6 of the same criterion failed the task if the first survived.** *The criterion required in bullet 1 what it forbade in bullet 6.*
+
+Why it blocked: *"the spec is a record someone implements from"* — QA implements pass/fail from it, and the plan points the catalog and ledger tasks at it. An implementer reading bullet 1 writes the expression that leaves 99.9999 against a debit of 100, then reads the parenthetical and reintroduces the 4,600 refund understatement. **Both were Criticals; both were one sentence from being in the code.** It also meant the clean 85-of-85 rested on that criterion being read *on substance* — the right call for a QA pass, but the one criterion whose pass required overriding its own text.
+
+**Warnings:** the search-absence convention had no row number — *"the convention about assertions that were never tested against the artefact is recorded in the one place where nobody scanning the artefact will find it"*; and nothing closed the inverse of the new audit criterion — *a criterion that outlived the rule it certified*.
+
+## Judgements
+
+**On three consolidations producing the defect they were meant to prevent:** bounding, not contradicting, and the evidence is decisive — **three consolidations produced five defects on arrival and zero afterwards, while six facts that had multiple homes now have one each and not one went stale again.** The signature of a one-time transition cost. Its promotion: *the check on a consolidation is not "is the fact now in one place" but "is every question the set raises answered there."*
+
+**On the search-absence convention:** the distinction from the tool-reports-success convention is right — *a tool reporting success without writing* against *a search reporting absence without looking* — and collapsing them would produce "verify your verifications", which is unactionable. The architect's bound verified independently: **any claim about a phrase longer than about eight words was a coin toss.** *"The first convention on this task that comes with a threshold."*
+
+**On the audit criterion:** both instruments standing, because they do not overlap — the "likely wrong" section tests the **artefact** and works before any review exists; the audit criterion tests the **process** and cannot fire until findings do. And it was written independently, before the report asking for it landed, **in a better form**: *point at the criterion that covers it or add one*, which is cheaper and catches existing coverage.
+
+---
+
+# Round 5 — final
+
+| | |
+|---|---|
+| Verdict | **APPROVE** — zero Criticals |
+| Gate, measured by the reviewer | exit 0, Pest **314 passed (1435 assertions)**, 80.25s. Sixth independent run; identical counts in all six |
+
+**R4-1 closed, and the fix exceeds the ask.** Both bullets defer to the movement table as the only place that chooses a cost column and a multiplier. The **"Superseded forms"** bullet names all three removed forms **with their figures** and fails the criterion if any appears as the rule — *"a reader who is tempted to re-implement one now meets the cost of doing so in the same sentence."*
+
+Verified with the new convention's own practice rather than on report, the convention being one commit old: joined to a single line, whitespace collapsed, every occurrence counted and its context read. **None stated as a requirement.**
+
+**AC-74 is the find of the round and it is `ba`'s** — a third criterion required the same superseded form, caught while checking its own fix. *That the new audit direction found its first instance by hand in the round that added it is the same pattern as the audit criterion finding seven on its first run — a guard whose first run is red, which is the only kind worth adding immediately.*
+
+## One correction, mostly the reviewer's own
+
+**Three figures were in play for the convention-row count** — the backlog said nine, the lead said ten, the table held eight. *"The third author is me — my round-4 report repeated 'the nine convention rows' without counting them. That is FP-181 and FP-182 at once, by the reviewer, inside the report arguing for both rows. I should have run the grep; it took nine seconds."* Closed by dropping the count, which is the remedy FP-181 itself prescribes.
+
+## What the task delivered
+
+**Twenty-one findings across five review rounds, nine of them Critical**, every one closed on measurement rather than assertion — and the deliverable correct on all four axes of the one expression that mattered: cost basis, quantity, authority, unit basis. The documents went from a state where **no sentence said what unit any stored quantity was in** to one where the question is answered in exactly one place for all eighteen movement types, with a worked number beside the answer.
+
+**The process output is the cheaper half and the more durable.** Eight convention rows, each with a distinct trigger, a one-move check and a remedy, every one extracted from a measured instance rather than a theory.
+
+**The distribution did not change in five rounds and it is the whole argument for the rows: fifteen corrections, and not one was caught by its author's own re-reading.** Every one was caught by somebody re-deriving. *"That is not a weakness of any role; it is a property of the defect, and it is why all eight conventions are cross-reading obligations rather than anyone's discipline."*
+
+**Closing note:** *"The five rounds were earned, and the one that produced the most was the one nobody wanted — round 7, which reviewed the artefact created to answer a Critical and found three defects in it on arrival."*
