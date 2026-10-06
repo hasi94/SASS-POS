@@ -304,18 +304,43 @@ Numbering starts at AC-1 for T-006. "§" without a file means `docs/database.md`
 
 ### Valuation, price variance, rollups, incoming (§6.5, §6.6, §7.2)
 
-- **AC-39** (formula, as shipped after D-72, D-74): Given §6.5 "Valuation, and the formula", then
-  the formula divides the **inventory cost** by `unit_factor` (`cost_per_base = line.inventory_cost /
-  line.unit_factor`, where `inventory_cost` is `grn_items.landed_cost` on a receipt and `unit_cost` on
-  any other inbound movement); money in is `base_paid × cost_per_base` with `base_paid =
-  line.base_quantity`; quantity in is `base_paid + base_free` with `base_free = ROUND(free_quantity ×
-  unit_factor, 4)`; the prior layer is `on_hand × avg_cost` only when `on_hand > 0`, else zero (the
-  guard is on the prior layer, not on a zero denominator). `qa` recomputes both worked tables from
-  the document's own numbers: 4 800 / 24 = 200; `base_paid` 240, `base_free` 48; 240 × 200 / 288 =
-  166.6667 and `total_value` 48 000 against a GL debit of 48 000; the rejected reading gives 57 600,
-  a difference of +9 600; and 100 on hand at 150 plus the receipt gives (15 000 + 48 000) / 388 =
-  162.3711. Fails if any figure does not recompute or if the formula still puts `free_quantity` in
-  the numerator.
+- **AC-39** (valuation: an accumulator plus a derivation, as shipped after D-72, D-74, D-76 and
+  QA run 4 / BUG-14): Given §6.5 "Valuation, and the formula", then the formula is **not** a stored
+  weighted average updated in place; it has three parts and the document must state all three.
+  - **Inbound:** `cost_per_base = line.inventory_cost / line.unit_factor` (`inventory_cost` is
+    `grn_items.landed_cost` on a receipt, `unit_cost` on any other inbound movement); `money_in` is
+    for the **paid** quantity only; `total_value += money_in` **always**, including up from a negative
+    balance; `on_hand += base_paid + base_free` with `base_free = ROUND(free_quantity × unit_factor, 4)`.
+  - **Outbound:** `line_cost = ROUND(base_quantity × avg_cost, 4)`; `total_value -= line_cost`;
+    `on_hand -= base_quantity`.
+  - **Derived:** `avg_cost = total_value / on_hand` **only when `on_hand > 0`**, otherwise `avg_cost`
+    **holds its last value** (an oversell still has to be costed).
+  - **The guard is on the derivation, not on the accumulator.** The superseded design reset the
+    prior layer to zero when on-hand was zero or below; the document must say that was a defect, and
+    must not retain a formula with a "prior layer is zero" clause. Fails if any such clause survives
+    anywhere in §6.5 other than as the labelled rejected alternative.
+  - **Still recognisable as a weighted average:** where on-hand is positive the document must state
+    that accumulate-then-divide equals `(prior value + money in) / (prior quantity + quantity in)`,
+    and that "prior value" is the **`total_value` accumulator, not `on_hand × rounded avg_cost`**
+    (that distinction is the whole of BUG-14). Fails if the text equates prior value with
+    `on_hand × avg_cost`.
+  - `qa` recomputes **all three** worked cases from the document's own numbers, and fails the
+    criterion if any does not recompute:
+    1. free goods: 4 800 / 24 = 200; `base_paid` 240, `base_free` 48; `total_value` 48 000 against a GL
+       debit of 48 000; `avg_cost` 48 000 / 288 = 166.6667; the rejected reading gives 57 600 and
+       200.00, a difference of +9 600;
+    2. stock already held: 100 on hand at 150 plus the receipt, (15 000 + 48 000) / 388 = 162.3711;
+    3. **the negative case:** on-hand −5 with `total_value` −500, then a receipt of 10 at 100, gives
+       `total_value` 500, `on_hand` 5, `avg_cost` 100.00, GL inventory 500, difference 0; the reset
+       variant gives 1 000 and 200.00 against 500, a difference of +500. (qa also confirms the
+       "reset" row is a value-only reset: its `on_hand` stays 5, so 1 000 / 5 = 200.00 is the
+       arithmetic of that variant, not of a variant that also zeroed quantity.)
+  - **Rounding symmetry, to be checked and reported rather than assumed:** `line_cost` is stated
+    with `ROUND(..., 4)`. `qa` reads whether `money_in` is stated with its rounding and equals the
+    §7.2 inventory debit exactly; at the time of writing the document's `money_in` is written
+    `base_paid × cost_per_base` with no `ROUND` (Finding F-8).
+  - And when on-hand returns to exactly zero, the residue left in `total_value` is written off
+    through the §7.5 adjustment account on both sides (document states it; `qa` confirms §7.5 does).
 - **AC-68** (`total_value` is the authority, D-76): Given §6.5 and the `stock_levels` row, then
   `total_value` is stated to be the **accumulator** (`prior total + money in`) and `avg_cost` is
   **derived** from it (`total_value / on_hand`), and the two places agree. `qa` recomputes the
@@ -588,6 +613,16 @@ as written until QA run 2 passes them.
 - **F-7 (AC-27): "print-bearing" is not enumerated.** Only `sale_items`, `order_items`, `quotation_items`
   are stated to carry `unit_code`; a printed purchase order or transfer note is not mentioned.
   Logged as D-66, not changed.
+- **F-8 (AC-39), live at the time of the final pass:** `money_in` in the §6.5 formula block is
+  written `base_paid × cost_per_base` with no `ROUND`, while `line_cost` is `ROUND(..., 4)`. The relay
+  I was given showed `money_in = ROUND(quantity × landed_cost, 4)`, which is a different expression
+  (line quantity times line-unit cost, not base quantity times a divided cost) and does not match the
+  document as I read it. Either the document changed after I read it or the relay was a paraphrase;
+  the criterion requires that `money_in` equal the §7.2 debit exactly and be stated with its rounding.
+- **F-9 (AC-68), live at the time of the final pass:** §6.5 opens "weighted average ... maintained on
+  `stock_levels.avg_cost` at every inbound movement", and a later sentence says `stock_levels` "already
+  describes `total_value` as maintained". Both sit beside the decision that `avg_cost` is derived.
+  The lead reports the architect is fixing the sentence; AC-68 stays as written.
 
 ## Open questions
 
