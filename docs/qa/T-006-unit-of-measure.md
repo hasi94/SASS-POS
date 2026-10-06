@@ -4,7 +4,7 @@ Spec `docs/specs/T-006-unit-of-measure.md` (AC-1 to AC-67) · Plan `docs/plans/T
 Branch `ai/T-006-unit-of-measure`, 17 commits over base `47e226d`, nothing pushed. Measured on this machine on **2026-10-06**.
 No code, test or fixture was written: the task is documents, and nothing here needed a new test.
 
-## Verdict: FAIL (run 7, two correctness defects in the new branch table; runs 1, 3, 4, 5 FAIL, run 2 and run 6 PASS, all kept below as measured)
+## Verdict: FAIL (run 8, one correctness defect in the transfer-through-transit rule; earlier passes corrected below; runs 1, 3, 4, 5, 7 FAIL, runs 2 and 6 PASS, all kept as measured)
 
 Two acceptance criteria fail (AC-52, AC-63), both **minor** and both fixable by one sentence each.
 One **major** design defect (BUG-1) is not an AC failure as written but is the exact defect class the
@@ -348,3 +348,53 @@ Right idea, two real holes. For `adjustment` the line carries both signs, so dec
 Item 2 is the one most likely to rot.
 
 Nothing in the coordinator's message measured wrong; the claim that exactly one site declares the key columns is true.
+Run 8: FAIL -> FAIL (BUG-22 to BUG-25 verified fixed; BUG-27 correctness defect in note 9; the run-6 PASS and parts of run 7 corrected: AC-36 and review-round-2 W-3/W-5 were not what they certified).
+
+---
+
+## Run 8 (tree at `a176138`)
+
+Gate by me: exit 0, PHPStan no errors, Deptrac 0, Pest **314 / 1435**, 78.83 s. Pipe scan: only FP-178. Tally against 69: 69 pass by the letter of the criteria. **FAIL on BUG-27 (correctness) and the BUG-26 and BUG-28 leftovers. I am telling you plainly: reopen for BUG-27.**
+
+### 1. Review round 2 Warnings re-verified against the file (git object comparison, not reports)
+I compared `02b994a` (the tree of my run 7) with `a176138` by grepping the text each warning should contain.
+
+| Warning | At `02b994a` (run 7's tree) | At HEAD | Result |
+|---|---|---|---|
+| W-1 residue + approval threshold | approval path present; "residue" word still the heading | present: not "residue", `on_hand = 0` and never the size, approval above a threshold | **Partly closed**: BUG-28 below |
+| W-2 `products.cost_price` fallback | present (2 hits) | present in §6.5 guard bullet and D-79 | closed |
+| W-3 `revaluation` vs `increase`/`decrease` | **absent** (grep for "neither an `increase` nor a `decrease`": 0 hits; the `correction` row said increase/decrease while the write-off paragraph said revaluation) | present in both places (2 hits), note 11 is the single answer | closed now |
+| W-4 three `unit_cost` readings | table rows only | the movement table gives every type a basis; **the item rows still carry a bare `unit_cost`** | **Partly closed**: BUG-26 |
+| W-5 overclaim ("exactly one home") | present at `02b994a` (I found it as BUG-18 in run 6 and it was "fixed" only in the plan, never the file) | gone (0 hits) | closed now |
+
+**Earlier reports that need correcting, and I am saying so here:**
+- **Run 6 PASS** certified AC-36 against the superseded four-column key, as already conceded in run 7. It also reported BUG-18 (the "one home" claim) as a leftover for the backlog; that sentence was still in the file at run 7's tree and I did not re-grep it then.
+- **Run 7**: I wrote that a `correction` carrying a quantity was "sign-decided, consistent". At that tree the document answered "which adjustment type raises a value-only correction" twice, differently (W-3); I saw "three producers" in run 6 BUG-21 but did not notice the contradiction. That sentence was wrong.
+- Run 7's verification of R2-1 and R2-2 stands: I measured them from the file at that tree (key declared once, refund 4 800/200, transfer 95.83 %).
+- Everything else in runs 2-7 was grepped from the tree named in each section and stands.
+
+### 2. The four fixes
+| Item | Result |
+|---|---|
+| `count` (BUG-22) | Note 8: movement = `difference`; factor 24, system 48, counted 3 cases = 72, so 24 moves and `line.quantity` would price 72 (3x). `unit_cost` per stock unit x `difference`, and `variance_value = difference x unit_cost` closes. Verified |
+| `production_in` / `production_out` (BUG-23) | Both read the line's `value`; the residue lives there, so journal and stock ledger are the same number. Verified in the table and note 10 |
+| `transfer_in` short receipt (BUG-24) | Adds `base_qty_received` at the sending cost; shortfall stays at `transit`. **Mechanism missing: BUG-27** |
+| Magnitudes (BUG-25) | The formula states "every branch works on MAGNITUDES, sign selects the branch first"; refund with null `refund_of_item_id` takes current `avg_cost` (note 3). Verified |
+
+### 3. Consolidation: one grouping of the eighteen
+One table with fifteen rows, which together cover the eighteen types (opening, sale, refund/void x2, grn, grn_return, purchase_return, adjustment, count, wastage/expiry x2, transfer_out, transfer_in, production_in, production_out, correction, reservation pair x2 = 18), twelve notes. Other places that list the types: the `stock_movements` enum row (declares members, allowed); `journal_entries.source_type`, workflow `entity_type` (different enums that happen to share names such as `sale_void`); §6.5 invariant 1 ("every type in the movement table except the two reservation types") and §15's "production_in/production_out" sentence (citations). **I found no fifth home.** `base_free` has one definition (815, marked (†)); check 3 (1005) cites it and the `grn_items` row cites it; `ROUND(...free_quantity...)` appears once in the file.
+
+### 4. Worked examples recomputed
+200.00 / 166.6667 / 48 000; 57 600; 63 000 / 388 = 162.3711; 288 x 166.6667 = 48 000.0096; negative case 500 / 100.00 and reset 1 000 / 200.00; three-per-case 3 x 33.3333 = 99.9999; refund 24 x 200 = 4 800 against 200 (4 600 short); transfer 240 x 200 = 48 000 against 2 000 (95.83 %); count 72 - 48 = 24; and the write-off example: receive 10 at 100, sell 15 at held 100 -> TV -500, on_hand -5, receive 5 at 200 -> TV 500, on_hand 0. All correct; none involves a count except the count example, which is right, so "nothing moved" holds.
+
+### BUG-27 (major, correctness): the transit rule has no mechanism, and the key cannot hold the obvious one
+Note 9 says on a short receipt "the shortfall stays at the `transit` location where `transfer_out` put it". The table has one `transfer_out` (outbound) and one `transfer_in` (inbound) per line and **no movement that credits transit**, so as written `transfer_out` removes value at the sending location and nothing adds it anywhere. On a short receipt the shortfall value therefore vanishes from a no-entry intra-account transfer, which is exactly what the note says it prevents. The obvious fix, a two-hop model (out at A, in at transit, out at transit, in at B), needs **two `transfer_out` and two `transfer_in` movements per line**, and the key `(reference_line_id, product_id, type, batch_key, serial_key)` **contains no location**, so the second pair collides. The two ways out are a location in the key (a design change) or separate types for the transit legs. Neither is in the document, and the note presents the behaviour as settled. Location: §6.5 movement table, note 9, and `locations.type = transit`.
+
+### BUG-26 (minor): W-4 is closed in the table and not in the rows
+`stock_counts`/`stock_count_items` ("..., unit_cost, counted_by"), `stock_transfer_items` ("qty_variance **in base**, unit_cost, variance_reason"), `stock_production_items` and `stock_adjustment_items` all still carry a bare `unit_cost`, while `sale_items` states its basis. The basis (per stock unit for count, transfer and production; per line unit for an adjustment increase) is only in the movement table. A reader of the row has D-57's exact trap again. Add the basis to each row.
+
+### BUG-28 (minor): W-1 leftovers
+Line ~945 says rounding "is the smallest of **its three sources**" and then names two (rounding and the under-costed oversell); the third is never stated. Line 836 still says "the zero-stock **residue** write-off" in the formula block, the word the same section calls dangerous.
+
+### Process finding I take on board
+Run 7's AC-36 re-verification was by grep over three documents and by pattern; this round I added a git-object comparison of the two trees for each warning. That is what separates "the text is in the file now" from "the text was in the file when I passed it", and it is what I should have run when W-3/W-5 were first claimed.
