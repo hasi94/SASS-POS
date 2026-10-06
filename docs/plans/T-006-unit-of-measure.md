@@ -273,6 +273,15 @@ section could cite an earlier one rather than forward-reference it.
       argument for keeping it as a step rather than trusting the first pass.
 - [x] **Step 9 — report** the five brief corrections with their measurements, which produced FP-177,
       FP-178 and the backlog note that the CQRS direction is unrecorded.
+- [x] **Step 10 — this plan document**, after the lead observed that the reasoning existed nowhere a
+      reviewer, a QA pass or a later agent could read it.
+- [x] **Step 11 — five defects from `ba`'s spec pass** (F-1, F-2, F-3, F-6, F-7). Every one is a
+      **count or a scope stated in prose that nobody checked against the thing it describes**: the
+      tag census said seventeen in one place and sixteen in three; the Catalog index row was not
+      raised when `barcode_rules` was added; "all four columns" could not pass; "print-bearing" was
+      never enumerated; and `product_barcodes.unit_id` was nullable in the table row but not in the
+      note. The same shape as the three I had just caught in the brief, now in my own output — which
+      is the argument for FP-176 being a cross-reading obligation rather than one role's discipline.
 
 ---
 
@@ -282,14 +291,32 @@ A plan that hides where its brief was wrong teaches the next reader nothing. All
 before the gate ran; all five were accepted.
 
 **C-1 — the table count is right against the document and wrong against the tables.** MEASURED: the
-§6 domain index **summed to 189** before this task (192 after), while a literal count of the table
-rows in §6 gives **193 today → 196 after**. Four index rows are each one low: **Catalog 12/13,
-Finance 19/20, Notifications 6/7, System 8/9** — the misses are `currencies / exchange_rates`,
-`webhook_endpoints / webhook_deliveries`, `jobs / job_batches / failed_jobs`, and the thirteenth
-catalog row. I implemented the briefed figure (≈190 → ≈193) and did **not** silently re-denominate,
-because §10's whole arithmetic and the backlog row both rest on it, and §10's table models a rounded
-**200 tables per tenant** (190 core + 10 plugin) whose 20 000/40 000/60 000 figures would all move at
-203. I added one sentence saying the table keeps its rounded model. Filed as **FP-177**.
+§6 domain index **summed to 189** before this task, while a literal count of the tables named in §6
+gives **193 before → 196 after**. I implemented the briefed figure (≈190 → ≈193) and did **not**
+silently re-denominate, because §10's whole arithmetic and the backlog row both rest on it, and
+§10's table models a rounded **200 tables per tenant** (190 core + 10 plugin) whose
+20 000/40 000/60 000 figures would all move at 203. I added one sentence saying the table keeps its
+rounded model. Filed as **FP-177**.
+
+**C-1a — and my first explanation of *why* the index was low did not survive being checked, which is
+the same defect twice.** I originally named four low rows and attributed them to multi-table rows
+("`currencies / exchange_rates`" and friends counted once). `ba`'s spec pass tested that against
+Catalog and found Catalog has no multi-table row at all; re-measuring every domain shows the
+attribution is wrong for three of the four. The real picture, counted three ways per domain:
+
+| § | Index says | Markdown rows | Tables named | Mechanical explanation |
+|---|---|---|---|---|
+| 6.3 Catalog | 13 → **14** (fixed) | 14 | 14 | **none** — no multi-table row exists here. The declared 12 was simply one short of 13, and **T-006 then added `barcode_rules` without raising the row**, so this task carried the defect forward for one pass |
+| 6.10 Finance | 19 | 17 | 20 | **none.** It has *three* multi-table rows; counting each once gives 17, not 19, so "rows, not tables" over-explains and the real figure sits between the two |
+| 6.16 Notifications | 6 | 6 | 7 | **yes** — the only domain the original story fits: one multi-table row (`webhook_endpoints / webhook_deliveries`) counted once gives exactly 6 |
+| 6.21 System | 8 | 7 | 9 | **none.** Its one three-table row counted once gives 7, not 8; 8 is what you get by counting 9 tables and not counting Laravel's own `migrations` |
+
+MEASURED after this pass: **17 of 21 domains have declared == tables**, the index sums to **193**
+(equal to the figure §6 and §10 both state), and **three** domains remain one low — Finance,
+Notifications and System. Those three are FP-177's whole remaining scope. The lesson I would keep:
+"four numbers are wrong" was right and cheap to verify; "and here is why" was a story fitted to one
+example and never checked against the other three, which is exactly the shape of the defects I had
+just finished reporting in the brief.
 
 **C-2 — "the approved CQRS plan" could not be cited.** MEASURED: `grep -rni cqrs docs/` returns
 **nothing**. The only record is the owner's directive of 2026-10-06, and the flavour — code-level
@@ -411,9 +438,16 @@ be lost:
 - **Three static tests.** (1) No `unit_id`, `unit_factor` or `unit_code` column on any of the seven
   tables §6.5 names as below the document layer — the boundary is an **absence**, and an absence only
   stays true if something checks, which is the lesson of `QaVocabularyRenameSweepTest`. (2)
-  `decimal()` without a precision is forbidden in a tenant migration. (3) Every `[UOM]` table has all
-  four columns, with the one documented exception of C-5, because a line with `quantity` and no
-  `base_quantity` is the exact shape of the v0.4 defect.
+  `decimal()` without a precision is forbidden in a tenant migration. (3) The `[UOM]` tag is
+  **complete wherever it is claimed** — a unit column on all seventeen tagged tables, plus
+  `unit_factor` and one base column per entered quantity column on the thirteen document-line
+  tables, with the four master-data tables exempt **by name**. §14 carries the exemption list in
+  full. It is written that way because the first draft specified it as "all four columns on every
+  tagged table", and MEASURED, that would have failed on **five of the seventeen** on the day it was
+  written (`price_list_items`, `product_barcodes`, `modifiers` for the degenerate tag;
+  `stock_count_items` and `stock_transfer_items` because their entered quantity is not called
+  `quantity`). A criterion specified so that it must fail is worse than none, because the first
+  person to implement it weakens it to green (D-67).
 - **Shared fixtures in both engines.** Unit resolution and barcode parsing join tax, discount and
   rounding under the same fixtures. The quantity is an input to every number the engine computes, so
   a till that resolves a factor differently produces a different total from the same basket.
