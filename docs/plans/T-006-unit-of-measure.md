@@ -1,7 +1,7 @@
 # Plan: T-006 The unit-of-measure model
 
 Spec: `docs/specs/T-006-unit-of-measure.md` · Decisions: `docs/decisions/T-006-unit-of-measure.md`
-(owner U-1 to U-3; **D-57 to D-65** plus **D-70 and D-71** mine, D-66 to D-69 `ba`'s) · Covers **FP-243**, gates **FP-230**, widens ten rows, opens
+(owner U-1 to U-3; **D-57 to D-65** and **D-70 to D-80** mine, D-66 to D-69 `ba`'s) · Covers **FP-243**, gates **FP-230**, widens ten rows, opens
 **FP-257** and **FP-258** · Branch `ai/T-006-unit-of-measure` from `62cd25d`.
 
 **This plan is written after the work, not before it.** The design was briefed to me outside the
@@ -214,6 +214,11 @@ columns given explicit precision.
 
 **The ledger key**, which is the one piece of this that would be expensive later:
 
+**`docs/database.md` §6.5 is the normative declaration of this key; the block below is a copy.** It is
+kept because a plan an implementer reads should show the shape, and labelled because **four of the
+seven places this key was written went stale** when round 1 added `product_id` (review round 2 R2-1,
+FP-181). A copy that does not say it is a copy is the defect.
+
 ```sql
 + reference_line_id CHAR(26) NOT NULL                                         -- the line that caused the movement
 + batch_key  CHAR(26) GENERATED ALWAYS AS (COALESCE(batch_id,  '-')) STORED
@@ -300,6 +305,12 @@ section could cite an earlier one rather than forward-reference it.
       lead to four items with everything else to rows, on the reasoning that the four majors are
       closed, nothing is implemented, and a 1 400-line design document absorbs polish
       indefinitely. The defect count across five rounds went 9 → 4 → 3 → 2 → 3.
+- [x] **Step 17 — review round 2 (CHANGES REQUESTED: 2 Critical, 4 Warning, 1 Suggestion)**, fixed
+      in `bfe9677`. Both Criticals are the same shape as each other and as FP-181: **a corrected fact
+      that did not reach every place it was stated.** R2-1 was round 1's own fix missing from the
+      key's normative declaration; R2-2 was a rule asserted in the formula and contradicted by three
+      table rows, with no sentence anywhere mapping the eighteen movement types to the two branches.
+      D-78, D-79, D-80.
 
 ---
 
@@ -508,6 +519,30 @@ items long — the formula, the guard, the `stock_levels` row and the outbound u
 was not written down at all until QA asked for it. A list of four is a five-minute check; "re-read
 every earlier fix" is a resolution nobody keeps.
 
+**Review round 2 then found the sixth shape, and it is the one this task will be remembered for.**
+Both Criticals were *a corrected fact that did not reach every place it was stated.* R2-1: round 1's
+own fix — putting `product_id` back in the ledger key — was present in the SQL block and absent from
+the **table row**, which is the normative declaration because every other key in this document is
+declared in its row, and absent from §11, which is the second place an index-builder reads. The key
+was stated seven times and four of them were stale, so the Critical I had closed was still live at
+both sites where it would actually be implemented. R2-2: the inbound branch asserted every inbound
+cost is per line unit and **cited D-57 for a reading D-57 gives the opposite of**, while three table
+rows said otherwise and no sentence mapped the eighteen movement types to the two branches.
+
+**What makes this shape different from the other five:** the others are defects of *authorship* —
+something was overclaimed, miscounted, unopened, or settled twice. This one is a defect of
+*distribution*. The fact was correct, known, and written down; it simply did not travel to the other
+places that state it. And the cost is higher than any of the others, because an implementer who
+follows the document **exactly** produces the error — 4 600 understated on every multi-unit refund,
+95.8 % of the value of an intra-account transfer gone with no journal entry to notice.
+
+**The check is structural and cheap: a fact that is stated more than once has to be stated once.** The
+fix for R2-1 was not to correct four sentences but to delete three of them, leaving §6.5 as the only
+place the key's columns appear — FP-181's own remedy applied to the artefact that filed FP-181. The
+fix for R2-2 was the same move: one table, eighteen rows, one rule, and no second place to disagree
+with it. **Where this task used a single source, nothing went stale; every one of the six shapes
+happened in a fact that had two homes.**
+
 Of the eleven Warnings, **W-1 is the one I would want remembered**: nightly check 3 adds
 `free_quantity`, which had no type, no `NOT NULL` and no default — so `base + ROUND(NULL × f, 4)` is
 NULL, `SUM` skips the row, and the check fails on **every** receipt line without a bonus. That is the
@@ -579,7 +614,7 @@ so whoever picks up FP-230 does not have to re-derive it from a 1435-line docume
 | **FP-234** Stock in the sale transaction | **conversion resolves before `SELECT … FOR UPDATE`** — it reads two tables and can reject, and neither belongs inside the critical section · movements written in base |
 | **FP-236** Till | scan resolves `product_barcodes` **first**, falls through to `barcode_rules` matched **in memory from the replica** · weighable lines entered by weight · embedded-price lines back-computed and flagged |
 | **FP-237** Offline | `unit_conversion` and `barcode_rule` in the **first** replica payload — adding a replicated entity type later is a full resync · on arrival the line's own snapshotted factor wins and a mismatch opens a conflict (D-63) |
-| **FP-250** Levels + ledger | the new **five-column** idempotency key with the two generated columns, and the §6.5 table of what `reference_line_id` names per type · the base-only boundary on seven tables · **`total_value` as the accumulator and `avg_cost` derived from it** — `+ money_in` and `− line_cost`, matching what §7.2 debits and §7.1 credits, accumulating through a negative balance, with the guard on the *derivation* and the zero-stock residue written off through the inventory-adjustment account (D-76) · the three nightly invariants, check 3 **including free goods** |
+| **FP-250** Levels + ledger | the new **five-column** idempotency key with the two generated columns, and the §6.5 table of what `reference_line_id` names per type · the base-only boundary on seven tables · **the branch table**: every movement type's branch, cost column and basis, with `money_in` multiplying the *line* quantity only where the cost is a quoted price and `base_quantity` where it is a copy of an average (D-78) · **`total_value` as the accumulator and `avg_cost` derived from it** — `+ money_in` and `− line_cost`, matching what §7.2 debits and §7.1 credits, accumulating through a negative balance, with the guard on the *derivation* and the zero-stock residue written off through the inventory-adjustment account (D-76) · the three nightly invariants, check 3 **including free goods** |
 | **FP-253** Adjustments/transfers/counts | the quad on three item tables · a count entered in the unit the human counted, variance base-only · the transfer's two quantity events (D-58) |
 | **FP-254** Suppliers/requests/orders | line quads · `received_base_quantity` and a **base-to-base** `partially_received → received` transition · `quantity_incoming` maintained on approve/receive/close |
 | **FP-255** Receipts/invoices/returns/payments | receive in a different unit from the order (two lines of one product on one receipt is the ordinary case) · price variance normalised to `line_total / base_quantity` on **both** sides · `purchase_price_history` written normalised |
