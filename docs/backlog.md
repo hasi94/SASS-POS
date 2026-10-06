@@ -223,7 +223,7 @@ Products, cart, sales, payments, returns, discounts, customers, receipts, offlin
 | FP-250 | Stock levels and the append-only stock ledger | BE | TODO — **widened by T-006**: the new ledger idempotency key, the base-only boundary, the weighted-average formula, and three nightly quantity invariants |
 | FP-251 | Warehouses, and stock held per location rather than per branch | BE | TODO |
 | FP-252 | Batches, serial numbers and expiry tracking | BE | TODO |
-| FP-253 | Adjustments, transfers, opening stock, reorder alerts, conflicts | BE | TODO — **widened by T-006**: item lines carry the unit quad; a stock count is entered in the unit the human counted |
+| FP-253 | Adjustments, transfers, opening stock, reorder alerts, conflicts | BE | TODO — **widened by T-006**: item lines carry the unit quad; a stock count is entered in the unit the human counted. Also settle **instalment receipts on a transfer** (D-73) — and in doing so say whether `qty_variance` is a *final* shortfall or a *pending* one, because that is what decides whether a later arrival is a new document |
 | FP-254 | Suppliers, purchase requests and purchase orders | BE | TODO — **widened by T-006**: line unit quads, and the received rollup compares base to base |
 | FP-255 | Goods receipts, supplier invoices, returns and supplier payments | BE | TODO — **widened by T-006**: receive in a different unit from the order, and price variance normalised per base unit. Also settle `grn_return`, a movement type with no document defining it — either give it one or drop it, but do not guess which of the two readings was meant |
 | FP-256 | Inventory and purchasing screens | FE | TODO |
