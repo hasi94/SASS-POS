@@ -322,12 +322,24 @@ Numbering starts at AC-1 for T-006. "§" without a file means `docs/database.md`
 - **AC-39** (valuation: an accumulator plus a derivation, as shipped after D-72, D-74, D-76 and
   QA run 4 / BUG-14): Given §6.5 "Valuation, and the formula", then the formula is **not** a stored
   weighted average updated in place; it has three parts and the document must state all three.
-  - **Inbound:** `cost_per_base = line.inventory_cost / line.unit_factor` (`inventory_cost` is
-    `grn_items.landed_cost` on a receipt, `unit_cost` on any other inbound movement); `money_in` is
-    for the **paid** quantity only; `total_value += money_in` **always**, including up from a negative
-    balance; `on_hand += base_paid + base_free` with `base_free = ROUND(free_quantity × unit_factor, 4)`.
-  - **Outbound:** `line_cost = ROUND(base_quantity × avg_cost, 4)`; `total_value -= line_cost`;
-    `on_hand -= base_quantity`.
+  - **Inbound:** the cost column and multiplier are **per the movement table (§6.5)**, which is the
+    only place that chooses them, per movement type; the block must not choose either itself.
+    `money_in = ROUND(inventory_cost × the table's multiplier, 4)`; `total_value += money_in`
+    **always**, including up from a negative balance; `on_hand += |qty_moved|`, where `qty_moved` is
+    the table's "Quantity moved" column, already base. `base_free = ROUND(free_quantity × unit_factor,
+    4)` applies to the `grn` row only, and the paid quantity alone feeds `money_in` on a receipt.
+  - **Outbound:** `line_cost = ROUND(|qty_moved| × avg_cost, 4)` (or the line's `value` where the
+    table names one, a production input); `total_value -= line_cost`; `on_hand -= |qty_moved|`.
+    Every branch works on magnitudes, the sign selecting the branch first.
+  - **Superseded forms, listed so nobody re-implements them from this spec** (each was a Critical in
+    review and each is now a defect if it appears as the rule): `cost_per_base = inventory_cost /
+    unit_factor` as the source of `money_in` (BUG-16: 3 × 33.3333 = 99.9999 against a debit of
+    100.0000); `unit_cost` as the cost of "any other inbound movement" (R2-2: that column is per
+    **stock** unit for refunds, transfers in and production in, so it understated inventory by 4 600
+    on a multi-unit refund and lost 95.8 % of an intra-account transfer); `base_paid` or
+    `line.base_quantity` as the generic quantity moved (R3-1: it does not exist on a count or a
+    transfer line, and a count moves `difference`). The criterion fails if the block states any of
+    these as the rule rather than as a labelled counter-example.
   - **Derived:** `avg_cost = total_value / on_hand` **only when `on_hand > 0`**, otherwise `avg_cost`
     **holds its last value** (an oversell still has to be costed).
   - **The guard is on the derivation, not on the accumulator.** The superseded design reset the
@@ -341,8 +353,8 @@ Numbering starts at AC-1 for T-006. "§" without a file means `docs/database.md`
     `on_hand × avg_cost`.
   - `qa` recomputes **all three** worked cases from the document's own numbers, and fails the
     criterion if any does not recompute:
-    1. free goods: 4 800 / 24 = 200; `base_paid` 240, `base_free` 48; `total_value` 48 000 against a GL
-       debit of 48 000; `avg_cost` 48 000 / 288 = 166.6667; the rejected reading gives 57 600 and
+    1. free goods: `money_in` 10 × 4 800 = 48 000; the `grn` quantity moved is `base_quantity` 240 +
+       `base_free` 48 = 288; `total_value` 48 000 against a GL debit of 48 000; `avg_cost` 48 000 / 288 = 166.6667; the rejected reading gives 57 600 and
        200.00, a difference of +9 600;
     2. stock already held: 100 on hand at 150 plus the receipt, (15 000 + 48 000) / 388 = 162.3711;
     3. **the negative case:** on-hand −5 with `total_value` −500, then a receipt of 10 at 100, gives
@@ -350,9 +362,10 @@ Numbering starts at AC-1 for T-006. "§" without a file means `docs/database.md`
        variant gives 1 000 and 200.00 against 500, a difference of +500. (qa also confirms the
        "reset" row is a value-only reset: its `on_hand` stays 5, so 1 000 / 5 = 200.00 is the
        arithmetic of that variant, not of a variant that also zeroed quantity.)
-  - **Rounding symmetry:** both sides are rounded to four places. `money_in = ROUND(line.quantity ×
-    inventory_cost, 4)` (**money from money, in line units**, paid quantity only; it is not
-    `base_paid × cost_per_base`) and `line_cost = ROUND(base_quantity × avg_cost, 4)`. `qa` reads that
+  - **Rounding symmetry:** both sides are rounded to four places. `money_in = ROUND(inventory_cost ×
+    the table's multiplier, 4)` (**money from money**: for a quoted price the multiplier is
+    `line.quantity`, paid quantity only, in line units; it is not `base_paid × cost_per_base`) and
+    `line_cost = ROUND(|qty_moved| × avg_cost, 4)`. `qa` reads that
     `money_in` equals the §7.2 inventory debit exactly. `cost_per_base` may appear in §6.5 only as a
     labelled counter-example (the divided-cost route loses precision before it is multiplied back); if
     it appears in the formula block as the source of `money_in`, the criterion fails (Finding F-8).
@@ -608,7 +621,8 @@ text at this pass, not at the time the Warning was raised, which `ba` cannot see
   contradicts the §6.5 note it cites (notes 7 to 10).
 - **AC-74** (the 24× error: every place it can occur): the sentence in §6.5 that explains where a
   unit error can be made must name **all three** places and must not claim fewer: `on_hand` taking
-  `line.quantity` instead of `base_paid + base_free`; the outbound `|base_quantity|` in `line_cost`;
+  `line.quantity` instead of the movement table's quantity moved (the earlier wording, `base_paid +
+  base_free`, is superseded: R3-1); the outbound `|base_quantity|` in `line_cost`;
   and the movement table's multiplier column. It must end on the rule that **every quantity in the
   arithmetic is base and only a price is ever in a line unit**. Fails if the sentence says the error
   can occur in one place only (an overclaim of safety), or names fewer than three. (As read: three
@@ -646,6 +660,15 @@ text at this pass, not at the time the Warning was raised, which `ba` cannot see
   criterion that cites the section, so a claimed change that was never written fails. **First run:**
   QA found seven closed Warnings with no criterion; they are AC-79 to AC-85 (W-5, W-6, W-8, W-9, W-11,
   W-1, S-1). QA had already verified each present and correct, so none was a defect.
+  **The audit runs in both directions.** A closed finding with no criterion is one failure. The
+  other is **a criterion that outlived the rule it certified** (review round 4, R4-1: AC-39 still
+  required three forms the review had removed as Criticals, so a document that satisfied it would
+  have been the superseded document, and a clean pass rested on reading it for substance rather than
+  by its text). Whenever a design rule changes, `qa` and `ba` re-read every criterion that cites it;
+  a criterion that must still mention the old form says so by **naming it as superseded** (as AC-39's
+  "Superseded forms" bullet and the cost_per_base counter-example do), never by silently rewriting
+  it and never by leaving it as the rule. A criterion that requires and forbids the same thing is
+  itself a defect: it can only be passed by overriding its own text.
 - **AC-79** (W-5, §3.3 does not claim a clean schema): the §3.3 bullet on unique keys over a nullable
   column must (a) say the convention is applied at **the sites found so far** and name them
   (`stock_movements.batch_key` and `serial_key`, `price_list_items.unit_key`,
