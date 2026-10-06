@@ -279,3 +279,40 @@ to. It is also the house pattern (`account_balances` rebuilds from `journal_line
 summary and its detail needs a declared direction, or it gets answered twice** — which is exactly what
 happened with `avg_cost`, three rounds apart. Reversible: yes.
 
+D-78 | Which branch of the valuation formula does each of the eighteen movement types take, and on
+what cost? Review round 2 R2-2: the inbound branch asserted every inbound cost is per **line** unit,
+while the `sale_items` and `stock_production_items` rows said their `unit_cost` is per **stock** unit,
+and `stock_transfer_items` said nothing. No sentence anywhere mapped the types to the branches. |
+A **branch table** in §6.5 giving all eighteen types a branch, a cost column and a basis, under one
+rule: **`money_in` multiplies the *line* quantity only where the cost is a price somebody quoted**
+(`landed_cost`, a typed adjustment's `unit_cost`); where the cost is **a copy of an average** — a
+refund, a transfer in, a production output — it is already per stock unit and `money_in` multiplies
+`base_quantity`, the same expression as the outbound half. | Because the movement is **returning or
+relocating value that was already measured**, so it must re-add exactly what was removed. Measured,
+on the line-quantity reading: a refund of 1 case at `avg_cost` 200 with factor 24 adds back 200
+against the 4 800 the sale removed, understating inventory by **4 600 on every multi-unit refund**;
+and an intra-account transfer of 10 cases of 24 at 200 removes 48 000 and adds 2 000, losing **95.8 %
+of the value moved with no journal entry to notice**, because §7.5 posts none when both locations
+share an account. Six rows had to be **ruled** rather than read off — `opening`, `purchase_return`,
+`adjustment`/`count`, `transfer_in`, `production_in`, `correction` — and each ruling is the uniform
+rule applied rather than a new one. Reversible: yes.
+
+D-79 | `avg_cost` "holds its last value" at or below zero on-hand, but the first movement on a
+(location, product) can be **outbound** — an offline sale at a location that allows negative stock, or
+a sale that syncs before the opening load — and then there is no last value. Review round 2 W-2. |
+It falls back to **`products.cost_price`**, which this design already declares per stock unit. | The
+schema already held the answer, so no column is added. An oversell has to be costed at something, and
+the order last-value-then-`cost_price` is the only pair of defensible numbers available. The
+accumulator ties regardless and the zero-stock write-off eventually recognises any difference, which
+is a point in D-76's favour rather than a reason to leave the case undefined. Reversible: yes.
+
+D-80 | Which document raises a **value-only** correction? §6.5's branch table said an ordinary
+`increase`/`decrease` adjustment; the write-off paragraph said `revaluation`. Answered twice, in
+paragraphs written three rounds apart. Review round 2 W-3. | **`revaluation`** where the correction
+carries no quantity — a zero-quantity write-off is neither an increase nor a decrease — and an
+ordinary `increase`/`decrease` adjustment where it does carry one. | Both halves of the question had
+an answer; neither paragraph knew about the other. Which is FP-184's own shape — one question, two
+undeclared answers — occurring **inside the fix for FP-184's own shape**, and the clearest argument
+yet that this class is found by re-reading what a change touches rather than by care at the moment of
+writing. Reversible: yes.
+

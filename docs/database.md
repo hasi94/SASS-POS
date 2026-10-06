@@ -602,7 +602,7 @@ erDiagram
 | Table | Columns / notes |
 |---|---|
 | stock_levels | `[ID]` `[TS]`, location_id FK, product_id FK, **quantity_on_hand, quantity_reserved, quantity_incoming (all `DECIMAL(18,4)`, all in the product's stock unit)**, **total_value — the accumulator and the authority** (`prior total + money in`, §6.5 D-76), **avg_cost (per stock unit) derived from it** as `total_value / on_hand`, last_movement_at, last_counted_at; unique (location_id, product_id). Only ever updated inside the same transaction as a movement, under `SELECT … FOR UPDATE` |
-| **stock_movements** (append-only) | `[ID]` `[SYNC]` `[GL]`, location_id FK, product_id FK, batch_id FK NULL, serial_id FK NULL, type enum(opening, sale, sale_refund, sale_void, grn, grn_return, purchase_return, adjustment, count, transfer_out, transfer_in, wastage, expiry, production_in, production_out, correction, reservation, reservation_release), **quantity DECIMAL(18,4) signed — always in the product's stock unit, never in a document unit**, unit_cost (per stock unit), value signed, balance_after, reference_type VARCHAR(40), reference_id CHAR(26), **reference_line_id CHAR(26) NOT NULL**, **batch_key**, **serial_key** (generated, below), employee_id FK NULL, notes, created_at; **unique (reference_line_id, type, batch_key, serial_key)** = the idempotency key that makes replaying a sale harmless; indexes (location_id, product_id, created_at), (reference_type, reference_id), (created_at), (batch_id), (product_id) |
+| **stock_movements** (append-only) | `[ID]` `[SYNC]` `[GL]`, location_id FK, product_id FK, batch_id FK NULL, serial_id FK NULL, type enum(opening, sale, sale_refund, sale_void, grn, grn_return, purchase_return, adjustment, count, transfer_out, transfer_in, wastage, expiry, production_in, production_out, correction, reservation, reservation_release), **quantity DECIMAL(18,4) signed — always in the product's stock unit, never in a document unit**, unit_cost (per stock unit), value signed, balance_after, reference_type VARCHAR(40), reference_id CHAR(26), **reference_line_id CHAR(26) NOT NULL**, **batch_key**, **serial_key** (generated, below), employee_id FK NULL, notes, created_at; **the idempotency key of §6.5** — declared there once, with its columns, its per-type `reference_line_id` table and the two bugs it fixes, and deliberately **not** restated here, because this document stated it two ways three lines of scroll apart until review round 2 (FP-181); indexes (location_id, product_id, created_at), (reference_type, reference_id), (created_at), (batch_id), (product_id) |
 | batches | `[ID]` `[TS]`, product_id FK, batch_no VARCHAR(60), mfg_date DATE NULL, **expiry_date DATE NULL**, supplier_id FK NULL, grn_item_id FK NULL, unit_cost, initial_quantity, status enum(active, quarantined, expired, recalled, depleted), notes; unique (product_id, batch_no), index (expiry_date, status) — drives the expiring-stock report and FEFO picking |
 | stock_batch_levels | location_id FK, product_id FK, batch_id FK, quantity_on_hand, quantity_reserved, `[TS]`; PK (location_id, batch_id). Kept in step with `stock_levels` in the same transaction; the sum over batches must equal the level, checked nightly |
 | serials | `[ID]` `[TS]`, product_id FK, serial_no VARCHAR(80), batch_id FK NULL, location_id FK NULL, status enum(in_stock, reserved, sold, returned, in_repair, scrapped, transferred), grn_item_id FK NULL, sale_item_id FK NULL, sold_at, warranty_until DATE NULL, notes; unique (product_id, serial_no), index (status, location_id) |
@@ -702,7 +702,7 @@ Without `product_id` the first two **cannot be saved at all** — unique violati
 | `adjustment`, `wastage`, `expiry` | `stock_adjustment_items.id` | `stock_adjustment` |
 | `count` | `stock_count_items.id` | `stock_count` |
 | `transfer_out` | `stock_transfer_items.id` | `stock_transfer` |
-| `transfer_in` | `stock_transfer_items.id` — **one per line, because receiving a transfer is one event** ★. The header carries a single `received_at`/`received_by`, so `partially_received` means *some lines short or not arrived*, with the shortfall in `qty_variance`, not *this line arrived twice*. Receiving one line in instalments would need a receiving document this schema does not have; that is named here rather than invented, and it is a question for FP-253 | `stock_transfer` |
+| `transfer_in` | `stock_transfer_items.id` — **one per line, because receiving a transfer is one event** ★. The header carries a single `received_at`/`received_by`, so `partially_received` means *some lines short or not arrived*, with the shortfall in `qty_variance`, not *this line arrived twice*. Receiving one line in instalments would need a receiving document this schema does not have; that is named here rather than invented, and it is a question for FP-253. **The workaround the schema already supports is a second transfer document for the shortfall** — new header, new line, new ULID, no collision — so nobody need invent the receiving document while FP-253 is open | `stock_transfer` |
 | `production_in`, `production_out` | `stock_production_items.id` — `production_in` for role `output` and `byproduct`, `production_out` for role `input`. **Role `wastage` writes no movement at all**: the quantity already left on the input's `production_out`, and wastage is what did not come back, so writing one would remove it twice. A wastage line is a **value** line — it feeds `wastage_value` and the Dr wastage expense of §7.5, and `SUM(output value) + wastage_value = input_value` is where it shows up | `stock_production` |
 | `correction` | the **correcting** `stock_adjustment_items.id` ★ — also the row for the two **value-only** movements, a `revaluation` and the zero-stock residue write-off, which carry `quantity = 0` and a signed `value` (§6.5) — never the row being corrected — §3.3 says a correction is a new row and never an `UPDATE`, which positively invites several corrections against one original, and keying on the original would permit exactly one. Note that `stock_adjustments.type` has no `correction` member: the correcting document is an ordinary `increase`/`decrease` adjustment, and the **movement type** is what marks it as a correction | `stock_adjustment` |
 | `reservation`, `reservation_release` | `stock_reservations.id` (D-71) | `sales_order` · `quotation` · `transfer` · `order` |
@@ -723,14 +723,17 @@ Rejected alternatives, both considered and both worse:
 The formula was never written down. It is, **in base units**:
 
 ```text
-inventory_cost = grn_items.landed_cost on a receipt, line.unit_cost on any other
-                 inbound movement — BOTH per LINE unit (D-57, D-72)
+inventory_cost = the movement's cost column, per the BRANCH TABLE below — and its
+                 basis is per LINE unit or per STOCK unit depending on the type
 base_paid      = line.base_quantity                        -- the quantity that was paid for
 base_free      = ROUND(line.free_quantity × line.unit_factor, 4)   -- the bonus, same factor
 
 -- INBOUND: money in is exactly what §7.2 debits the inventory account
-money_in      = ROUND(line.quantity × inventory_cost, 4)   -- MONEY from MONEY, in line units,
-                                                           -- PAID quantity only
+money_in      = inventory_cost is a QUOTED price
+                ? ROUND(line.quantity   × inventory_cost, 4)  -- per LINE unit: a receipt, an
+                                                               -- entered adjustment. PAID qty only
+                : ROUND(base_quantity   × inventory_cost, 4)  -- per STOCK unit: a refund, a
+                                                               -- transfer in, a production output
 total_value  += money_in                            -- ALWAYS, including from a negative balance
 on_hand      += base_paid + base_free               -- BASE, and paid AND free
 
@@ -748,6 +751,50 @@ on_hand        unchanged
 avg_cost      = on_hand > 0 ? total_value / on_hand
                             : avg_cost              -- held at its last value; see below
 ```
+
+**The branch table: which branch each of the eighteen types takes, and on what cost.** The formula
+above is useless without it, and until review round 2 **no sentence anywhere mapped the types to the
+branches** — so for the five types that *return or relocate already-valued stock* both readings were
+available and neither was named. ★ marks a row I had to rule on rather than read off an existing
+sentence.
+
+| `type` | Branch | Inventory cost | Basis → multiplier |
+|---|---|---|---|
+| `opening` | inbound | the entered `stock_adjustment_items.unit_cost` | per **line** unit → `line.quantity` ★ |
+| `grn` | inbound | `grn_items.landed_cost` | per **line** unit → `line.quantity` |
+| `sale` | outbound | `avg_cost` | per **stock** unit → `base_quantity` |
+| `sale_refund`, `sale_void` | **inbound** | the original line's `sale_items.unit_cost` snapshot | per **stock** unit → `base_quantity` — the exact mirror §7.1 requires |
+| `grn_return` | — | **no document defines it** (§15) | — |
+| `purchase_return` | outbound | `avg_cost` | per **stock** unit → `base_quantity` ★ |
+| `adjustment`, `count` | **the sign of the quantity decides** | increase: the entered `unit_cost`; decrease: `avg_cost` | increase per **line** unit; decrease per **stock** unit ★ |
+| `wastage`, `expiry` | outbound | `avg_cost` | per **stock** unit → `base_quantity` |
+| `transfer_out` | outbound | `avg_cost` | per **stock** unit → `base_quantity` |
+| `transfer_in` | **inbound** | **the value its matching `transfer_out` removed** | per **stock** unit → `base_quantity` ★ |
+| `production_out` | outbound | `avg_cost` | per **stock** unit → `base_quantity` |
+| `production_in` | **inbound** | the apportioned `stock_production_items.unit_cost` | per **stock** unit → `base_quantity` ★ |
+| `correction` | **value-only**, or sign-decided when it carries a quantity | the signed `value` itself | no multiplier ★ |
+| `reservation`, `reservation_release` | **neither** | none — they carry no value at all | — |
+
+**The rule the table generalises, along D-57's own line:** `money_in` multiplies the **line** quantity
+only where the cost is **a price somebody quoted** — a receipt's `landed_cost`, an adjustment's typed
+`unit_cost`. Where the cost is **a copy of an average**, the cost is already per stock unit and
+`money_in = ROUND(base_quantity × inventory_cost, 4)`, the same expression as the outbound half,
+**because the movement is returning or relocating value that was already measured.**
+
+That is not a tidiness argument. Three types break without it:
+
+- **A refund understates inventory by the factor.** A sale of 1 case at `avg_cost` 200 with a factor
+  of 24 removes 24 × 200 = **4 800**; §7.1 says a refund posts the exact mirror, so the ledger adds
+  4 800 back. On the line-quantity reading the movement adds 1 × 200 = **200**, understating inventory
+  by **4 600 on every multi-unit refund, permanently** — and D-72's reconciliation breaks on the
+  second transaction any shop performs.
+- **An intra-account transfer stops being value-neutral.** §7.5 posts **no journal entry** when both
+  locations share an inventory account, so the stock ledger has to be neutral *on its own*. Moving 10
+  cases of 24 at 200 removes 48 000 and, on the line-quantity reading, adds back 2 000 — **95.8 % of
+  the value moved simply disappears, with nothing posted to notice.** On the stock-unit reading the two
+  movements cancel by construction.
+- **A production run stops obeying its own invariant.** §6.5 asserts value in equals value out; the
+  same arithmetic applies.
 
 **`money_in` is computed from the money, not from a per-base cost — and that is not a nicety.**
 `inventory_cost / unit_factor` is a rounded quotient, so re-multiplying it by the base quantity need
@@ -837,14 +884,31 @@ stock below zero, because the sale already happened. Two rules follow, and they 
   The reset gets the total **and** the unit cost wrong — 200 where every unit cost 100 — and it
   contradicts D-72's "holds by construction", which is the claim D-76 exists to earn.
 - **`avg_cost` is derived only where on-hand is positive.** At or below zero there is nothing to
-  divide by, so it **holds its last value**: an oversell still has to be costed at something, and the
-  last known cost is the only defensible number available. That is what the original guard was
+  divide by, so it **holds its last value** — and where there is no last value, it falls back to
+  **`products.cost_price`**, which this design already declares per stock unit (§6.4). That case is
+  ordinary, not exotic: the first movement on a (location, product) is outbound whenever an offline
+  sale lands at a location that allows negative stock, or a sale syncs before the opening load. An
+  oversell still has to be costed at something, and those two in that order are the only defensible
+  numbers available. That is what the original guard was
   reaching for, and it belongs here — on the number that cannot be computed — rather than on the
   number that must not be discarded.
 
-**When on-hand returns to exactly zero, whatever `total_value` still holds is rounding residue**, and
-it is written off — `line_cost` is a rounded product, so the outbound sum need not land on the inbound
-sum. Two things that rule needs, and that it did not have:
+**When on-hand returns to exactly zero, whatever `total_value` still holds is written off — and it is
+not "residue".** Rounding is the smallest of its three sources and the least interesting. Worked:
+receive 10 at 100, sell 15 costed at the held 100 (`total_value` −500, on-hand −5), then receive 5 at
+**200** — `total_value` is **500** at zero on-hand. That 500 is the **unrecovered cost of an
+under-costed oversell**: five units left at 100 and were replaced at 200, and the shop never charged
+for the difference. The posting to inventory gain/loss is exactly right — it recognises a real loss —
+but the word "residue" was wrong and it is a dangerous kind of wrong, for two reasons:
+
+- **An implementer reading "residue" writes `if (abs(total_value) < 0.01)` and strands the rest.** The
+  write-off is on `on_hand = 0`, **never** on the size of the balance. There is no tolerance test.
+- **The amount can be material, and a material automatic posting needs the approval path**, which
+  every other value-moving adjustment in this design has (`stock_adjustments.workflow_instance_id`,
+  §6.15). Above a configured threshold the write-off raises an adjustment for approval rather than
+  posting itself; below it, it posts.
+
+Two more things that rule needs, and that it did not have:
 
 - **It is a movement, like everything else that touches a level.** `stock_levels` is only ever updated
   in the same transaction as a movement, so the write-off is a **value-only movement** of
@@ -1508,7 +1572,7 @@ What changed now that `tenant_id` is gone:
 
 Hot lookups: `product_barcodes(barcode)`, `products` FULLTEXT `(name, short_name, sku)`, `customers(phone)`, `sales(number)`, `sales(branch_id, business_date)`, `stock_levels(location_id, product_id)`, `journal_lines(account_id, entry_id)`, `ar_documents(customer_id, status, due_date)`, `attendance_days(employee_id, business_date)`, `sync_inbox(item_id)`.
 
-Idempotency uniques (the ones that make replay safe): **`stock_movements(reference_line_id, type, batch_key, serial_key)`** (v0.5 — the old `(reference_type, reference_id, product_id, batch_id, type)` both rejected a legitimate two-unit receipt and, because `batch_id` is nullable, enforced nothing for quantity-tracked products; §6.5) · `journal_entries(source_type, source_id, source_purpose)` · `customer_ledger(reference_type, reference_id, type)` · `commission_entries(source_type, source_id, plan_id, rule_id)` · `payments.id = the POS tender ULID` · `sync_inbox(item_id)` · `ar_documents(source_type, source_id)` · `bank_statement_lines(statement_id, imported_hash)`.
+Idempotency uniques (the ones that make replay safe): **`stock_movements`** — **the idempotency key of §6.5**, whose columns live there and nowhere else (v0.5 — the old `(reference_type, reference_id, product_id, batch_id, type)` both rejected a legitimate two-unit receipt and, because `batch_id` is nullable, enforced nothing for quantity-tracked products) · `journal_entries(source_type, source_id, source_purpose)` · `customer_ledger(reference_type, reference_id, type)` · `commission_entries(source_type, source_id, plan_id, rule_id)` · `payments.id = the POS tender ULID` · `sync_inbox(item_id)` · `ar_documents(source_type, source_id)` · `bank_statement_lines(statement_id, imported_hash)`.
 
 **Partitioning: off by default.** In v0.3, monthly RANGE partitions on six hot tables were free. Here, 6 tables × 24 months × 300 tenants = 43 200 extra files on one server, on top of 60 000 — which is precisely the pressure §10 warns about. So:
 
@@ -1517,7 +1581,7 @@ Idempotency uniques (the ones that make replay safe): **`stock_movements(referen
 | **standard** (default, ~95 % of tenants) | no partitions. Retention instead: `sync_inbox` payload nulled at 90 days and rows dropped at 180; `outbox_events` 30 days; `audit_logs` archived to `audit_logs_archive_<year>` yearly and exported; `print_jobs` 30 days; `plugin_execution_logs` 30 days; `deliveries` 90 days. Deletion is chunked by a scheduled job, never one big `DELETE` |
 | **large** (opt-in, set when `size_bytes` or row estimates cross a threshold, and for dedicated servers) | monthly RANGE partitions on `sales`, `sale_items`, `stock_movements`, `journal_lines`, `audit_logs`, `sync_inbox`; partitions past retention exported and dropped |
 
-**One constraint on the `large` profile, which predates v0.5 and is not fixed by it.** MySQL requires every unique key — including the primary key — to contain every partitioning column. `stock_movements` is keyed on `id` and on `(reference_line_id, type, batch_key, serial_key)`, and neither contains `created_at`, so **partitioning that table by month cannot be created as the profile describes**. The same was true of the v0.4 key; v0.5 neither causes nor cures it. Resolving it means either adding the partition column to both keys or partitioning something else, and it must be settled before the `large` profile is built rather than discovered by the migration that tries it.
+**One constraint on the `large` profile, which predates v0.5 and is not fixed by it.** MySQL requires every unique key — including the primary key — to contain every partitioning column. `stock_movements` is keyed on `id` and on the idempotency key of §6.5, and **neither contains `created_at`**, so **partitioning that table by month cannot be created as the profile describes**. The same was true of the v0.4 key; v0.5 neither causes nor cures it. Resolving it means either adding the partition column to both keys or partitioning something else, and it must be settled before the `large` profile is built rather than discovered by the migration that tries it.
 
 `tenant_usage_metrics` (§4.2) feeds the promotion decision: a tenant whose `sales` row count or `database_bytes` crosses the threshold is flagged for `profile = large` and, usually, for a dedicated server at the same time.
 
