@@ -358,8 +358,10 @@ Numbering starts at AC-1 for T-006. "§" without a file means `docs/database.md`
     it appears in the formula block as the source of `money_in`, the criterion fails (Finding F-8).
   - A **value-only** movement (a revaluation, the zero-stock residue write-off) is stated as
     `total_value += value` with `on_hand` unchanged, `value` signed and exactly what §7.5 posts.
-  - And when on-hand returns to exactly zero, the residue left in `total_value` is written off
-    through the §7.5 adjustment account on both sides (document states it; `qa` confirms §7.5 does).
+  - The zero-stock write-off, the `products.cost_price` fallback for `avg_cost` and the other items
+    that arrived in the review rounds are covered by AC-70 to AC-77, not here. (An earlier wording of
+    this bullet called the balance left at zero on-hand "residue"; the document now says that word was
+    wrong, and so does AC-70.)
 - **AC-68** (`total_value` is the authority, D-76): Given §6.5 and the `stock_levels` row, then
   `total_value` is stated to be the **accumulator** (`prior total + money in`) and `avg_cost` is
   **derived** from it (`total_value / on_hand`), and the two places agree. `qa` recomputes the
@@ -560,6 +562,80 @@ Numbering starts at AC-1 for T-006. "§" without a file means `docs/database.md`
   D-57 to D-65 are byte-identical to their text at the time this spec was written, and `ba`'s
   additions begin at D-66. Parts 1 and 2 headers are unchanged.
 
+### Closed review Warnings (added after review round 3)
+
+Standing rule, from the reviewer: **a review finding reported closed becomes an acceptance criterion,
+or nobody verifies it.** Two Warnings were once reported closed and never written to the file; no
+criterion existed to catch it, so the error lived two rounds. Each criterion below names a section,
+says what it must state, and **fails if the section says otherwise or says nothing**. Numbering
+appends; AC-1 to AC-69 are not renumbered. All references are to `docs/database.md`. `ba` read the
+current text of each before writing the criterion and records what it found; "as read" means the
+text at this pass, not at the time the Warning was raised, which `ba` cannot see (no git).
+
+- **AC-70** (the zero-stock write-off, §6.5 "When on-hand returns to exactly zero"): The section must
+  (a) **name all its sources**, at least rounding **and** the unrecovered cost of an under-costed
+  oversell (worked: receive 10 at 100, sell 15 at the held 100, receive 5 at 200, leaving
+  `total_value` 500 at zero on-hand); (b) state the write-off fires **on `on_hand = 0` and never on the
+  size of the balance**, with **no tolerance test**; (c) state that crossing straight past zero into
+  negative triggers **no** write-off; and (d) state that a **material** write-off raises an adjustment
+  **for approval** (`workflow_instance_id`, §6.15) above a configured threshold, rather than posting
+  itself. `qa` also checks the formula block's comment says the balance is **not** a "residue", and
+  that no other sentence in §6.5 or §7.5 calls the balance "residue" in a way that implies a
+  magnitude test (the word survives legitimately for the quantity rounding residue and the
+  production last-output-line residual; `qa` reads each hit). Fails if any of (a) to (d) is missing.
+  (As read: all four are present.)
+- **AC-71** (cost fallback): §6.5 "avg_cost is derived only where on-hand is positive" must state
+  that at or below zero `avg_cost` **holds its last value** and, **where there is no last value, falls
+  back to `products.cost_price`**, with `cost_price` declared per stock unit (§6.3 `products` row and
+  §6.4 both say so). The section must say why the no-last-value case is ordinary (the first
+  movement on a location and product can be an outbound offline sale). Fails if the fallback is
+  absent or `cost_price` is stated per line unit anywhere. (As read: present.)
+- **AC-72** (what raises a value-only correction): §6.5's value-only description and the movement-type
+  table's `correction` row and note must agree that a value-only correction (`quantity = 0`, signed
+  `value`: a revaluation or the zero-stock write-off) is raised by a `stock_adjustments` row of
+  **`type = revaluation`**, and that a correction carrying a **quantity** is raised by an ordinary
+  **`increase` or `decrease`** adjustment; the document and the movement are different enums
+  (`stock_adjustments.type = revaluation` is the document, `stock_movements.type = correction` is the
+  movement). `qa` fails the criterion if the §6.5 paragraph and the table row answer this
+  differently (the document says they once did). (As read: consistent.)
+- **AC-73** (cost basis stated in the row, four inventory item rows): each of the rows
+  `stock_adjustment_items`, `stock_count_items`, `stock_transfer_items`, `stock_production_items`
+  states its `unit_cost` basis **in the row itself**, not only in prose elsewhere. As read:
+  adjustments **per line unit** (the price typed on an increase; a decrease is valued at `avg_cost`);
+  counts **per stock unit** (`variance_value = difference × unit_cost`); transfers **per stock unit**
+  (the sending cost); productions **per stock unit** (and the movement reads `value`, not the
+  column). Fails if any of the four rows is silent on the basis, or if a basis stated in the row
+  contradicts the §6.5 note it cites (notes 7 to 10).
+- **AC-74** (the 24× error: every place it can occur): the sentence in §6.5 that explains where a
+  unit error can be made must name **all three** places and must not claim fewer: `on_hand` taking
+  `line.quantity` instead of `base_paid + base_free`; the outbound `|base_quantity|` in `line_cost`;
+  and the movement table's multiplier column. It must end on the rule that **every quantity in the
+  arithmetic is base and only a price is ever in a line unit**. Fails if the sentence says the error
+  can occur in one place only (an overclaim of safety), or names fewer than three. (As read: three
+  named.)
+- **AC-75** (`min_qty`, §6.4): the price-resolution text must state which row wins when several
+  qualify: **the greatest `min_qty ≤ base_quantity`**, and **at equal `min_qty` the unit-matched
+  row beats the `NULL` fallback**; and must say why "first hit wins" alone decides nothing (a
+  48-base line qualifies at `min_qty` 1 and 24). Fails if either tiebreak is missing. Worked check
+  for `qa`: with rows at `min_qty` 1 and 24 and a 48-base line, the 24 row wins.
+- **AC-76** (the factor guard is validated on the resolver's output, §6.3): the "every factor to base
+  is ≥ 1" guard must be stated as validated on **`UnitResolver`'s output, not on `unit_conversions`**,
+  with the reason that ladder step 3 (the `units.base_unit_id` / `factor` chain, which has no product
+  in it) can return a legitimate 0.001 (gram inside kilogram) that no validation on
+  `unit_conversions` can see. It must remain labelled an assumption pending Q-9 (AC-33). Fails if the
+  guard is described as a constraint on the conversion table, or if the Q-9 label is lost. (As read:
+  correct, and the label is present.)
+- **AC-77** (reorder quantities are per stock unit): the quantities `product_locations.reorder_level`,
+  `reorder_qty`, `max_level` and `product_suppliers.min_order_qty` are each declared
+  `DECIMAL(18,4)` **in the product's stock unit** in their own rows (four columns in two tables), and
+  the `product_suppliers` row says `min_order_qty` is base even though the buyer types it in the
+  supplier's unit, converted at entry. Fails if any of the four is left without a unit statement.
+  (As read: all four declared.)
+- **AC-78** (process, so the next Warning is not taken on trust): for each review round, `qa` lists
+  every Warning the reviewer reports closed, and for each either points at the criterion above that
+  covers it or adds one. A Warning with no criterion is itself a finding. The mechanism is the same
+  as AC-52: a criterion that cites the section, so a claimed change that was never written fails.
+
 ## Out of scope
 
 - Any implementation: migrations, models, `UnitResolver`, the barcode parser, the TypeScript engine,
@@ -641,10 +717,18 @@ as written until QA run 2 passes them.
   `cost_per_base` survives only as a worked counter-example. I read the document before it landed, so
   my "live" entry described a state that was true when read and stale when kept. AC-39's rounding
   bullet is rewritten to the shipped expression.
-- **F-9 (AC-68): RESOLVED in the document.** The two sentences saying `avg_cost` was "maintained at
-  every inbound movement" and that `stock_levels` "already describes `total_value` as maintained"
-  no longer appear (search returns none, this pass). AC-68 stays as written.
-- **F-10 (AC-36), live:** the `stock_movements` row in §6.5 (line 605), §11 "Idempotency uniques"
+- **F-9 (AC-68): RESOLVED, but my earlier verification was wrong and is corrected here.** I wrote
+  that both "maintained" sentences no longer appear and that a search returned none. That search
+  was defeated by a line break: "`stock_levels` already / describes `total_value` as maintained"
+  **does** still appear in §6.5 (it wraps across two lines, so a single-line search misses it). The
+  first sentence ("maintained on `stock_levels.avg_cost` at every inbound movement") is gone. The
+  surviving sentence is now **not** a contradiction, because the `stock_levels` row names `total_value`
+  as "the accumulator and the authority" and the sentence goes on to say it states which of the two is
+  the authority; AC-68 reads it in that context. Lesson recorded: a multi-line sentence needs a
+  multi-line search, and a "search returns none" claim is only as good as the search.
+- **F-10 (AC-36), recorded as live when raised; re-read at the last pass: the four-column string no
+  longer appears in `docs/database.md` (search), so it appears fixed. `qa` re-verifies at every site,
+  including any wrapped across lines.** Original account: the `stock_movements` row in §6.5 (line 605), §11 "Idempotency uniques"
   (line 1511) and the partitioning note after the §11 profile table (line 1520) of `docs/database.md`
   still state the **four**-column key `(reference_line_id, type, batch_key, serial_key)`. §6.5's own
   code block states the five-column key. **This is the mechanism by which AC-36 once passed while
