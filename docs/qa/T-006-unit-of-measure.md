@@ -4,7 +4,7 @@ Spec `docs/specs/T-006-unit-of-measure.md` (AC-1 to AC-67) · Plan `docs/plans/T
 Branch `ai/T-006-unit-of-measure`, 17 commits over base `47e226d`, nothing pushed. Measured on this machine on **2026-10-06**.
 No code, test or fixture was written: the task is documents, and nothing here needed a new test.
 
-## Verdict: FAIL (run 5; run 1 FAIL, run 2 PASS, run 3 FAIL, run 4 FAIL, all kept below as measured)
+## Verdict: PASS (run 6; runs 1, 3, 4, 5 FAIL and run 2 PASS, all kept below as measured)
 
 Two acceptance criteria fail (AC-52, AC-63), both **minor** and both fixable by one sentence each.
 One **major** design defect (BUG-1) is not an AC failure as written but is the exact defect class the
@@ -284,3 +284,29 @@ Reading the schema for columns that hold the same information, with no authority
 Item 1 is the one I would act on.
 
 Nothing in the coordinator's message measured wrong; "every number re-verified" holds, and the claim that no stale sentence remains does not (BUG-15).
+Run 6: FAIL -> PASS (no correctness defect open; four wording leftovers go to the backlog, BUG-18 to BUG-21).
+
+---
+
+## Run 6 (tree at `90237ad`, verification only)
+
+Gate by me: exit 0, PHPStan no errors, Deptrac 0, Pest **314 / 1435**, 80.19 s. Pipe scan: only FP-178. **Tally against 69: 69 pass, 0 fail, 0 n/a**, with one spec-wording note on AC-39 below. **AC-68 passes; AC-39 passes on substance.** **No correctness defect found; nothing here needs the task reopened.**
+
+### Checks
+
+| Item | Result |
+|---|---|
+| AC-68 | The opening "Valuation" sentence now says `total_value` is maintained and `avg_cost` derived; the `grn_items` row says posting adds to `total_value` and `on_hand` "from which `avg_cost` derives". No sentence describing `avg_cost` as the stored authority remains in database.md or architecture.md. PASS |
+| AC-39 | `cost_per_base` is gone from the arithmetic path: its only remaining appearance in database.md is line 755, as the worked counter-example (3 x 33.3333 = 99.9999 against 100.0000, which I recomputed). `money_in = ROUND(line.quantity x inventory_cost, 4)` is an identity against the §7.2 debit; the unit factor appears only on the quantity side. All three worked cases recompute (200.00 / 166.6667 / 48 000; 162.3711 on 388; negative case 500 / 100.00 and the reset variant 1 000 / 200.00). Rounding symmetry now holds. The spec's Inbound bullet and Finding F-8 still describe `cost_per_base`; that is `ba`'s text lagging the shipped formula, not a document defect |
+| The write-off | A value-only `correction` movement, `quantity = 0`, `value = -total_value`, `reference_line_id` an adjustment item line; fits the existing key and the 18-row table (row 707 now names it). Fires only at exactly zero; the negative-crossing clause is present and the reasoning is sound |
+| One number on both legs (§7.1) | Confirmed: §7.1 posts COGS as `SUM(sale_items.line_cost)` and credits inventory the same figure, so no cost-of-goods rounding account is needed |
+| Redundancy exclusion in FP-184 | Agreed: `quantity_reserved` against open reservations is a missing invariant, not an undeclared authority |
+
+### Leftovers, for the backlog (none are correctness defects)
+
+- **BUG-18 (minor): the 24x "one home" claim is overstated.** The same paragraph names a second home itself ("snapshots multiply by `base_quantity`, not `quantity`"), and there are two more: writing `base_paid x inventory_cost` for `money_in` (240 x 4 800 where `inventory_cost` is per line unit) and using `quantity` in the outbound `line_cost`. The paragraph's own opposite-direction mistake is "exactly one"; "the quantity side is where the factor lives, and every line there must use base" is true.
+- **BUG-19 (minor): a fourth stale `cost_per_base` instance the sweep missed.** database.md line 810 (`landed_cost` "is per line unit ... which is why it divides by `unit_factor` too"), D-72 (decisions line 183, same words) and D-74 line 206 ("money in is `base_quantity x cost_per_base`") all describe the division the formula no longer performs. Wording only; the document's formula is right.
+- **BUG-20 (minor): D-76's rationale text still ends on "§7.1 already gives rounding an account"**, which its own amendment withdraws two paragraphs earlier in the same entry.
+- **BUG-21 (minor): the `revaluation`/`correction` pairing is real but not a full enum reconciliation.** `stock_adjustments.type` = increase, decrease, wastage, opening, revaluation; movement types from adjustments = `adjustment`, `wastage`, `expiry`, `opening`, `correction`. `revaluation` -> `correction` is right, and `increase`/`decrease` -> `adjustment` (or `correction`, row 707). `expiry` has no adjustment type (it would be `wastage` with a reason code) and `correction` has three producers. Not an orphaned member in the schema-breaking sense; worth one sentence in FP-184 or FP-250.
+
+Nothing in the coordinator's message measured wrong except "verify there is no fourth instance": there is (BUG-19), and "exactly one home" (BUG-18).
