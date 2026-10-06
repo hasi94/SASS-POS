@@ -90,6 +90,7 @@ The host that boots only the modules named in configuration, the generator, the 
 | FP-184 | Name the authority wherever two columns hold the same information | TODO — convention; three instances caused two majors and a minor in T-006 alone |
 | FP-185 | T-006's residual stale prose: three wording items QA passed the task with | TODO — none is correctness; recorded rather than fixed, on purpose |
 | FP-186 | A fact stated more than once has to be stated once | TODO — convention, and the one the other five reduce to |
+| FP-187 | An edit is done when the artefact contains it, not when the tool reports success | TODO — convention; a failed script reported four closures and wrote nothing |
 
 **FP-172 detail.** The package manager kills a script at 300 seconds by default. The gate runs 79-137 seconds warm on the development machine (measured 2026-10-02, five runs across the lead, `qa` and the reviewer, warm analysis cache), so it looks safe, but a cold analysis cache alone pushed a run past 300 during T-005. The kill is the dangerous part rather than the delay: a killed process runs no cleanup, so a deliberately broken test probe survived and turned the gate red afterwards with a failure that named a file looking like real code, and leftover generated packages produced seven further unrelated failures. Raise the timeout, or make the gate resilient to being killed, before continuous integration meets a cold machine.
 
@@ -98,6 +99,17 @@ The host that boots only the modules named in configuration, the generator, the 
 **FP-171 detail.** The reviewer's observation after four tasks: the recurring defect in this project is no longer false reasoning, it is absolute measurements written into prose with no date and no mechanism to re-measure them. Three of the four stale statements it found in T-004 were introduced by T-004 itself.
 
 **FP-173 detail.** `HostTestSuiteCollectionTest.php:38` runs `File::deleteDirectory(dirname(hostSuiteProbePath()))` in an `afterEach`, which removes `modules/host/tests/Integration` entirely after every case in the file rather than removing the one planted probe. Harmless while that directory holds nothing else, but FP-169 has just brought it into static analysis and the boundary check, so it now has more reason to hold real files — and the day a committed file lands there, a test run deletes it. The fix is `File::delete()` on the probe path plus a guarded `rmdir`. Left out of T-005 deliberately: it is pre-existing and the reviewer asked for a row rather than another change inside a rename.
+
+**FP-187 detail — an edit is done when the artefact contains it.** Disclosed by the architect in T-006's final round, unprompted, about its own work. Its edit script applied four replacements, hit an assertion on a fifth pattern that had already changed, **exited non-zero and wrote nothing** — so two review warnings were lost. It reported all four closed, because the earlier assertions in the script had passed before the failure. It found this only because a later round sent it back into the same paragraphs; nothing in its process would have caught it, and nothing in the lead's did either — the lead had verified the two Criticals and left the warnings to QA, and **QA's reports for two runs therefore carried a stale pass**, because no acceptance criterion covered those warnings.
+
+**The compounding part is the one to design against.** The decision record for one of the lost rulings went in through a **separate** script that succeeded. So the repository carried, for two rounds, **a confident decision record for a ruling that was not in the schema it ruled on** — which is strictly worse than the missing edit, because a reader finding the decision has no reason to check the schema.
+
+This is FP-186's shape with the wrong artefact being **an assertion about one's own intent**: a tool's exit status describes the tool, not the file. Two practices, both used in the round that found it:
+
+1. **After any scripted edit, grep the artefact for the new text, and treat a zero count as something to investigate** rather than as a formatting quirk.
+2. **Never write a decision record in a separate step from the change it records.** A failed change then leaves no description, instead of a confident description of something that does not exist.
+
+The second is the structural half and the cheaper one: it removes the *compounding*, which is what made this expensive, without requiring anybody to remember the first.
 
 **FP-186 detail — the one the other five reduce to.** T-006 produced six distinct defect shapes and nine convention rows. The architect's closing observation collapses them, and it is a measurement over the whole task rather than a theory:
 
