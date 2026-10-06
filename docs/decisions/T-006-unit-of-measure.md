@@ -231,3 +231,16 @@ empty table and it costs neither of the two fixes the key exists for. The aggreg
 much: without it the key is a constraint the writer has to dodge rather than a statement about the
 world. Reversible: yes, today; not once a tenant holds movements.
 
+D-76 | Writing the worked example for D-74 showed that even the correct formula does not tie to the
+cent: `avg_cost` stored at `DECIMAL(18,4)` is 166.6667, and 288 × 166.6667 = 48 000.0096 against a
+ledger debit of 48 000. Which of `stock_levels.total_value` and `avg_cost` is the authority? | **`total_value`
+is the accumulator** — maintained as `prior total + money actually spent` — and **`avg_cost` is derived
+from it** as `total_value / on_hand`, rounded for display and for the outbound cost snapshot. | The
+reverse order makes the balance-sheet figure a product of a rounded average, so it misses the
+inventory account by a sub-cent on most receipts and by more as quantities grow — and D-72's whole
+point is that those two numbers must be the same number. Accumulating value and deriving the average
+makes the reconciliation hold **by construction**; the rounded average then leaks only into the cost
+of goods on a sale, where `sale_items.unit_cost` snapshots it anyway and §7.1 already gives rounding
+an account. Found by writing the example rather than the sentence, which is the third time on this
+task that running an arithmetic claim has changed it. Reversible: yes.
+

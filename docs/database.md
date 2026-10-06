@@ -601,7 +601,7 @@ erDiagram
 
 | Table | Columns / notes |
 |---|---|
-| stock_levels | `[ID]` `[TS]`, location_id FK, product_id FK, **quantity_on_hand, quantity_reserved, quantity_incoming (all `DECIMAL(18,4)`, all in the product's stock unit)**, avg_cost (per stock unit), total_value (= on_hand × avg_cost, maintained), last_movement_at, last_counted_at; unique (location_id, product_id). Only ever updated inside the same transaction as a movement, under `SELECT … FOR UPDATE` |
+| stock_levels | `[ID]` `[TS]`, location_id FK, product_id FK, **quantity_on_hand, quantity_reserved, quantity_incoming (all `DECIMAL(18,4)`, all in the product's stock unit)**, **total_value — the accumulator and the authority** (`prior total + money in`, §6.5 D-76), **avg_cost (per stock unit) derived from it** as `total_value / on_hand`, last_movement_at, last_counted_at; unique (location_id, product_id). Only ever updated inside the same transaction as a movement, under `SELECT … FOR UPDATE` |
 | **stock_movements** (append-only) | `[ID]` `[SYNC]` `[GL]`, location_id FK, product_id FK, batch_id FK NULL, serial_id FK NULL, type enum(opening, sale, sale_refund, sale_void, grn, grn_return, purchase_return, adjustment, count, transfer_out, transfer_in, wastage, expiry, production_in, production_out, correction, reservation, reservation_release), **quantity DECIMAL(18,4) signed — always in the product's stock unit, never in a document unit**, unit_cost (per stock unit), value signed, balance_after, reference_type VARCHAR(40), reference_id CHAR(26), **reference_line_id CHAR(26) NOT NULL**, **batch_key**, **serial_key** (generated, below), employee_id FK NULL, notes, created_at; **unique (reference_line_id, type, batch_key, serial_key)** = the idempotency key that makes replaying a sale harmless; indexes (location_id, product_id, created_at), (reference_type, reference_id), (created_at), (batch_id), (product_id) |
 | batches | `[ID]` `[TS]`, product_id FK, batch_no VARCHAR(60), mfg_date DATE NULL, **expiry_date DATE NULL**, supplier_id FK NULL, grn_item_id FK NULL, unit_cost, initial_quantity, status enum(active, quarantined, expired, recalled, depleted), notes; unique (product_id, batch_no), index (expiry_date, status) — drives the expiring-stock report and FEFO picking |
 | stock_batch_levels | location_id FK, product_id FK, batch_id FK, quantity_on_hand, quantity_reserved, `[TS]`; PK (location_id, batch_id). Kept in step with `stock_levels` in the same transaction; the sum over batches must equal the level, checked nightly |
@@ -750,10 +750,21 @@ debits inventory 10 × 4 800 = **48 000** (§7.2 posts landed cost, and nobody i
 | **Free quantity in both numerator and denominator** | 288 × 200 / 288 = **200.00** | 288 | **57 600** | 48 000 | **+9 600 on one receipt** |
 | **Free quantity in the denominator only** — the rule above | 240 × 200 / 288 = **166.6667** | 288 | **48 000** | 48 000 | **0** |
 
-The second line ties, and it ties *exactly* — which is the test, not a preference: `total_value` is the
-balance-sheet figure and it has to equal the account the receipt debited. It keeps tying with stock
-already on hand, because the numerator is always *prior value plus money actually spent*: 100 on hand
-at 150 plus this receipt gives 162.3711 over 388 units = 63 000 = 15 000 + 48 000.
+The second line ties — which is the test, not a preference: `total_value` is the balance-sheet figure
+and it has to equal the account the receipt debited. It keeps tying with stock already on hand,
+because the money term is always *prior value plus what was actually spent*: 100 on hand at 150 plus
+this receipt is 162.3711 over 388 units, and 15 000 + 48 000 = 63 000.
+
+**And it ties exactly only if `total_value` is the accumulator and `avg_cost` is derived from it, not
+the other way round.** Measured on the same receipt: `avg_cost` stored at `DECIMAL(18,4)` is
+166.6667, and 288 × 166.6667 = **48 000.0096** — a 0.96-cent residue against the ledger's 48 000, from
+rounding the average rather than from anything being wrong. That is the money-axis twin of the
+quantity residue two sections below, and here it is avoidable: **`total_value` is maintained as
+`prior total + money in`, and `avg_cost = total_value / on_hand` is derived from it** for display and
+for the outbound cost snapshot. Then the reconciliation holds by construction rather than by luck,
+and the only place the rounded average can leak is the cost of goods on a sale — where `sale_items`
+snapshots it anyway and the ledger has a rounding account for exactly that (D-76). `stock_levels`
+already describes `total_value` as maintained; this says which of the two is the authority.
 
 **So the two readings are named by what they do to the balance sheet, which is the only thing that
 separates them.** Free units at **zero cost** lowers `avg_cost` and ties to the ledger. Free units at
