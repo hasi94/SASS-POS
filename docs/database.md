@@ -607,11 +607,11 @@ erDiagram
 | stock_batch_levels | location_id FK, product_id FK, batch_id FK, quantity_on_hand, quantity_reserved, `[TS]`; PK (location_id, batch_id). Kept in step with `stock_levels` in the same transaction; the sum over batches must equal the level, checked nightly |
 | serials | `[ID]` `[TS]`, product_id FK, serial_no VARCHAR(80), batch_id FK NULL, location_id FK NULL, status enum(in_stock, reserved, sold, returned, in_repair, scrapped, transferred), grn_item_id FK NULL, sale_item_id FK NULL, sold_at, warranty_until DATE NULL, notes; unique (product_id, serial_no), index (status, location_id) |
 | stock_reservations | `[ID]` `[TS]`, location_id FK, product_id FK, batch_id FK NULL, quantity, reference_type enum(sales_order, quotation, transfer, order), reference_id, expires_at, status enum(active, consumed, released, expired); index (reference_type, reference_id), (expires_at, status) |
-| stock_adjustments / stock_adjustment_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, location_id FK, type enum(increase, decrease, wastage, opening, revaluation), reason_code, reason, status enum(draft, pending_approval, approved, posted, cancelled), workflow_instance_id FK NULL, total_value, posted_at, posted_by · item `[ID]` `[UOM]`, adjustment_id FK CASCADE, product_id FK, batch_id FK NULL, serial_id FK NULL, **quantity and base_quantity both signed**, unit_cost, value, notes |
-| stock_counts / stock_count_items | header `[ID]` `[TS]` `[BY]`, number unique, location_id FK, type enum(full, cycle, spot), scope JSON (categories, bins), status enum(draft, counting, review, posted, cancelled), frozen_at, posted_at, adjustment_id FK NULL (the adjustment it generated) · item `[ID]` `[UOM]`, count_id FK CASCADE, product_id FK, batch_id FK NULL, **counted_quantity** (the `[UOM]` `quantity`, in `unit_id` — the unit the human actually counted in), **system_qty, difference, variance_value: base only**, unit_cost, counted_by FK employees NULL, counted_at, recount_of_item_id FK NULL. A storekeeper counts **sacks**, and the variance posts straight to the general ledger (§7.5), so a unitless count sheet is a journal entry built on a guess |
-| stock_transfers / stock_transfer_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, from_location_id FK, to_location_id FK, status enum(draft, pending_approval, approved, in_transit, partially_received, received, cancelled), workflow_instance_id FK NULL, shipped_at, shipped_by, received_at, received_by, carrier, tracking_ref, notes · item `[ID]` `[UOM]`, transfer_id FK CASCADE, product_id FK, batch_id FK NULL, **qty_sent / qty_received in `unit_id`** for display, **base_qty_sent / base_qty_received** the authority (the `[UOM]` `quantity`/`base_quantity` pair, twice, because a transfer records two events), qty_variance **in base**, unit_cost, variance_reason. Goods in transit hit the `transit` location so they are never invisible |
+| stock_adjustments / stock_adjustment_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, location_id FK, type enum(increase, decrease, wastage, opening, revaluation), reason_code, reason, status enum(draft, pending_approval, approved, posted, cancelled), workflow_instance_id FK NULL, total_value, posted_at, posted_by · item `[ID]` `[UOM]`, adjustment_id FK CASCADE, product_id FK, batch_id FK NULL, serial_id FK NULL, **quantity and base_quantity both signed**, **unit_cost per line unit** (the price entered on an increase; a **decrease** is valued at `avg_cost`, §6.5), value, notes |
+| stock_counts / stock_count_items | header `[ID]` `[TS]` `[BY]`, number unique, location_id FK, type enum(full, cycle, spot), scope JSON (categories, bins), status enum(draft, counting, review, posted, cancelled), frozen_at, posted_at, adjustment_id FK NULL (the adjustment it generated) · item `[ID]` `[UOM]`, count_id FK CASCADE, product_id FK, batch_id FK NULL, **counted_quantity** (the `[UOM]` `quantity`, in `unit_id` — the unit the human actually counted in), **system_qty, difference, variance_value: base only**, **unit_cost per stock unit** — because the movement prices the base `difference` and not the count, so `variance_value = difference × unit_cost` (§6.5 note 8), counted_by FK employees NULL, counted_at, recount_of_item_id FK NULL. A storekeeper counts **sacks**, and the variance posts straight to the general ledger (§7.5), so a unitless count sheet is a journal entry built on a guess |
+| stock_transfers / stock_transfer_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, from_location_id FK, to_location_id FK, status enum(draft, pending_approval, approved, in_transit, partially_received, received, cancelled), workflow_instance_id FK NULL, shipped_at, shipped_by, received_at, received_by, carrier, tracking_ref, notes · item `[ID]` `[UOM]`, transfer_id FK CASCADE, product_id FK, batch_id FK NULL, **qty_sent / qty_received in `unit_id`** for display, **base_qty_sent / base_qty_received** the authority (the `[UOM]` `quantity`/`base_quantity` pair, twice, because a transfer records two events), qty_variance **in base**, **unit_cost per stock unit** (the sending cost, which the receiving movement re-adds — §6.5 note 9), variance_reason. Goods in transit hit the `transit` location so they are never invisible |
 | **stock_productions** | `[ID]` `[TS]` `[BY]` `[GL]`, number unique, location_id FK, **type enum(repack, assemble, disassemble, recipe)**, production_date, status enum(draft, posted, cancelled), source_product_id FK products NULL (the bill-of-materials parent it came from), input_value, output_value, wastage_value, posted_at, posted_by FK employees NULL, notes; index (location_id, production_date), (status) |
-| **stock_production_items** | `[ID]` `[UOM]`, production_id FK CASCADE, **role enum(input, output, byproduct, wastage)**, product_id FK, batch_id FK NULL (inputs **pick** a batch, outputs **create** one), expected_quantity DECIMAL(18,4) NULL, unit_cost, cost_share_percent DECIMAL(9,4) NULL, value, batch_no / expiry_date / mfg_date (outputs only — they create the `batches` row), notes; index (production_id, role) |
+| **stock_production_items** | `[ID]` `[UOM]`, production_id FK CASCADE, **role enum(input, output, byproduct, wastage)**, product_id FK, batch_id FK NULL (inputs **pick** a batch, outputs **create** one), expected_quantity DECIMAL(18,4) NULL, **unit_cost per stock unit** (`avg_cost` on an input, the apportioned share on an output — but the **movement reads `value`**, not this column, §6.5 note 10), cost_share_percent DECIMAL(9,4) NULL, value, batch_no / expiry_date / mfg_date (outputs only — they create the `batches` row), notes; index (production_id, role) |
 | stock_conflicts | `[ID]` `[TS]`, location_id FK, product_id FK, movement_id FK, reference_type, reference_id, terminal_id FK NULL, expected_qty, resulting_qty, status enum(open, resolved, ignored), resolution, resolved_by FK employees NULL, resolved_at, notes. Raised when an offline sale lands and drives stock negative at a location that forbids it |
 
 #### Units stop at the document line
@@ -751,11 +751,22 @@ line, not the header.
    item table in §6 whose `[UOM]` quantity is not the quantity that moves**, which is exactly why it
    was the row that broke.
 9. ★ **`transfer_in` adds the value of what *arrived*** — `base_qty_received`, at the cost the
-   sending movement used — so an intra-account transfer is value-neutral **by construction** rather
-   than by two multiplications happening to agree. On a **short** receipt the two movements
-   deliberately do **not** cancel: the shortfall stays at the `transit` location where `transfer_out`
-   put it, so no value disappears and §7.5 still needs no entry. Clearing transit is an ordinary
-   adjustment there, and D-73 keeps the shortfall visible in `qty_variance` meanwhile.
+   sending movement used — so a **complete** intra-account transfer is value-neutral **by
+   construction** rather than by two multiplications happening to agree. **What happens to the value
+   of a *short* receipt is unresolved, and this note deliberately does not answer it.** An earlier
+   draft said the shortfall "stays at the `transit` location", which the schema cannot express: the
+   table gives one `transfer_out` and one `transfer_in` per line and nothing credits transit, and a
+   two-hop shape (source → transit, transit → destination) needs **two** of each per line, which
+   **collide on the idempotency key — it has no location column.** The two candidate shapes are
+   therefore (a) add a location to the key, or (b) give the transit legs their own movement types.
+   Both are inventory design, not unit-of-measure design: the question is identical at factor 1, so
+   nothing in this task bears on the answer. **It goes to FP-253**, which already carries the sibling
+   question — whether `qty_variance` is a *final* or a *pending* shortfall — and those are one
+   question seen from two ends. **The value treatment follows that decision**, so nobody should
+   implement a guess from here. Note that the `stock_transfers` row (§6.5) carries the same unbacked
+   claim from v0.4, that goods in transit "hit the `transit` location so they are never invisible";
+   FP-253 has to reconcile that sentence too. Meanwhile D-73 keeps the shortfall visible in
+   `qty_variance`, which is a quantity statement and needs no value rule to be true.
 10. ★ **Both production branches read the line's `value` and multiply nothing.** §6.5's apportionment
     puts the rounding residue **in the last output line's `value`**, so recomputing
     `unit_cost × base_quantity` would differ from it by that residue and
@@ -833,7 +844,7 @@ line_cost     = ROUND(|base_quantity| × avg_cost, 4)   -- or the line's `value`
 total_value  -= line_cost
 on_hand      -= |base_quantity|
 
--- VALUE ONLY: a revaluation, or the zero-stock residue write-off below.
+-- VALUE ONLY: a revaluation, or the zero-stock write-off below (NOT a "residue" — see below).
 -- Quantity does not move; `value` is signed and is exactly what §7.5 posts.
 total_value  += value
 on_hand        unchanged
@@ -942,7 +953,7 @@ stock below zero, because the sale already happened. Two rules follow, and they 
   number that must not be discarded.
 
 **When on-hand returns to exactly zero, whatever `total_value` still holds is written off — and it is
-not "residue".** Rounding is the smallest of its three sources and the least interesting. Worked:
+not "residue".** Rounding is the smaller of its two sources and the less interesting. Worked:
 receive 10 at 100, sell 15 costed at the held 100 (`total_value` −500, on-hand −5), then receive 5 at
 **200** — `total_value` is **500** at zero on-hand. That 500 is the **unrecovered cost of an
 under-costed oversell**: five units left at 100 and were replaced at 200, and the shop never charged

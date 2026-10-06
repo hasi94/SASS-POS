@@ -300,9 +300,9 @@ movement's quantity is `difference`; it takes `unit_cost` per **stock** unit on 
 (system 48, three cases counted at factor 24 = 72 base, movement **24**, so the line-quantity reading
 valued three times the movement). And **both production branches read the line's `value`** instead of
 multiplying, because §6.5's apportionment puts the rounding residue in that column, so multiplying
-would leave the stock ledger and the journal differing by it. `transfer_in` also gained the clause it
-needed for a short receipt: it adds the value of what **arrived**, and the shortfall stays at the
-`transit` location where `transfer_out` put it. Reversible: yes.
+would leave the stock ledger and the journal differing by it. `transfer_in` adds the value of what **arrived**; what happens to the
+value of a **short** receipt was answered here in QA run 7 and **withdrawn in run 8** — see D-82.
+Reversible: yes.
 
 D-79 | `avg_cost` "holds its last value" at or below zero on-hand, but the first movement on a
 (location, product) can be **outbound** — an offline sale at a location that allows negative stock, or
@@ -340,4 +340,21 @@ table still has to be re-read when the normative one changes, and FP-186 is the 
 re-reading is exactly what does not happen. **Prose that counts is the subtlest home of the four** —
 it looks like narration rather than duplication, and it goes stale the first time the enum changes.
 Reversible: yes, but there is nothing to reverse to that is better.
+
+D-82 | QA run 7's note on a short transfer receipt said the shortfall "stays at the `transit`
+location where `transfer_out` put it". QA run 8: the schema cannot express that. The movement table
+gives **one** `transfer_out` and **one** `transfer_in` per line and nothing credits transit; a
+two-hop shape needs two of each, and **they collide on the idempotency key, which has no location
+column.** | **The claim is withdrawn and the question is named, not answered.** Note 9 now records
+the two candidate shapes — add a location to the key, or give the transit legs their own movement
+types — and routes the value treatment to **FP-253**, beside the sibling question of whether
+`qty_variance` is a final or a pending shortfall. | **It is not a unit-of-measure question.** It is
+identical at factor 1, so nothing in this task bears on the answer, and the candidate fixes touch the
+**idempotency key** — the one artefact this task spent four rounds stabilising. This is exactly the
+argument I used to decline the instalment-receipt design in D-73, and it applies with more force here
+because the key is in scope of the change. The general form, which is the lead's and which I would
+keep: **a note that answers a question outside its task's scope is worse than a note that names the
+question, because the first gets implemented and the second gets decided.** Recorded rather than
+silently deleted because `stock_transfers` has carried the same unbacked transit claim since v0.4,
+and FP-253 needs to know the sentence exists in two places. Reversible: yes — nothing was built.
 
