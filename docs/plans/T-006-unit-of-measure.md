@@ -296,6 +296,10 @@ section could cite an earlier one rather than forward-reference it.
       W-10 fix from step 13 being wrong in the opposite direction; see below.
 - [x] **Step 15 — QA run 4 (FAIL: one major, one minor)**, fixed in `f442cd1`. BUG-14 is a shape
       none of the earlier four covers; my framing of it is below.
+- [x] **Step 16 — QA run 5 (three minor), the last fix round.** Fixed in `903b89d`. Scoped by the
+      lead to four items with everything else to rows, on the reasoning that the four majors are
+      closed, nothing is implemented, and a 1 400-line design document absorbs polish
+      indefinitely. The defect count across five rounds went 9 → 4 → 3 → 2 → 3.
 
 ---
 
@@ -489,6 +493,15 @@ change to every one of those rules. v0.4 looked as though it had named one, writ
 `total_value (= on_hand × avg_cost, maintained)`, but that declares a **formula**, not a **direction**,
 which is exactly why the question could be answered twice, differently, three rounds apart.
 
+**The sweep the framing implies was then run, and found two more instances — three on one task.**
+QA swept for redundancy on the lead's request and found `stock_productions.input_value` /
+`output_value` / `wastage_value` against the item rows' `value`, with §6.5 asserting
+`SUM(output value) + wastage_value = input_value` and naming neither side. Ruled as **D-77**: the
+item rows are the authority, forced by the design's own residual rule, since the residue is
+absorbed on a *line* and a header can only be the sum of lines. So the general rule now has three
+witnesses and can be stated plainly: **an identity between a summary and its detail needs a
+declared direction, or it gets answered twice.**
+
 That makes the check cheap and bounded rather than a habit: **when you declare an authority between
 redundant columns, list the rules that touch either column and re-read that list.** Here it was four
 items long — the formula, the guard, the `stock_levels` row and the outbound update — and the fourth
@@ -616,7 +629,7 @@ exit 0, Pint pass, PHPStan no errors, Deptrac 0 violations, Pest 314 passed / 14
 | Risk | Mitigation |
 |---|---|
 | **The highest-blast-radius item is the replica**, not the schema. A till that silently falls back to a global factor sells the wrong quantity, and an offline sale is **never rejected and never recomputed**, so the ledger is wrong forever | `unit_conversion` and `barcode_rule` are in the replica list and in `architecture.md` §12 from day one; unit resolution is in the dual engine under shared fixtures; §12.2 says the line's factor wins and a mismatch opens a conflict |
-| **The weighted-average division** is the most dangerous arithmetic in the feature: a case at 4 800 for 24 must become 200 before it touches `avg_cost`, or the balance sheet overstates inventory 24× with no error and nothing to notice until a stock-take | the formula is written down in base units with its zero-denominator guard, and D-57 states both readings of `unit_cost` beside it |
+| **The inventory arithmetic** is the most dangerous in the feature. After QA run 5 the money side is an identity (`money_in` comes from `quantity × inventory_cost`, not from a rounded per-base cost), so the 24× error has exactly **one** home left: adding `line.quantity` to `on_hand` instead of `base_paid + base_free`, which puts 48 000 against 10 units instead of 288 and derives 4 800 instead of 166.6667 — with no error and nothing to notice until a stock-take | the formula is written down in base units with its zero-denominator guard, and D-57 states both readings of `unit_cost` beside it |
 | **The boundary erodes.** Someone adds `unit_id` to `stock_movements` "just for reporting" in the third sprint | the static test, and the §6.5 paragraph that says in terms what the column would cost |
 | **The ledger key is the one expensive-later item**: a unique-index rebuild on an append-only table holding ~1.5 M rows per tenant per year, across every tenant database | done now, at zero rows |
 | This is a documents-only change, so **rollback is `git revert`** of the nine commits | no data, no schema, no code depends on it yet. The real rollback risk is the opposite: implementing FP-230 against v0.4's silence |
