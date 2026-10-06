@@ -690,24 +690,110 @@ Without `product_id` the first two **cannot be saved at all** — unique violati
 1. **It could not express the owner's own scenario.** A goods receipt of 2 cases **plus** 3 loose singles of one product is two lines → two `grn` movements with an identical old key → **unique constraint violation**, and the receipt cannot be saved at all. Receiving one product in two units on one document is not an edge case; it is the thing the product owner asked about.
 2. **It enforced nothing where it was needed most.** `batch_id` is nullable and MySQL treats NULLs as distinct in a unique index, so for `tracking_mode = quantity` — most products in most shops — the old key permitted **unlimited duplicates**. Replay protection was weakest exactly where it is most used, and a retried offline sync would have doubled stock out silently. The generated `COALESCE` columns are the fix: `'-'` is a real value, so the uniqueness is real.
 
-**What `reference_line_id` names, for every one of the eighteen types.** The key is only idempotent if this is single-valued per movement, and three types needed deciding rather than assuming — marked ★.
+**THE MOVEMENT TABLE — the one normative statement of the eighteen types.** Every other mention of
+the set in this document cites this table and does not restate it: the `stock_movements` row declares
+the enum, §11 names the key, the formula above names the branches, and the invariants below count by
+pointing here. It is one table because the set had **four** homes until QA run 7, two of them
+grouping the types differently, and both correctness defects of that round were in the newer one
+(FP-186) — the same lesson as the ledger key one round earlier, which is that a fact stated twice is
+a fact that will disagree with itself. Long reasoning lives in the notes beneath, so the cells stay
+scannable; **★ marks a row that was ruled rather than read off** an existing sentence.
 
-| `type` | `reference_line_id` is | `reference_type` |
-|---|---|---|
-| `opening` | `stock_adjustment_items.id` ★ — an opening load is a `stock_adjustments` header of `type = opening` with one item row per product, so this is **line-level, not header-level** | `stock_adjustment` |
-| `sale`, `sale_refund`, `sale_void` | `sale_items.id` (one movement per product moved by that line — see above) | `sale` |
-| `grn` | `grn_items.id` | `grn` |
-| `grn_return` | **no document defines it** — see §15 | — |
-| `purchase_return` | `purchase_return_items.id` | `purchase_return` |
-| `adjustment`, `wastage`, `expiry` | `stock_adjustment_items.id` | `stock_adjustment` |
-| `count` | `stock_count_items.id` | `stock_count` |
-| `transfer_out` | `stock_transfer_items.id` | `stock_transfer` |
-| `transfer_in` | `stock_transfer_items.id` — **one per line, because receiving a transfer is one event** ★. The header carries a single `received_at`/`received_by`, so `partially_received` means *some lines short or not arrived*, with the shortfall in `qty_variance`, not *this line arrived twice*. Receiving one line in instalments would need a receiving document this schema does not have; that is named here rather than invented, and it is a question for FP-253. **The workaround the schema already supports is a second transfer document for the shortfall** — new header, new line, new ULID, no collision — so nobody need invent the receiving document while FP-253 is open | `stock_transfer` |
-| `production_in`, `production_out` | `stock_production_items.id` — `production_in` for role `output` and `byproduct`, `production_out` for role `input`. **Role `wastage` writes no movement at all**: the quantity already left on the input's `production_out`, and wastage is what did not come back, so writing one would remove it twice. A wastage line is a **value** line — it feeds `wastage_value` and the Dr wastage expense of §7.5, and `SUM(output value) + wastage_value = input_value` is where it shows up | `stock_production` |
-| `correction` | the **correcting** `stock_adjustment_items.id` ★ — also the row for the two **value-only** movements, a `revaluation` and the zero-stock residue write-off, which carry `quantity = 0` and a signed `value` (§6.5) — never the row being corrected — §3.3 says a correction is a new row and never an `UPDATE`, which positively invites several corrections against one original, and keying on the original would permit exactly one. Note that `stock_adjustments.type` has no `correction` member: the correcting document is an ordinary `increase`/`decrease` adjustment, and the **movement type** is what marks it as a correction | `stock_adjustment` |
-| `reservation`, `reservation_release` | `stock_reservations.id` (D-71) | `sales_order` · `quotation` · `transfer` · `order` |
+| `type` | `reference_line_id` is | `reference_type` | Branch | Inventory cost → multiplier | Note |
+|---|---|---|---|---|---|
+| `opening` | `stock_adjustment_items.id` | `stock_adjustment` | inbound | entered `unit_cost`, per **line** unit → `line.quantity` | ★1 |
+| `sale` | `sale_items.id` | `sale` | outbound | `avg_cost`, per **stock** unit → `base_quantity` | 2 |
+| `sale_refund`, `sale_void` | `sale_items.id` | `sale` | **inbound** | the refunded line's `unit_cost` snapshot, per **stock** unit → `base_quantity` | 3 |
+| `grn` | `grn_items.id` | `grn` | inbound | `landed_cost`, per **line** unit → `line.quantity` | 4 |
+| `grn_return` | **no document defines it** | — | — | — | 5 |
+| `purchase_return` | `purchase_return_items.id` | `purchase_return` | outbound | `avg_cost`, per **stock** unit → `base_quantity` | ★6 |
+| `adjustment` | `stock_adjustment_items.id` | `stock_adjustment` | **the sign decides** | increase: entered `unit_cost` per **line** unit → `line.quantity` · decrease: `avg_cost` → `base_quantity` | ★7 |
+| `count` | `stock_count_items.id` | `stock_count` | **the sign of `difference` decides** | `unit_cost` per **stock** unit → **`difference`**, which is already base | ★8 |
+| `wastage`, `expiry` | `stock_adjustment_items.id` | `stock_adjustment` | outbound | `avg_cost`, per **stock** unit → `base_quantity` | 2 |
+| `transfer_out` | `stock_transfer_items.id` | `stock_transfer` | outbound | `avg_cost`, per **stock** unit → `base_quantity` | 9 |
+| `transfer_in` | `stock_transfer_items.id` | `stock_transfer` | **inbound** | the sending movement's cost per **stock** unit → **`base_qty_received`** | ★9 |
+| `production_in` | `stock_production_items.id`, role `output` / `byproduct` | `stock_production` | **inbound** | **the line's `value`, read and not multiplied** | ★10 |
+| `production_out` | `stock_production_items.id`, role `input` | `stock_production` | outbound | **the line's `value`, read and not multiplied** | ★10 |
+| `correction` | the **correcting** `stock_adjustment_items.id` | `stock_adjustment` | **value-only**, or the sign decides where it carries a quantity | the signed `value` itself — no multiplier | ★11 |
+| `reservation`, `reservation_release` | `stock_reservations.id` | `sales_order` · `quotation` · `transfer` · `order` | **neither** | none — they carry no value at all | 12 |
 
-The ★ rows are the same question D-71 answered for the reservation pair: **what is the thing that happened once?** For a reservation it is the reservation, not the order line; for a correction it is the correction, not the error; for an opening load it is the item line, not the header. Where the answer is "the document line", the line id is right and these eighteen rows say so explicitly rather than leaving a writer to infer it.
+**The ★ rows are all one question, the one D-71 answered first for the reservation pair: _what is the
+thing that happened once, and what was it worth?_** For a reservation it is the reservation, not the
+order line; for a correction it is the correction, not the error; for an opening load it is the item
+line, not the header.
+
+1. **`opening` is line-level, not header-level.** An opening load is a `stock_adjustments` header of
+   `type = opening` with one item row **per product**, so 500 products through one header are 500
+   movements and the header's ULID would permit one. Its `unit_cost` is a price a human typed against
+   a line in that line's unit, which is why it takes the quoted-price multiplier.
+2. **One movement per product moved by the line**, per the key's own rule above: a composite's
+   components and a depleting modifier each produce their own movement from one `sale_items` row.
+3. **A refund or void re-adds exactly what the sale removed** — §7.1 requires the exact mirror, and
+   the snapshot on the refunded line is what makes that exact years later. Where
+   `refund_of_item_id` is **null** — a goodwill return with no original line — there is no snapshot,
+   and the movement takes the location's current `avg_cost` instead.
+4. See §6.6: `landed_cost` is per line unit, and `money_in` multiplies the **line** quantity by it.
+5. `grn_return` has no table able to be its `reference_type`; recorded as still-dead schema in §15.
+6. ★ A return to the supplier **leaves at `avg_cost` like every other outbound movement**, not at the
+   cost the original receipt came in at. The two differ once the average has moved, and the
+   difference is a purchase price variance, which §7.2 already has an account for. The alternative —
+   leaving at the receipt's cost — would make the stock ledger value one outbound movement
+   differently from all the others.
+7. ★ `adjustment` is a **signed** type, so the sign of the item line selects the branch. An increase
+   is a quantity somebody is adding at a cost they typed; a decrease is stock leaving, and what it
+   cost is not a matter of opinion — it is `avg_cost`.
+8. ★ **`count` prices the `difference`, not the count.** A count line's `[UOM]` quantity is
+   `counted_quantity` — *the total counted* — while the movement's quantity is `difference`. Worked:
+   factor 24, system 48 singles, a storekeeper counts 3 cases = 72 base, so the movement is
+   `72 − 48 = `**`24`** base units and pricing `line.quantity` would value **72** — three times the
+   movement. `difference` and `variance_value` are already base-only on that row, so `unit_cost` is
+   per **stock** unit here and `variance_value = difference × unit_cost` closes. **This is the one
+   item table in §6 whose `[UOM]` quantity is not the quantity that moves**, which is exactly why it
+   was the row that broke.
+9. ★ **`transfer_in` adds the value of what *arrived*** — `base_qty_received`, at the cost the
+   sending movement used — so an intra-account transfer is value-neutral **by construction** rather
+   than by two multiplications happening to agree. On a **short** receipt the two movements
+   deliberately do **not** cancel: the shortfall stays at the `transit` location where `transfer_out`
+   put it, so no value disappears and §7.5 still needs no entry. Clearing transit is an ordinary
+   adjustment there, and D-73 keeps the shortfall visible in `qty_variance` meanwhile.
+10. ★ **Both production branches read the line's `value` and multiply nothing.** §6.5's apportionment
+    puts the rounding residue **in the last output line's `value`**, so recomputing
+    `unit_cost × base_quantity` would differ from it by that residue and
+    `SUM(output value) + wastage_value = input_value` would hold on the journal side only. Reading
+    the column makes the stock ledger and the journal the same number — the same move that fixed
+    `money_in`. Role `wastage` writes **no movement at all**: the quantity already left on the
+    input's `production_out`, and wastage is what did not come back, so a movement would remove it
+    twice and break invariant 1.
+11. ★ §3.3 says a correction is a new row and never an `UPDATE`, which positively invites several
+    corrections against one original, and keying on the original would permit exactly one.
+    `stock_adjustments.type` has no `correction` member, so the **movement type** is what marks one;
+    the **document** is a `revaluation` where the correction carries no quantity — a zero-quantity
+    write-off is neither an `increase` nor a `decrease` — and an ordinary `increase`/`decrease`
+    adjustment where it does.
+12. The two reservation types move `stock_levels.quantity_reserved` and no value; D-71 explains why
+    `reference_line_id` is the reservation's own id, and invariant 1 below excludes them by name.
+
+**The rule the branch column generalises, along D-57's own line:** `money_in` multiplies the **line**
+quantity only where the cost is **a price somebody quoted** — a receipt's `landed_cost`, an
+adjustment's typed `unit_cost`. Where the cost is **a copy of an average, or a value already
+computed**, it is already per stock unit and `money_in` multiplies `base_quantity` (or simply reads
+the value), the same shape as the outbound half, **because the movement is returning, relocating or
+re-expressing value that was already measured.**
+
+That is not a tidiness argument. Three types break without it:
+
+- **A refund understates inventory by the factor.** A sale of 1 case at `avg_cost` 200 with a factor
+  of 24 removes 24 × 200 = **4 800**; §7.1 says a refund posts the exact mirror, so the ledger adds
+  4 800 back. On the line-quantity reading the movement adds 1 × 200 = **200**, understating inventory
+  by **4 600 on every multi-unit refund, permanently** — and D-72's reconciliation breaks on the
+  second transaction any shop performs.
+- **An intra-account transfer stops being value-neutral.** §7.5 posts **no journal entry** when both
+  locations share an inventory account, so the stock ledger has to be neutral *on its own*. Moving 10
+  cases of 24 at 200 removes 48 000 and, on the line-quantity reading, adds back 2 000 — **95.8 % of
+  the value moved simply disappears, with nothing posted to notice.**
+- **A production run stops obeying its own invariant.** §6.5 asserts value in equals value out; note
+  10 above is what makes that true of the stock ledger and not only of the journal.
+
 
 Rejected alternatives, both considered and both worse:
 
@@ -723,24 +809,29 @@ Rejected alternatives, both considered and both worse:
 The formula was never written down. It is, **in base units**:
 
 ```text
-inventory_cost = the movement's cost column, per the BRANCH TABLE below — and its
-                 basis is per LINE unit or per STOCK unit depending on the type
+inventory_cost = the movement's cost column AND its multiplier, per THE MOVEMENT TABLE above.
+                 Nothing here chooses them; the table is the only place they are decided.
 base_paid      = line.base_quantity                        -- the quantity that was paid for
-base_free      = ROUND(line.free_quantity × line.unit_factor, 4)   -- the bonus, same factor
+base_free      = ROUND(line.free_quantity × line.unit_factor, 4)        -- (†) defined ONCE, here
+
+-- EVERY branch works on MAGNITUDES. An item line with a signed quantity (an adjustment, a
+-- count's `difference`) selects its branch by the SIGN first, then enters it with |quantity|.
+-- Without that, a decrease would add to on_hand.
 
 -- INBOUND: money in is exactly what §7.2 debits the inventory account
-money_in      = inventory_cost is a QUOTED price
-                ? ROUND(line.quantity   × inventory_cost, 4)  -- per LINE unit: a receipt, an
-                                                               -- entered adjustment. PAID qty only
-                : ROUND(base_quantity   × inventory_cost, 4)  -- per STOCK unit: a refund, a
-                                                               -- transfer in, a production output
+money_in      = ROUND(inventory_cost × the table's multiplier, 4)
+                -- a QUOTED price   -> line.quantity, PAID quantity only  (a receipt, an opening load)
+                -- per STOCK unit   -> base_quantity, or the table's own   (a refund, a transfer in,
+                --                     column where it names one            a count's `difference`)
+                -- an already-computed VALUE -> read it, multiply nothing  (a production output)
 total_value  += money_in                            -- ALWAYS, including from a negative balance
 on_hand      += base_paid + base_free               -- BASE, and paid AND free
 
 -- OUTBOUND: money out is exactly what §7.1 credits the inventory account
-line_cost     = ROUND(base_quantity × avg_cost, 4)
+line_cost     = ROUND(|base_quantity| × avg_cost, 4)   -- or the line's `value`, where the table
+                                                       -- names one (a production input)
 total_value  -= line_cost
-on_hand      -= base_quantity
+on_hand      -= |base_quantity|
 
 -- VALUE ONLY: a revaluation, or the zero-stock residue write-off below.
 -- Quantity does not move; `value` is signed and is exactly what §7.5 posts.
@@ -752,49 +843,6 @@ avg_cost      = on_hand > 0 ? total_value / on_hand
                             : avg_cost              -- held at its last value; see below
 ```
 
-**The branch table: which branch each of the eighteen types takes, and on what cost.** The formula
-above is useless without it, and until review round 2 **no sentence anywhere mapped the types to the
-branches** — so for the five types that *return or relocate already-valued stock* both readings were
-available and neither was named. ★ marks a row I had to rule on rather than read off an existing
-sentence.
-
-| `type` | Branch | Inventory cost | Basis → multiplier |
-|---|---|---|---|
-| `opening` | inbound | the entered `stock_adjustment_items.unit_cost` | per **line** unit → `line.quantity` ★ |
-| `grn` | inbound | `grn_items.landed_cost` | per **line** unit → `line.quantity` |
-| `sale` | outbound | `avg_cost` | per **stock** unit → `base_quantity` |
-| `sale_refund`, `sale_void` | **inbound** | the original line's `sale_items.unit_cost` snapshot | per **stock** unit → `base_quantity` — the exact mirror §7.1 requires |
-| `grn_return` | — | **no document defines it** (§15) | — |
-| `purchase_return` | outbound | `avg_cost` | per **stock** unit → `base_quantity` ★ |
-| `adjustment`, `count` | **the sign of the quantity decides** | increase: the entered `unit_cost`; decrease: `avg_cost` | increase per **line** unit; decrease per **stock** unit ★ |
-| `wastage`, `expiry` | outbound | `avg_cost` | per **stock** unit → `base_quantity` |
-| `transfer_out` | outbound | `avg_cost` | per **stock** unit → `base_quantity` |
-| `transfer_in` | **inbound** | **the value its matching `transfer_out` removed** | per **stock** unit → `base_quantity` ★ |
-| `production_out` | outbound | `avg_cost` | per **stock** unit → `base_quantity` |
-| `production_in` | **inbound** | the apportioned `stock_production_items.unit_cost` | per **stock** unit → `base_quantity` ★ |
-| `correction` | **value-only**, or sign-decided when it carries a quantity | the signed `value` itself | no multiplier ★ |
-| `reservation`, `reservation_release` | **neither** | none — they carry no value at all | — |
-
-**The rule the table generalises, along D-57's own line:** `money_in` multiplies the **line** quantity
-only where the cost is **a price somebody quoted** — a receipt's `landed_cost`, an adjustment's typed
-`unit_cost`. Where the cost is **a copy of an average**, the cost is already per stock unit and
-`money_in = ROUND(base_quantity × inventory_cost, 4)`, the same expression as the outbound half,
-**because the movement is returning or relocating value that was already measured.**
-
-That is not a tidiness argument. Three types break without it:
-
-- **A refund understates inventory by the factor.** A sale of 1 case at `avg_cost` 200 with a factor
-  of 24 removes 24 × 200 = **4 800**; §7.1 says a refund posts the exact mirror, so the ledger adds
-  4 800 back. On the line-quantity reading the movement adds 1 × 200 = **200**, understating inventory
-  by **4 600 on every multi-unit refund, permanently** — and D-72's reconciliation breaks on the
-  second transaction any shop performs.
-- **An intra-account transfer stops being value-neutral.** §7.5 posts **no journal entry** when both
-  locations share an inventory account, so the stock ledger has to be neutral *on its own*. Moving 10
-  cases of 24 at 200 removes 48 000 and, on the line-quantity reading, adds back 2 000 — **95.8 % of
-  the value moved simply disappears, with nothing posted to notice.** On the stock-unit reading the two
-  movements cancel by construction.
-- **A production run stops obeying its own invariant.** §6.5 asserts value in equals value out; the
-  same arithmetic applies.
 
 **`money_in` is computed from the money, not from a per-base cost — and that is not a nicety.**
 `inventory_cost / unit_factor` is a rounded quotient, so re-multiplying it by the base quantity need
@@ -912,9 +960,11 @@ Two more things that rule needs, and that it did not have:
 
 - **It is a movement, like everything else that touches a level.** `stock_levels` is only ever updated
   in the same transaction as a movement, so the write-off is a **value-only movement** of
-  `type = correction`, `quantity = 0`, `value = −total_value`, raised by a `stock_adjustments` row
-  whose item line is its `reference_line_id` — which is the row the §6.5 table already gives
-  `correction`. It posts through §7.5's inventory-gain/inventory-loss accounts, so it moves **both**
+  `type = correction`, `quantity = 0`, `value = −total_value`, raised by a `stock_adjustments` row of
+  **`type = revaluation`** whose item line is its `reference_line_id`. A zero-quantity write-off is
+  neither an `increase` nor a `decrease`, so `revaluation` is the only member that fits — and note 11
+  of the movement table is the one place that question is answered, because this paragraph and that
+  table answered it differently until review round 2. It posts through §7.5's inventory-gain/inventory-loss accounts, so it moves **both**
   sides by the same amount and returns the level and the account to zero together.
 - **`revaluation` is the same mechanism, and had the same gap.** `stock_adjustments.type` carries
   `revaluation`, which changes value and no quantity, and no movement type named it either. It is a
@@ -929,7 +979,7 @@ above shows. The write-off fires **only at exactly zero on-hand**, where there i
 left for the balance to be the value *of*. Said explicitly because adding a guard here is precisely how
 BUG-14 happened: a reset that looked like tidiness and was the destruction of a real balance.
 
-**This is the most dangerous arithmetic in the feature, and `money_in` from money moves *where* the danger is rather than removing it.** The money side is now an identity, so the 24× error has exactly one remaining home: adding `line.quantity` to `on_hand` instead of `base_paid + base_free`. Ten cases of 24 received at a landed 4 800 then put 48 000 against **10** units instead of 288, `avg_cost` derives as 4 800 instead of 166.6667, and the balance sheet overstates inventory 24-fold — with no error, no warning and nothing to notice until a stock-take. One line, one column, and it is the line to review twice. `unit_cost` on a **purchase** line is per **line unit** — it is what the supplier charges for a case — while `avg_cost` on a level is per **stock unit**, and the factor is the only thing between them. The one deliberate exception is a **cost snapshot on an outbound line** (`sale_items.unit_cost`, `stock_production_items.unit_cost`): those are copies of `avg_cost` and are therefore already per stock unit, so they multiply by `base_quantity`, not by `quantity`. Stated here because the two readings of one column name are exactly how a 24× error gets written by someone who read only half the design.
+**This is the most dangerous arithmetic in the feature, and `money_in` from money moves *where* the danger is rather than removing it.** **The quantity side is where the factor lives, and every line there must use base.** `on_hand` is the sharpest: add `line.quantity` to it instead of `base_paid + base_free` and ten cases of 24 received at a landed 4 800 put 48 000 against **10** units instead of 288, `avg_cost` derives as 4 800 instead of 166.6667, and the balance sheet overstates inventory 24-fold — with no error, no warning and nothing to notice until a stock-take. The outbound `|base_quantity|` in `line_cost` is the same error mirrored, and the movement table's multiplier column is a third place to get it wrong. **Every quantity in this arithmetic is base; the only thing ever in a line unit is a price.** `unit_cost` on a **purchase** line is per **line unit** — it is what the supplier charges for a case — while `avg_cost` on a level is per **stock unit**, and the factor is the only thing between them. The one deliberate exception is a **cost snapshot on an outbound line** (`sale_items.unit_cost`, `stock_production_items.unit_cost`): those are copies of `avg_cost` and are therefore already per stock unit, so they multiply by `base_quantity`, not by `quantity`. Stated here because the two readings of one column name are exactly how a 24× error gets written by someone who read only half the design.
 
 #### `stock_levels.quantity_incoming`
 
@@ -952,13 +1002,13 @@ The only quantity invariant v0.4 had is **structurally blind**: `SUM(stock_batch
 |---|---|---|
 | 1 | `stock_levels.quantity_on_hand` = `SUM(stock_movements.quantity)` per (location, product), **summing every `type` except `reservation` and `reservation_release`** | the maintained level drifting from the append-only ledger it is derived from — the one comparison between a cache and its source |
 | 2 | `stock_movements.balance_after` equals the running sum of `quantity` in `created_at`/`id` order (**sampled**, not every row) | movements written out of order, or a level updated without a movement |
-| 3 | `SUM(grn_items.base_quantity + ROUND(free_quantity × unit_factor, 4))` = `SUM(stock_movements.quantity)` per posted goods receipt per product | **a conversion applied twice, or not at all** — the only check of the three that spans the document boundary, and therefore the only one that can see a unit bug |
+| 3 | `SUM(grn_items.base_quantity + base_free)` = `SUM(stock_movements.quantity)` per posted goods receipt per product, where `base_free` is the single definition (†) in the formula above — **not restated here**, because this expression had three homes until QA run 7 and is the expression that produced both BUG-10 and the NULL defect in this very check | **a conversion applied twice, or not at all** — the only check of the three that spans the document boundary, and therefore the only one that can see a unit bug |
 
 **One asymmetry with the currency axis that the snapshot does not remove.** `base_quantity` is `ROUND(quantity × unit_factor, 4)` from a `DECIMAL(18,6)` factor, so a line can shed up to 1e-4 of a base unit. On the money axis double entry forces residue to surface — the entry would not balance — and §7.1 gives it a Rounding account to land in. **Quantity has no balancing constraint and no such account: the residue is accepted and lands nowhere.** Worse, all three invariants above compare a number against a copy of itself computed by the same expression, so they are **structurally blind to residue** in exactly the way the batch-sum check is blind to conversion — the blindness this document is otherwise careful to name, so it is named here too. The residue is **zero** under Q-9's proposed answer, because an integral factor ≥ 1 times a quantity rounded to 4 places needs no rounding at all. That is one more reason the tight answer to Q-9 is the cheap one.
 
 Check 3 is the one that matters for this feature: it compares what the document says it received with what the ledger says arrived, across the exact boundary where conversion happens.
 
-**Why check 1 names an exclusion.** Sixteen of the eighteen movement types move `quantity_on_hand`. The two reservation types do not — they move `stock_levels.quantity_reserved`, which is a different column, and physical stock has not moved at all. Summing them into an on-hand check would make it fire on every reservation, and a check that fires on correct data is switched off within a month. So the exclusion is **written into the check** rather than left to be inferred, and it is the one place in this design where `stock_movements.quantity` is not an on-hand delta.
+**Why check 1 names an exclusion.** Every type in **the movement table** above moves `quantity_on_hand` except the two reservation types — cited rather than counted, because a count in prose is a fourth home for the table's content and "sixteen of the eighteen" goes stale the first time the enum changes. Those two do not — they move `stock_levels.quantity_reserved`, which is a different column, and physical stock has not moved at all. Summing them into an on-hand check would make it fire on every reservation, and a check that fires on correct data is switched off within a month. So the exclusion is **written into the check** rather than left to be inferred, and it is the one place in this design where `stock_movements.quantity` is not an on-hand delta.
 
 That also settles what the new idempotency key means for a reservation, which would otherwise collide the second time one line is reserved: for `reservation` and `reservation_release`, **`reference_line_id` is the `stock_reservations.id`**, not the ordering line's. Reserve, release and reserve again is three reservation rows with three ULIDs, so the key separates them; a release carries its own reservation's id with `type = reservation_release`. That is still "the line that caused the movement" — for a reservation, the reservation *is* the line (D-71).
 
@@ -984,7 +1034,7 @@ erDiagram
 | suppliers | `[ID]` `[TS]` `[SOFT]` `[BY]` `[CF]`, code unique, name, legal_name, contact_name, phone, email, address JSON, tax_no, currency, payment_terms_days, credit_limit, opening_balance, payable_account_id FK accounts NULL, default_expense_account_id FK NULL, bank_details JSON, is_active, notes |
 | purchase_requests / purchase_request_items | header `[ID]` `[TS]` `[BY]`, number unique, branch_id FK, location_id FK, requested_by FK employees, required_date, status enum(draft, pending_approval, approved, rejected, converted, cancelled), workflow_instance_id FK NULL, notes · item `[ID]` `[UOM]`, request_id FK CASCADE, product_id FK, estimated_cost, supplier_id FK NULL, purchase_order_item_id FK NULL. Closes G-9 |
 | purchase_orders / purchase_order_items | header `[ID]` `[TS]` `[BY]` `[CF]`, number unique, supplier_id FK, branch_id FK, location_id FK (delivery target), request_id FK NULL, order_date, expected_date, status enum(draft, pending_approval, approved, sent, partially_received, received, closed, cancelled), workflow_instance_id FK NULL, currency, exchange_rate, subtotal, discount_total, tax_total, shipping, total, received_value, terms, notes · item `[ID]` `[UOM]`, order_id FK CASCADE, product_id FK, description, **received_quantity** (in the order's `unit_id`, for display on a document the supplier sees) and **received_base_quantity DECIMAL(18,4)** (the authority), unit_cost, discount_percent, tax_group_id FK, tax_amount, line_total, expected_date. The `partially_received → received` transition compares **base to base**: receipts against one order line arrive in whatever unit the lorry brought, so comparing `received_quantity` with `quantity` closes an order that is half empty |
-| grns / grn_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, supplier_id FK, order_id FK NULL (direct receipts allowed), location_id FK, received_date, status enum(draft, posted, cancelled), supplier_dn_no, currency, exchange_rate, subtotal, tax_total, other_charges, total, posted_at, posted_by, notes · item `[ID]` `[UOM]`, grn_id FK CASCADE, order_item_id FK NULL, product_id FK, **free_quantity DECIMAL(18,4) NOT NULL DEFAULT 0** (in the line's `unit_id`, converted with the **same** snapshotted `unit_factor`; `NOT NULL DEFAULT 0` because nightly check 3 and the posting rule both add it, and `base + ROUND(NULL × f, 4)` is NULL, which would make the check fail on every line that carries no bonus — most of them). **Free units enter stock at zero cost**, so they lower `avg_cost` and leave `total_value` tied to the inventory account (§6.5, D-74), unit_cost **per line unit**, **landed_cost per line unit** (unit cost after apportioning `other_charges`; it is **this** column the average cost and the ledger are both built from, §6.5 and §7.2, so storing a line *total* here is the 24× error one column over from the one D-57 exists to prevent), tax_group_id FK, tax_amount, line_total, **batch_no, expiry_date, mfg_date** (create/find the `batches` row), serial_numbers JSON (create `serials` rows), notes. Posting writes `grn` movements **in base** for `base_quantity + ROUND(free_quantity × unit_factor, 4)` — bonus goods are physical stock and must arrive in the ledger — adds `money_in` to `stock_levels.total_value` and the base quantity to `on_hand`, from which `avg_cost` derives (§6.5), and creates the journal entry of §7.2. Two lines of the same product in different units on one receipt is the ordinary case, not an edge case |
+| grns / grn_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, supplier_id FK, order_id FK NULL (direct receipts allowed), location_id FK, received_date, status enum(draft, posted, cancelled), supplier_dn_no, currency, exchange_rate, subtotal, tax_total, other_charges, total, posted_at, posted_by, notes · item `[ID]` `[UOM]`, grn_id FK CASCADE, order_item_id FK NULL, product_id FK, **free_quantity DECIMAL(18,4) NOT NULL DEFAULT 0** (in the line's `unit_id`, converted with the **same** snapshotted `unit_factor`; `NOT NULL DEFAULT 0` because nightly check 3 and the posting rule both add it, and `base + ROUND(NULL × f, 4)` is NULL, which would make the check fail on every line that carries no bonus — most of them). **Free units enter stock at zero cost**, so they lower `avg_cost` and leave `total_value` tied to the inventory account (§6.5, D-74), unit_cost **per line unit**, **landed_cost per line unit** (unit cost after apportioning `other_charges`; it is **this** column the average cost and the ledger are both built from, §6.5 and §7.2, so storing a line *total* here is the 24× error one column over from the one D-57 exists to prevent), tax_group_id FK, tax_amount, line_total, **batch_no, expiry_date, mfg_date** (create/find the `batches` row), serial_numbers JSON (create `serials` rows), notes. Posting writes `grn` movements **in base** for `base_quantity + base_free` (†, §6.5) — bonus goods are physical stock and must arrive in the ledger — adds `money_in` to `stock_levels.total_value` and the base quantity to `on_hand`, from which `avg_cost` derives (§6.5), and creates the journal entry of §7.2. Two lines of the same product in different units on one receipt is the ordinary case, not an edge case |
 | purchase_returns / purchase_return_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, supplier_id FK, grn_id FK NULL, location_id FK, return_date, reason, status enum(draft, posted, cancelled), totals, debit_note_no · item `[ID]` `[UOM]`, return_id FK CASCADE, grn_item_id FK NULL, product_id FK, batch_id FK NULL, unit_cost, tax_amount, line_total. A return may be in a different unit from the receipt — a shop returns one broken bottle out of a received case — and where `grn_item_id` is set the line **inherits that receipt line's `unit_factor`** rather than re-resolving it (§6.5), so a factor edited after the receipt cannot make a return remove a different quantity than it put in. The original GRN is never modified |
 | supplier_invoices / supplier_invoice_items | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique (internal), supplier_invoice_no, supplier_id FK, invoice_date, due_date, status enum(draft, pending_approval, approved, posted, partially_paid, paid, disputed, cancelled), workflow_instance_id FK NULL, currency, exchange_rate, subtotal, tax_total, other_charges, total, amount_paid, balance_due, ap_document_id FK NULL, notes · item `[ID]` `[UOM]`, invoice_id FK CASCADE, grn_item_id FK NULL, product_id FK NULL, expense_account_id FK accounts NULL (non-stock lines), description, unit_cost, tax_group_id FK, tax_amount, line_total (`unit_id` is nullable in practice only for a non-stock line, which has no product and therefore no stock unit). **A distinct entity from the GRN** (closes G-9): goods can arrive before the invoice, and the price on the invoice may differ — the difference posts to purchase price variance |
 | supplier_payments / supplier_payment_allocations | header `[ID]` `[TS]` `[BY]` `[GL]`, number unique, supplier_id FK, payment_date, financial_account_id FK (which cash/bank account paid), method enum(cash, bank_transfer, cheque, card, other), reference, currency, exchange_rate, amount, unallocated_amount, status enum(draft, posted, cancelled, bounced), cheque_no, cheque_date, notes · allocation `[ID]`, payment_id FK CASCADE, ap_document_id FK, amount, discount_taken, `[TS]`; unique (payment_id, ap_document_id) |

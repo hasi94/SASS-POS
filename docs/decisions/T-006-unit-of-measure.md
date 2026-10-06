@@ -293,9 +293,16 @@ on the line-quantity reading: a refund of 1 case at `avg_cost` 200 with factor 2
 against the 4 800 the sale removed, understating inventory by **4 600 on every multi-unit refund**;
 and an intra-account transfer of 10 cases of 24 at 200 removes 48 000 and adds 2 000, losing **95.8 %
 of the value moved with no journal entry to notice**, because §7.5 posts none when both locations
-share an account. Six rows had to be **ruled** rather than read off — `opening`, `purchase_return`,
-`adjustment`/`count`, `transfer_in`, `production_in`, `correction` — and each ruling is the uniform
-rule applied rather than a new one. Reversible: yes.
+share an account. Rows had to be **ruled** rather than read off, and **QA run 7 found two of those rulings wrong**,
+which is recorded here rather than quietly corrected: **`count`** cannot be priced on `line.quantity`
+at all, because a count line's `[UOM]` quantity is `counted_quantity` — the total counted — while the
+movement's quantity is `difference`; it takes `unit_cost` per **stock** unit on the base `difference`
+(system 48, three cases counted at factor 24 = 72 base, movement **24**, so the line-quantity reading
+valued three times the movement). And **both production branches read the line's `value`** instead of
+multiplying, because §6.5's apportionment puts the rounding residue in that column, so multiplying
+would leave the stock ledger and the journal differing by it. `transfer_in` also gained the clause it
+needed for a short receipt: it adds the value of what **arrived**, and the shortfall stays at the
+`transit` location where `transfer_out` put it. Reversible: yes.
 
 D-79 | `avg_cost` "holds its last value" at or below zero on-hand, but the first movement on a
 (location, product) can be **outbound** — an offline sale at a location that allows negative stock, or
@@ -315,4 +322,22 @@ an answer; neither paragraph knew about the other. Which is FP-184's own shape �
 undeclared answers — occurring **inside the fix for FP-184's own shape**, and the clearest argument
 yet that this class is found by re-reading what a change touches rather than by care at the moment of
 writing. Reversible: yes.
+
+D-81 | The eighteen movement types had **four** homes after review round 2 — the `stock_movements`
+enum, the `reference_line_id` table, the new branch table, and counts in prose — two of them grouping
+the types differently, and both of QA run 7's correctness defects were in the newest one. The free
+quantity's expression had three. | **One normative table** (§6.5, "THE MOVEMENT TABLE") carrying
+identity *and* valuation for all eighteen, with the long reasoning moved into **numbered notes**
+beneath so the cells stay scannable. Every other mention cites it: the enum declares the members, §11
+names the key, the formula names no branches of its own, and **the prose counts stop counting** —
+"sixteen of the eighteen" becomes "every type except the two reservation types, per the table".
+`base_free` is defined once in the formula, marked (†), and cited by nightly check 3 and the
+`grn_items` row. | Two tables over one key set is two homes, and the splitting reason — that the rows
+were 200–400 characters — was sound about *width* and wrong about *structure*. Notes solve the width
+without a second table, which is the option I had not considered when I split them. The alternative
+of keeping two tables with one declared derived from the other was available and rejected: a derived
+table still has to be re-read when the normative one changes, and FP-186 is the evidence that
+re-reading is exactly what does not happen. **Prose that counts is the subtlest home of the four** —
+it looks like narration rather than duplication, and it goes stale the first time the enum changes.
+Reversible: yes, but there is nothing to reverse to that is better.
 
