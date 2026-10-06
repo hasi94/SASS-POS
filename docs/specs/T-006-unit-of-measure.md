@@ -209,7 +209,7 @@ Numbering starts at AC-1 for T-006. "§" without a file means `docs/database.md`
   §6.3 "column sweep across sixteen tables", `architecture.md` change log is silent, backlog T-006
   detail) and as **seventeen** in §3.1. Expected result: the documents state one number, or state
   which of the seventeen is excluded from the sixteen and why. **At the time of writing this
-  criterion FAILS** (see Findings F-1).
+  criterion FAILED** (Finding F-1); resolved in the fix round, true count 17.
 - **AC-24** (the three documented exceptions): Given §3.1 and the table rows, then exactly three
   tables have a nullable `unit_id` on the column named `unit_id`, each with its reason stated in
   the document: `price_list_items` (`NULL` = priced per stock unit), `product_barcodes` (`unit_id FK NULL`;
@@ -274,7 +274,9 @@ Numbering starts at AC-1 for T-006. "§" without a file means `docs/database.md`
   a tenant migration. The documents say "ten occurrences, not the five first thought"; this spec has
   no way to re-derive that number from the current text (the fix is already applied) and `qa`
   recomputes it from `git diff 47e226d..HEAD -- docs/database.md` by counting removed bare-`DECIMAL`
-  columns. If the diff shows a different number, record it; the criterion is that **none remain**.
+  columns. If the diff shows a different number, record it; the criterion is that **none remain**. **Update after QA run 1:**
+  QA counted **11 bare `DECIMAL` occurrences across 9 rows** at the base commit, not ten; the
+  documents' "ten" is the figure in doubt, not this criterion.
 
 ### The ledger idempotency key (§6.5, §11)
 
@@ -358,8 +360,10 @@ Numbering starts at AC-1 for T-006. "§" without a file means `docs/database.md`
   **or its inconsistency is recorded**. Read: the index rows sum to **192** (including the three of
   "Plugins"); the headline in §6, §10 and the change logs is **≈193**; the backlog's FP-177 detail records
   a literal row count of **196** and says the index was deliberately **not** adjusted because §10
-  models a rounded 200. `qa` re-adds the index, re-counts rows per domain, and confirms the three
-  figures above or reports the actual ones. The criterion passes if each number is either correct
+  models a rounded 200. **Update after QA run 1 and the fix round:** the index now sums to **193**
+  (Catalog corrected to 14) against a true table count of **196**; the remaining audit is exactly
+  three domains (Finance, Notifications, System), each one low. `qa` re-adds the index, re-counts rows
+  per domain, and confirms the figures above or reports the actual ones. The criterion passes if each number is either correct
   or explicitly recorded as a known discrepancy; it **fails** if a number is stated with no
   discrepancy noted. See Finding F-2: the Catalog row appears to be stale for T-006's own table.
 - **AC-51** (the 150 correction): Given `docs/architecture.md`, then neither "roughly 150" nor "150
@@ -509,20 +513,41 @@ Numbering starts at AC-1 for T-006. "§" without a file means `docs/database.md`
 
 ## Findings at the time of writing
 
-For the lead. Each is a criterion that fails against the documents as they stand, or a decision
-recorded but not done. None is fixed by `ba` (documents are not `ba`'s to edit).
+For the lead. Each was a criterion that failed against the documents as they stood, or a decision
+recorded but not done. `ba` fixed none (documents are not `ba`'s to edit). **Status below is as of
+QA run 1 (`docs/qa/T-006-unit-of-measure.md`, commit `bf81e56`) and the architect's fix round, as
+reported by the lead; `ba` re-measured only what is marked "re-read".**
+
+| # | Status | One line |
+|---|---|---|
+| F-1 | **Resolved** | True count is 17 (three independent counts); `stock_production_items` is the seventeenth and is new in v0.5; §3.1 was right and the "sixteen" claims were wrong. Re-read: §3.1 and the change log now both mention seventeen. |
+| F-2 | **Resolved** (account corrected) | Catalog now 14 (re-read). See the corrected account in F-2 below. |
+| F-3 | **Resolved** | Five tags fail a literal four-column test, not three (`stock_count_items` and `stock_transfer_items` too); §14 now lists the exemptions (13 document-line plus 4 master-data tables). |
+| F-4 | **Half resolved, still live** | `docs/backlog.md` fixed; `CLAUDE.md` line 5 still says v0.4 and stays so: owner's file, awaiting acknowledgement. |
+| F-5 | **Resolved** | FP-158 is DONE (T-006). |
+| F-6 | **Resolved** | Nullable `product_barcodes.unit_id` is stated; the architect also listed `modifiers.linked_unit_id`. |
+| F-7 | **Resolved** | "Print-bearing" enumerated as `sale_items`, `quotation_items`, `order_items` (D-66). |
+
+The paragraphs below are the **original accounts as written mid-flight**, kept for the record; where
+they disagree with the table above, the table wins (F-2 is corrected in place).
+
+AC-52 and AC-63 failed in QA run 1 because the **document** was wrong; they are not softened and stay
+as written until QA run 2 passes them.
 
 - **F-1 (AC-23): sixteen against seventeen.** Seventeen tables carry `[UOM]`. §3.1 says seventeen.
   The header change log, §6.3 ("column sweep across sixteen tables") and the backlog say sixteen.
   Either one is wrong or one table is intentionally excluded and unnamed. The brief this spec was
   written from also says sixteen.
-- **F-2 (AC-50): Catalog is stale for T-006's own table.** The §6 domain index says Catalog is 13.
-  Section 6.3 defines 14 tables (`barcode_rules` is the new one). Inventory was raised 13 → 15 for the two
-  new tables; Catalog was not raised 13 → 14. That is exactly the one missing from the index sum
-  (192 against ≈193). The backlog's FP-177 explanation, "a row naming two tables together is counted once",
-  does not apply to Catalog: no Catalog row names two tables. The 192 against ≈193 gap is therefore
-  caused by T-006 itself, not only by the older drift, and the literal 196 would be 195 for the
-  other three domains. This is a decided-but-not-done: v0.5 claims ≈193 and the index sums 192.
+- **F-2 (AC-50): Catalog was stale. RESOLVED; account corrected by QA.** My first account said the
+  index showed Catalog at 13 against a true 14 and blamed T-006's `barcode_rules` alone. **That was
+  wrong.** QA measured the base commit `47e226d`: Catalog said **12** against a true **13**, and the
+  base index summed to 189. Catalog was therefore **already one low before T-006**; `barcode_rules`
+  made it one low again at the new figure. The architect's plan had this right. The difference matters
+  to FP-177: Catalog is a pre-existing instance of the drift, not purely T-006's doing. I took the
+  index on T-006's tip as the only state I read and inferred the past; I had no git and should have
+  labelled it as an inference. Now corrected to 14, index 193, true count 196, and FP-177's audit is
+  three domains (Finance, Notifications, System). FP-177's stated reason ("a row naming two tables
+  together is counted once") does not explain Catalog; it explains the other three.
 - **F-3 (AC-53): static test (3) as written cannot be satisfied** by the three degenerate tags or by the
   differently named quantity columns; neither §3.1 nor §14 lists the exemptions.
 - **F-4 (AC-66): `CLAUDE.md` line 5 and `docs/backlog.md` line 7 still cite v0.4** for both documents.
