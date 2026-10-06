@@ -729,42 +729,53 @@ cost_per_base = line.inventory_cost / line.unit_factor
 base_paid     = line.base_quantity                        -- the quantity that was paid for
 base_free     = ROUND(line.free_quantity × line.unit_factor, 4)   -- the bonus, same factor
 
-prior = on_hand > 0 ? on_hand × avg_cost : 0       -- nothing to average against at or below zero
-prior_qty = on_hand > 0 ? on_hand : 0
+-- INBOUND: money in is exactly what §7.2 debits the inventory account
+money_in      = base_paid × cost_per_base           -- PAID quantity only
+total_value  += money_in                           -- ALWAYS, including from a negative balance
+on_hand      += base_paid + base_free              -- paid AND free
 
-new_avg = (prior + base_paid × cost_per_base)       -- money: PAID quantity only
-        / (prior_qty + base_paid + base_free)       -- quantity: paid AND free
+-- OUTBOUND: money out is exactly what §7.1 credits the inventory account
+line_cost     = ROUND(base_quantity × avg_cost, 4)
+total_value  -= line_cost
+on_hand      -= base_quantity
+
+-- DERIVED from the pair above, never accumulated on its own
+avg_cost      = on_hand > 0 ? total_value / on_hand
+                            : avg_cost             -- held at its last value; see below
 ```
 
-**The free quantity is in the denominator only, and that is the whole of it.** Money in is what was
-paid; quantity in is what arrived. Putting `base_free` in the numerator as well would book cost that
-nobody was charged.
+**The free quantity moves `on_hand` and not `money_in`, and that is the whole of it.** Money in is
+what was paid; quantity in is what arrived. Adding `base_free` to `money_in` as well would book cost
+that nobody was charged.
 
 **Worked, with this document's own numbers**, because a sentence about this is not checkable and a
 table is. Ten cases received at a landed 4 800 each, two cases free, 24 singles to a case, from zero
 stock. `cost_per_base` = 4 800 / 24 = **200**; `base_paid` = 240; `base_free` = 48; the general ledger
 debits inventory 10 × 4 800 = **48 000** (§7.2 posts landed cost, and nobody invoices the free cases):
 
-| | `new_avg` | on hand | `total_value` | GL inventory debit | Difference |
+| | `avg_cost` (derived) | `on_hand` | `total_value` | GL inventory debit | Difference |
 |---|---|---|---|---|---|
-| **Free quantity in both numerator and denominator** | 288 × 200 / 288 = **200.00** | 288 | **57 600** | 48 000 | **+9 600 on one receipt** |
-| **Free quantity in the denominator only** — the rule above | 240 × 200 / 288 = **166.6667** | 288 | **48 000** | 48 000 | **0** |
+| **Free units added to `money_in` too** | 57 600 / 288 = **200.00** | 288 | **57 600** | 48 000 | **+9 600 on one receipt** |
+| **Free units in `on_hand` only** — the rule above | 48 000 / 288 = **166.6667** | 288 | **48 000** | 48 000 | **0** |
 
 The second line ties — which is the test, not a preference: `total_value` is the balance-sheet figure
 and it has to equal the account the receipt debited. It keeps tying with stock already on hand,
-because the money term is always *prior value plus what was actually spent*: 100 on hand at 150 plus
-this receipt is 162.3711 over 388 units, and 15 000 + 48 000 = 63 000.
+because `total_value` is always *prior value plus what was actually spent*: 100 on hand at 150 plus
+this receipt is 63 000 over 388 units, so `avg_cost` derives as 162.3711, and 15 000 + 48 000 = 63 000.
 
-**And it ties exactly only if `total_value` is the accumulator and `avg_cost` is derived from it, not
-the other way round.** Measured on the same receipt: `avg_cost` stored at `DECIMAL(18,4)` is
+**And it ties only if `total_value` is the accumulator and `avg_cost` is derived from it, not the
+other way round.** Measured on the same receipt: `avg_cost` stored at `DECIMAL(18,4)` is
 166.6667, and 288 × 166.6667 = **48 000.0096** — a 0.96-cent residue against the ledger's 48 000, from
 rounding the average rather than from anything being wrong. That is the money-axis twin of the
 quantity residue two sections below, and here it is avoidable: **`total_value` is maintained as
 `prior total + money in`, and `avg_cost = total_value / on_hand` is derived from it** for display and
-for the outbound cost snapshot. Then the reconciliation holds by construction rather than by luck,
-and the only place the rounded average can leak is the cost of goods on a sale — where `sale_items`
-snapshots it anyway and the ledger has a rounding account for exactly that (D-76). `stock_levels`
-already describes `total_value` as maintained; this says which of the two is the authority.
+for the outbound cost snapshot. Then the reconciliation holds by construction rather than by luck:
+**every inbound movement adds exactly what §7.2 debits inventory and every outbound movement
+subtracts exactly the `line_cost` §7.1 credits it**, so the pair cannot drift from the account at all.
+The only place the rounded average leaks is the cost of goods on a sale — where `sale_items`
+snapshots it anyway and §7.1 already gives rounding an account (D-76). `stock_levels` already
+describes `total_value` as maintained; this says which of the two is the authority, and the paragraph
+below says what that then means at and below zero stock.
 
 **So the two readings are named by what they do to the balance sheet, which is the only thing that
 separates them.** Free units at **zero cost** lowers `avg_cost` and ties to the ledger. Free units at
@@ -791,15 +802,37 @@ products equals the balance of the inventory account those products resolve to (
 `inventory_account_id` where products override it. That equality is the point of valuing both sides
 from one number, and it is the obvious nightly check for FP-250 to add once the ledger exists.
 
-**The guard is on the prior layer, not on the denominator.** A zero denominator is the obvious case
-and the less likely one, and it cannot occur on a real receipt anyway, since something arrived. The real one is **negative** on-hand, which this design explicitly
-allows: §12.2 accepts an offline sale that drives stock negative, because the sale already happened.
-Weighting an existing cost by a negative quantity gives a negative numerator, a denominator that may
-be small, zero or negative, and an `avg_cost` that is enormous or below zero — at which point
-`total_value` is a negative inventory balance on the balance sheet. When on-hand is zero or negative
-there is no prior layer to average against, so the formula runs with `prior = 0` and `prior_qty = 0`:
-the arriving cost becomes the cost — or, on a receipt carrying free goods, the **paid** cost spread
-over everything that arrived, which is the same rule and not a second one.
+**It is still a weighted average** — where on-hand is positive, the accumulate-then-divide above is
+*identically* `(prior value + money in) / (prior quantity + quantity in)`. What changed is which of
+the two columns is written and which is computed, and that turns out to decide the awkward cases.
+
+**The guard is on the derivation, not on the accumulator — and it sat on the accumulator until QA
+run 4.** This design explicitly allows negative on-hand: §12.2 accepts an offline sale that drives
+stock below zero, because the sale already happened. Two rules follow, and they are different rules:
+
+- **`total_value` accumulates unconditionally, including through a negative balance.** Resetting it
+  to zero on the way back up discards a real liability. Worked, from on-hand −5 with `total_value`
+  −500, receiving 10 at 100 — the inventory account stands at −500 and the receipt debits 1 000, so
+  it closes at **500**:
+
+  | | `total_value` | `on_hand` | `avg_cost` | GL inventory | Difference |
+  |---|---|---|---|---|---|
+  | **Prior reset to 0 when on-hand ≤ 0** | 1 000 | 5 | **200.00** | 500 | **+500, permanently** |
+  | **Accumulated through the negative** | **500** | 5 | **100.00** | 500 | **0** |
+
+  The reset gets the total **and** the unit cost wrong — 200 where every unit cost 100 — and it
+  contradicts D-72's "holds by construction", which is the claim D-76 exists to earn.
+- **`avg_cost` is derived only where on-hand is positive.** At or below zero there is nothing to
+  divide by, so it **holds its last value**: an oversell still has to be costed at something, and the
+  last known cost is the only defensible number available. That is what the original guard was
+  reaching for, and it belongs here — on the number that cannot be computed — rather than on the
+  number that must not be discarded.
+
+**When on-hand returns to exactly zero, whatever `total_value` still holds is rounding residue.**
+`line_cost` is a rounded product, so the outbound sum need not land on the inbound sum. It is written
+off through the inventory-adjustment account of §7.5, which moves **both** sides by the same amount
+and returns the level and the account to zero together. Without it, D-76's residue reappears one
+movement direction over and sits there for ever.
 
 **This division is the most dangerous arithmetic in the feature.** A case of 24 received at 4 800 must become 200 per single *before* it touches `avg_cost`; receive it unconverted and `avg_cost` becomes 4 800, `total_value` becomes on-hand × 4 800, and the balance sheet overstates inventory by a factor of 24 — with no error, no warning and nothing to notice until a stock-take. `unit_cost` on a **purchase** line is per **line unit** — it is what the supplier charges for a case — while `avg_cost` on a level is per **stock unit**, and the factor is the only thing between them. The one deliberate exception is a **cost snapshot on an outbound line** (`sale_items.unit_cost`, `stock_production_items.unit_cost`): those are copies of `avg_cost` and are therefore already per stock unit, so they multiply by `base_quantity`, not by `quantity`. Stated here because the two readings of one column name are exactly how a 24× error gets written by someone who read only half the design.
 

@@ -207,9 +207,13 @@ appears in the **denominator only**: money in is `base_quantity × cost_per_base
 `base_quantity + ROUND(free_quantity × unit_factor, 4)`. `avg_cost` falls and
 `stock_levels.total_value` stays equal to the inventory account the receipt debited. | **The test is
 arithmetic, not preference.** Ten cases at a landed 4 800, two free, 24 per case, from zero stock: the
-ledger debits 48 000, and free-in-the-denominator-only gives 166.6667 × 288 = **48 000 exactly**,
-while free-at-full-cost gives 200.00 × 288 = **57 600** — overstating inventory by 9 600 on a single
-receipt, permanently, against the very reconciliation D-72 had just added one paragraph earlier.
+ledger debits 48 000. Free-in-the-denominator-only puts **48 000** into `total_value` and derives
+`avg_cost` = 166.6667 from it; free-at-full-cost puts in **57 600** and derives 200.00 — overstating
+inventory by 9 600 on a single receipt, permanently, against the very reconciliation D-72 had added
+one paragraph earlier. (This entry first said "166.6667 × 288 = 48 000 exactly", which is the
+overclaim **D-76** was written to correct, surviving in the neighbouring record — QA BUG-13. The
+product is 48 000.0096; the tie is exact because `total_value` is accumulated, **not** because
+multiplying the rounded average back out reproduces it.)
 My first answer said free goods "dilute" and then wrote a formula that put the free quantity in the
 **numerator as well**, which is not dilution: it books cost nobody was charged. So the honest naming
 is by balance-sheet effect — zero cost ties, full cost overstates — and full cost is therefore a
@@ -235,7 +239,13 @@ D-76 | Writing the worked example for D-74 showed that even the correct formula 
 cent: `avg_cost` stored at `DECIMAL(18,4)` is 166.6667, and 288 × 166.6667 = 48 000.0096 against a
 ledger debit of 48 000. Which of `stock_levels.total_value` and `avg_cost` is the authority? | **`total_value`
 is the accumulator** — maintained as `prior total + money actually spent` — and **`avg_cost` is derived
-from it** as `total_value / on_hand`, rounded for display and for the outbound cost snapshot. | The
+from it** as `total_value / on_hand`, rounded for display and for the outbound cost snapshot.
+**Amended after QA run 4 (BUG-14), which found the consequence this entry did not follow through:**
+`total_value` accumulates **unconditionally, including through a negative balance**; the zero-and-below
+guard moves to the **derivation**, where `avg_cost` holds its last value because there is nothing to
+divide by; **outbound movements subtract exactly the `line_cost` §7.1 credits inventory**; and at
+exactly zero on-hand any remaining `total_value` is rounding residue, written off through the
+inventory-adjustment account so both sides return to zero together. | The
 reverse order makes the balance-sheet figure a product of a rounded average, so it misses the
 inventory account by a sub-cent on most receipts and by more as quantities grow — and D-72's whole
 point is that those two numbers must be the same number. Accumulating value and deriving the average
