@@ -316,7 +316,7 @@ section could cite an earlier one rather than forward-reference it.
       round after naming the shape that produces them — so the round's real work was **merging the
       two tables into one**, with the long reasoning in numbered notes. See "The seventh home, and
       the edit that never landed".
-- [x] **Step 19 — QA run 8 (one correctness, two minor).** Fixed in `HASH`. BUG-27 withdrew a
+- [x] **Step 19 — QA run 8 (one correctness, two minor).** Fixed in `81141cb`. BUG-27 withdrew a
       claim rather than building the mechanism behind it: my note 9 said a short transfer receipt's
       shortfall "stays at the `transit` location", and the schema cannot express that — one
       `transfer_out` and one `transfer_in` per line, nothing crediting transit, and a two-hop shape
