@@ -294,6 +294,8 @@ section could cite an earlier one rather than forward-reference it.
       task, and the fix round introduced it rather than the original pass.
 - [x] **Step 14 — QA run 3 (FAIL: one major, two minor)**, fixed in `b52301a`. BUG-10 is the
       W-10 fix from step 13 being wrong in the opposite direction; see below.
+- [x] **Step 15 — QA run 4 (FAIL: one major, one minor)**, fixed in `f442cd1`. BUG-14 is a shape
+      none of the earlier four covers; my framing of it is below.
 
 ---
 
@@ -464,6 +466,35 @@ claim is checkable in four numbers and my sentence about it was not. Third lesso
 **a formula is not a claim until it has been run.** I asserted a behaviour and specified its
 opposite, in a paragraph whose own next sentence was a reconciliation the opposite breaks.
 
+**QA run 4 then found a fifth shape, and it is not any of the four above.** The `on_hand <= 0` guard
+was QA's own BUG-5 suggestion, written when `avg_cost` was the thing computed and `total_value` was
+derived from it; under that reading, resetting the prior layer protected a derived average from a
+nonsensical weighting and was correct. **D-76 then made `total_value` the authority** — also correct —
+and the same guard became a rule that discards a real balance: from on-hand −5 with `total_value`
+−500, a receipt of 10 at 100 left `total_value` at 1 000 against an inventory account of 500, and
+derived an `avg_cost` of 200 where every unit had cost 100. Nothing was overclaimed, no count was
+wrong, no citation went unopened, no true paragraph failed to travel, and **neither fix was wrong when
+it was written.** The defect was in the *pair*.
+
+**My framing, offered because the lead asked for a better one than "re-read every earlier fix":**
+
+> **A guard belongs to the number it protects, not to the formula it was written in.** When a formula
+> is re-expressed, its guards do not move with it — they stay where they were typed, now protecting
+> whichever expression happens to sit there.
+
+And the structural cause is narrower and more useful than vigilance: **`avg_cost` and `total_value`
+hold the same information.** Any two columns that must agree have an authority question, and *every*
+rule touching either one depends on the answer — so naming an authority is not documentation, it is a
+change to every one of those rules. v0.4 looked as though it had named one, writing
+`total_value (= on_hand × avg_cost, maintained)`, but that declares a **formula**, not a **direction**,
+which is exactly why the question could be answered twice, differently, three rounds apart.
+
+That makes the check cheap and bounded rather than a habit: **when you declare an authority between
+redundant columns, list the rules that touch either column and re-read that list.** Here it was four
+items long — the formula, the guard, the `stock_levels` row and the outbound update — and the fourth
+was not written down at all until QA asked for it. A list of four is a five-minute check; "re-read
+every earlier fix" is a resolution nobody keeps.
+
 Of the eleven Warnings, **W-1 is the one I would want remembered**: nightly check 3 adds
 `free_quantity`, which had no type, no `NOT NULL` and no default — so `base + ROUND(NULL × f, 4)` is
 NULL, `SUM` skips the row, and the check fails on **every** receipt line without a bonus. That is the
@@ -535,7 +566,7 @@ so whoever picks up FP-230 does not have to re-derive it from a 1435-line docume
 | **FP-234** Stock in the sale transaction | **conversion resolves before `SELECT … FOR UPDATE`** — it reads two tables and can reject, and neither belongs inside the critical section · movements written in base |
 | **FP-236** Till | scan resolves `product_barcodes` **first**, falls through to `barcode_rules` matched **in memory from the replica** · weighable lines entered by weight · embedded-price lines back-computed and flagged |
 | **FP-237** Offline | `unit_conversion` and `barcode_rule` in the **first** replica payload — adding a replicated entity type later is a full resync · on arrival the line's own snapshotted factor wins and a mismatch opens a conflict (D-63) |
-| **FP-250** Levels + ledger | the new idempotency key with the two generated columns · the base-only boundary on seven tables · the weighted-average formula with the zero-denominator guard · the three nightly invariants, check 3 **including free goods** |
+| **FP-250** Levels + ledger | the new **five-column** idempotency key with the two generated columns, and the §6.5 table of what `reference_line_id` names per type · the base-only boundary on seven tables · **`total_value` as the accumulator and `avg_cost` derived from it** — `+ money_in` and `− line_cost`, matching what §7.2 debits and §7.1 credits, accumulating through a negative balance, with the guard on the *derivation* and the zero-stock residue written off through the inventory-adjustment account (D-76) · the three nightly invariants, check 3 **including free goods** |
 | **FP-253** Adjustments/transfers/counts | the quad on three item tables · a count entered in the unit the human counted, variance base-only · the transfer's two quantity events (D-58) |
 | **FP-254** Suppliers/requests/orders | line quads · `received_base_quantity` and a **base-to-base** `partially_received → received` transition · `quantity_incoming` maintained on approve/receive/close |
 | **FP-255** Receipts/invoices/returns/payments | receive in a different unit from the order (two lines of one product on one receipt is the ordinary case) · price variance normalised to `line_total / base_quantity` on **both** sides · `purchase_price_history` written normalised |
