@@ -4,7 +4,7 @@ Spec `docs/specs/T-006-unit-of-measure.md` (AC-1 to AC-67) · Plan `docs/plans/T
 Branch `ai/T-006-unit-of-measure`, 17 commits over base `47e226d`, nothing pushed. Measured on this machine on **2026-10-06**.
 No code, test or fixture was written: the task is documents, and nothing here needed a new test.
 
-## Verdict: FAIL
+## Verdict: PASS (run 2; run 1 was FAIL, kept below as measured)
 
 Two acceptance criteria fail (AC-52, AC-63), both **minor** and both fixable by one sentence each.
 One **major** design defect (BUG-1) is not an AC failure as written but is the exact defect class the
@@ -136,3 +136,38 @@ Symptom lines were written before reproducing, per the brief.
 ## Run history
 
 Run 1: FAIL (2 ACs, 1 major + 7 minor defects; gate green at 314 / 1435).
+Run 2: FAIL -> PASS (BUG-1 to BUG-8 verified closed; one new pre-existing finding, BUG-9, filed rather than blocking).
+
+---
+
+## Run 2 (tree at `08d8991`)
+
+Gate re-run by me: **exit 0**, PHPStan no errors, Deptrac 0 violations, Pest **314 passed / 1435 assertions**, 67.91 s warm. Pipe scan: still only FP-178. **All 67 ACs: 67 pass, 0 fail, 0 not applicable.** AC-52 and AC-63 now pass.
+
+| Item | Re-test | Result |
+|---|---|---|
+| BUG-1 | `price_list_items.unit_key` = `COALESCE(unit_id,'-')` stored; key `(price_list_id, product_id, unit_key, min_qty)`; `unit_id` stays nullable. The old key text survives only in §6.4 prose as the rejected key. The claim "does not touch the replica payload" is correct for the server table (the column is derived from `unit_id`, which the payload already carries); the one thing the documents do not say is that the till's own local store must enforce an equivalent key, which is frontend design and not a defect here | closed |
+| BUG-1 related | `unit_conversions.product_key` present, key `(product_key, from_unit_id, to_unit_id)` | closed |
+| BUG-2 | `barcode_rules.active_prefix = IF(is_active, prefix, NULL)`, `unique (active_prefix, length)`: works on MySQL 8.4 and MariaDB 10.4, and uses NULL-distinctness deliberately | closed |
+| BUG-3 | §6.3 line 506 now says §9.4's prohibition is about tables and a column rename is INSTANT in the expand step; matches §9.4 | closed (AC-52 PASS) |
+| BUG-4 | Q-10 pointer present in §6.3 with the reverse-answer consequence | closed (AC-63 PASS) |
+| BUG-5 | guard is `if on_hand <= 0` (line 678) with the reason at 685 | closed |
+| BUG-6 | invariant 1 excludes the two reservation types; the enum has **18** types, 16 summed, 2 excluded: I counted | closed |
+| BUG-7 | plan now says eleven (my count, 11 in 9 rows) | closed |
+| BUG-8 | `refunded_quantity` base, D-70; D-71 on reservation `reference_line_id` | closed |
+| N-1, N-3 | architecture §7 figure and FP-179 present in backlog | closed |
+| N-2 | §10 now says 22 MB, and 200 x 112 KB = 22.4 MB. I would have noted rather than fixed, but it is one number, own commit, revertable: I do not object | accepted |
+
+### BUG-9 (major, pre-existing from v0.4, not introduced by T-006): the §3.3 convention does not cover every site it applies to
+Sweep method: listed every `unique (...)` in §6 (about 50 keys) and read the nullability of each column in the owning row. The convention text claims "three sites"; it does not claim exhaustiveness, so it is accurate, but it now states the rule that these sites break. Keys over a nullable column where NULL is a meaningful value, and so permit unlimited duplicate null rows:
+- `number_sequences (branch_id, document_type)`, `branch_id NULL` = company-wide: two company-wide sequences for one document type are allowed, which means **duplicate document numbers**.
+- `settings (scope_type, scope_id, key)`, `scope_id NULL`: duplicate company-level settings.
+- `employee_roles (employee_id, role_id, branch_id)`, `branch_id NULL (null = all branches)`: duplicate all-branch grants.
+- `account_mappings (event_key, scope_type, scope_id)`, `scope_id NULL`: two default posting mappings, ambiguous GL account.
+- `journal_entries (source_type, source_id, source_purpose)`, `source_purpose NULL` for a single-entry document: **the posting idempotency key** admits a double post. Also specified "where source_id not null", a partial unique, the shape BUG-2 removed elsewhere.
+- `commission_entries (source_type, source_id, plan_id, rule_id)`, `rule_id NULL`: idempotency admits duplicates.
+- `gateway_configs (gateway, branch_id)`, `holidays (date, branch_id)`, `print_templates (branch_id, type, name)`, `printer_routes (branch_id, terminal_id, document_type, kitchen_station_id)`, `daily_summaries (branch_id, terminal_id, business_date)`: NULL means "company-wide / all terminals" in each.
+Intentional NULLs (not defects): `products.plu_code`, `customers` phone, `ar_documents`/`ap_documents (source_type, source_id)` for manual rows.
+Not blocking T-006 (no AC covers it, the keys are v0.4's, nothing is built). Recommend one backlog row alongside FP-179, to be settled before the first per-tenant migration; the two that matter most are `number_sequences` and `journal_entries`.
+
+Anything in the coordinator's message that measured wrong: nothing. "Four sites" is the count found, and my sweep finds at least eleven more.
