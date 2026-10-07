@@ -43,6 +43,13 @@ choice mattered. Two stale line citations of my own are corrected in place (R7, 
 prevents the next one is at the head of the measured surface. Gate still not run by me; `qa` holds it for
 the round-2 re-test.
 
+**Sixth pass, 2026-10-07, after R18 landed in code** (`3b93389`): R21 and R22, plus the process rule that a
+ruling specifying a replacement is **work, not a queue row** — mine to learn, since filing R18 beside six
+backlog rows is what made it look deferred until `qa` opened the file. R21 rules the low-headroom case's
+timing window irreducible and leaves it; R22 splits "mutation-proved" into three tiers and names the input
+at which the reserve formula's terms do not bind. The evidence tiers are also summarised at the head of the
+criteria table, where a reader meets them. Gate still not run by me; `qa` holds it for round 3.
+
 ---
 
 ## Approach summary
@@ -812,6 +819,15 @@ next one is stated at the head of the measured surface.
 
 ### R18. The kill case's `elapsed < 2.0` ceiling is the **wrong assertion**, not the wrong number. Replace it; do not widen it, do not date it, do not force a bigger limit
 
+**IMPLEMENTED in `3b93389`** (one file, 56/14). What landed is the replacement this ruling specified, not a
+widening: the forced limit, reserve and budget are **derived in the test** from the documented rule rather
+than copied as literals; the resolved triple is asserted as **one contiguous run of fields**
+(` budget=1s limit=2s source=env`), which pins field order too and is where one mutation bit; `elapsed ≥
+budget` is the lower bound, with both operands read from the **same printed line** so there is no second
+copy to drift; the ceiling is gone, and the comment carries the residual in plain terms — *no wall-clock
+upper bound on a kill is assertable on this platform*. AC-4's recipe and the reserve's floor are untouched,
+as this ruling required. See R21 and R22 for what the mutation work then showed.
+
 `dev` is right to refuse the edit and right to want a row. Widening an assertion so a run goes green is
 weakening a test, and this is FP-172's own defect inside FP-172's own proof — the one place where a false
 red is not merely annoying but self-refuting. Ruling on the three options, and the answer is a fourth:
@@ -924,6 +940,96 @@ has been corrected, not in the review. Recorded here as the test step's figure.
 Quote the **ratio** anyway. It is printed by the wrapper from its own clock, it is the number AC-10 is
 written against, and it carries its own limit with it — where a bare 635.88 s needs a label to mean
 anything, as this exchange demonstrates.
+
+---
+
+## After R18 landed in code — 2026-10-07
+
+R18 is implemented (`3b93389`; `d7415e2` is memory only). Two rulings came out of doing it, and one process
+lesson that is partly mine.
+
+**The process lesson, because half of it is my own filing.** `9b59793` committed R18 as a ruling and changed
+only this plan, under a message that read as a code outcome; `qa` opened the file, found the assertion still
+in place, and said so. That is FP-187's shape — a document asserting a change no artefact contained — and
+`qa` catching it from the artefact rather than from the message is the gate working. My half: **R18's text
+said "replace", and I then filed it as lead-queue item 7 beside six backlog rows**, which is how a ruling
+that specifies *work* came to be read as a ruling that specifies a *row*. `dev`'s original refusal was to
+*widen* the assertion, which was right; nobody had been asked to replace it. So, as a standing rule for this
+plan's own structure:
+
+> **A ruling that specifies a replacement is work, not a row.** It belongs in the implementation steps with
+> an owner, or in a `[FIX]` task — never in the questions list, which this plan uses for things nobody is
+> going to do inside the task. Rulings that only *record* a residual belong in the queue; rulings that
+> change an artefact do not.
+
+Scope was correctly judged: the assertion was introduced by **this** task in **this** task's own file, and
+AC-12 freezes the other steps' scripts, not this one's test.
+
+### R21. The low-headroom case's timing window is **irreducible**, not a defect. `dev` and the lead are right to leave it
+
+This is not R18's case, and the difference is the whole ruling. In R18 the ceiling was an **assertion** that
+could be deleted without losing a claim. Here the window is the case's **precondition**: the branch under
+test fires only when `limit / elapsed < headroom-factor` *and* the step still completes, so at a forced
+limit of 8 (reserve 2, budget 6) the child must land in `elapsed ∈ (4, 6)` — above the threshold, below the
+budget. There is no assertion to remove, because **the branch is definitionally timing-windowed**: no input
+exercises "the step was slow enough to warn but fast enough to finish" without putting a clock inside that
+interval. The factor comes from the manifest the wrapper reads beside itself, so it cannot be moved to make
+the window wider from the outside either.
+
+So only the window's **width** is negotiable, and width buys probability, not kind — the exact frame R18
+rejects. Raising the limit to 12 (budget 10, threshold 6, a 7 s child) would turn today's 1.5 s of headroom
+into 3 s for +2.5 s of wall time in the one file whose cheapness R18 just leaned on, against a run-to-run
+spread of 34.51 s (R11). Not worth it, and not a fix.
+
+What makes it acceptable is the same property this plan already accepted for AC-4's own recipe (R18's
+closing paragraph): **the failure mode is loud and self-describing.** An overshoot past the budget produces
+`FLEXIPOS-GATE-TIMEOUT` with its own `elapsed=` and `budget=` in the output of the case that failed, so the
+reader is told the cause rather than left with a number comparison. Ruled: **no change**, and `dev` was
+right to refuse the drive-by. If it ever flakes in CI the remedy is a re-run and a recorded reason, as for
+AC-4 — not a wider window and not a deleted case.
+
+### R22. What "mutation-proved" means in this task, in three tiers — and the two places the four-for-four table overstates
+
+`dev` declared both halves of this and both are worth more than the table they came from. The suite's
+evidence is not uniform, and saying so is what keeps the strong claims strong:
+
+1. **Independently proven** — a mutation of our code moves the observable, and the assertion is the thing
+   that notices. This is most of the suite, including R19's two exclusion mutations (prefix added → 6 red,
+   name removed → 3 red, authority restored byte-identically).
+2. **Corroborating** — *no* mutation of our code can isolate the assertion, so it is supported by direct
+   evidence instead. One assertion in the kill case is in this tier: the tree kill happens inside the
+   vendored component **before** the exception reaches our handler, so no edit of ours both produces the
+   sentinel and lets the child finish. `dev` reports it as corroborating, with direct-invocation evidence,
+   rather than as proven. That is the honest form of the claim and it should stay labelled.
+3. **Covered by reading** — no affordable input exercises the term at all. R9 already uses this vocabulary
+   for `source=default`; it now has a second member, below.
+
+**And the blind spot that would make a future claim false.** `dev`'s first budget mutation **passed, and the
+mutation was wrong rather than the test**: at a forced limit of 2 the budget sits on its floor for every
+reserve ≥ 1, so mutating the ratio `0.02` or the reserve's own floor is **invisible at that input** — only
+moving the *budget's* floor changes anything observable. Not a hole; an input where those terms do not bind.
+The general statement, worth having beside R10 and R18 because both lean on the formula:
+
+> `reserve = max(2, ceil(0.02 × limit))` and `budget = max(1, limit − reserve)` have three terms, and **no
+> single input makes all three mutation-visible.** At the forced limit of 2 the budget sits on its floor, so
+> a mutation of the **reserve's** floor is *absorbed* — `max(3, 1) = 3`, and `max(1, 2 − 3)` is still 1 —
+> and a mutation of the **ratio** changes nothing either; only moving the **budget's** floor is observable
+> there. The reserve's floor becomes observable from about `limit = 4`; the ratio only once
+> `ceil(ratio × limit)` clears the floor, which for a 0.02 → 0.03 mutation is about `limit = 67` and for a
+> smaller mutation is later still — so the ratio's visibility threshold is **a function of the mutation's
+> size**, not a fixed input. Observing a budget at that scale means a kill at a ≈65 s budget, because the
+> sentinel is the only line that prints `budget=` and the margin line does not. **So the ratio term is
+> covered by reading, not by running:** the manifest case computes the budget from the documented rule at
+> the real limit of 900, where the ratio does decide the reserve (18, not 2). A declared limit of the
+> suite, not a gap in it — and "the reserve formula is pinned" would be a false claim at small limits.
+
+**The `toBeLessThan` audit, named here so the next reader does not re-litigate it.** `dev` audited every
+`toBeLessThan` in `GateStepTimerTest` and kept two, both verified by the lead: one compares the **ratio
+against the factor**, both read from the printed line, so it can only fail if the mechanism itself breaks;
+the other is pure **manifest arithmetic** (`budget < limit`). After R18 the only **clock-derived** comparison
+left in the file is the new lower bound, which is the one direction a kill cannot violate. A future reader
+who finds a `toBeLessThan` in a file whose own ruling removed one should find this paragraph before
+reaching for it.
 
 ---
 
@@ -1487,6 +1593,17 @@ is used as an input to a limit, take it more than once and use the worst.
    absent, AC-9's line pasted into the report; the same for a machine-cold run if one was observed. AC-33
    never depends on a duration (D-12).
 
+**What the evidence in the table below is worth — three tiers, not one (R22)**
+
+"Proof" in the table is not uniform, and the plan says so rather than letting a reader assume the strongest
+reading everywhere. **Independently proven:** a mutation of our code moves the observable and the assertion
+notices — most rows, including both of R19's digest-exclusion mutations. **Corroborating:** no mutation of
+our code can isolate the assertion, so direct evidence stands in its place — one assertion in the kill case,
+because the tree kill happens inside the vendored component before the exception reaches our handler.
+**Covered by reading:** no affordable input exercises the term — `source=default` (R9) and the reserve's
+ratio term (R22, where observing it would cost a kill at a ≈65 s budget). Each is labelled where
+it is claimed; none of the three is a gap, and only the first is "mutation-proved".
+
 **Which tests prove which criteria**
 
 | Criterion | Proof |
@@ -1571,11 +1688,13 @@ None. Eight things for the lead's queue rather than the human's, four of them al
    pre-existing, measured and pinned by `qa`, ruled in **R16**, and in the risk table with its candidate
    fix. The lead is taking the backlog row. Not a T-007 defect and not a human question: nothing in the
    codebase does it, and the failure mode is a refusal rather than a leak.
-7. **The kill case's wall-clock ceiling is a false red in FP-172's own proof** — ruled in **R18**: replace
-   the ceiling with the invariants, do not widen it, and if AC-4's recipe ever flakes reach for the
-   reserve's floor rather than the test's number. `dev` measured it and deliberately left it, which was the
-   right call. The lead is filing it, together with W-3 (sixteen child-spawning test files inheriting a
-   60-second default nobody set — out of scope here by AC-12, and FP-172's sibling) and item 6.
+7. **CLOSED, and it should never have been on this list.** The kill case's wall-clock ceiling was a false
+   red in FP-172's own proof; **R18** ruled a *replacement*, which is work, not a row — filing it here beside
+   six backlog rows is what made it look deferred, and `qa` found the assertion still in place. Implemented
+   in `3b93389`. The lesson is recorded at the head of the "After R18 landed in code" section, as a rule
+   about this plan's own structure. Still rows for the lead, and genuinely rows: **W-3** (sixteen
+   child-spawning test files inheriting a 60-second default nobody set — out of scope by AC-12, FP-172's
+   sibling) and the **low-headroom window** (R21: irreducible, loud when it fails, no change).
 8. **A convention row: "does this assertion state the design, or its negation?"** Caught twice in this task
    in two different files (R15.8 and R19), both times by `dev`, both times before the assertion shipped.
    **Not covered by R15.8**, which is one instance and states no rule. The row's text is in R19. The lead
