@@ -5,7 +5,6 @@ use Flexipos\Kernel\Tenancy\Exceptions\NoTenantResolved;
 use Flexipos\Kernel\Tenancy\Exceptions\TenancyException;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantConnectionMismatch;
 use Flexipos\Kernel\Tenancy\Tenancy;
-use Flexipos\Kernel\Tenancy\TenancyServiceProvider;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Database\Events\ConnectionEstablished;
 use Illuminate\Database\QueryException;
@@ -662,52 +661,30 @@ it('keeps the per-query guard attached when the event dispatcher is faked', func
     }
 });
 
-it('does not accumulate guarded connections across many tenant switches', function () {
-    // The de-duplication map is static and process-wide, so "weak" has to mean
-    // weak: a purged connection must be collected, and twenty-five switches
-    // must not leave twenty-five entries behind.
-    $property = new ReflectionProperty(TenancyServiceProvider::class, 'guardedConnections');
-
-    $count = static function () use ($property): int {
-        $map = $property->getValue();
-
-        return $map instanceof WeakMap ? count($map) : -1;
-    };
-
-    // Measured relatively, never against an absolute, because the map outlives
-    // individual tests by design and other tests' connections may still be
-    // alive when this one runs.
-    gc_collect_cycles();
-    $before = $count();
-
-    expect($before)->toBeGreaterThanOrEqual(0);
+it('does not retain a tenant connection after the switch that built it', function () {
+    // T-007 AC-26. The positive control for "nothing is retained": twenty-five
+    // switches, each one querying, and a weak reference to a connection from an
+    // early switch that must be gone once the cycle collector has run. It states
+    // the property a process-wide de-duplication map used to be accountable for,
+    // without naming any implementation that provides it.
+    $early = null;
 
     for ($iteration = 0; $iteration < 25; $iteration++) {
-        qaIso()->run($iteration % 2 === 0 ? 'qa-iso-a' : 'qa-iso-b', function (): void {
-            DB::connection('tenant')->scalar('select value from marker');
+        qaIso()->run($iteration % 2 === 0 ? 'qa-iso-a' : 'qa-iso-b', function () use (&$early, $iteration): void {
+            $connection = DB::connection('tenant');
+            $connection->scalar('select value from marker');
+
+            if ($iteration === 2) {
+                $early = WeakReference::create($connection);
+            }
         });
     }
 
+    expect($early)->toBeInstanceOf(WeakReference::class);
+
     gc_collect_cycles();
 
-    expect($count() - $before)->toBeLessThan(25, 'guarded connections accumulate one per tenant switch');
-
-    // And the specific entry for a connection nobody holds any more really goes.
-    $low = $count();
-
-    qaIso()->enter('qa-iso-a');
-    $held = DB::connection('tenant');
-    $held->scalar('select value from marker');
-    $high = $count();
-    qaIso()->leave();
-
-    expect($high)->toBeGreaterThan($low, 'the held connection was never registered');
-
-    $held->disconnect();
-    unset($held);
-    gc_collect_cycles();
-
-    expect($count())->toBeLessThan($high, 'a purged, unreferenced connection was not collected');
+    expect($early->get())->toBeNull('a connection from an earlier switch is still retained');
 });
 
 it('refuses a tenant connection built through DatabaseManager::build for another tenant', function () {
