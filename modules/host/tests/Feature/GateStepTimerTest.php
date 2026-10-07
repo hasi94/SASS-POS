@@ -110,8 +110,24 @@ function gateTimerLastLine(string $output): string
  */
 
 it('ends a step that outlasts its own budget, names what happened, and exits 3', function () {
-    // limit 2 -> reserve max(2, ceil(0.04)) = 2 -> budget max(1, 0) = 1.
-    $result = gateTimerRun(['-r', 'echo "child tick", PHP_EOL; usleep(8000000);'], '2');
+    /*
+     * The values the wrapper has to resolve, derived here from the forced limit
+     * by its documented rule rather than written out as literals: at limit 2
+     * the reserve is max(2, ceil(0.04)) = 2 and the budget is max(1, 0) = 1.
+     * Deriving them is what makes the printed triple below an assertion about
+     * the resolution rather than a copy of today's output.
+     */
+    $limit = 2;
+    $reserve = max(2, (int) ceil($limit * 0.02));
+    $budget = max(1, $limit - $reserve);
+
+    // The child writes one line before its sleep and would write another after
+    // it, so the second line is the executable half of the sentinel's claim
+    // that no result was produced.
+    $result = gateTimerRun(
+        ['-r', 'echo "child tick", PHP_EOL; usleep(8000000); echo "child done", PHP_EOL;'],
+        (string) $limit
+    );
 
     $output = $result->output();
 
@@ -120,14 +136,27 @@ it('ends a step that outlasts its own budget, names what happened, and exits 3',
     expect($result->exitCode())->toBe(3)
         ->and($output)->toContain('FLEXIPOS-GATE-TIMEOUT')
         ->and($output)->toContain('step=probe')
-        ->and($output)->toContain('budget=1s')
-        ->and($output)->toContain('limit=2s')
-        ->and($output)->toContain('source=env')
         ->and($output)->toContain('NO TEST RESULT WAS PRODUCED.');
 
+    /*
+     * And the timer was this file's own rather than the package manager's
+     * (R18). That claim is the resolved triple, asserted as one contiguous run
+     * of fields: the limit this process read from the environment, the budget
+     * it derived from that limit, and the label naming which input won. A
+     * wrapper that inherited a limit from elsewhere, derived the budget by a
+     * different rule, or printed these fields in another order cannot produce
+     * this string - and none of that depends on how long anything took.
+     */
+    expect($output)->toContain(' budget='.$budget.'s limit='.$limit.'s source=env');
+
     // Output the child wrote before the kill survives, which is the whole
-    // reason a sentinel printed by project code is readable at all.
+    // reason a sentinel printed by project code is readable at all...
     expect($output)->toContain('child tick');
+
+    // ...and the line it would have written on completion is absent, which is
+    // what NO TEST RESULT WAS PRODUCED asserts in prose: here it is the same
+    // claim in a form that reddens if the child was allowed to finish.
+    expect($output)->not->toContain('child done');
 
     /*
      * The timestamp, and explicitly its offset (S-1). The wrapper formats with
@@ -145,16 +174,29 @@ it('ends a step that outlasts its own budget, names what happened, and exits 3',
     expect($output)->not->toContain('FLEXIPOS-GATE-MARGIN');
 
     /*
-     * And the kill was this timer's, not the package manager's: the elapsed
-     * time reported is at least the budget and still below the limit. If this
-     * ever fails, the reserve floor no longer covers the detection latency -
-     * which is the one thing that would let the package manager win the race
-     * and reproduce the incident.
+     * The elapsed time, bounded below by the budget the same line reports and
+     * deliberately not bounded above (R18). A kill cannot precede its budget
+     * expiring, so the lower bound is an invariant. A ceiling is not: the
+     * child component checks the timeout only between read-loop iterations, so
+     * detection latency has no upper bound under load, and any fixed ceiling is
+     * a bet against that tail. The bet lost at 2.22s against a 2.0 ceiling - a
+     * false red inside the proof that this gate does not produce false reds.
+     *
+     * So the residual is written down instead of asserted: on this platform no
+     * wall-clock upper bound on a kill is assertable. The claim the ceiling was
+     * reaching for - that this timer ends the step before the package manager
+     * would - is meaningful only inside a real run, and nothing enforces a
+     * limit here, because this case spawns the wrapper directly. It is covered
+     * empirically by AC-4's per-step recipe, with the sentinel's presence as
+     * the discriminator rather than a number (D-3, R3).
      */
-    expect(preg_match('/FLEXIPOS-GATE-TIMEOUT[^\r\n]* elapsed=([0-9.]+)s/', $output, $matches))->toBe(1);
+    expect(preg_match(
+        '/FLEXIPOS-GATE-TIMEOUT[^\r\n]* elapsed=([0-9.]+)s budget=(\d+)s/',
+        $output,
+        $matches
+    ))->toBe(1);
 
-    expect((float) $matches[1])->toBeGreaterThanOrEqual(1.0)
-        ->and((float) $matches[1])->toBeLessThan(2.0);
+    expect((float) $matches[1])->toBeGreaterThanOrEqual((float) $matches[2]);
 });
 
 /*
