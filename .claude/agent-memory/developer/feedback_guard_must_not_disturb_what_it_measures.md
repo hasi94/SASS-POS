@@ -73,6 +73,22 @@ a single-file run, so the case reports 2 assertions or 1 depending on what else 
 Two fixes, both better: read what you need out of the other file's *source*, or put the helper in
 `tests/Helpers.php`, which Pest's BootFiles loads in every run mode.
 
+**8. A negated `toContain()` with a "message" argument asserts almost nothing.** Pest's
+`toContain(...$needles)` is variadic, so `->not->toContain($needle, 'my message')` reads as a
+guarded assertion and passes whenever **either** string is absent - which the message always
+is. Same for `toHaveKey`, `toHaveProperty` and `toThrow`. The host's own
+`QaAssertionShapeGuardTest` sweeps the suite for this shape and caught it in a first draft on
+T-007; run `composer test:fast` before trusting any new absence sweep. The fix that also reads
+better: collect findings into an array with `str_contains()` and assert `toBe([])`, so the
+failure output names every surface that leaked instead of the first.
+
+**9. Do not sweep a surface that must hold the value by design.** An AC-16-style "the token
+appears nowhere" sweep that includes the object whose whole job is to hold the token asserts the
+opposite of the design. The right home for that surface is the **positive control**: it proves
+the needle is findable at all, so the absences mean something. Same shape as item 4, one level
+up - the control belongs on the surface you know is dirty, not only on the ones you hope are
+clean.
+
 **How to apply:** whenever the deliverable is "prove coverage did not change", diff the
 per-test assertion counts from a `--log-junit` log taken *before* touching anything against
 one taken after, per test name — not the totals. Totals cannot tell "two dropped, two added"

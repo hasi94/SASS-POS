@@ -21,19 +21,47 @@ boundary in `packages/kernel/src/Tenancy/`. Each one changed a decision or caugh
   `beforeExecuting`/`beforeStartingTransaction` guard removed, an object obtained for tenant
   A returns **tenant B's** rows. Removing `purge()` instead turns the switch into a loud
   refusal rather than a leak - the two mitigations are not interchangeable.
-- **`DB::extend($connectionName, ...)` is the right choke point, but it is not every route.**
+- **The one real choke point is a decoration of `db.factory`, not `DB::extend()` and not an
+  event.** MEASURED on v12.69.2: every construction route funnels into
+  `ConnectionFactory::make()` - `connection()` → `makeConnection()`, `connectUsing()` directly,
+  `build()` → `connectUsing()`, a reconnect after `purge()`, and the read/write split as make()'s
+  own branch. `DatabaseManager::__construct($app, ConnectionFactory $factory)` takes the factory
+  by injection, so the decorator **must** subclass `ConnectionFactory` and **must** be registered
+  in `register()` before anything resolves `db`. Delegate to the inner factory, never
+  `parent::make()`, or another extender of `db.factory` is silently discarded. Residual, measured:
+  `makeConnection()` still consults `$extensions[$name]` *before* the factory
+  (DatabaseManager.php:195), so a name-keyed extension would bypass it - pinned by a standing
+  test asserting none is registered under the tenant name.
+- **Binding a stanza to its own content is the only thing that detects a forged one.** MEASURED
+  (T-007 R1, both designs run side by side): a sentinel object in a private `WeakMap` *accepts*
+  the "copy every value, change the database" forgery, because an array copy carries the same
+  object instance - identity is not authority. A random token stored only in the stanza fails the
+  same way. What works is a per-`enter()` token recorded against a digest of the whole stanza.
+  Two keys must be excluded from that digest and no others: the token itself, and **`name`** -
+  `DatabaseManager::build()` makes the caller supply it and `ConnectionFactory::parseConfig()`
+  adds it inside `make()`, so with `name` in the digest a legitimate `DB::build()` is refused.
+  Excluding it is what creates the accepted residual "a genuine stanza rebuilt under another
+  connection name", which the per-query guard still contains.
+- **`Event::fake()` retains every `Connection` its test opened.** The fake records all dispatched
+  events and `ConnectionEstablished` carries the connection object, inside a reference cycle with
+  the application - so SQLite file handles are still open when a fixture's `afterAll` unlinks its
+  files, and on Windows that is a warning plus a directory left behind. `gc_collect_cycles()`
+  before the deletion clears it. Worth knowing before blaming the fixture.
+- **HISTORICAL, and the reason the bullet above exists: `DB::extend($connectionName, ...)` plus a
+  `ConnectionEstablished` listener was the previous design, and both are gone (T-007 FP-160).**
+  Do not go looking for them in the code; do read this before proposing either again.
   `makeConnection()` consults name-keyed extensions before driver-keyed ones and before the
-  factory, so it catches `DB::table()`, raw queries and Eloquent alike. Register it from
-  `$this->callAfterResolving('db', ...)` so a DB-free request never instantiates the manager.
-  **`DatabaseManager::connectUsing()` — and `build()`, which delegates to it — call
+  factory, so an extension catches `DB::table()`, raw queries and Eloquent alike — but
+  **`DatabaseManager::connectUsing()`, and `build()` which delegates to it, call
   `$this->factory->make()` directly and never reach `makeConnection()`**, so a name-keyed
   extension is invisible to them (QA BUG-2: measured serving tenant B's rows inside tenant A's
-  scope with the context still reporting A, no exception). The only hook that covers *every*
-  construction route is the `ConnectionEstablished` event, which `connectUsing()` dispatches
-  **before** caching the connection — so throwing from that listener also prevents the
-  unguarded object being installed under the connection name. Keep the extension attachment
-  too (an `Event::fake()` would otherwise disable the guard) and de-duplicate with a
-  `WeakMap<Connection, true>`.
+  scope with the context still reporting A, no exception). The listener was added to cover those
+  two, because `connectUsing()` dispatches the event *before* caching the connection — and then
+  `Event::fake()` swaps the `events` binding the manager resolves per dispatch, which silently
+  disabled a security guard (T-007 AC-27, measured returning tenant A's own row inside tenant B's
+  scope). Keeping both attachments needed a static `WeakMap<Connection, true>` to de-duplicate,
+  and neither covered a connection built straight from `app('db.factory')`. One factory decoration
+  replaces all of it with no event dependency and nothing to de-duplicate.
 - **A credential object must carry no state at all — not a property, not a closure.** The
   framework installs its dumper during *its own* provider registration and captures **one
   `VarCloner` instance** in the handler closure (`CliDumper::register()`); a cloner copies

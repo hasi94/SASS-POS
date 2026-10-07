@@ -36,3 +36,21 @@ silently complying is what I want from this role". The same held for reporting a
 role's broken gate instead of reaching across to fix it
 ([[feedback-clean-up-probe-files-immediately]]). Both only work because the deviation was
 *declared*: silent deviation is the failure, not deviation.
+
+**When a step's own "gate: green" requirement collides with another role's file ownership,
+the plan's step-2 fallback is the precedent: make the edit, mark it in the file as yours and
+declared, and list it line by line in the commit message under AC-41.** On T-007 step 4,
+deleting `Tenancy::TENANT_MARKER` turned a `Qa*` test into an undefined-constant Error and the
+new content binding made two more `Qa*` assertions assert the opposite of the new invariant -
+three of the five reds on the first full run, measured rather than predicted. The plan assigned
+those lines to `qa` in a *later* step while requiring this step to be green; there is no
+messaging tool in a `dev` session, so the two cannot both hold. Prefer the shapes the plan has
+already pre-justified (its R6-style "this edit is required, not a surprise" list) so the other
+role is not surprised, and say plainly in the report that the later step may rewrite all of them.
+
+**A gate requirement can also force a mechanism change, and that is the kind of deviation to
+lead with rather than bury.** The same step's whole-stanza digest refused a *legitimate*
+`DB::build()`, because the framework makes the caller supply `name`. The fix (exclude one key)
+weakens the mechanism by exactly one accepted residual the plan already listed - so the right
+move was to make that residual an executable test and put the deviation at the top of the
+commit message, not in a footnote.
