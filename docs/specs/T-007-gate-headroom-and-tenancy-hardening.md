@@ -63,22 +63,35 @@ not an invariant.
 
 ## Acceptance criteria
 
-Terms. **Cold run**: a full `composer check` after every analysis cache the gate uses has been removed
-(PHPStan result cache, the deptrac cache file named in the `deptrac` script, the Pest and PHPUnit caches);
-`qa` records which paths were removed. **Slowest process** (S): the longest wall time of any single process
-the gate spawns, measured cold. **Sentinel**: a fixed line of output, exact text chosen in the plan, that
+Terms. "Cold" names two different states, and an unlabelled duration is not evidence (D-12). **Cache-cold**:
+a full `composer check` after every analysis cache the gate uses has been removed (PHPStan result cache
+`storage/framework/cache/phpstan/`, the deptrac cache file `storage/framework/cache/.deptrac.cache`, the Pest and
+PHPUnit caches); `qa` records which paths were removed. Reproducible on demand; understates a real cold machine.
+**Machine-cold**: the first `composer check` after a reboot or a long idle, with the operating system's file
+cache cold (caches may be warm or not; `qa` says which). Closer to CI and to a developer's morning; cannot be
+produced on demand without a reboot. Every duration in the QA report carries exactly one of the labels
+**CACHE-COLD**, **MACHINE-COLD** or **WARM**, written as `[state: CACHE-COLD]` beside the number, plus the date.
+A duration with no label is rejected by AC-1, AC-2 and AC-33. **Slowest process** (S): the longest wall time of
+any single process the gate spawns, taken per AC-2's rule. **Sentinel**: a fixed line of output, exact text chosen in the plan, that
 the gate's own code prints when it ends a step because the time limit was reached.
 
 ### A. FP-172: headroom, and a kill that is visible
 
-- **AC-1** (measurement, dated): Given the cache removed as defined, When `qa` runs `composer check` to
-  completion on the development machine, Then the QA report records the date, the exact command, the cache
-  paths removed, the wall seconds of each process the gate spawns, and the exit status. This record is the
-  only source of S.
-- **AC-2** (headroom, a ratio): Given S from AC-1 and no `COMPOSER_PROCESS_TIMEOUT` set, When `qa` reads the
+- **AC-1** (measurement, dated, labelled; D-12): Given the caches removed as defined, When `qa` runs
+  `composer check` to completion on the development machine, Then the QA report records the date, the exact
+  command, the cache paths removed, the wall seconds of each process the gate spawns each tagged
+  `[state: CACHE-COLD]`, and the exit status. Additionally, if `qa`'s first gate run of its session was
+  machine-cold, that run is reported the same way tagged `[state: MACHINE-COLD]`; `qa` also states in one
+  sentence whether it observed a machine-cold run or not. `qa` must not claim a machine-cold run it did not
+  see. These records are the only source of S.
+- **AC-2** (headroom, a ratio; D-12): Given S and no `COMPOSER_PROCESS_TIMEOUT` set, When `qa` reads the
   limit in force (`composer config process-timeout` run in `modules/host`, plus any per-step limit the
-  plan introduces), Then the limit for every process the gate spawns is at least **2 times S** (D-1). QA
-  states the computed ratio. The same check against `composer.json` at the T-006 tip gives a ratio below 1
+  plan introduces), Then the limit for every process the gate spawns is at least **2 times S** (D-1).
+  S is the slowest per-process time among all labelled runs in the report if a `[state: MACHINE-COLD]`
+  run exists. If none exists, S is the CACHE-COLD slowest time **multiplied by 3** (the rounded-up ratio of
+  the one machine-cold gate run dev measured on 2026-10-07 to its warm run, 240.87 s against 87.34 s, about
+  2.8; a figure from the brief, not re-derived by `ba`), and `qa` writes "machine-cold not observed, factor 3
+  applied". QA states the state used, S and the computed ratio. The same check against `composer.json` at the T-006 tip gives a ratio below 1
   (default 300 s against a cold run that exceeded it); `qa` runs it there too and reports the number
   **(diff)**.
 - **AC-3** (bounded): Given the final `composer.json`, When `qa` searches the `check`, `test`, `test:fast`
@@ -104,8 +117,14 @@ the gate's own code prints when it ends a step because the time limit was reache
 - **AC-9** (margin reported on every completed run): Given a gate that ran to completion, When it ends,
   Then the last line states elapsed seconds, the limit in force and their ratio (D-4).
 - **AC-10** (margin warning that can fire): Given `composer test` run on its own (per-step form, D-10)
-  with `COMPOSER_PROCESS_TIMEOUT` set so the step takes more than half but less than all of it, When the gate completes, Then the output carries a low-headroom
-  warning and the exit status is 0. Given a normal limit and a normal run, the warning is absent.
+  with `COMPOSER_PROCESS_TIMEOUT` set so the step takes more than half but less than all of the step's
+  budget, When the step completes, Then the output carries a low-headroom warning and the exit status is
+  0. Given a normal limit and a normal run, the warning is absent. **The forced limit must be at least 5
+  seconds** (D-13): the plan's budget is the limit minus a reserve of at least 2 s, and the warning fires when
+  the limit over the elapsed time is below 2, so a window "more than half the limit, within the budget"
+  exists only when `limit / 2 < limit - 2`. Below 5 the criterion cannot be met whatever the code does. A
+  child that sleeps for a fixed time (dev used a limit of 8) is acceptable; `qa` states the limit, the
+  child's duration and the elapsed time printed.
 - **AC-11** (a number carries its date or is a ratio, FP-171): Given every place the change writes a
   duration or a limit (the `scripts-descriptions` text, any comment, the QA report), When read, Then each is
   a ratio, or carries the date measured and the command that re-measures it. This one is by reading.
@@ -113,8 +132,16 @@ the gate's own code prints when it ends a step because the time limit was reache
   `COMPOSER_PROCESS_TIMEOUT` chosen **between the longest of `lint`, `stan` and `deptrac` and the cold wall
   time of the test step** (so only the test step can reach it), When `composer check` runs, Then `lint`,
   `stan` and `deptrac` complete, the test step is ended, the exit status is non-zero and the sentinel
-  appears. `qa` states the limit chosen and the AC-1 numbers it was derived from. It cannot be run before
-  AC-1 exists; until then it is pending, not failed.
+  appears. `qa` states the limit chosen and the AC-1 numbers it was derived from, each tagged with its state.
+  **Window (CACHE-COLD, dev's measurement of 2026-10-07, taken from the brief, not re-derived):** longest of
+  lint/stan/deptrac 43.86 s (stan), test step 105.46 s; the plan's limit of 53 lies between them (with the
+  plan's reserve of 2 s the budget is 51, leaving about 7 s over stan). That margin is thin against the
+  ~30 % warm-run spread dev also measured (85.59 to 120.10 s), so 53 is a starting point, not part of the
+  criterion: `qa` derives the limit from its own AC-1 numbers and runs AC-45 CACHE-COLD, the state in which
+  the window was measured. If an analysis step exceeds the chosen budget the run is invalid (re-pick the
+  limit from that run's numbers and re-run), not a product failure; `qa` reports any discarded run.
+  **(branch)**: proven only by running it on the branch in step 5; "achievable" here is dev's measurement,
+  not a pass. It cannot be run before AC-1 exists; until then it is pending, not failed.
 - **AC-12** (other scripts untouched): `test:fast` still excludes the `toolchain` group, `test:slow` still
   runs only it, `lint`, `stan` and `deptrac` are unchanged, and `check` still runs its five steps in the
   same order.
@@ -208,8 +235,10 @@ read/write-split stanza (`tenant::read` and `tenant::write` cache keys).
 
 ### D. Regression, review findings and process
 
-- **AC-33**: The full `composer check` ends exit 0 with the sentinel absent, run cold by `qa`, and the QA
-  report records the AC-9 line.
+- **AC-33** (D-12): The full `composer check` ends exit 0 with the sentinel absent, run **CACHE-COLD** by `qa`,
+  and the QA report records the AC-9 line with its `[state: ...]` tag and date. If a MACHINE-COLD run was also
+  observed (AC-1) it must also be exit 0 with the sentinel absent, and is reported the same way; its absence
+  is stated, not hidden. Pass or fail does not depend on the duration, only on exit status and the sentinel.
 - **AC-34**: Every test in `packages/kernel/tests/` that passed at the T-006 tip passes now, except the
   tests named in AC-41.
 - **AC-35** (every closed review finding has a criterion, the lesson of T-006 AC-78): For each review
