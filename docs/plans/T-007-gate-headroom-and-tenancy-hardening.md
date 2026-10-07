@@ -35,6 +35,14 @@ and **R14 is half wrong** — a held `connectUsing` connection does demonstrate 
 repointing I reasoned past. R17 records the measured AC-45 limit (69), the AC-2 diff figure (0.963) and
 `qa`'s four declared partials. Still no gate run by me; `dev` holds it for one docblock correction.
 
+**Fifth pass, 2026-10-07, after review round 1** (`d1a4a82` APPROVE, no Critical findings; `dev`'s fix round
+`9b689e7`, gate green at **473 passed / 2475 assertions**): R18 to R20. R18 rules on a false red the
+reviewer surfaced inside FP-172's own proof, R19 confirms the one finding `dev` could not implement as
+proposed, and R20 records the first *measurement* — rather than arithmetic — that the 600-vs-900 limit
+choice mattered. Two stale line citations of my own are corrected in place (R7, R9) and the convention that
+prevents the next one is at the head of the measured surface. Gate still not run by me; `qa` holds it for
+the round-2 re-test.
+
 ---
 
 ## Approach summary
@@ -309,7 +317,9 @@ Each belongs in the comment AC-22 requires, or in the QA report, as marked.
   and R12.
 - **A third party registering a name-keyed extension for the tenant connection would bypass the choke
   point** (MEASURED: `DatabaseManager::makeConnection()` consults `$this->extensions[$name]` *before*
-  the factory, DatabaseManager.php:195). Closed cheaply by a standing test asserting no extension is
+  the factory — `DatabaseManager::makeConnection()`'s `isset($this->extensions[$name])` branch,
+  DatabaseManager.php:**192** on v12.69.2; this bullet cited :195, the closing brace, until review round 1
+  caught it). Closed cheaply by a standing test asserting no extension is
   registered under the tenant connection name — included in step 3.
 - **`spl_object_id` reuse** in the digest's object encoding requires the original object to be freed;
   `config()` holds a strong reference to the `ConnectionPassword` for the life of the record, so an id
@@ -317,6 +327,19 @@ Each belongs in the comment AC-22 requires, or in the QA report, as marked.
 - **A kill of `lint`, `stan` or `deptrac` still shows only Composer's message**, because AC-12 requires
   those scripts unchanged. The wrapper is written as a generic step runner, so applying it to them later
   is a one-line change per script. QA report, and a backlog candidate for the lead.
+- **A kill's detection latency has no upper bound under load**, because Symfony checks the timeout only
+  between read-loop iterations (MEASURED by `dev`: a kill at a 1 s budget landed at 2.22 s on a loaded
+  machine, against R2's ≈0.6 s at a 0.25 s cadence). So **no wall-clock upper bound on a kill is
+  assertable**, the wrapper's lead over the limit is exactly the reserve — 2 s for every limit from 3 to
+  100 — and AC-4's per-step recipe is a race with a 1-second nominal lead that has so far always been won.
+  Ruled in **R18**, with the remedy (assert the lower bound and the sentinel, not a ceiling) and the lever
+  (the reserve's floor, not the test's number). Backlog row, filed by the lead.
+- **The choke point's surface is wider than what it replaced, which is the direction that needed checking.**
+  The reviewer judged the remaining residual **strictly narrower** than the design it replaces: the deleted
+  listener guarded one connection name, where the factory guards that name, its `::read`/`::write` suffixes
+  (R15.4) and **any** stanza carrying the authenticator (R12's `carries()` half). What is left outside is
+  `qa`'s note 4 — an other-named stanza with no authenticator is an ordinary framework connection, by
+  necessity, since the master connection must still build (R17.4).
 - **On POSIX, `Process::stop()` signals the direct child only** (Windows uses `taskkill /F /T`, MEASURED),
   so a Pest grandchild could briefly outlive a kill. `probes:clean` first in `check` is what makes that
   harmless, and AC-8 is the test.
@@ -377,7 +400,9 @@ Two reasons, and the second is the stronger:
    to know which of the two they are looking at.
 
 **Correction to the framing I was handed:** this does **not** make both labels assertable. The wrapper reads
-`__DIR__.'/../composer.json'` (`gate-step.php:176`) and that path is fixed, so no test can make
+`__DIR__.'/../composer.json'` — the wrapper's **one** `file_get_contents` of the manifest, cited by symbol
+rather than by line because step 1b moved it from :176 to :182 and the assertion did not move at all
+(`dev`'s convention, adopted here) — and that path is fixed, so no test can make
 `config.process-timeout` absent while the manifest carries it — and the manifest case asserts that it does.
 `source=default` stays covered by reading, on whichever lines carry the field. **One label moves, not two.**
 `dev`'s residual paragraph is right about `default` and should keep saying so; what it must stop saying is
@@ -778,15 +803,145 @@ report:
 
 ---
 
+## Rulings after review round 1 — 2026-10-07
+
+Round 1 came back **APPROVE with no Critical findings** (`docs/reviews/T-007-gate-headroom-and-tenancy-hardening.md`,
+`d1a4a82`); `dev`'s fix round is `9b689e7`, gate green at **473 passed / 2475 assertions**. Three rulings.
+Two stale citations of my own are corrected in place above, and the citation convention that prevents the
+next one is stated at the head of the measured surface.
+
+### R18. The kill case's `elapsed < 2.0` ceiling is the **wrong assertion**, not the wrong number. Replace it; do not widen it, do not date it, do not force a bigger limit
+
+`dev` is right to refuse the edit and right to want a row. Widening an assertion so a run goes green is
+weakening a test, and this is FP-172's own defect inside FP-172's own proof — the one place where a false
+red is not merely annoying but self-refuting. Ruling on the three options, and the answer is a fourth:
+
+**Why a wider ceiling fails.** The cause is structural, as `dev` measured: Symfony checks the timeout only
+between read-loop iterations, so **detection latency has no upper bound under load**. Any fixed ceiling is
+a bet against an unbounded tail; a bigger number is a rarer flake, not a non-flake.
+
+**Why a dated or derived ceiling fails for the same reason.** R2 measured the latency at ≈0.6 s with a
+0.25 s output cadence, and the loaded run landed 1.22 s past the budget — twice the measured figure. A
+dated ceiling would be honest about its provenance and still wrong about its tail. R11's rule applies
+verbatim: a wall-clock figure on this machine is not evidence, and a *ceiling* on one is not an assertion.
+
+**Why a larger forced limit does not fix this case, and the arithmetic that says so.** The wrapper's lead
+over the limit is exactly the reserve, `limit − budget = max(2, ceil(0.02 × limit))`, which is **2 s for
+every limit from 3 to 100**, and it does not reach 5 s until a limit of **201** (`ceil(0.02 × limit) ≥ 5`
+first holds at 201; at 200 it is 4). So forcing 10 instead of 2
+buys 1 extra second of lead, not a margin, and it costs wall time in the one file whose cheapness is a
+design constraint ("each spawned case forces its own tiny limit, so the whole file runs in seconds"). More
+decisively: **in that test there is no race to win.** `GateStepTimerTest` spawns the wrapper directly, so
+no Composer process is enforcing 2 s, and `elapsed < limit` is therefore not the claim "we killed before
+Composer would have" — it is a bare performance claim about the wrapper.
+
+**The remedy: assert what is invariant and let the sentinel carry the rest.** None of these is bounded
+above by wall clock, and together they are strictly more than the ceiling proved:
+
+- the sentinel line is present, and the token appears on no other path (already true by construction);
+- the exit status is **3**;
+- the printed `budget=1s limit=2s source=env` are the resolved values — a pure function of the inputs, and
+  *this* is what "the wrapper used its own timer, not the package manager's" actually means;
+- `elapsed ≥ budget` — a **lower** bound, which is safe because a kill cannot precede the budget;
+- `NO TEST RESULT WAS PRODUCED`, with Pest's own summary absent.
+
+What is lost is the claim that the wrapper does not overshoot the limit. That claim is **meaningful only
+inside Composer**, and there it is already covered empirically by AC-4's per-step recipe (recipe 3): a real
+`composer test` under a real `COMPOSER_PROCESS_TIMEOUT=2` that produces the sentinel *is* the proof that
+the wrapper won the race, with the sentinel's presence as the discriminator rather than a number — exactly
+D-3 and R3. Removing an assertion that cannot fail for the reason it names, while keeping every assertion
+that can, is not weakening.
+
+**One thing the row must carry, because it is the real residual.** The lead over Composer at any practical
+forced limit is 2 s and both sides' detection latency is unbounded, so **AC-4's own recipe is a race with a
+1-second nominal lead at limit 2** (budget floors at 1 there) and 2 s above it. It has held on every run so
+far and its failure mode is a visible *absent* sentinel, never a silent pass, so it stays as it is. The
+lever, if it ever flakes, is the reserve's **floor** — `max(2, …)` is what sets the lead below limit 100 —
+and the cost of touching it is that AC-45's budget, `qa`'s published margins (67, 23.32 s, 36.89 s) and the
+manifest assertion's arithmetic all have to be re-derived. Not worth it in T-007; named so that the next
+person reaches for the floor rather than for the ceiling.
+
+### R19. S-5: `dev`'s shape is **confirmed**, and it is better evidence than the shape proposed
+
+The reviewer asked for two rows in `forgeryStanzas()`: one changing only `prefix`, one adding only `name`.
+`dev` could not implement the second and was right not to force it. The dataset's contract is that
+**every** row is refused on all seven routes, and a stanza adding only `name` is **accepted by design**
+(R12) — so as a dataset row it would have asserted the opposite of the mechanism and failed the suite. That
+is precisely the defect class R15.8 already names, and the second time `dev` has caught it; it is becoming
+this project's most reliable review question: *does this assertion state the design, or its negation?*
+
+`dev`'s shape — the `prefix` row inside the dataset (refused) plus a **sibling acceptance case** for a
+`name`-only stanza (served) — is the AC-40 pairing this plan asks for everywhere else, and the mutation
+proof makes it strictly stronger than two dataset rows could be: adding `prefix` to the exclusion list
+reddens **6** cases, removing `name` from it reddens **3**, with the authority restored byte-identically
+after each (md5 verified). A dataset row can only ever show that something is refused; the mutations show
+that **each of the two exclusions is load-bearing in the direction it claims**, which is the actual content
+of R12.
+
+And the `prefix` row is the executable form of R12's rule. `prefix` fails the rule's first half — the
+framework writes it *after* the choke point's check (`ConnectionFactory::parseConfig()`, inside the inner
+factory's `make()`), so it is never visible to `verify()` and must **not** be excluded. The exclusion list
+is two keys because exactly two keys pass the rule, and the suite now says so in both directions.
+Confirmed; no change requested.
+
+**And the question generalises, so it should not live inside this ruling. R15.8 does not cover it.** R15.8
+records one *instance* — the AC-16 surface list that first held the authority — and states no rule; R19 is
+the second instance, in a different file, from a different prompt, caught the same way. Two instances with
+no rule between them is how a convention gets re-learned per task. The rule is one line — **before adding
+an assertion, ask whether it states the design or its negation, and if it is the negation, the case belongs
+beside the dataset as a positive control rather than inside it** — and the cheapest place for it is a
+backlog convention row citing R15.8 and R19 as its evidence. The lead files it at hand-off; it is not mine
+to file and not worth a third discovery.
+
+### R20. The reviewer's first run is the first **measurement** that the limit choice mattered. R8 was arithmetic; this is evidence
+
+The reviewer's first gate run, on a contended machine, fired `FLEXIPOS-GATE-LOW-HEADROOM` at **ratio 1.42**
+against the 900 limit, and was silent at **3.32** on the re-run. Both came out of real gate runs rather
+than a forced probe, which is more than recipe 6 was asked to produce: **AC-10 in both directions on a
+whole gate**, for free.
+
+The load-bearing number is the ratio, not a wall clock. `ratio = limit / elapsed`, so 1.42 against 900 puts
+the **test step** at **635.88 s** — the reviewer's own figure for that step, and the ratio bounds it to
+[631.6, 636.0] independently — and 3.32 puts the re-run's test step at ≈271 s. Therefore:
+
+> **At the 600 limit my own rule originally yielded, the budget would have been 588 s and the wrapper would
+> have killed a clean, correct tree and printed the sentinel** — the exact false red this task exists to
+> prevent, produced by this task's own fix. 900's budget of 882 cleared the same run with room, and the run
+> was green.
+
+R8 argued "600 fails AC-2, 900 passes" from `3 × 106` — a derived figure and a criterion. This is the first
+run on which the difference was real, and it arrived from the one role that was not trying to prove it. It
+belongs beside the derivation, and it is now in the risk table's `process-timeout: 900` row.
+
+*And the second figure reconciles exactly, once it is labelled correctly.* **635.88 s is the reviewer's
+measurement of the test step** — the wrapper's own `elapsed=` for the step it wraps — not of the whole gate.
+`900 / 635.88 = 1.4154`, which prints as the **1.42** the wrapper reported, and a printed 1.42 bounds
+elapsed to [631.6, 636.0], so the two numbers are one number stated twice. I had declined to reconcile it
+as a whole-gate figure because that reading leaves ≈2 s for `probes:clean`, `lint`, `stan` and `deptrac`,
+which no measured profile on this machine supports; the mislabelling was in the summary handed to me and
+has been corrected, not in the review. Recorded here as the test step's figure.
+
+Quote the **ratio** anyway. It is printed by the wrapper from its own clock, it is the number AC-10 is
+written against, and it carries its own limit with it — where a bare 635.88 s needs a label to mean
+anything, as this exchange demonstrates.
+
+---
+
 ## Measured surface — what the code does today
 
 MEASURED by reading the installed framework and the current sources.
+
+**Citation convention, after review round 1 found two stale line numbers in this file** (`gate-step.php:176`,
+which step 1b moved to :182, and `DatabaseManager.php:195`, which is a closing brace — the branch is at
+:192): **the symbol is the authority and the line is a convenience.** Every row below names a method or a
+property, and the line numbers are v12.69.2's. A line that has moved is a stale convenience; a symbol that
+has moved is a changed framework contract, and `TenancyFrameworkContractTest` is what notices that.
 
 | Fact | Where |
 |---|---|
 | Every construction route funnels into `ConnectionFactory::make()`: `connection()` → `makeConnection()` → `$this->factory->make()`; `connectUsing()` → `$this->factory->make()`; `build()` → `connectUsing()` | DatabaseManager.php:93, 117, 147, 185, 203 |
 | The factory is **injected into the manager at construction** (`__construct($app, ConnectionFactory $factory)`), so the decoration must be registered before `db` is resolved, and the decorator must be a subclass of `ConnectionFactory` | DatabaseManager.php:75 |
-| A name-keyed extension is consulted **before** the factory | DatabaseManager.php:195 |
+| A name-keyed extension is consulted **before** the factory (`makeConnection()`, the `isset($this->extensions[$name])` branch) | DatabaseManager.php:192 |
 | `configuration()` prefers `$dynamicConnectionConfigurations[$name]` over `config()`, and `purge()` never clears it | DatabaseManager.php:218, 299 |
 | `ConfigurationUrlParser::parseConfiguration()` returns the stanza unchanged when there is no `url` key, and pulls/expands `url` when there is | Support/ConfigurationUrlParser.php |
 | `ConnectionFactory::make()` adds `prefix` and `name` **inside** `make()`, after an override's check would have run, and branches to read/write on `isset($config['read'])` | Connectors/ConnectionFactory.php:42, 60 |
@@ -805,7 +960,7 @@ MEASURED by reading the installed framework and the current sources.
 **One row of that list was a hole nobody had ever asserted, and it is the strongest single argument for the
 choke point over the three-layer design** (added after step 3, R13). `app('db.factory')->make($stanza, 'tenant')`
 reached **neither** pre-FP-160 attachment, on **any** dispatcher: the connection extension is keyed by name
-and the manager consults `$extensions[$name]` only inside `makeConnection()` (DatabaseManager.php:195),
+and the manager consults `$extensions[$name]` only inside `makeConnection()` (DatabaseManager.php:192),
 which this route never enters; and `ConnectionEstablished` is dispatched by the **manager**, not by the
 factory — every call site is a manager method (DatabaseManager.php:105, 161, 334, dispatching from :264) —
 so a connection the manager never made raises no event to listen for. The route was therefore unguarded with a real dispatcher too, not merely under `Event::fake()`.
@@ -1034,7 +1189,8 @@ pasted into the commit message, because a guard whose first run is green is defe
          last field before the prose. Then assert it where the branch is already exercised —
          `source=manifest` in the case that forces no limit, `source=env` on the margin line of a case that
          forces one. Both directions are then covered by running. `source=default` stays covered by reading:
-         the wrapper's manifest path is fixed (`gate-step.php:176`), so no test can make
+         the wrapper's manifest path is fixed (its one `file_get_contents(__DIR__.'/../composer.json')`;
+         this step moved it to :182, which is why the citation is by symbol), so no test can make
          `config.process-timeout` absent. **Correct the wrapper's residual paragraph accordingly** — it
          currently groups `manifest` with `default`, and after this change only `default` belongs there.
       2. **The manifest's gate key set becomes state-explicit** (R8, D-12). `cold-slowest-step-seconds`
@@ -1369,7 +1525,7 @@ shapes stay in the suite, and measuring only the post-scope one reproduces the a
 | A framework upgrade adds a key between `configuration()` and the factory, or renames `make()` | Fails **closed**: every tenant connection is refused and the whole tenancy suite goes red on the first `composer update`. `TenancyFrameworkContractTest`'s new case names the cause in one read. **Observed once already in step 4, from `build()` rather than from an upgrade, and in exactly this direction — a refused *legitimate* stanza, not an accepted forged one (R12)** | widen the digest's excluded keys — but only by R12's rule (the framework writes the key before the factory is called **and** it cannot redirect which database is opened) — or pin the framework |
 | A third party registers a name-keyed extension for the tenant connection and bypasses the factory | The standing test in step 3 | remove the extension; the test names it |
 | **A module calls `DB::build()` under the tenant connection name and wedges the worker** — every later `enter()` is refused for the life of the process (R16, measured and pinned by `qa`) | `qa`'s case "refuses to enter another tenant once the tenant name has been built", which also shows that clearing the retained entry restores service. Fail-closed and pre-existing: a stale stanza is refused, never served | clear `dynamicConnectionConfigurations` for the tenant name in `Tenancy::resetTenantConnection()` — out of scope here because it changes the teardown §4.4 describes (R4), so it is the lead's backlog row |
-| `process-timeout: 900` lets a genuinely hung step hang for 15 minutes | Accepted (R8): the limit is what AC-2 requires once D-12's S is the input, and 600 fails that criterion outright. The wrapper's budget (882 s) is the binding limit for the test step, and the margin line reports the ratio on every completed run; `lint`, `stan` and `deptrac` are unwrapped, so a hang in one of those is the 15-minute case (R7's residual) | lower the limit **and** the factor or the state it is derived from, together; the manifest assertion tells you how far |
+| `process-timeout: 900` lets a genuinely hung step hang for 15 minutes | Accepted (R8): the limit is what AC-2 requires once D-12's S is the input, and 600 fails that criterion outright. **And the choice is now evidenced rather than derived (R20): the reviewer's first run measured the test step at 635.88 s on a contended machine [low-headroom ratio 1.42 against the 900 limit], which a 600 limit's budget of 588 would have killed on a clean tree — this task's own fix producing the false red it exists to prevent.** The wrapper's budget (882 s) is the binding limit for the test step, and the margin line reports the ratio on every completed run; `lint`, `stan` and `deptrac` are unwrapped, so a hang in one of those is the 15-minute case (R7's residual) | lower the limit **and** the factor or the state it is derived from, together; the manifest assertion tells you how far |
 | AC-45's limit is derived from single samples on both sides, so a thin window reads as a product failure | Recipe 4's geometric mean cannot produce an invalid limit while a window exists (R10); `qa` samples the analysis side three times and reports both margins; AC-45 itself declares an analysis overrun an invalid run | widen the window by re-measuring, or fall back to recipe 3 and record why |
 | Pest's own exit code 3 read as a kill | The sentinel is the discriminator (D-3); a child's 3 arrives with the margin line, not the sentinel | drop the distinct code (one line) |
 | A POSIX kill leaves a Pest grandchild running | `probes:clean` first in `check`, proved by AC-8 | none needed; stated as a residual |
@@ -1382,7 +1538,7 @@ Each step is one commit, so `git revert` of step 4 restores the marker while kee
 
 ## Questions for the human
 
-None. Six things for the lead's queue rather than the human's, three of them already closed:
+None. Eight things for the lead's queue rather than the human's, four of them already closed:
 
 1. `docs/database.md` §4.4 names `TenantConnectionResolver`, a class that does not exist — the code calls
    it `Tenancy`. Pre-existing drift, untouched by this task (R4), worth a backlog row.
@@ -1400,10 +1556,10 @@ None. Six things for the lead's queue rather than the human's, three of them alr
    `name`, it invents `dynamic_<md5>` when none is given (DatabaseManager.php:119, 132). The mechanism and
    the exclusion are both right — `build()` writes the key either way — but this is a claim about a
    framework contract sitting in a security class, and `TenancyFrameworkContractTest` exists so such claims
-   can be checked. One sentence, no code. R12 has the wording. `dev`'s to fix, not mine. **In hand:** `dev`
-   is making exactly that change, and `qa` notes (report note 5) that a comment-only edit under
-   `packages/kernel/src` still changes the Pint and PHPStan input, so the final tip needs one more
-   `composer check` — which the reviewer round runs anyway. It cannot move S or the AC-45 limit.
+   can be checked. One sentence, no code. R12 has the wording. **CLOSED** in `78ae627`, with the second
+   copy in the proof file closed at `9b689e7`. `qa`'s note 5 was right that a comment-only edit under
+   `packages/kernel/src` still changes the Pint and PHPStan input, so the tip took another gate run; it
+   could not move S or the AC-45 limit, and did not.
 5. **Closed by `qa` in `292bdaa`, one better than I asked for.** The accidental
    `toContain('flexipos_tenant')` pass is **deleted**, not renamed, along with the stale
    `toContain('qa-cred-a')`, and replaced by a check that the live stanza holds exactly one 32-hex value
@@ -1415,3 +1571,12 @@ None. Six things for the lead's queue rather than the human's, three of them alr
    pre-existing, measured and pinned by `qa`, ruled in **R16**, and in the risk table with its candidate
    fix. The lead is taking the backlog row. Not a T-007 defect and not a human question: nothing in the
    codebase does it, and the failure mode is a refusal rather than a leak.
+7. **The kill case's wall-clock ceiling is a false red in FP-172's own proof** — ruled in **R18**: replace
+   the ceiling with the invariants, do not widen it, and if AC-4's recipe ever flakes reach for the
+   reserve's floor rather than the test's number. `dev` measured it and deliberately left it, which was the
+   right call. The lead is filing it, together with W-3 (sixteen child-spawning test files inheriting a
+   60-second default nobody set — out of scope here by AC-12, and FP-172's sibling) and item 6.
+8. **A convention row: "does this assertion state the design, or its negation?"** Caught twice in this task
+   in two different files (R15.8 and R19), both times by `dev`, both times before the assertion shipped.
+   **Not covered by R15.8**, which is one instance and states no rule. The row's text is in R19. The lead
+   files it at hand-off; a third discovery would be the project's own fault.
