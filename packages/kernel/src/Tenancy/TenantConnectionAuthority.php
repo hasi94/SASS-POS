@@ -161,19 +161,38 @@ final class TenantConnectionAuthority
      * Those two keys and no others, and the exclusions are not a convenience:
      *
      * - the authenticator cannot be part of what it authenticates;
-     * - `name` is the only key the framework itself puts into a stanza -
-     *   ConnectionFactory::parseConfig() adds it inside make(), and
-     *   DatabaseManager::build() requires the caller to supply it (MEASURED).
-     *   With `name` in the digest, DB::build() with the genuine stanza would be
-     *   refused for carrying a key the framework added, which is AC-23's third
-     *   column. `name` also decides nothing about which database is opened; it
-     *   names the connection.
+     * - `name` is the only framework-written key a digest ever sees, because it
+     *   is the only one written *before* the factory is called:
+     *   DatabaseManager::build() writes it into the stanza whether the caller
+     *   supplied one or not - `$config['name'] ??= calculateDynamicConnectionName($config)`
+     *   invents `dynamic_<md5 of the stanza>` when none is given
+     *   (DatabaseManager.php:119 and :132, MEASURED on v12.69.2 and pinned by
+     *   TenancyFrameworkContractTest) - and then hands that stanza on to
+     *   connectUsing() and so to this factory. With `name` in the digest,
+     *   DB::build() with the genuine stanza would be refused either way for
+     *   carrying a key the framework added, which is AC-23's third column.
+     *   `name` also decides nothing about which database is opened; it names
+     *   the connection.
      *
-     * The residual of excluding it is the one R7 already records: a genuine
-     * stanza can be rebuilt under a different connection name
-     * (DB::build(['name' => 'other', ...])). That connection reaches only the
-     * forger's own tenant, it is guarded per query like any other, and what it
-     * escapes is the name-based teardown. FP-163 territory.
+     * `prefix` is not a third exclusion, and that is what the "before the
+     * factory is called" qualifier buys: ConnectionFactory::parseConfig() adds
+     * `prefix` as well as `name` (ConnectionFactory.php:60-63), but it runs
+     * inside the *inner* factory's make(), after the choke point has already
+     * called verify(), so neither addition is ever visible to a digest. The
+     * rule behind the list, for any exclusion added later (plan R12): exclude a
+     * key only when the framework writes it before the factory is called *and*
+     * it cannot redirect which database is opened. `name` meets both, the
+     * authenticator is ours and is excluded for the first reason above, and
+     * nothing else in a stanza qualifies.
+     *
+     * What excluding `name` leaves is not an exception but a property (plan
+     * R12): an authorised stanza authenticates one tenant's database, for one
+     * scope, and not the connection name it is opened under. The same stanza
+     * may therefore be opened again under any name - or under none, since
+     * build() invents one - and that connection reaches only the forger's own
+     * tenant, is guarded per query like every other tenant connection, and is
+     * refused the moment the scope ends. What it escapes is the name-based
+     * teardown. FP-163 territory.
      *
      * Everything else stays in, with no whitelist of "redirecting" keys to keep
      * up to date: `database`, `host`, `port`, `username`, an injected

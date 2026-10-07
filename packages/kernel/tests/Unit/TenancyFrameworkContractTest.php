@@ -125,3 +125,50 @@ it('still builds every connection through the factory it was constructed with', 
         ->toContain('$this->dynamicConnectionConfigurations[$name] ?? Arr::get($connections, $name)')
         ->and($bodyOf('purge'))->not->toContain('dynamicConnectionConfigurations');
 });
+
+/*
+ * T-007 R12 - the framework contract TenantConnectionAuthority::digest()'s
+ * `name` exclusion depends on.
+ *
+ * The digest covers the whole stanza less two keys, and `name` is excluded
+ * because the framework writes it before the choke point looks: build() puts it
+ * into the stanza and hands that stanza to connectUsing() and so to the
+ * factory. It writes it whether the caller supplied one or not, which is what
+ * makes the connection-name residual a *property* of an authorisation rather
+ * than an exception a caller opts into.
+ *
+ * IF THIS CASE FAILS, THE EXCLUSION IS NO LONGER FORCED, and nothing else says
+ * so: a framework that stopped writing `name` before the factory leaves every
+ * tenancy test green while the digest goes on excluding a key it no longer has
+ * to, widening the residual for nothing. The opposite direction needs no pin -
+ * a key written *earlier* than today (as `prefix` would have to be) refuses a
+ * legitimate stanza and reddens the two-tenant tests on the same run. This is
+ * the quiet direction, so it is pinned here and the loud one is not.
+ */
+
+it('still writes a connection name into the stanza build() hands the factory', function () {
+    $build = new ReflectionMethod(DatabaseManager::class, 'build');
+    $lines = (array) file((string) $build->getFileName());
+    $body = (string) preg_replace('/\s+/', ' ', implode('', array_slice(
+        $lines,
+        (int) $build->getStartLine() - 1,
+        (int) $build->getEndLine() - (int) $build->getStartLine() + 1
+    )));
+
+    // 1. The key is written, and defaulted rather than required, so the stanza
+    //    carries it whether or not a name was passed in...
+    expect($body)->toContain("\$config['name'] ??= static::calculateDynamicConnectionName(\$config)")
+        // ...and that same stanza is what goes on to connectUsing(), whose call
+        // to $this->factory->make($config, $name) the case above pins.
+        ->and($body)->toContain("\$this->connectUsing(\$config['name'], \$config, true)");
+
+    // 2. The default is computed, not asked of the caller. Only that a name can
+    //    be produced without one is depended on; its format is not.
+    $invented = DatabaseManager::calculateDynamicConnectionName([
+        'driver' => 'sqlite',
+        'database' => ':memory:',
+    ]);
+
+    expect($invented)->toBeString()
+        ->and($invented)->not->toBe('');
+});
