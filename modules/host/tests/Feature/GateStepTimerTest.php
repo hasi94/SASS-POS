@@ -1,0 +1,411 @@
+<?php
+
+use Illuminate\Contracts\Process\ProcessResult;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Process;
+
+/*
+ * T-007 FP-172 (AC-2, AC-3, AC-4, AC-5, AC-6, AC-9, AC-10, AC-11, AC-12, AC-42,
+ * AC-44) - the gate's own step timer, tools/gate-step.php.
+ *
+ * On 2026-10-06 the gate outlasted the package manager's per-process limit on a
+ * cold cache and reported exit 1 with no test failure: a false red on a clean
+ * tree. The wrapper exists so that the gate is the thing that ends the step and
+ * the gate is the thing that says so. This file is the proof that it does - and
+ * the proof that a pass still looks like a pass and a failure still looks like a
+ * failure, which is the half a sentinel gets wrong by printing on every path.
+ *
+ * Every spawning case forces the limit through the child's environment, so the
+ * whole file costs seconds rather than the minutes a real kill of the suite
+ * would. The slow, whole-gate forms of AC-4 to AC-8 and AC-45 are qa's and live
+ * in the plan's measurement recipes, not here.
+ *
+ * The file spawns children, so it is registered in toolchainGroupFiles() in
+ * tests/Helpers.php; without that entry the registry sweep in
+ * ToolchainGroupCoverageTest fails the gate. The last case asserts that, so the
+ * reason travels with the file instead of living only in another test's failure
+ * message.
+ */
+
+/**
+ * One run of the step wrapper around a short PHP child.
+ *
+ * The limit is forced through the child's environment because the package
+ * manager exports only COMPOSER_BINARY and COMPOSER_DEV_MODE into a script's
+ * child and never the limit - which is why the wrapper resolves it itself, and
+ * why this is the only way to pin it per case. `false` removes the variable
+ * altogether, so the wrapper has to fall back to the manifest.
+ *
+ * @param  list<string>  $child  the arguments the wrapper hands to PHP
+ */
+function gateTimerRun(array $child, string|false $limit): ProcessResult
+{
+    /** @var array<string, string|bool> $environment */
+    $environment = ['COMPOSER_PROCESS_TIMEOUT' => $limit];
+
+    return Process::path(base_path())
+        ->env($environment)
+        ->timeout(120)
+        ->run(array_merge([
+            PHP_BINARY,
+            base_path('tools'.DIRECTORY_SEPARATOR.'gate-step.php'),
+            'probe',
+            '--',
+        ], $child));
+}
+
+/**
+ * The host manifest, decoded.
+ *
+ * @return array<mixed, mixed>
+ */
+function gateTimerManifest(): array
+{
+    /** @var array<mixed, mixed> $manifest */
+    $manifest = (array) json_decode((string) File::get(base_path('composer.json')), true);
+
+    return $manifest;
+}
+
+/**
+ * One value out of the host manifest by key path, or null when the path is
+ * absent.
+ *
+ * @param  list<string>  $path
+ */
+function gateTimerManifestValue(array $path): mixed
+{
+    $cursor = gateTimerManifest();
+
+    foreach ($path as $key) {
+        if (! is_array($cursor) || ! array_key_exists($key, $cursor)) {
+            return null;
+        }
+
+        $cursor = $cursor[$key];
+    }
+
+    return $cursor;
+}
+
+/**
+ * The last line of an output that carries content, trimmed.
+ *
+ * Trailing blank lines and carriage returns go first: AC-9 is a claim about the
+ * last thing a reader sees, not about the last byte.
+ */
+function gateTimerLastLine(string $output): string
+{
+    $lines = array_values(array_filter(
+        array_map('trim', preg_split('/\R/', $output) ?: []),
+        static fn (string $line): bool => $line !== ''
+    ));
+
+    return $lines === [] ? '' : (string) end($lines);
+}
+
+/*
+ * The kill. AC-4's per-step form, and the one case that is red against the
+ * T-006 tip, where no project code runs on a timeout at all (AC-7).
+ */
+
+it('ends a step that outlasts its own budget, names what happened, and exits 3', function () {
+    // limit 2 -> reserve max(2, ceil(0.04)) = 2 -> budget max(1, 0) = 1.
+    $result = gateTimerRun(['-r', 'echo "child tick", PHP_EOL; usleep(8000000);'], '2');
+
+    $output = $result->output();
+
+    // The refusal this case expects, named: a kill by the gate's own timer,
+    // which is the pair (FLEXIPOS-GATE-TIMEOUT, exit 3) and nothing else.
+    expect($result->exitCode())->toBe(3)
+        ->and($output)->toContain('FLEXIPOS-GATE-TIMEOUT')
+        ->and($output)->toContain('step=probe')
+        ->and($output)->toContain('budget=1s')
+        ->and($output)->toContain('limit=2s')
+        ->and($output)->toContain('source=env')
+        ->and($output)->toContain('NO TEST RESULT WAS PRODUCED.');
+
+    // Output the child wrote before the kill survives, which is the whole
+    // reason a sentinel printed by project code is readable at all.
+    expect($output)->toContain('child tick');
+
+    // A killed step is never also a completed one.
+    expect($output)->not->toContain('FLEXIPOS-GATE-MARGIN');
+
+    /*
+     * And the kill was this timer's, not the package manager's: the elapsed
+     * time reported is at least the budget and still below the limit. If this
+     * ever fails, the reserve floor no longer covers the detection latency -
+     * which is the one thing that would let the package manager win the race
+     * and reproduce the incident.
+     */
+    expect(preg_match('/FLEXIPOS-GATE-TIMEOUT[^\r\n]* elapsed=([0-9.]+)s/', $output, $matches))->toBe(1);
+
+    expect((float) $matches[1])->toBeGreaterThanOrEqual(1.0)
+        ->and((float) $matches[1])->toBeLessThan(2.0);
+});
+
+/*
+ * The negative controls: a pass is not a kill (AC-6) and a failure is not a
+ * kill (AC-5, wrapper half). Without these, the sentinel assertion above would
+ * pass just as well against a wrapper that printed it on every path.
+ */
+
+it('reads the limit from the manifest when none is forced, and puts the margin line last', function () {
+    $result = gateTimerRun(['-r', 'echo "child done", PHP_EOL;'], false);
+
+    $output = $result->output();
+    $limit = (int) gateTimerManifestValue(['config', 'process-timeout']);
+
+    expect($limit)->toBeGreaterThan(0);
+
+    /*
+     * The limit the margin line reports is the manifest's, which is what makes
+     * this the manifest branch of the resolution. The source= label is on the
+     * kill line only, by design: a completed run has no false red to explain.
+     */
+    expect($result->exitCode())->toBe(0)
+        ->and($output)->toContain('child done')
+        ->and($output)->toContain('limit='.$limit.'s')
+        ->and($output)->not->toContain('FLEXIPOS-GATE-TIMEOUT')
+        ->and($output)->not->toContain('FLEXIPOS-GATE-LOW-HEADROOM');
+
+    expect(gateTimerLastLine($output))->toStartWith('FLEXIPOS-GATE-MARGIN step=probe');
+});
+
+it('passes a failing step through with its own status, on its own stream, and no sentinel', function () {
+    $result = gateTimerRun(['-r', 'fwrite(STDERR, "child failed".PHP_EOL); exit(1);'], '60');
+
+    expect($result->exitCode())->toBe(1)
+        ->and($result->errorOutput())->toContain('child failed')
+        ->and($result->output())->not->toContain('FLEXIPOS-GATE-TIMEOUT');
+
+    expect(gateTimerLastLine($result->output()))->toStartWith('FLEXIPOS-GATE-MARGIN');
+});
+
+it('lets a step exit 3 of its own accord, with the margin line and without the sentinel', function () {
+    /*
+     * This is the half that makes the pair (status, sentinel) necessary rather
+     * than decorative. A composite script propagates a step's status verbatim,
+     * so a wrapped tool that exits 3 itself also reaches the shell as a 3 - and
+     * the only thing separating it from a kill is that the sentinel is absent
+     * and the margin line is present.
+     */
+    $result = gateTimerRun(['-r', 'exit(3);'], '60');
+
+    expect($result->exitCode())->toBe(3)
+        ->and($result->output())->not->toContain('FLEXIPOS-GATE-TIMEOUT');
+
+    expect(gateTimerLastLine($result->output()))->toStartWith('FLEXIPOS-GATE-MARGIN');
+});
+
+/*
+ * The margin warning that can actually fire (AC-10, per-step form).
+ */
+
+it('warns when a completed step leaves less headroom than the factor requires, and still exits 0', function () {
+    /*
+     * limit 8 -> reserve max(2, ceil(0.16)) = 2 -> budget 6. A child of about
+     * 4.5 s is therefore comfortably inside the budget and comfortably past
+     * limit / factor = 4, so the warning fires on a run that passed.
+     */
+    $result = gateTimerRun(['-r', 'usleep(4500000);'], '8');
+
+    $output = $result->output();
+
+    expect($result->exitCode())->toBe(0)
+        ->and($output)->toContain('FLEXIPOS-GATE-LOW-HEADROOM')
+        ->and($output)->toContain('raise config.process-timeout')
+        ->and($output)->not->toContain('FLEXIPOS-GATE-TIMEOUT');
+
+    // The factor the warning quotes is the manifest's rather than a second copy
+    // of it, and the ratio it reports really is below that factor.
+    expect(preg_match(
+        '/FLEXIPOS-GATE-LOW-HEADROOM step=probe ratio=([0-9.]+) below the required ([0-9.]+)x \(D-1\)/',
+        $output,
+        $warning
+    ))->toBe(1);
+
+    expect((float) $warning[2])->toBe((float) gateTimerManifestValue(['extra', 'flexipos', 'gate', 'headroom-factor']))
+        ->and((float) $warning[1])->toBeLessThan((float) $warning[2]);
+
+    // The warning comes first; the margin line is still the last thing printed,
+    // and it reports the same ratio.
+    expect(gateTimerLastLine($output))->toStartWith('FLEXIPOS-GATE-MARGIN');
+
+    expect(preg_match('/FLEXIPOS-GATE-MARGIN[^\r\n]* ratio=([0-9.]+)/', $output, $margin))->toBe(1);
+
+    expect($margin[1])->toBe($warning[1]);
+});
+
+it('ignores a limit in the environment that is not a positive whole number', function () {
+    /*
+     * The resolution order is environment, then manifest, then the documented
+     * default, and it is asserted in both directions: without the control at
+     * the end, "the manifest's limit was reported" would be evidence of
+     * nothing, because it is also what a wrapper that never reads the
+     * environment prints.
+     *
+     * The default branch is not reachable from a test while the manifest
+     * carries the key, so it is covered by reading rather than by running, and
+     * the wrapper's header says so.
+     */
+    $limit = (int) gateTimerManifestValue(['config', 'process-timeout']);
+
+    expect($limit)->not->toBe(61);
+
+    foreach (['0', '-5', '12.5', 'later', ''] as $rubbish) {
+        $result = gateTimerRun(['-r', 'exit(0);'], $rubbish);
+
+        expect($result->exitCode())->toBe(0)
+            ->and($result->output())->toContain('limit='.$limit.'s');
+    }
+
+    // The control: a value that IS a positive whole number does win, and the
+    // kill line names it, which is the only line that carries the label.
+    expect(gateTimerRun(['-r', 'exit(0);'], '61')->output())->toContain('limit=61s');
+
+    expect(gateTimerRun(['-r', 'usleep(8000000);'], '2')->output())->toContain('source=env');
+});
+
+/*
+ * The manifest cases. These make AC-2, AC-3, AC-11, AC-12 and AC-42 standing
+ * assertions instead of prose that decays - FP-171's own remedy. Nothing below
+ * spawns anything.
+ */
+
+it('keeps the limit finite, positive and above the factor times the dated cold measurement', function () {
+    $limitValue = gateTimerManifestValue(['config', 'process-timeout']);
+    $coldValue = gateTimerManifestValue(['extra', 'flexipos', 'gate', 'cold-slowest-step-seconds']);
+    $factorValue = gateTimerManifestValue(['extra', 'flexipos', 'gate', 'headroom-factor']);
+
+    expect($limitValue)->toBeInt()
+        ->and($limitValue)->toBeGreaterThan(0)
+        ->and($coldValue)->toBeInt()
+        ->and($coldValue)->toBeGreaterThan(0)
+        ->and($factorValue)->toBeInt()
+        ->and($factorValue)->toBeGreaterThanOrEqual(2);
+
+    $limit = (int) $limitValue;
+    $cold = (int) $coldValue;
+    $factor = (int) $factorValue;
+
+    // D-1 as arithmetic rather than as a sentence: the limit clears the factor
+    // times the slowest cold step...
+    expect($limit)->toBeGreaterThanOrEqual($factor * $cold);
+
+    /*
+     * ...and so does the budget the wrapper actually enforces, which is the
+     * binding number for the test step and is strictly smaller than the limit.
+     * This is the half that matters: a limit that clears the factor while the
+     * budget does not would kill a healthy suite on schedule.
+     */
+    $budget = max(1, $limit - max(2, (int) ceil($limit * 0.02)));
+
+    expect($budget)->toBeGreaterThanOrEqual($factor * $cold)
+        ->and($budget)->toBeLessThan($limit);
+
+    /*
+     * And the rest of the plan's rule for choosing the limit, so the number in
+     * the manifest reads as a decision rather than as a guess: a whole multiple
+     * of 300 (the package manager's own default is one), and never under 600.
+     * Both are structural, not measurements, so neither needs a date.
+     */
+    expect($limit % 300)->toBe(0)
+        ->and($limit)->toBeGreaterThanOrEqual(600);
+});
+
+it('dates the cold measurement and names the command that re-measures it', function () {
+    // AC-11 and AC-42 for the manifest: the only duration written there is the
+    // cold measurement, and it carries a parseable date and a re-run recipe.
+    $measuredOn = (string) gateTimerManifestValue(['extra', 'flexipos', 'gate', 'measured-on']);
+    $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $measuredOn);
+
+    expect($parsed)->toBeInstanceOf(DateTimeImmutable::class);
+    expect($parsed === false ? '' : $parsed->format('Y-m-d'))->toBe($measuredOn);
+
+    expect((string) gateTimerManifestValue(['extra', 'flexipos', 'gate', 'measured-by']))->not->toBe('');
+
+    $remeasure = (string) preg_replace(
+        '/\s+/',
+        ' ',
+        (string) gateTimerManifestValue(['extra', 'flexipos', 'gate', 'remeasure-with'])
+    );
+
+    // The recipe has to name the caches to remove and a command to run, or it
+    // is a sentence rather than a re-measurement.
+    expect($remeasure)->toContain('composer')
+        ->and($remeasure)->toContain('phpstan')
+        ->and($remeasure)->toContain('deptrac');
+});
+
+it('never disables the process timeout in the gate or in any test command', function () {
+    /*
+     * AC-3 and D-2. The one script allowed to disable the limit is the serve
+     * command, and the control at the end proves the matcher finds it there -
+     * otherwise "absent from the other four" would be indistinguishable from a
+     * matcher that never matches anything.
+     */
+    foreach (['check', 'test', 'test:fast', 'test:slow'] as $name) {
+        $encoded = (string) json_encode(gateTimerManifestValue(['scripts', $name]));
+
+        expect($encoded)->not->toBe('null');
+        expect($encoded)->not->toContain('disableProcessTimeout');
+        expect($encoded)->not->toContain('COMPOSER_PROCESS_TIMEOUT');
+    }
+
+    expect((string) json_encode(gateTimerManifestValue(['scripts', 'dev'])))->toContain('disableProcessTimeout');
+});
+
+it('wraps the test step only, and leaves the five gate steps and the group flags alone', function () {
+    /*
+     * AC-12. The timer is deliberately applied to one step: a kill of lint,
+     * stan or deptrac still shows only the package manager's message, which the
+     * plan records as a residual (R7) rather than something this commit closes.
+     * Asserting it here is what stops it being closed by accident, unnoticed.
+     */
+    expect(gateTimerManifestValue(['scripts', 'check']))
+        ->toBe(['@probes:clean', '@lint', '@stan', '@deptrac', '@test']);
+
+    foreach (['lint', 'stan', 'deptrac', 'test:fast', 'test:slow'] as $name) {
+        expect((string) json_encode(gateTimerManifestValue(['scripts', $name])))
+            ->not->toContain('gate-step.php');
+    }
+
+    expect((string) json_encode(gateTimerManifestValue(['scripts', 'test'])))->toContain('gate-step.php');
+
+    expect((string) json_encode(gateTimerManifestValue(['scripts', 'test:fast'])))
+        ->toContain('--exclude-group=toolchain');
+
+    expect((string) json_encode(gateTimerManifestValue(['scripts', 'test:slow'])))
+        ->toContain('--group=toolchain');
+});
+
+it('describes the test step by pointing at the one authority for the limit', function () {
+    /*
+     * FP-181: the limit's justification lives in extra.flexipos.gate and every
+     * other mention points there rather than repeating the number. Whitespace
+     * is collapsed before the phrases are looked for, because a line-oriented
+     * search over a wrapped string produced a false pass on this project once
+     * already.
+     */
+    $description = (string) preg_replace(
+        '/\s+/',
+        ' ',
+        (string) gateTimerManifestValue(['scripts-descriptions', 'test'])
+    );
+
+    expect($description)->toContain('FLEXIPOS-GATE-TIMEOUT')
+        ->and($description)->toContain('extra.flexipos.gate')
+        ->and($description)->toContain('exits 3');
+
+    // And it carries no duration of its own to go stale (AC-11, AC-42).
+    expect(preg_match('/\d+\s*(?:s|sec|secs|second|seconds)\b/i', $description))->toBe(0);
+});
+
+it('is registered in the toolchain group, because it spawns children', function () {
+    // Mechanically required: the registry sweep in ToolchainGroupCoverageTest
+    // compares the group against every test file whose source starts a child
+    // process, and this one does.
+    expect(toolchainGroupFiles())->toContain('modules/host/tests/Feature/GateStepTimerTest.php');
+});
