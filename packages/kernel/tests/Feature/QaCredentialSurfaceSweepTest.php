@@ -378,10 +378,30 @@ it('keeps the credential out of what the framework prints about itself', functio
 
         // Not merely "no credential": prove the command really printed the
         // stanza, so a command that silently did nothing cannot pass this.
-        // T-007 R6.3 (dev, declared): the tenant id is no longer in the stanza,
-        // so the proof that config:show really printed it is a value that is
-        // still there and still not a secret - the mapping record's username.
-        expect($shown)->toContain('flexipos_tenant')
+        //
+        // T-007 R6.3. The tenant id is no longer in the stanza, so the proof is
+        // values that ARE there and are not secrets: the mapping record's
+        // username, and the authenticator, key and value both. The authenticator
+        // is found by its shape (the one 32-character hexadecimal string in the
+        // live stanza) rather than by a name, because this assertion used to
+        // search for a name prefix and kept passing, by accident, on the
+        // substring of a longer key it had never meant - a search that succeeds
+        // for the wrong reason. Matching the live key and the live value is the
+        // statement it was always trying to make.
+        $stanza = (array) config('database.connections.tenant');
+
+        $authenticators = array_filter(
+            $stanza,
+            static fn (mixed $value): bool => is_string($value) && preg_match('/^[0-9a-f]{32}$/', $value) === 1
+        );
+
+        expect($authenticators)->toHaveCount(1);
+
+        $key = (string) array_key_first($authenticators);
+        $token = (string) $authenticators[$key];
+
+        expect(str_contains($shown, $key))->toBeTrue()
+            ->and(str_contains($shown, $token))->toBeTrue()
             ->and($shown)->toContain('qa_cred_app')
             ->and($shown)->toContain(ConnectionPassword::class)
             ->and($shown)->not->toContain(qaCredPassword())

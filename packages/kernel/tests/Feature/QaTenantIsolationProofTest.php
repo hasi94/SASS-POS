@@ -6,7 +6,10 @@ use Flexipos\Kernel\Tenancy\Exceptions\TenancyException;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantConnectionFailed;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantConnectionMismatch;
 use Flexipos\Kernel\Tenancy\Tenancy;
+use Illuminate\Database\Connection;
+use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\DatabaseManager;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Events\ConnectionEstablished;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -25,9 +28,15 @@ use Tests\TestCase;
  * switch back to the first tenant, and a connection built through the
  * DatabaseManager API that does not consult the guard at all.
  *
- * TWO CASES IN THIS FILE ARE EXPECTED TO BE RED until BUG-2 is fixed. They are
- * the last two, both named "... built through DatabaseManager ...". See
- * docs/qa/T-003-tenant-connections.md, BUG-2.
+ * Nothing in this file is expected to be red. (T-003 BUG-2, the build() and
+ * connectUsing() bypass, was closed in T-003 and re-closed at its root in T-007:
+ * the stanza checks moved from a name-keyed extension and an event listener into
+ * the one factory decoration.)
+ *
+ * T-007 added the second half of the file: qa's own AC-23 table, written from the
+ * spec's list of routes with its own helpers and its own stanzas (qa read dev's
+ * route names, not its table), so the two tables agree about the connection
+ * factory only by both being right about it.
  */
 
 uses(TestCase::class);
@@ -39,7 +48,12 @@ uses(TestCase::class);
  */
 function qaIsoRoot(): string
 {
-    return storage_path('app'.DIRECTORY_SEPARATOR.'qa-tenancy-isolation');
+    // Memoised because the afterAll hook below runs outside the application
+    // lifecycle, where storage_path() does not exist. The value is a constant
+    // for the life of the process, so the first beforeEach can resolve it.
+    static $root = null;
+
+    return $root ??= storage_path('app'.DIRECTORY_SEPARATOR.'qa-tenancy-isolation');
 }
 
 function qaIsoDatabasePath(string $tenant): string
@@ -106,8 +120,16 @@ function qaIsoMapping(): array
 
 function qaIsoBoot(): void
 {
-    qaIsoCreateDatabase('qa-iso-a');
-    qaIsoCreateDatabase('qa-iso-b');
+    // Once per file, not once per case (T-004 FP-155 did the same for the shared
+    // fixture, and this file has well over a hundred cases). Safe because no case
+    // writes to either database: the one DDL statement in this file runs inside a
+    // transaction that is rolled back, and every other statement is a select.
+    // The afterAll hook at the foot of the file removes the directory.
+    foreach (['qa-iso-a', 'qa-iso-b'] as $tenant) {
+        if (! is_file(qaIsoDatabasePath($tenant))) {
+            qaIsoCreateDatabase($tenant);
+        }
+    }
 
     qaIsoWriteEnvironment('QA_ISO_APP_PASSWORD', qaIsoPassword());
 
@@ -123,18 +145,6 @@ function qaIsoForget(): void
     app(Tenancy::class)->leave();
 
     qaIsoWriteEnvironment('QA_ISO_APP_PASSWORD', null);
-
-    // Twice, allowing for Windows: File::deleteDirectory() opens a
-    // FilesystemIterator over the directory and then rmdir()s it, and the
-    // iterator's handle can outlive the unset, leaving an empty directory
-    // behind. A second pass over the now-empty directory always succeeds.
-    File::deleteDirectory(qaIsoRoot());
-
-    clearstatcache();
-
-    if (File::isDirectory(qaIsoRoot())) {
-        File::deleteDirectory(qaIsoRoot());
-    }
 }
 
 function qaIso(): Tenancy
@@ -386,8 +396,9 @@ it('shows what a held connection does without the guard, on an unguarded connect
     // the guard matters if an identical, unguarded connection would have served
     // the other database instead of failing - which is exactly what
     // Connection::reconnectIfMissingConnection() plus the manager's reconnector
-    // do. Proven here on a connection name the tenancy extension does not
-    // cover, so no production code has to be touched to show it.
+    // do. Proven here on a connection name the tenant connection factory
+    // does not treat as a tenant's, so no production code has to be touched to
+    // show it.
     config()->set('database.connections.qa_iso_unguarded', [
         'driver' => 'sqlite',
         'database' => qaIsoDatabasePath('qa-iso-a'),
@@ -541,11 +552,13 @@ it('keeps nothing of a tenant in the database manager between scopes', function 
 });
 
 it('refuses a tenant connection built through DatabaseManager::connectUsing with no tenant resolved', function () {
-    // BUG-2. connectUsing() calls $this->factory->make($config, $name) directly
-    // instead of makeConnection(), so the name-keyed extension that IS the
-    // tenant guard is never consulted - and the resulting object is then cached
-    // under the `tenant` name for the rest of the process, so every later
-    // DB::connection('tenant') is unguarded too.
+    // BUG-2 (T-003), re-closed at its root by T-007. connectUsing() calls
+    // $this->factory->make($config, $name) directly instead of makeConnection(),
+    // so a name-keyed extension, which was the tenant guard then, was never
+    // consulted - and the resulting object was cached under the `tenant` name for
+    // the rest of the process, so every later DB::connection('tenant') was
+    // unguarded too. The guard now lives in the factory itself, which this route
+    // does call.
     //
     // AC-15: "qa verifies there is no second, working path that achieves the
     // same effect." This is one.
@@ -563,11 +576,12 @@ it('refuses a tenant connection built through DatabaseManager::connectUsing with
 });
 
 it('never caches the refused connection under the tenant name', function () {
-    // The BUG-2 fix relies on DatabaseManager::connectUsing() dispatching
-    // ConnectionEstablished *before* `$this->connections[$name] = $connection`.
-    // Before the fix I measured the unguarded object being installed as
-    // `tenant` for the rest of the process, so every later DB::connection()
-    // inherited it. Refusing is not enough on its own; refusing early is.
+    // The refusal has to happen inside the factory, before
+    // DatabaseManager::connectUsing() reaches
+    // `$this->connections[$name] = $connection`. Before BUG-2 was fixed I measured
+    // the unguarded object being installed as `tenant` for the rest of the
+    // process, so every later DB::connection() inherited it. Refusing is not
+    // enough on its own; refusing early is.
     foreach ([
         'connectUsing' => static function (): void {
             DB::connectUsing('tenant', [
@@ -634,19 +648,18 @@ it('bricks the tenant connection loudly, rather than quietly, after a refused bu
 });
 
 it('keeps the per-query guard attached when the event dispatcher is faked', function () {
-    // `dev` kept the connection extension as well as the listener, on the
-    // grounds that faking the dispatcher would otherwise silently disable a
-    // security guard. Checked rather than accepted: Event::fake() swaps the
-    // `events` binding, and DatabaseManager resolves it from the container on
-    // every dispatch, so the listener genuinely stops firing. The reasoning
-    // holds - and the extension is what keeps the ordinary route guarded.
+    // Rewritten for T-007 AC-27. This paragraph used to DECLINE to assert that
+    // the build()/connectUsing() route is guarded under Event::fake(), on the
+    // grounds that it was test-only state that ran "in the safe direction" and
+    // that asserting it would pin a hole shut against ever being closed. That
+    // reasoning was backwards: a guard that a test helper can switch off is a
+    // guard nobody can rely on in any test, and the day a production code path
+    // fakes or replaces the dispatcher the hole is real. FP-160 closed it by
+    // moving the guard out of the event entirely, and the next case asserts it.
     //
-    // Known and deliberately not asserted either way: under Event::fake() the
-    // build()/connectUsing() route is unguarded again, because only the
-    // listener covers it. That is test-only state - production always has a
-    // real dispatcher - and the divergence runs in the safe direction
-    // (production refuses what a faked test allows). Asserting it here would
-    // pin a hole shut against ever being closed.
+    // What stays here is the ordinary route, unchanged: the two assertions this
+    // case already made were green at every tip from T-003 onward and are the
+    // regression guard that the move did not lose them.
     Event::fake();
 
     qaIso()->enter('qa-iso-a');
@@ -659,8 +672,8 @@ it('keeps the per-query guard attached when the event dispatcher is faked', func
     qaIso()->enter('qa-iso-b');
 
     try {
-        // Level 3 is still attached, from the extension, with no dispatcher
-        // involved at all.
+        // The per-query guard is still attached, by the factory decoration,
+        // with no dispatcher involved at all.
         expect(fn (): mixed => $connection->scalar('select value from marker'))
             ->toThrow(TenantConnectionMismatch::class);
 
@@ -716,5 +729,824 @@ it('refuses a tenant connection built through DatabaseManager::build for another
     } finally {
         DB::purge('tenant');
         qaIso()->leave();
+    }
+});
+
+/*
+|--------------------------------------------------------------------------
+| T-007: qa's own AC-23 table, AC-27, AC-28 and AC-30
+|--------------------------------------------------------------------------
+|
+| Seven construction routes, three states, two dispatchers. The mechanism every
+| route passes through is one thing - the `db.factory` binding, decorated by
+| TenantConnectionFactory - and what these cases prove is that none of the routes
+| has a way round it, not that the decoration exists.
+|
+| The three states are the spec's, and each has a different refusal:
+|
+|   none     no tenant is resolved                  NoTenantResolved
+|   foreign  a tenant IS resolved, the stanza is    TenantConnectionMismatch
+|            not the one Tenancy wrote for it       (AC-21: never NoTenantResolved
+|                                                    while a tenant plainly is)
+|   legit    the stanza Tenancy wrote               the query answers, with that
+|                                                    tenant's row and no other
+|
+| Every refusal is also swept for the credential (AC-30), and a leaky helper
+| proves the sweep could have seen one.
+*/
+
+/**
+ * The one query every route runs, so a row coming back is a fact about which
+ * database was reached.
+ */
+function qaIsoSql(): string
+{
+    return 'select value from marker';
+}
+
+/**
+ * The key the live stanza carries its authenticator under, found by shape and
+ * not by name: the only 32-character hexadecimal string in it. qa does not
+ * import the name from production, so renaming it cannot make this file agree
+ * with the code by construction.
+ *
+ * @param  array<string, mixed>  $stanza
+ */
+function qaIsoAuthenticatorKey(array $stanza): string
+{
+    $keys = array_keys(array_filter(
+        $stanza,
+        static fn (mixed $value): bool => is_string($value) && preg_match('/^[0-9a-f]{32}$/', $value) === 1
+    ));
+
+    expect($keys)->toHaveCount(1, 'expected exactly one authenticator-shaped value in the live stanza');
+
+    return (string) $keys[0];
+}
+
+/**
+ * A read through an Eloquent model on the tenant connection, built the way a
+ * module's model would be.
+ */
+function qaIsoModelRead(): mixed
+{
+    $model = new class extends Model
+    {
+        protected $connection = 'tenant';
+
+        protected $table = 'marker';
+
+        public $timestamps = false;
+    };
+
+    return $model->newQuery()->value('value');
+}
+
+/**
+ * Put a stanza where the framework will read it for the name `tenant`, and drop
+ * whatever is cached under it, so the next request has to build.
+ *
+ * @param  array<string, mixed>  $stanza
+ */
+function qaIsoUse(array $stanza): void
+{
+    config()->set('database.connections.tenant', $stanza);
+    DB::purge('tenant');
+    DB::purge('tenant::read');
+}
+
+/**
+ * Run a closure that builds and queries, and report what came out: the refusal,
+ * or the value that came back.
+ *
+ * @return array{0: ?Throwable, 1: mixed}
+ */
+function qaIsoAttempt(Closure $attempt): array
+{
+    try {
+        return [null, $attempt()];
+    } catch (Throwable $exception) {
+        return [$exception, null];
+    }
+}
+
+/**
+ * Close a connection no manager owns, so its SQLite handle does not outlive the
+ * test and break the directory delete on Windows. build(), connectUsing() and
+ * the factory return the interface or the class depending on the route, and only
+ * the class can disconnect.
+ */
+function qaIsoClose(ConnectionInterface $connection): void
+{
+    if ($connection instanceof Connection) {
+        $connection->disconnect();
+    }
+}
+
+/**
+ * What an attempt came to, as one comparable string, so that a failing
+ * assertion prints what actually happened - the refusal's class and message, or
+ * the value that came back - instead of a bare "false is not true". (Pest's
+ * toBe() takes no message argument: a second argument is dropped without a word,
+ * which is why the outcome is the thing compared.)
+ *
+ * @param  array{0: ?Throwable, 1: mixed}  $attempt
+ */
+function qaIsoOutcome(array $attempt): string
+{
+    [$refusal, $value] = $attempt;
+
+    return $refusal === null
+        ? 'answered '.var_export($value, true)
+        : 'refused '.$refusal::class.' ('.$refusal->getMessage().')';
+}
+
+/**
+ * The same, reduced to the class: what a table row is expected to equal.
+ *
+ * @param  array{0: ?Throwable, 1: mixed}  $attempt
+ */
+function qaIsoClassOf(array $attempt): string
+{
+    return $attempt[0] === null ? 'answered '.var_export($attempt[1], true) : 'refused '.$attempt[0]::class;
+}
+
+/**
+ * The seven routes of the spec's list. Each takes the stanza to hand the route
+ * and says nothing else about the state it is run in.
+ *
+ * `$stanza` is what is *offered*: the config-driven routes install it in
+ * config() first, the explicit ones pass it as an argument. Connections no
+ * manager owns are closed here, because on Windows an open SQLite handle outlives
+ * the test and breaks the fixture's directory delete.
+ *
+ * @return array<string, Closure(array<string, mixed>): mixed>
+ */
+function qaIsoRoutes(): array
+{
+    return [
+        'DB::connection' => static function (array $stanza): mixed {
+            qaIsoUse($stanza);
+
+            return DB::connection('tenant')->scalar(qaIsoSql());
+        },
+
+        'an Eloquent model' => static function (array $stanza): mixed {
+            qaIsoUse($stanza);
+
+            return qaIsoModelRead();
+        },
+
+        'DB::build' => static function (array $stanza): mixed {
+            $connection = DB::build(['name' => 'tenant'] + $stanza);
+
+            try {
+                return $connection->scalar(qaIsoSql());
+            } finally {
+                qaIsoClose($connection);
+            }
+        },
+
+        'DB::connectUsing' => static fn (array $stanza): mixed => DB::connectUsing('tenant', $stanza, true)
+            ->scalar(qaIsoSql()),
+
+        'the factory called directly' => static function (array $stanza): mixed {
+            $connection = app('db.factory')->make($stanza, 'tenant');
+
+            try {
+                return $connection->scalar(qaIsoSql());
+            } finally {
+                $connection->disconnect();
+            }
+        },
+
+        'a reconnect after purge' => static function (array $stanza): mixed {
+            qaIsoUse($stanza);
+            DB::purge('tenant');
+
+            return DB::reconnect('tenant')->scalar(qaIsoSql());
+        },
+
+        'a read/write split' => static function (array $stanza): mixed {
+            qaIsoUse($stanza);
+
+            return DB::connection('tenant::read')->scalar(qaIsoSql());
+        },
+    ];
+}
+
+/**
+ * @return list<string>
+ */
+function qaIsoRouteNames(): array
+{
+    return array_keys(qaIsoRoutes());
+}
+
+/**
+ * Whatever the connection manager caches that belongs to the tenant name, in
+ * any of its read/write spellings.
+ *
+ * @return list<string>
+ */
+function qaIsoTenantKeys(): array
+{
+    return array_values(array_filter(
+        array_map('strval', array_keys(DB::getConnections())),
+        static fn (string $name): bool => $name === 'tenant' || str_starts_with($name, 'tenant::')
+    ));
+}
+
+/**
+ * Every stanza a forger could write while tenant A is resolved, by what the
+ * forger knows. Called inside A's scope, so the live stanza exists to be copied.
+ *
+ * Every one of these points at tenant B's real SQLite file, or at A's with one
+ * redirecting value changed: a refusal means something only if the thing refused
+ * would otherwise have answered.
+ *
+ * @return array<string, array<string, mixed>>
+ */
+function qaIsoForgeries(): array
+{
+    $live = qaIsoStanza();
+    $key = qaIsoAuthenticatorKey($live);
+    $other = qaIsoDatabasePath('qa-iso-b');
+    $plain = 'qa-iso-FORGED-PASSWORD-3e9a';
+
+    $base = [
+        'driver' => 'sqlite',
+        'host' => 'qa-iso-qa-iso-b',
+        'port' => 3306,
+        'database' => $other,
+        'username' => 'qa_iso_qa_iso_b',
+        'password' => $plain,
+        'prefix' => '',
+        'charset' => 'utf8mb4',
+        'collation' => 'utf8mb4_unicode_ci',
+        'prefix_indexes' => true,
+        'strict' => true,
+        'engine' => null,
+        'options' => [],
+    ];
+
+    return [
+        // F1: knows the published source and the resolved tenant id. The old
+        // public marker was exactly this key with exactly this value.
+        'F1: the retired marker key holding the tenant id' => $base + ['flexipos_tenant' => 'qa-iso-a'],
+        'F1: an authenticator that is the tenant id' => $base + [$key => 'qa-iso-a'],
+        'F1: an authenticator of the right shape that nobody minted' => $base + [$key => bin2hex(random_bytes(16))],
+
+        // F2: runs inside the scope, reads the live stanza, copies every value
+        // including the authenticator, and changes one thing.
+        'F2: a copy with the database changed' => array_replace($live, ['database' => $other]),
+        'F2: a copy with the host changed' => array_replace($live, ['host' => 'qa-iso-elsewhere']),
+        'F2: a copy with the username changed' => array_replace($live, ['username' => 'qa_iso_somebody_else']),
+        'F2: a copy with a read split injected' => $live + ['read' => ['database' => $other]],
+    ];
+}
+
+/**
+ * Everything a refusal prints that a log, a page or a terminal might carry.
+ */
+function qaIsoSurface(Throwable $refusal): string
+{
+    return (string) $refusal.PHP_EOL.$refusal->getMessage().PHP_EOL.$refusal->getTraceAsString();
+}
+
+/**
+ * The fragments of either credential that appear anywhere on a refusal's surface.
+ * The prefixes are there because a trace prints a string argument truncated, and
+ * a truncated password is still most of one.
+ *
+ * @return list<string>
+ */
+function qaIsoCredentialsOn(Throwable $refusal): array
+{
+    $surface = qaIsoSurface($refusal);
+
+    return array_values(array_filter(
+        [qaIsoPassword(), 'qa-iso-PASSWORD', 'qa-iso-FORGED-PASSWORD-3e9a', 'qa-iso-FORGED-'],
+        static fn (string $needle): bool => str_contains($surface, $needle)
+    ));
+}
+
+/**
+ * Whether the route hands back a connection the manager does not cache.
+ */
+function qaIsoHoldsHandle(string $route): bool
+{
+    return in_array($route, ['DB::build', 'the factory called directly'], true);
+}
+
+/**
+ * Put the application back to "no tenant, nothing cached, nothing retained"
+ * between two rows of one table, so a row cannot inherit another row's state.
+ *
+ * The retained-configuration reset is not production behaviour and not a
+ * workaround for it: DatabaseManager::build() writes the caller's array into
+ * `dynamicConnectionConfigurations['tenant']`, no public API clears it, and
+ * configuration() prefers it over config() - so after any build() (refused or
+ * not) the next enter() in the same process is itself refused. That is fail-closed
+ * and a case below pins it. Rows of a table need to be independent of it, so the
+ * property is emptied here, by reflection, which only a test may do.
+ */
+function qaIsoFresh(): void
+{
+    qaIso()->leave();
+
+    $manager = app(DatabaseManager::class);
+
+    (new ReflectionProperty(DatabaseManager::class, 'dynamicConnectionConfigurations'))->setValue($manager, []);
+
+    foreach (qaIsoTenantKeys() as $name) {
+        DB::purge($name);
+    }
+
+    app()->forgetScopedInstances();
+}
+
+/**
+ * One route through all three of the spec's states, as a map of row name to
+ * what the row came to. Built by one function and compared with one expected map
+ * in one assertion, so a failure prints every row that differs rather than
+ * stopping at the first.
+ *
+ * @return array{rows: array<string, string>, credentials: list<string>, leftovers: list<string>}
+ */
+function qaIsoTable(string $route): array
+{
+    $rows = [];
+    $credentials = [];
+    $leftovers = [];
+
+    $record = static function (string $row, Closure $run) use (&$rows, &$credentials, &$leftovers): void {
+        // Keys cached before the attempt are the scope's own (entering a tenant
+        // opens one to prove the database answers); only a key the refused
+        // request ADDED is a leftover.
+        $before = qaIsoTenantKeys();
+        $attempt = qaIsoAttempt($run);
+        $rows[$row] = qaIsoClassOf($attempt);
+
+        if ($attempt[0] !== null) {
+            foreach (qaIsoCredentialsOn($attempt[0]) as $needle) {
+                $credentials[] = $row.': '.$needle;
+            }
+
+            // A refused request must not leave a cached connection behind.
+            foreach (array_diff(qaIsoTenantKeys(), $before) as $name) {
+                $leftovers[] = $row.': '.$name;
+            }
+        }
+    };
+
+    // State 1 - none. A stanza a queue worker would have left behind: the
+    // genuine one, captured inside a scope that has since ended.
+    $stale = qaIso()->run('qa-iso-a', fn (): array => qaIsoStanza());
+
+    $record('no tenant resolved', fn (): mixed => qaIsoRoutes()[$route]($stale));
+
+    qaIsoFresh();
+
+    // State 2 - foreign. Tenant A is resolved and the stanza is somebody
+    // else's. Every forgery is a separate row.
+    $names = array_keys(qaIsoExpectedRows($route));
+
+    foreach ($names as $name) {
+        if (! str_starts_with($name, 'F')) {
+            continue;
+        }
+
+        qaIso()->enter('qa-iso-a');
+
+        // Built inside this row's own scope: a copy of the live stanza carries
+        // THIS scope's authenticator, so what refuses it is the changed value
+        // and not a token that has since been superseded.
+        $forged = qaIsoForgeries()[$name];
+
+        $record($name, fn (): mixed => qaIsoRoutes()[$route]($forged));
+
+        qaIsoFresh();
+    }
+
+    // State 3 - legit. The positive control that makes every refusal above
+    // mean something: the same route, the stanza left exactly as Tenancy wrote
+    // it, answers with this tenant's row and nobody else's.
+    qaIso()->enter('qa-iso-a');
+
+    $genuine = qaIsoStanza();
+
+    $rows['the stanza Tenancy wrote'] = qaIsoClassOf(qaIsoAttempt(fn (): mixed => qaIsoRoutes()[$route]($genuine)));
+
+    qaIsoFresh();
+
+    // State 4 - held past the end of its scope. Only the two routes whose
+    // connection no manager caches can be held: leave() purges everything the
+    // manager owns, which nulls the handle and sends the next query back through
+    // the factory, so for every other route this state is the first one again.
+    // For these two the handle stays open and the per-query guard is the ONLY
+    // thing between the ended scope and the data - this is the row that goes red
+    // when the guard is not attached (AC-32).
+    if (qaIsoHoldsHandle($route)) {
+        qaIso()->enter('qa-iso-a');
+
+        $held = $route === 'DB::build'
+            ? DB::build(['name' => 'tenant'] + qaIsoStanza())
+            : app('db.factory')->make(qaIsoStanza(), 'tenant');
+
+        $held->scalar(qaIsoSql());
+
+        qaIso()->leave();
+
+        $rows['held past the end of its scope'] = qaIsoClassOf(qaIsoAttempt(fn (): mixed => $held->scalar(qaIsoSql())));
+
+        qaIsoClose($held);
+
+        qaIsoFresh();
+    }
+
+    $leftovers = array_merge($leftovers, array_map(
+        static fn (string $name): string => 'after the scope: '.$name,
+        qaIsoTenantKeys()
+    ));
+
+    return ['rows' => $rows, 'credentials' => $credentials, 'leftovers' => $leftovers];
+}
+
+/**
+ * What the table must say, for any route.
+ *
+ * @return array<string, string>
+ */
+function qaIsoExpectedRows(string $route): array
+{
+    // Names only, from a throwaway scope: the stanzas themselves are rebuilt
+    // inside the table, where the live one exists to be copied.
+    qaIso()->enter('qa-iso-a');
+
+    $names = array_keys(qaIsoForgeries());
+
+    qaIsoFresh();
+
+    $expected = ['no tenant resolved' => 'refused '.NoTenantResolved::class];
+
+    foreach ($names as $name) {
+        // The exact class, and the stage: refused by the factory, before any
+        // driver is asked to open anything. A missing-file error, a driver
+        // error, NoTenantResolved (wrong while a tenant plainly is resolved,
+        // AC-21) or an answer from tenant B would each be a different value
+        // here, and each prints as itself.
+        $expected[$name] = 'refused '.TenantConnectionMismatch::class;
+    }
+
+    $expected['the stanza Tenancy wrote'] = "answered 'qa-iso-a'";
+
+    if (qaIsoHoldsHandle($route)) {
+        $expected['held past the end of its scope'] = 'refused '.NoTenantResolved::class;
+    }
+
+    return $expected;
+}
+
+it('gives every route the same three answers', function (string $route) {
+    $table = qaIsoTable($route);
+
+    // Rows, then AC-30 (no credential on any refusal) and "a refused request
+    // caches nothing", each as its own comparison of a list with [].
+    expect($table['rows'])->toBe(qaIsoExpectedRows($route))
+        ->and($table['credentials'])->toBe([])
+        ->and($table['leftovers'])->toBe([]);
+})->with(qaIsoRouteNames());
+
+it('gives every route the same three answers when the dispatcher is faked', function (string $route) {
+    // AC-28. The same body of code and the same expected map as the case above,
+    // with only the dispatcher different: identical results are the claim, so
+    // there must not be a second set of expectations that merely resembles the
+    // first.
+    Event::fake();
+
+    $table = qaIsoTable($route);
+
+    expect($table['rows'])->toBe(qaIsoExpectedRows($route))
+        ->and($table['credentials'])->toBe([])
+        ->and($table['leftovers'])->toBe([]);
+})->with(qaIsoRouteNames());
+it('could see a credential on a refusal surface if one were there', function () {
+    // The control for every "a refusal printed a credential" assertion above.
+    // Without it, an empty finding list could mean the detector is blind. Args
+    // are switched on for this one exception because a production php.ini may
+    // legitimately switch them off, and then there is nothing for a trace to
+    // leak - which is a property of the ini file, not of the code under test.
+    $before = ini_set('zend.exception_ignore_args', '0');
+
+    try {
+        $leaky = static function (string $password): never {
+            throw new RuntimeException('connecting failed');
+        };
+
+        $refusal = qaIsoAttempt(fn (): mixed => $leaky(qaIsoPassword()))[0];
+    } finally {
+        ini_set('zend.exception_ignore_args', $before === false ? '0' : $before);
+    }
+
+    expect($refusal)->toBeInstanceOf(RuntimeException::class)
+        ->and(qaIsoCredentialsOn($refusal))->not->toBe([]);
+});
+
+it('refuses a connection no manager owns when it is queried after its scope has ended', function (string $route) {
+    // The one place the per-query guard, and nothing else, is what stops a held
+    // connection: DB::build() and a direct factory call hand back an object the
+    // manager never caches, so leave() has nothing to purge and its PDO stays
+    // open. The construction-time checks ran long ago and passed. Every other
+    // route reconnects through the factory when its PDO is nulled, which would
+    // refuse for a different reason and hide a missing guard - this is the case
+    // that goes red when the guard is not attached.
+    //
+    // Expected: NoTenantResolved, with a real dispatcher and with a faked one.
+    //
+    // AC-27 SHAPE B, post-scope. NOT red-first (plan R14): for build() the old
+    // design was already green here by accident, because leave() purges the name,
+    // the nulled handle reconnects through the manager, and that route the old
+    // extension did cover. Kept as a regression guard on that accident. For the
+    // direct factory call the handle is never purged; see the next case.
+    foreach ([false, true] as $fake) {
+        qaIsoFresh();
+
+        if ($fake) {
+            Event::fake();
+        }
+
+        qaIso()->enter('qa-iso-a');
+
+        $held = $route === 'DB::build'
+            ? DB::build(['name' => 'tenant'] + qaIsoStanza())
+            : app('db.factory')->make(qaIsoStanza(), 'tenant');
+
+        // The control: it answered, so the refusal is about the ended scope.
+        expect((string) $held->scalar(qaIsoSql()))->toBe('qa-iso-a');
+
+        qaIso()->leave();
+
+        $none = qaIsoAttempt(fn (): mixed => $held->scalar(qaIsoSql()));
+
+        qaIsoClose($held);
+
+        $label = $route.($fake ? ' under Event::fake()' : '');
+
+        expect($label.' after the scope -> '.qaIsoClassOf($none))
+            ->toBe($label.' after the scope -> refused '.NoTenantResolved::class);
+    }
+})->with(['DB::build', 'the factory called directly']);
+
+it('refuses a factory-built connection held into another tenant\'s scope, with either dispatcher', function () {
+    // AC-27 SHAPE A, the HELD HANDLE, and the only red-first shape (plan R14).
+    // The route returns A's own row inside B's scope: a connection
+    // no manager caches keeps its PDO across the switch, so nothing but the
+    // per-query guard stands between B's scope and A's data. (build() cannot be
+    // used for this shape - see the case after next.)
+    foreach ([false, true] as $fake) {
+        qaIsoFresh();
+
+        if ($fake) {
+            Event::fake();
+        }
+
+        qaIso()->enter('qa-iso-a');
+
+        $held = app('db.factory')->make(qaIsoStanza(), 'tenant');
+
+        expect((string) $held->scalar(qaIsoSql()))->toBe('qa-iso-a');
+
+        qaIso()->leave();
+        qaIso()->enter('qa-iso-b');
+
+        try {
+            $switched = qaIsoAttempt(fn (): mixed => $held->scalar(qaIsoSql()));
+        } finally {
+            qaIso()->leave();
+            $held->disconnect();
+        }
+
+        $label = ($fake ? 'faked' : 'real').' dispatcher';
+
+        expect($label.' -> '.qaIsoClassOf($switched))
+            ->toBe($label.' -> refused '.TenantConnectionMismatch::class)
+            ->and(str_contains((string) $switched[0]?->getMessage(), 'qa-iso-a'))->toBeTrue();
+    }
+});
+
+it('refuses a connectUsing connection queried after a tenant switch when the dispatcher is faked', function () {
+    // T-007 AC-27, SHAPE B (switch, purged handle). MEASURED red at the T-006 tip
+    // by running dev's equivalent of this case there (2026-10-07, a scratch
+    // worktree at cef6a17): the held connectUsing() object answered 'tenant-b'
+    // from inside tenant B's scope, i.e. an object built for A served as B. That
+    // is a repointing, not A's rows in B's scope, which is why shape A below is
+    // the stronger demonstration - but it is red, so plan R14's sentence that
+    // neither build() nor connectUsing() can demonstrate the defect is true of
+    // build() after the scope ends and not of connectUsing() after a switch.
+    // connectUsing() caches
+    // under the connection name, so entering B purges it and the manager then
+    // reconnects the held object against whatever is configured by then; the
+    // guard on the object is what refuses that.
+    //
+    // Stage and class expected: the per-query guard, TenantConnectionMismatch,
+    // naming tenant A as the one the connection was built for.
+    Event::fake();
+
+    qaIso()->enter('qa-iso-a');
+
+    $connection = DB::connectUsing('tenant', qaIsoStanza(), true);
+
+    // The control, inside the same test: before the switch it answers, so the
+    // refusal below is about the switch and not about a connection that never
+    // worked.
+    expect((string) $connection->scalar(qaIsoSql()))->toBe('qa-iso-a');
+
+    qaIso()->leave();
+    qaIso()->enter('qa-iso-b');
+
+    try {
+        $attempt = qaIsoAttempt(fn (): mixed => $connection->scalar(qaIsoSql()));
+
+        expect(qaIsoClassOf($attempt))->toBe('refused '.TenantConnectionMismatch::class)
+            ->and(str_contains((string) $attempt[0]?->getMessage(), 'qa-iso-a'))->toBeTrue()
+            // And tenant B's own connection still works beside it.
+            ->and(qaIsoMarker())->toBe('qa-iso-b');
+    } finally {
+        DB::purge('tenant');
+        qaIso()->leave();
+    }
+});
+
+it('refuses to enter another tenant once the tenant name has been built, rather than serve either', function () {
+    // AC-27's build() half cannot be asserted at the query, and this case says
+    // why instead of pretending otherwise. DatabaseManager::build() writes the
+    // caller's array into dynamicConnectionConfigurations['tenant'] before it
+    // delegates; nothing public clears it and configuration() prefers it to
+    // config(). So after ANY build() of the tenant name, even of the genuine
+    // stanza, the NEXT tenant's enter() reads tenant A's retained array and is
+    // refused while entering - the switch fails before a query can be made.
+    //
+    // That is fail-closed, predates this task (the T-003 case above pins it for a
+    // refused build()), and plan R1 accepted it. It is also a worker-wide outage
+    // until restart if a module ever builds the tenant name, which is why it is
+    // asserted: if someone makes it permissive this goes red, and if someone
+    // makes it recover this goes red too and the message above is the thing to
+    // reconsider rather than the test.
+    qaIso()->enter('qa-iso-a');
+
+    $built = DB::build(['name' => 'tenant'] + qaIsoStanza());
+
+    expect((string) $built->scalar(qaIsoSql()))->toBe('qa-iso-a');
+
+    qaIso()->leave();
+
+    qaIsoClose($built);
+
+    $entering = qaIsoAttempt(function (): mixed {
+        qaIso()->enter('qa-iso-b');
+
+        return qaIsoMarker();
+    });
+
+    expect(qaIsoClassOf($entering))->toBe('refused '.TenantConnectionMismatch::class)
+        ->and(qaIso()->current()->hasTenant())->toBeFalse();
+
+    qaIsoFresh();
+
+    // And it is the retained array that does it, not the tenant: the same
+    // switch with that array cleared works.
+    qaIso()->enter('qa-iso-b');
+
+    try {
+        expect(qaIsoMarker())->toBe('qa-iso-b');
+    } finally {
+        qaIso()->leave();
+    }
+});
+it('reaches only its own tenant when the genuine stanza is rebuilt under another connection name', function () {
+    // The residual the plan accepted (R7) and the digest's exclusion of `name`
+    // forced: the digest binds everything that decides WHICH database is opened,
+    // and the connection's name decides none of it. So a genuine stanza rebuilt
+    // under another name is vouched for - and that has to be a harmless thing to
+    // be able to do, which is what is asserted here instead of taken on trust.
+    qaIso()->enter('qa-iso-a');
+
+    $genuine = qaIsoStanza();
+    $rebuilt = DB::build(['name' => 'qa_iso_other'] + $genuine);
+
+    try {
+        // It reaches only the forger's own tenant.
+        expect((string) $rebuilt->scalar(qaIsoSql()))->toBe('qa-iso-a');
+
+        // Anything else in the call changing is still refused, under the new
+        // name exactly as under the old one: the name is the only free variable.
+        $changed = qaIsoAttempt(fn (): mixed => DB::build(
+            ['name' => 'qa_iso_other'] + array_replace($genuine, ['database' => qaIsoDatabasePath('qa-iso-b')])
+        )->scalar(qaIsoSql()));
+
+        expect(qaIsoClassOf($changed))->toBe('refused '.TenantConnectionMismatch::class);
+
+        qaIso()->leave();
+
+        // And it is not a way to keep a tenant connection past its scope: the
+        // per-query guard is attached under the new name too.
+        $after = qaIsoAttempt(fn (): mixed => $rebuilt->scalar(qaIsoSql()));
+
+        expect(qaIsoClassOf($after))->toBe('refused '.NoTenantResolved::class);
+    } finally {
+        qaIsoClose($rebuilt);
+        qaIso()->leave();
+    }
+
+    // Rebuilding the genuine stanza once the scope has ended is refused outright,
+    // because the record that vouched for it is gone.
+    $late = qaIsoAttempt(fn (): mixed => DB::build(['name' => 'qa_iso_other'] + $genuine));
+
+    expect(qaIsoClassOf($late))->toBe('refused '.NoTenantResolved::class);
+});
+
+it('has no code anywhere in the tenancy namespace that refers to a connection event', function () {
+    // AC-28's search half, over code and not prose: the docblocks in this
+    // namespace explain what the removed listener used to do, by name, and a
+    // plain text search would read that history as a dependency.
+    $directory = dirname(__DIR__, 2).DIRECTORY_SEPARATOR.'src'.DIRECTORY_SEPARATOR.'Tenancy';
+
+    $files = [];
+
+    foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS)) as $file) {
+        if ($file instanceof SplFileInfo && $file->getExtension() === 'php') {
+            $files[] = $file->getPathname();
+        }
+    }
+
+    expect(count($files))->toBeGreaterThan(5, 'the search found almost no files, so it proves nothing');
+
+    $mentions = [];
+    $sawFactory = false;
+    $sawWeakMap = false;
+
+    foreach ($files as $path) {
+        $identifiers = [];
+
+        foreach (token_get_all((string) file_get_contents($path)) as $token) {
+            if (! is_array($token) || in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+                continue;
+            }
+
+            $identifiers[] = $token[1];
+
+            if (str_contains($token[1], 'ConnectionEstablished')) {
+                $mentions[] = basename($path).': '.$token[1];
+            }
+
+            if ($token[1] === 'TenantConnectionFactory') {
+                $sawFactory = true;
+            }
+        }
+
+        // A WeakMap is fine - the credential holders use one, keyed by the
+        // secret. What AC-25 forbids is one that holds a connection, so a file
+        // in code mentioning both is the finding.
+        $holdsConnection = in_array('Connection', $identifiers, true)
+            || in_array('Illuminate\Database\Connection', $identifiers, true)
+            || in_array('\Illuminate\Database\Connection', $identifiers, true);
+
+        if (in_array('WeakMap', $identifiers, true)) {
+            $sawWeakMap = true;
+
+            if ($holdsConnection) {
+                $mentions[] = basename($path).': a WeakMap beside a Connection';
+            }
+        }
+    }
+
+    // The controls: the same scan did read code, and did see a WeakMap where one
+    // legitimately is, so an empty list is not an empty or a blind scan.
+    expect($sawFactory)->toBeTrue()
+        ->and($sawWeakMap)->toBeTrue()
+        ->and($mentions)->toBe([]);
+});
+
+afterAll(function () {
+    // Event::fake() records every event it is handed, and ConnectionEstablished
+    // carries the Connection, so a faked dispatcher keeps every connection of its
+    // test alive in a cycle with the application. Without a collection pass the
+    // SQLite handles are still open when the fixture directory is removed, which
+    // on Windows leaves the directory behind.
+    gc_collect_cycles();
+
+    // Plain PHP, not the File facade: hooks of this kind run outside the
+    // application, where no facade root exists.
+    foreach (glob(qaIsoRoot().DIRECTORY_SEPARATOR.'*') ?: [] as $path) {
+        if (is_file($path)) {
+            unlink($path);
+        }
+    }
+
+    clearstatcache();
+
+    if (is_dir(qaIsoRoot())) {
+        rmdir(qaIsoRoot());
     }
 });
