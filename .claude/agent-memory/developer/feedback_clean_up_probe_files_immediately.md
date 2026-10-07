@@ -25,6 +25,17 @@ task, in a file I was forbidden to touch. Before fixing anything a gate names, c
 `git show HEAD:<file> | grep <token>` against `grep <token> <file>`. If the token is only in the
 working tree and the file is not in my diff, it is someone else's edit - report it, do not fix it.
 
+**A third cause, and the one that catches a measurement script rather than a probe: redirecting
+a log into the repository.** On T-007 I timed the gate with a shell script that did
+`cd "$HOST"` and then wrote `>"$(dirname "$0")/step0-$label.log"`. `dirname "$0"` was `.`, so
+seven log files landed beside `modules/host/composer.json` — git-ignored, invisible to
+`git status`, and fatal anyway: `QaAtomicGenerationProofTest` fingerprints `modules/host` by
+**content hash**, so a log still being appended to during the run fails it even though the file
+list never changed, and `QaDocumentationAccuracyTest` swept the captured gate output and found
+the word MIT in it. Two failures, both mine, neither related to the change. Always give a
+measurement script an **absolute** scratchpad path for its logs; never a relative one, and never
+a path derived from `$0` in a script that `cd`s.
+
 **How to apply:** a probe is finished when its output has been read. Delete it then, in the same
 Bash call. Before trusting any suite result that looks catastrophic and unrelated to the change,
 run `git status --porcelain` and `ls` the storage/fixture directories first — leftover state
