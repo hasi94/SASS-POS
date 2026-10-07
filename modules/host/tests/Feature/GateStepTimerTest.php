@@ -268,6 +268,31 @@ it('ignores a limit in the environment that is not a positive whole number', fun
     expect(gateTimerRun(['-r', 'usleep(8000000);'], '2')->output())->toContain('source=env');
 });
 
+it('refuses an invocation it cannot run, with a status of its own', function () {
+    /*
+     * The fourth and last branch of the wrapper's exit space: 0 or the child's
+     * own status on a completed step, 3 on a kill, and 2 when the invocation
+     * itself is wrong. Asserted because an unexercised branch in the gate's own
+     * tooling is the kind of thing that only ever runs on the day the gate is
+     * already broken.
+     */
+    foreach ([['test'], ['test', '--'], ['--', '-r', 'exit(0);']] as $arguments) {
+        $result = Process::path(base_path())
+            ->timeout(60)
+            ->run(array_merge([PHP_BINARY, base_path('tools'.DIRECTORY_SEPARATOR.'gate-step.php')], $arguments));
+
+        expect($result->exitCode())->toBe(2)
+            ->and($result->errorOutput())->toContain('usage: php tools/gate-step.php');
+
+        // A misuse is not a kill and not a completed step either.
+        expect($result->output())->not->toContain('FLEXIPOS-GATE-TIMEOUT');
+        expect($result->output())->not->toContain('FLEXIPOS-GATE-MARGIN');
+    }
+
+    // The control: the same wrapper, invoked correctly, does run the child.
+    expect(gateTimerRun(['-r', 'echo "ran", PHP_EOL;'], '60')->output())->toContain('ran');
+});
+
 /*
  * The manifest cases. These make AC-2, AC-3, AC-11, AC-12 and AC-42 standing
  * assertions instead of prose that decays - FP-171's own remedy. Nothing below
