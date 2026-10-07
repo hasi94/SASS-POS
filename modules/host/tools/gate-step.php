@@ -49,9 +49,12 @@ use Symfony\Component\Process\Process;
 | The limit in force
 | ---------------------------------------------------------------------------
 |
-| Resolved here, in this order, and the source that won is named on the line
-| that reports a kill, so that nobody reading a red run has to guess which limit
-| was in force:
+| Resolved here, in this order, and the source that won is named on EVERY line
+| this file prints - as the last field before the prose - so that nobody reading
+| a run has to guess which limit was in force (R9). It matters most on the
+| low-headroom line, which advises raising config.process-timeout: on a run whose
+| limit came from the environment that advice is addressed to the wrong knob, and
+| naming the source is what lets the reader being advised tell which:
 |
 |   1. COMPOSER_PROCESS_TIMEOUT, when it is a positive integer   source=env
 |   2. config.process-timeout in the composer.json beside this   source=manifest
@@ -110,13 +113,16 @@ use Symfony\Component\Process\Process;
 | Three residuals, written down because the paragraphs above are only true with
 | them. On POSIX the same kill signals the direct child only, so a grandchild of
 | the test runner can briefly outlive a kill; `probes:clean` running first in
-| `check` is what makes that harmless. The source=default branch is not
-| reachable from a test while the manifest carries the key, so it is covered by
-| reading rather than by running, while the env and manifest branches are both
-| asserted and in both directions. And the labels source=manifest and
-| source=default can only ever be printed by a kill at the manifest's own
-| budget, which no fast test can reach - a genuine cold kill is the only place
-| they appear, which is exactly the run they exist for.
+| `check` is what makes that harmless.
+|
+| And one residual, now that source= is on every line rather than only on a
+| kill: source=default alone is covered by reading rather than by running. The
+| manifest path above is fixed (__DIR__.'/../composer.json'), so no test can make
+| config.process-timeout absent while the manifest carries it - and
+| GateStepTimerTest asserts that it does carry it. source=env and
+| source=manifest are both asserted, in both directions, on lines a fast test
+| really does produce. Before source= moved onto the margin line, source=manifest
+| was in the same position as source=default; it is not any more (R9).
 |
 */
 
@@ -237,6 +243,7 @@ $ratio = $limit / max($elapsed, 0.01);
 if ($ratio < $headroom) {
     echo 'FLEXIPOS-GATE-LOW-HEADROOM step=', $label,
     ' ratio=', gateStepNumber($ratio),
+    ' source=', $source,
     ' below the required ', gateStepFactor($headroom), 'x (D-1); ',
     'raise config.process-timeout - see extra.flexipos.gate in modules/host/composer.json.', PHP_EOL;
 }
@@ -246,6 +253,7 @@ echo 'FLEXIPOS-GATE-MARGIN step=', $label,
 ' at=', gmdate(DATE_ATOM),
 ' elapsed=', gateStepNumber($elapsed), 's',
 ' limit=', $limit, 's',
-' ratio=', gateStepNumber($ratio), PHP_EOL;
+' ratio=', gateStepNumber($ratio),
+' source=', $source, PHP_EOL;
 
 exit($status);

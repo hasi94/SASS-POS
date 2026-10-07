@@ -160,17 +160,24 @@ it('reads the limit from the manifest when none is forced, and puts the margin l
     expect($limit)->toBeGreaterThan(0);
 
     /*
-     * The limit the margin line reports is the manifest's, which is what makes
-     * this the manifest branch of the resolution. The source= label is on the
-     * kill line only, by design: a completed run has no false red to explain.
+     * The limit the margin line reports is the manifest's, and since step 1b the
+     * line says so itself (R9). That is what makes this the manifest branch of
+     * the resolution rather than a case that merely happens to agree with the
+     * manifest's number: a wrapper reading the limit from somewhere else would
+     * have to label it something else.
      */
     expect($result->exitCode())->toBe(0)
         ->and($output)->toContain('child done')
         ->and($output)->toContain('limit='.$limit.'s')
+        ->and($output)->toContain('source=manifest')
+        ->and($output)->not->toContain('source=env')
         ->and($output)->not->toContain('FLEXIPOS-GATE-TIMEOUT')
         ->and($output)->not->toContain('FLEXIPOS-GATE-LOW-HEADROOM');
 
-    expect(gateTimerLastLine($output))->toStartWith('FLEXIPOS-GATE-MARGIN step=probe');
+    // source= is the last field before the prose, which on the margin line means
+    // the last field of the line.
+    expect(gateTimerLastLine($output))->toStartWith('FLEXIPOS-GATE-MARGIN step=probe')
+        ->and(gateTimerLastLine($output))->toEndWith('source=manifest');
 });
 
 it('passes a failing step through with its own status, on its own stream, and no sentinel', function () {
@@ -221,21 +228,32 @@ it('warns when a completed step leaves less headroom than the factor requires, a
     // The factor the warning quotes is the manifest's rather than a second copy
     // of it, and the ratio it reports really is below that factor.
     expect(preg_match(
-        '/FLEXIPOS-GATE-LOW-HEADROOM step=probe ratio=([0-9.]+) below the required ([0-9.]+)x \(D-1\)/',
+        '/FLEXIPOS-GATE-LOW-HEADROOM step=probe ratio=([0-9.]+) source=(\w+) below the required ([0-9.]+)x \(D-1\)/',
         $output,
         $warning
     ))->toBe(1);
 
-    expect((float) $warning[2])->toBe((float) gateTimerManifestValue(['extra', 'flexipos', 'gate', 'headroom-factor']))
-        ->and((float) $warning[1])->toBeLessThan((float) $warning[2]);
+    /*
+     * R9's reason for putting the label here, asserted: this line advises
+     * raising config.process-timeout, and on this run the limit came from the
+     * environment, so that advice is addressed to a knob that is not in force.
+     * The label is what lets the reader being advised tell which it is.
+     */
+    expect($warning[2])->toBe('env');
+
+    expect((float) $warning[3])->toBe((float) gateTimerManifestValue(['extra', 'flexipos', 'gate', 'headroom-factor']))
+        ->and((float) $warning[1])->toBeLessThan((float) $warning[3]);
 
     // The warning comes first; the margin line is still the last thing printed,
     // and it reports the same ratio.
     expect(gateTimerLastLine($output))->toStartWith('FLEXIPOS-GATE-MARGIN');
 
-    expect(preg_match('/FLEXIPOS-GATE-MARGIN[^\r\n]* ratio=([0-9.]+)/', $output, $margin))->toBe(1);
+    expect(preg_match('/FLEXIPOS-GATE-MARGIN[^\r\n]* ratio=([0-9.]+) source=(\w+)/', $output, $margin))->toBe(1);
 
-    expect($margin[1])->toBe($warning[1]);
+    expect($margin[1])->toBe($warning[1])
+        // And both lines of one run name the same source, which is the forced
+        // one - the other direction of the label from the manifest case above.
+        ->and($margin[2])->toBe('env');
 });
 
 it('ignores a limit in the environment that is not a positive whole number', function () {
@@ -299,35 +317,62 @@ it('refuses an invocation it cannot run, with a status of its own', function () 
  * spawns anything.
  */
 
-it('keeps the limit finite, positive and above the factor times the dated cold measurement', function () {
+it('keeps the limit finite, positive and above the factor times the slowest cold step', function () {
     $limitValue = gateTimerManifestValue(['config', 'process-timeout']);
-    $coldValue = gateTimerManifestValue(['extra', 'flexipos', 'gate', 'cold-slowest-step-seconds']);
+    $cacheColdValue = gateTimerManifestValue(['extra', 'flexipos', 'gate', 'cache-cold-slowest-step-seconds']);
+    $machineColdValue = gateTimerManifestValue(['extra', 'flexipos', 'gate', 'machine-cold-slowest-step-seconds']);
+    $machineFactorValue = gateTimerManifestValue(['extra', 'flexipos', 'gate', 'machine-cold-factor']);
     $factorValue = gateTimerManifestValue(['extra', 'flexipos', 'gate', 'headroom-factor']);
 
     expect($limitValue)->toBeInt()
         ->and($limitValue)->toBeGreaterThan(0)
-        ->and($coldValue)->toBeInt()
-        ->and($coldValue)->toBeGreaterThan(0)
+        ->and($cacheColdValue)->toBeInt()
+        ->and($cacheColdValue)->toBeGreaterThan(0)
+        ->and($machineFactorValue)->toBeInt()
+        ->and($machineFactorValue)->toBeGreaterThanOrEqual(1)
         ->and($factorValue)->toBeInt()
         ->and($factorValue)->toBeGreaterThanOrEqual(2);
 
     $limit = (int) $limitValue;
-    $cold = (int) $coldValue;
     $factor = (int) $factorValue;
 
-    // D-1 as arithmetic rather than as a sentence: the limit clears the factor
+    /*
+     * D-12's sentence, executable: AC-2's S is the machine-cold slowest step
+     * when one has been measured, and the cache-cold slowest step times the
+     * machine-cold factor when none has.
+     *
+     * The two branches are NOT both tested, and saying so beats implying
+     * otherwise. The fallback is the live one, because
+     * machine-cold-slowest-step-seconds is null: the only machine-cold figure
+     * anyone has observed on this machine is a whole-gate run, not one process
+     * (plan R11). The observed branch is covered by reading until somebody
+     * measures a step that way, and the assertion below pins which branch runs
+     * so that a future edit to the manifest cannot silently swap them.
+     */
+    $slowestColdStep = is_int($machineColdValue) && $machineColdValue > 0
+        ? $machineColdValue
+        : (int) $machineFactorValue * (int) $cacheColdValue;
+
+    expect($machineColdValue)->toBeNull()
+        ->and($slowestColdStep)->toBeGreaterThan((int) $cacheColdValue);
+
+    // AC-2 as arithmetic rather than as a sentence: the limit clears the factor
     // times the slowest cold step...
-    expect($limit)->toBeGreaterThanOrEqual($factor * $cold);
+    expect($limit)->toBeGreaterThanOrEqual($factor * $slowestColdStep);
 
     /*
      * ...and so does the budget the wrapper actually enforces, which is the
      * binding number for the test step and is strictly smaller than the limit.
      * This is the half that matters: a limit that clears the factor while the
      * budget does not would kill a healthy suite on schedule.
+     *
+     * At the shipped values this demands 882 >= 636. Before step 1b, when a
+     * single `cold-` key meant the cache-cold figure alone, the same assertion
+     * demanded only 882 >= 212 - weaker than the criterion it was guarding.
      */
     $budget = max(1, $limit - max(2, (int) ceil($limit * 0.02)));
 
-    expect($budget)->toBeGreaterThanOrEqual($factor * $cold)
+    expect($budget)->toBeGreaterThanOrEqual($factor * $slowestColdStep)
         ->and($budget)->toBeLessThan($limit);
 
     /*
@@ -350,6 +395,25 @@ it('dates the cold measurement and names the command that re-measures it', funct
     expect($parsed === false ? '' : $parsed->format('Y-m-d'))->toBe($measuredOn);
 
     expect((string) gateTimerManifestValue(['extra', 'flexipos', 'gate', 'measured-by']))->not->toBe('');
+
+    /*
+     * AC-11 for the one number in there that was borrowed from somewhere else:
+     * the machine-cold factor is not a measurement of a step, it is a ratio of
+     * two whole-gate runs, so it carries a sibling string saying where it came
+     * from. Without that a reader would take the 3 for a measured per-process
+     * figure - which is exactly what machine-cold-slowest-step-seconds being
+     * null says nobody has.
+     */
+    $provenance = (string) preg_replace(
+        '/\s+/',
+        ' ',
+        (string) gateTimerManifestValue(['extra', 'flexipos', 'gate', 'machine-cold-factor-provenance'])
+    );
+
+    expect($provenance)->toContain('D-12')
+        ->and($provenance)->toContain('MACHINE-COLD')
+        ->and($provenance)->toContain('WARM')
+        ->and($provenance)->toContain('2026-10-07');
 
     $remeasure = (string) preg_replace(
         '/\s+/',
@@ -422,7 +486,10 @@ it('describes the test step by pointing at the one authority for the limit', fun
 
     expect($description)->toContain('FLEXIPOS-GATE-TIMEOUT')
         ->and($description)->toContain('extra.flexipos.gate')
-        ->and($description)->toContain('exits 3');
+        ->and($description)->toContain('exits 3')
+        // D-12's vocabulary: "cold" alone is ambiguous now that it names two
+        // states, so the description says which one the manifest holds.
+        ->and($description)->toContain('cache-cold');
 
     // And it carries no duration of its own to go stale (AC-11, AC-42).
     expect(preg_match('/\d+\s*(?:s|sec|secs|second|seconds)\b/i', $description))->toBe(0);
