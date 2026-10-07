@@ -238,7 +238,7 @@ function qaCredDumpThroughInstalledHandler(string $needle, string $control, stri
         dump([
             'username' => 'qa_cred_app',
             'password' => new Flexipos\Kernel\Tenancy\Secrets\ConnectionPassword($needle),
-            'flexipos_tenant' => $control,
+            'flexipos_tenant_authenticator' => $control,
         ]);
         PHP);
 

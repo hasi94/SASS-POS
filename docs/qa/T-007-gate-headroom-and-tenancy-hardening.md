@@ -141,3 +141,49 @@ None.
 Fragile areas seen: the focused-run-then-gate gap (PHPStan analyses the tests directory, so a green Pest file is not a green gate); Pest's `toBe($expected, $message)` silently drops the message; `Event::fake()` retains connections (handled with `gc_collect_cycles()` in `afterAll`); `DB::build()` on the tenant name leaves a process-wide stanza that makes later rows of a table interdependent unless reset between rows (`qaIsoFresh()`).
 
 Run history: Run 1: PASS (463 / 2403, cold gate exit 0).
+
+---
+
+# Round 2 (review round 1: APPROVE, no Critical findings)
+
+## Verdict: PASS
+
+Tip under test: `9b59793` plus two uncommitted test-only edits of mine (committed with this section). Defects: 0 critical, 0 major, 0 minor.
+
+## My items
+
+- **W-2 fixed.** `packages/kernel/tests/Support/tenancy-fixture.php` comment now reads "Present since FP-161 ... TenancyTenantSwitchTest asserts this substitution fires, and AC-19 asserts the raw stanza separately, so nothing is hidden." It no longer contradicts `TenancyTenantSwitchTest.php:106`.
+- **S-6 fixed.** `QaCredentialSurfaceSweepTest.php:241` fabricated payload now uses `flexipos_tenant_authenticator`. The old key `'flexipos_tenant'` survives in test code only at `QaTenantIsolationProofTest.php:996` (a forgery row labelled "the retired marker key") and `TenantStanzaForgeryTest.php:95` (a forged key list); both are deliberate negatives, not an emulated dump shape.
+- **S-7 closed by the planted form, not by quoting run 1.** I planted `modules/host/tests/Integration/QaAcFiveFailingProbeTest.php` (`expect(1)->toBe(2)`) and ran the whole `composer check` at the normal limit (900 s). Result: exit 1; `FAILED Tests\Integration\QaAcFiveFailingProbeTest > it QA AC-5 planted failing probe`; `Tests: 1 failed, 473 passed (2476 assertions)`; the only `FLEXIPOS-GATE-` line is the margin line (`step=test elapsed=140.52s limit=900s ratio=6.40`) and it is last; Composer's own "returned with error code 1" follows. No sentinel. Probe removed, `git status` clean of it. **Caveat:** the file name is deliberately NOT the registered `QaCollectionProbeTest.php`. My first attempt used that name and `probes:clean` (the first step of `check`) deleted it, so that run was exit 0 with 473 passed, a useful incidental confirmation that the cleaner works but not a planted failure. The planted file is therefore "the probe mechanism's shape" (a collected test under `tests/Integration`, removed afterward), not a registered probe. AC-5 whole-gate form: **PASS** `[state: WARM]` 2026-10-07. Reviewer's run 1 remains corroborating evidence in kind.
+
+## Gate result, reconciled
+
+| Run | Command | Result | Duration |
+|---|---|---|---|
+| 1 | `composer check`, registered probe name (cleaned away) | exit 0, 473 / 2475, margin line last, no sentinel | 108.71 s test step, ratio 8.26 `[state: WARM]` 2026-10-07 |
+| 2 | `composer check`, planted failure (S-7) | exit 1, 473 passed + 1 planted failed (2476), no sentinel | 140.26 s, ratio 6.40 `[state: WARM]` 2026-10-07 |
+| 3 | `composer check`, clean tree | exit 0, **473 passed / 2475 assertions**, margin line last, no sentinel | 100.90 s, ratio 8.90 `[state: WARM]` 2026-10-07 |
+
+Run 3 equals the 473 / 2475 baseline exactly (my edits are a comment and one array key; no test added or removed). Run 4 (an intermediate no-op, directory missing) also ended 473 / 2475, exit 0. Nothing went red apart from the planted failure, so neither known cause (W-3 timeouts, the 2.0 s kill ceiling) was hit and no process listing was needed. The durations are higher than 82.61 s from the tip's run; I did not measure the cause and make no claim about contention.
+
+## Findings mapping (AC-35)
+
+Critical findings: **none in round 1, so nothing is "closed on measurement"**; AC-35's Critical clause is vacuously met.
+
+| ID | Outcome | Evidence |
+|---|---|---|
+| W-1 | fixed | `9b689e7`: false `build()` claim corrected in `TenantStanzaForgeryTest.php`; two further copies in dev agent memory corrected |
+| W-2 | fixed | this round, my commit (fixture comment) |
+| W-3 | backlog row (FP-172's sibling), filed by lead; out of scope per AC-12 | not a T-007 defect; not hit in my runs |
+| W-4 | backlog row for the tenant-name wedge, filed by lead; behaviour already pinned by an existing refusal case | pre-existing, fail-closed |
+| S-1 | fixed | `9b689e7`: two `at=` assertions requiring `+00:00`, mutation-verified (`gmdate`->`date` reddens both) |
+| S-2 | fixed | `9b689e7` (stale line citations replaced by symbol) per dev's closure; I did not re-audit the citations |
+| S-3 | fixed | `9b689e7`: structural reason (all selecting values in the digest) replaces the defeasible one |
+| S-4 | accepted as-is | reviewer's own verdict: keep the distinct exit status; both directions already asserted |
+| S-5 | fixed | `9b689e7`: `prefix`-only row refused on all seven routes, `name`-only served; mutation-verified both ways |
+| S-6 | fixed | this round, my commit |
+| S-7 | closed | this round, planted whole-gate run above |
+
+Not independently re-verified by me: the content of S-2 and the mutation claims in S-1/S-3/S-5 (taken from the `9b689e7` message; the tests they added are in the green 473). The dev change to the kill-case ceiling (`9b59793` message, "replace the flaky ceiling") touches only the plan document in that commit; `GateStepTimerTest` stayed green in all three of my runs, which says nothing about its load behaviour.
+
+Run history: Run 1: PASS (463 / 2403). Run 2: PASS (473 / 2475).

@@ -320,9 +320,10 @@ function tenancyComparableStanza(): array
     }
 
     // T-007 R6.2: the same substitution for the per-enter() authenticator, for the
-    // same reason. A token minted on each enter() makes two stanzas for one tenant
-    // unequal under toBe(). Absent today, so this is a no-op until FP-161 adds the
-    // key; AC-19 asserts the raw stanza separately, so nothing is hidden.
+    // same reason. Present since FP-161: a token minted on each enter() makes two
+    // stanzas for one tenant unequal under toBe(). TenancyTenantSwitchTest asserts
+    // this substitution fires, and AC-19 asserts the raw stanza separately, so
+    // nothing is hidden.
     if (array_key_exists('flexipos_tenant_authenticator', $stanza)) {
         $stanza['flexipos_tenant_authenticator'] = 'authenticator:'.get_debug_type($stanza['flexipos_tenant_authenticator']);
     }
