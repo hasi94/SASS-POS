@@ -1,7 +1,9 @@
 <?php
 
 use Flexipos\Kernel\Tenancy\Secrets\ConnectionPassword;
+use Illuminate\Database\Connectors\ConnectionFactory;
 use Illuminate\Database\Connectors\Connector;
+use Illuminate\Database\DatabaseManager;
 
 /*
  * Plan step 13.1 - the framework contract ConnectionPassword depends on.
@@ -63,4 +65,63 @@ it('coerces a Stringable credential through PDO exactly as the connector does', 
 
     expect($pdo)->toBeInstanceOf(PDO::class)
         ->and((string) $password)->toBe('s3cret-DO-NOT-LEAK-7f3a');
+});
+
+/*
+ * T-007 FP-160 - the framework contract TenantConnectionFactory depends on.
+ *
+ * The choke point is a decoration of the `db.factory` binding, and that is only
+ * a choke point while three things stay true of DatabaseManager: it is handed
+ * its factory at construction (so the decoration must be a ConnectionFactory,
+ * and must be registered before `db` resolves), every construction route calls
+ * `$this->factory->make()`, and a configuration retained by build() is still
+ * preferred over config() (so a retained stanza is refused by the factory
+ * rather than quietly rebuilt).
+ *
+ * IF THIS CASE FAILS, THE FRAMEWORK MOVED ONE OF THOSE - the claim "every route
+ * passes one mechanism" is then false, and this names it in one read instead of
+ * leaving a silent hole somewhere in a route table.
+ */
+
+it('still builds every connection through the factory it was constructed with', function () {
+    $parameters = (new ReflectionMethod(DatabaseManager::class, '__construct'))->getParameters();
+    $factoryParameter = null;
+
+    foreach ($parameters as $parameter) {
+        if ($parameter->getName() === 'factory') {
+            $factoryParameter = $parameter;
+        }
+    }
+
+    $type = $factoryParameter?->getType();
+
+    // 1. Constructor injection, typed as ConnectionFactory. This is why
+    //    TenantConnectionFactory has to extend that class rather than merely
+    //    implement the same shape, and why it is registered in register().
+    expect($factoryParameter)->not->toBeNull('DatabaseManager::__construct() no longer takes a $factory')
+        ->and($type)->toBeInstanceOf(ReflectionNamedType::class)
+        ->and($type instanceof ReflectionNamedType ? $type->getName() : '')->toBe(ConnectionFactory::class);
+
+    // 2. Both construction routes still go through that property. Read from the
+    //    method bodies rather than from the whole file, so an occurrence
+    //    somewhere else cannot stand in for one of these.
+    $reflected = new ReflectionClass(DatabaseManager::class);
+    $lines = (array) file((string) $reflected->getFileName());
+
+    $bodyOf = static function (string $method) use ($reflected, $lines): string {
+        $method = $reflected->getMethod($method);
+        $start = (int) $method->getStartLine() - 1;
+        $length = (int) $method->getEndLine() - $start;
+
+        return (string) preg_replace('/\s+/', ' ', implode('', array_slice($lines, $start, $length)));
+    };
+
+    expect($bodyOf('makeConnection'))->toContain('$this->factory->make($config, $name)')
+        ->and($bodyOf('connectUsing'))->toContain('$this->factory->make($config, $name)')
+        // 3. And a stanza retained by build() is still preferred over the one in
+        //    config(), which is what makes a retained configuration fail closed
+        //    through the factory instead of rebuilding the previous tenant.
+        ->and($bodyOf('configuration'))
+        ->toContain('$this->dynamicConnectionConfigurations[$name] ?? Arr::get($connections, $name)')
+        ->and($bodyOf('purge'))->not->toContain('dynamicConnectionConfigurations');
 });
