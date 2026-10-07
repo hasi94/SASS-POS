@@ -64,8 +64,8 @@ The host that boots only the modules named in configuration, the generator, the 
 | FP-157 | Retire the remaining stock framework scaffolding | **DONE (T-004)**. The original wording claimed a closure route blocked route caching. That was measured false: route caching already succeeded, because the framework serialises closures, and there were four such routes rather than one. The scaffolding was removed as hygiene and the false claim deleted from the README and the host configuration. |
 | FP-158 | Correct two defects in `docs/database.md` §4.4, found by the architect while planning T-003 | **DONE (T-006)** — folded into FP-243, same file and same owner |
 | FP-159 | Declare the framework dependency in the shared package manifests | TODO — own commit |
-| FP-160 | One construction choke point for the tenant connection | TODO — before FP-203 |
-| FP-161 | Make the tenant marker unforgeable | TODO — before FP-203 |
+| FP-160 | One construction choke point for the tenant connection | **DONE (T-007)** — the name-keyed extension, the event listener and the de-duplication map are replaced by one decorator on the connection factory. The factory-direct route was unguarded on every dispatcher and nothing had ever asserted it |
+| FP-161 | Make the tenant marker unforgeable | **DONE (T-007)** — the authority binds to the stanza content, not to a copyable token; the marker constant is deleted. Filed as unattainable at first, and it was: identity is not authority, because an array copy carries the same instance |
 | FP-162 | Purge every read and write variant on teardown | **DONE (T-003)** — reviewer R-2 |
 | FP-163 | Document the two escape hatches the guard cannot cover | TODO — with FP-203 |
 | FP-164 | Move shared test fixture helpers out of a test file | **DONE (T-004)** |
@@ -76,7 +76,7 @@ The host that boots only the modules named in configuration, the generator, the 
 | FP-169 | Bring `modules/host/tests` into static analysis and the boundary check | **DONE (T-005)** |
 | FP-170 | Give the fast loop a time dimension | TODO — after FP-165 |
 | FP-171 | A number written into prose carries its date, or becomes a ratio, or becomes an assertion | TODO — convention |
-| FP-172 | Give the test command headroom against the process timeout | TODO — before CI |
+| FP-172 | Give the test command headroom against the process timeout | **DONE (T-007)** — the test step owns its own timer and prints a greppable sentinel on a kill. The old limit was below its own requirement by measurement, so the false red of 2026-10-06 was structural rather than bad luck |
 | FP-173 | A teardown may delete a planted file, never its directory | TODO — reviewer W-3 (T-005) |
 | FP-174 | Give `CLAUDE.md` a standing accuracy assertion | TODO — with the task that next edits it |
 | FP-175 | Widen the probe-planter walk beyond `*Test.php` | TODO — when a planter first needs to live elsewhere |
@@ -93,6 +93,11 @@ The host that boots only the modules named in configuration, the generator, the 
 | FP-186 | A fact stated more than once has to be stated once | TODO — convention, and the one the other five reduce to |
 | FP-187 | An edit is done when the artefact contains it, not when the tool reports success | TODO — convention; a failed script reported four closures and wrote nothing |
 | FP-188 | Collapse whitespace before asserting a phrase is present or absent | TODO — convention; a search reporting absence without looking. Three instances, one stood three rounds |
+| FP-189 | Give every child-spawning test an explicit, dated or derived timeout | TODO — FP-172 one layer in. Sixteen files inherit a 60-second default nobody chose; it reddened a clean tree twice on 2026-10-07, once for QA and once for the reviewer |
+| FP-190 | The low-headroom case needs a wider precondition window, or a different shape | TODO — it needs the child to land inside a two-second band to assert what it asserts. Fails loudly rather than silently, which is why it was left alone |
+| FP-191 | Clear the retained dynamic connection configuration when a tenant scope resets | TODO — building a connection under the tenant name, even with a genuine stanza, refuses every later tenant entry for the life of the process. Fails closed, pinned by a test, worker-wide if a module ever does it. Narrower than FP-163 and name-specific |
+| FP-192 | Ask whether an assertion states the design or its negation | TODO — convention. If it is the negation, the case belongs beside the dataset as a positive control, not inside it. Two instances on T-007, each caught only by someone reading the dataset contract |
+| FP-193 | The schema document names a connection resolver class that does not exist | TODO — wording only; the mechanism it describes is real and is now the factory decorator |
 
 **FP-172 fired for real on 2026-10-06, and that moves it from a row to a task.** During T-006 the gate exceeded **420 seconds** wall on a cold cache, the package manager's 300-second per-script timeout killed the test step, and the run reported **exit 1 with no test failure** — a false red on a clean tree. The re-run was exit 0 at 156 seconds. So the hazard this row has described since T-004 is no longer hypothetical: it has now produced a wrong answer about whether the code works, which is the one thing a gate exists to avoid.
 
