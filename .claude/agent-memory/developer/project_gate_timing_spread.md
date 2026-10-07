@@ -61,8 +61,12 @@ timeout (FP-172's sibling). The third is worth knowing on its own: **`GateStepTi
 case asserts `elapsed < 2.0` because its limit is 2 s, and under contention the kill landed at
 2.22 s.** Symfony's `checkTimeout()` only runs between read-loop iterations, so detection latency
 is unbounded under load while the assertion's ceiling is not - a false red in the very test that
-exists to prevent false reds. Do not widen it to make a run green; it is a real finding and
-belongs in a row.
+exists to prevent false reds. **Resolved 2026-10-07 by R18 (commit `3b93389`): the ceiling was
+removed, not widened.** The case now asserts the sentinel, exit 3, the resolved
+`budget=/limit=/source=` triple with the budget derived in the test from the forced limit, the
+child's post-sleep completion line absent, and `elapsed >= budget` as a lower bound. No
+wall-clock upper bound on a kill is assertable on this platform, and refusing to widen the
+number was the right first move: it is what got the assertion itself re-examined.
 
 The process list is the cheap half of the measurement and it comes first: it costs one command
 and it separates "my change broke the gate" from "this machine is busy" before any re-run.

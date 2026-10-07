@@ -13,3 +13,4 @@
 - [Defer in a comment, or file a row](feedback_defer_in_a_comment_or_file_a_row.md) — which residuals earn a row, declared-beats-silent deviation, and when "gate: green" hits another role's files.
 - [Gate timing spread](project_gate_timing_spread.md) — no gap under ~35 s is evidence; list the other php processes before believing a red gate.
 - [Correct a claim in every copy](feedback_correct_a_claim_in_every_copy.md) — one false sentence, four files; sweep whitespace-collapsed, cite symbols not lines.
+- [A mutation must move the observable](feedback_mutation_must_move_the_observable.md) — a floor absorbed my mutation and the green run nearly read as a hole in the test.
