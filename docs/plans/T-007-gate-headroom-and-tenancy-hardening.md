@@ -28,6 +28,13 @@ my own rulings. Tip: **441 passed / 2201 assertions** [state: WARM], and the ari
 would corrupt the cache-cold measurements that step exists to produce. Everything below is read from the
 committed code and from the installed framework.
 
+**Fourth pass, 2026-10-07, after step 5 passed** (`292bdaa`, `ee67a18`, zero defects): R16 and R17, plus
+two amendments **inside** R13 and R14. `qa` settled the T-006-tip questions by *running* `dev`'s step-3
+file against `cef6a17` production code, which neither `dev` nor I did: R13's four-not-five is confirmed,
+and **R14 is half wrong** — a held `connectUsing` connection does demonstrate the defect, through a
+repointing I reasoned past. R17 records the measured AC-45 limit (69), the AC-2 diff figure (0.963) and
+`qa`'s four declared partials. Still no gate run by me; `dev` holds it for one docblock correction.
+
 ---
 
 ## Approach summary
@@ -124,7 +131,8 @@ as measured non-issues rather than left implied:**
   MEASURED: `DatabaseManager::configuration()` reads
   `$this->dynamicConnectionConfigurations[$name] ?? Arr::get($connections, $name)` (DatabaseManager.php:218)
   and `purge()` only unsets `$this->connections[$name]` (:299). So a retained stanza is immortal and is
-  *preferred* over `config()`. Both designs survive it, because both record the tenant id beside the
+  *preferred* over `config()`. **This bullet answers the forgery question only — see R16, where `qa`
+  measured and pinned what the same fact does to the *process*, and the acceptance is restated.** Both designs survive it, because both record the tenant id beside the
   authenticator and the per-query guard still compares against the live context. The chosen design is
   strictly better here: the record is dropped on scope exit, so a rebuild from retained configuration
   is refused by the authenticator itself and not only by the tenant-id comparison.
@@ -241,6 +249,8 @@ FP-186 family, untouched by this task, worth a backlog row rather than a silent 
 - **FP-172 first** for a practical reason that has already cost this project a day: the limit that
   produced the false red is still 300 s (MEASURED), `dev` must run the gate at every step, and the first
   of those runs is cold. Fixing the gate before using it four times is the cheapest ordering available.
+  **And the 300 was not merely suspect: `qa` scored it at 300 / S = 0.963, below one** (R17) — the old
+  limit was under the single step it had to carry, on AC-2's own basis.
 - **FP-160 before FP-161.** The invariant depends on the choke point. If the authenticator landed first,
   its check would have to be written into the connection extension **and** the `ConnectionEstablished`
   listener, and then moved when the choke point replaced both — two copies of a security check, briefly,
@@ -528,6 +538,17 @@ the red-first run. Not a defect and not a contradiction. I am reconstructing the
 rather than by running, so `qa` should confirm the per-case split in step 5 and correct me if the four is
 a three or a six.
 
+> **CONFIRMED by `qa`'s step-5 run (`292bdaa`, note 3), and the count reconciles both ways.** Four, as
+> reconstructed: the factory-direct route is red in exactly the four refusal cases (no tenant and foreign
+> stanza, each with a real and a faked dispatcher) and **green in both success cases**. `qa`'s full
+> breakdown of the committed file against `cef6a17`: **16** reds — 4 factory-direct, 4 build/connectUsing
+> under the faked dispatcher, 2 AC-27 held cases (shapes A and B, R14's amendment), 6 installation and
+> absence cases — and 16 + 36 = 52, equal to the file's case count, so no case is unaccounted for.
+> **Both totals are right for different versions of the file:** `dev`'s 15 / 36 = 51 is its draft, `qa`'s
+> 16 / 36 = 52 is the committed file, and the extra red is the delegation case — which is exactly the
+> inference above, now arithmetically closed rather than guessed. **Cite 16 for `abb6c41`**; `dev`'s 15 is
+> accurate only for the draft it was pasted from, and `dev`'s enumeration omitted the delegation case.
+
 ### R14. AC-27 was red-first in one shape and **already green in another**. Step 3's text now names the exception
 
 `dev` recorded a regression guard instead of claiming a red it never got, which is the right call, and the
@@ -555,6 +576,39 @@ get; the thing that would have been a defect here is a green-first guard present
 **Consequence for `qa` in step 5:** its independent AC-27 row must keep **both** shapes. Measuring only the
 post-scope case reproduces the accidental green and would conclude that the three-attachment design had
 been adequate all along.
+
+> **AMENDED by `qa`'s step-5 run (`292bdaa`, note 2) — R14 was half right, and the half it got wrong is
+> mine.** `qa` settled this by running `dev`'s step-3 file against `cef6a17` production code in a scratch
+> worktree instead of reasoning about it: **16 failed, 36 passed of 52 cases**, and the held `connectUsing`
+> connection returned **`'tenant-b'` inside tenant B's scope**. So `connectUsing` after a switch *does*
+> demonstrate the defect, and the sentence "neither `build()` nor `connectUsing()` can demonstrate it" is
+> wrong for `connectUsing`.
+>
+> Where my reasoning failed: the premise was right and the inference was not. Both routes *are* cached under
+> the connection name and *are* purged by the switch — but what the purge produces for a **held** object is
+> not a refusal, it is a silent **repointing**. `leave()` nulls the PDO, the next query enters
+> `reconnectIfMissingConnection()`, the manager's reconnector rebuilds through `makeConnection()` and hands
+> the held object the **new** tenant's raw PDO. The object was built for A, was never guarded (at the T-006
+> tip `connectUsing` was covered by the listener alone, which `Event::fake()` disabled), and answers as B.
+> I treated "the PDO does not survive" as "the defect cannot be shown", which skipped the reconnector.
+>
+> **So AC-27 has three shapes, not two, and `qa` kept and labelled all three:**
+>
+> - **A — held handle whose PDO survives the switch** (`app('db.factory')->make()`, the one connection the
+>   manager never caches): returned **tenant A's own row inside tenant B's scope**. A cross-tenant *read*.
+>   **Red** at the tip.
+> - **B — held handle purged by the switch and silently repointed** (`connectUsing`): returned
+>   **tenant B's row through an object built for tenant A**. Weaker than A — a repointing, not a read of
+>   another tenant's data — but unguarded, and a defect. **Red** at the tip. *This is the shape R14
+>   mistakenly ruled unobservable.*
+> - **C — held handle queried after the scope ends** (`build()`): **green** at the tip, the accidental
+>   protection, because there is no tenant to repoint to and the rebuild runs through `makeConnection()`
+>   where the extension did run. Regression guard. *This is the half R14 got right.*
+>
+> The ruling's substance survives and is better supported: the plan's single unqualified **RED FIRST** label
+> on AC-27 was the thing that was wrong, two of the three shapes were red at the tip, and one was green.
+> `qa`'s mutation 2 (both guard attachments commented out) confirms the division from the other side: A and
+> B go red, C stays green, "which is why the factory route carries the proof".
 
 ### R15. The five smaller deviations: all accepted, none needing a change. Two of my own rulings are amended
 
@@ -592,7 +646,8 @@ been adequate all along.
    control that the needle is findable at all is what makes the four absences mean anything. R1 already
    records that the token's disclosure is harmless, so there is no tension with AC-16.
 
-**Amendment 1 — R6.3.** `QaCredentialSurfaceSweepTest:384` keeps `toContain('flexipos_tenant')` because
+**Amendment 1 — R6.3. CLOSED by `qa` in `292bdaa`: the line was deleted and replaced by a live-key and
+live-value check, which is stronger than either option I offered.** `QaCredentialSurfaceSweepTest:384` kept `toContain('flexipos_tenant')` because
 R6.3 told it to, and `dev` is right that it now passes on a substring of `flexipos_tenant_authenticator`:
 an accidental pass, not a statement about the key it names. `qa` owns the fix in step 5 — either name the
 key that is actually in the stanza, or drop the line, since `qa_cred_app` beside it already proves the
@@ -609,6 +664,117 @@ the new invariant, so the alternatives were a red gate or a deferred security ch
 than a declared edit in a shape the plan pre-justified. I have read all three: they are exactly the shapes
 R6.1 and R6.3 specify. Step 5 may rewrite all of them in `qa`'s own words; what it must not do is treat
 them as already reviewed.
+
+---
+
+## Rulings after step 5 — `qa`'s measurements, 2026-10-07
+
+Step 5 passed with **zero defects** (`docs/qa/T-007-gate-headroom-and-tenancy-hardening.md`, `292bdaa` and
+`ee67a18`): cache-cold `composer check` exit 0, **463 passed / 2403 assertions, 156.27 s
+[state: CACHE-COLD, 2026-10-07]**, sentinel absent. Two of `qa`'s five notes settle rulings above and are
+amended **in place**, inside R13 and R14, so the record shows what I ruled and what running it changed:
+R13's four-not-five is **confirmed**, and R14 is **half wrong** — `connectUsing` after a switch does
+demonstrate the defect. R16 and R17 are new.
+
+`qa` did what neither `dev` nor I did: it ran `dev`'s step-3 file against `cef6a17` production code in a
+scratch worktree. Every disagreement in this plan about what was red at the old tip was settled by that one
+run. Worth remembering the next time a plan asserts what a test would have done.
+
+### R16. The `build()` wedge: R1's acceptance **does** need restating, because what it accepted was the forgery half
+
+`qa` is right to ask. R1's first hazard bullet accepted that `DB::build()` retains configuration a `purge()`
+cannot clear, measured it (`configuration()` prefers `dynamicConnectionConfigurations[$name]`,
+DatabaseManager.php:218; `purge()` unsets only `$this->connections[$name]`, :299-303), and concluded "both
+designs survive it". That conclusion is still true **and it answered a different question than the one the
+fact raises.** R1 asked whether the retention breaks the *authenticator*; it does not. It never asked what
+the retention does to the *process*.
+
+MEASURED by `qa` and pinned by a test ("refuses to enter another tenant once the tenant name has been
+built"): after **any** `DB::build(['name' => 'tenant'] + …)` — including of the genuine stanza — the next
+tenant's `enter()` is refused with `TenantConnectionMismatch` **while entering**, for the life of the
+process, because nothing public clears `dynamicConnectionConfigurations['tenant']` and `configuration()`
+prefers it to the `config()` value `Tenancy` just wrote. So the restatement is:
+
+> The retention is **fail-closed and pre-existing**, and it is not a forgery route — a stale stanza is
+> refused, never served. What it is instead is a **liveness** hazard: a single `build()` under the tenant
+> connection name poisons that name for the rest of the process, which in a queue worker is an outage
+> rather than an error. Accepted for T-007 because nothing in the codebase does it and because the failure
+> is a refusal; **named here as a liveness residual rather than only as a forgery non-issue.**
+
+Three things the restatement must carry, and they are why this is worth a paragraph:
+
+- **It is name-specific, and that separates it from R12's property.** Only a build that *names* the tenant
+  connection wedges it. `build()` with another name, or with none (the invented `dynamic_<md5>`, R12),
+  writes its stanza under *that* key and leaves `dynamicConnectionConfigurations['tenant']` untouched. So
+  the same framework fact has two distinct consequences — R12's "an authorisation does not cover the
+  connection name" and R16's wedge — and they are reached by different calls. A fix for one is not a fix
+  for the other.
+- **It bounds what AC-27 can literally assert.** AC-27's wording for the `build()` route ("build, switch,
+  then query") is satisfiable only **at the entering stage**, because the switch itself is what is refused.
+  The query stage is covered by shape **B** (`connectUsing`, the repointing) and shape **A** (the
+  factory-direct cross-tenant read) — see R14's amendment. The criterion is met; the route that meets it is
+  not the one the wording implies, and the QA report says so rather than stretching the test.
+- **It is a backlog row, not a T-007 defect** (the lead is taking it). Added to the risk table below with
+  the detection `qa` built, and `Tenancy::resetTenantConnection()` clearing the retained entry is the
+  obvious candidate fix — out of scope here because it changes the teardown §4.4 describes, which this task
+  promised not to touch (R4).
+
+### R17. What step 5 measured, and the one figure this plan was arguing without
+
+**AC-45, derived independently and it lands within a second of the illustration.** `qa`'s A = **45.68 s**
+(worst of three cache-cold stan samples: 45.65, 45.68, 39.61), T = **103.89 s**, so
+`round(sqrt(45.68 × 103.89)) = 69`, budget **67**, margins **23.32 s** (`limit − A`) and **36.89 s**
+(`T − budget`), ratios **1.511** and **1.506** **on the limit**. Exit 3 with the sentinel, all three
+analysis steps completed, **no run discarded**. R10's illustration from `dev`'s figures was 68; two
+independent measurement sessions, four days of cache states apart in effect, produced 68 and 69. That is
+the recipe behaving as R10 claimed — the geometric mean of the window's ends is stable because both ends
+move together — and it is the first evidence for that claim rather than an argument for it.
+
+**AC-2, and the figure the plan was missing.** Machine-cold was **not observed** and `qa` proved the
+negative rather than asserting it (boot at 03:39, first gate-sized run at ~10:58), so D-12's factor
+applies: S = 3 × 103.89 = **311.67**, limit/S = **2.888**, budget/S = **2.830**, both clear the required 2.
+
+And then the number this plan has been arguing around since the first pass: **at that S the old limit of
+300 scores 300 / 311.67 = 0.963.** Below **one** — not merely below the 2x headroom, but below the single
+step it had to carry. **The pre-T-007 gate did not satisfy its own headroom requirement, measurably rather
+than probably,** which is why FP-172's false red on 2026-10-06 happened for real instead of remaining a
+hypothesis. Every sentence in this plan that treats the 300 as *suspect* can now name 0.963 instead; the
+two that argued it are corrected below (R5's ordering paragraph and recipe 2).
+
+One honesty note on that figure, because it is the one most likely to be quoted out of context: 311.67 is
+**derived**, not observed. What is measured is the cache-cold slowest step (103.89 s) and the provenance of
+D-12's factor; the product is the criterion's own arithmetic. On the **cache-cold** state alone the old 300
+would have scored 2.888 and passed — which is exactly why D-12 split the two states and why D-14 calls the
+factor load-bearing. The old limit was adequate for the cheap state and inadequate for the real one.
+
+**The manifest needs no edit.** `cache-cold-slowest-step-seconds` is 106 against `qa`'s 103.89, so the
+stored figure is **conservative**, the standing assertion (`limit`/`budget` ≥ 2 × S) still holds with room,
+and AC-43 is satisfied without touching the one file that would have re-opened step 1b. `qa` correctly left
+it alone.
+
+**Four acknowledged partials, all `qa`'s own declarations and all accepted as partials rather than passes
+in disguise.** They are the honest edge of this task's evidence and belong in the plan, not only in the
+report:
+
+1. **AC-5 is covered per-step only.** `GateStepTimerTest`'s failing-child case proves a non-zero status
+   arrives with the margin line and no sentinel; no whole-gate run with a planted failing test was made.
+   The per-step form is the discriminating one (D-3: the sentinel, not the status, is what separates a kill
+   from a failure), so the gap is in scale, not in kind. Accepted.
+2. **AC-8's kill did not land inside a probe window.** The forced kill at `COMPOSER_PROCESS_TIMEOUT=54`
+   ended at elapsed 52.44 s with 113 cases done, including both probe-planting files, and nothing survived
+   — but no probe was *in flight* at the moment of the kill, so "a survivor is cleaned" still rests on
+   T-005's recorded proof. Accepted: AC-8's own claim is that `probes:clean` running first makes a survivor
+   harmless, and that remains proven where it was proven.
+3. **AC-35 is PENDING with nothing to map**, because no review round exists yet. It is the reviewer's round
+   that creates its subject; `qa` repeats it afterwards.
+4. **A stanza with another connection name and no authenticator is not guarded**, and `qa` deliberately did
+   **not** pin it, because a test asserting it would assert a hole. Correct on both counts, and the
+   boundary is worth stating exactly, since it is the whole of what the choke point claims: the factory
+   guards `tenant`, `tenant::*` and **any** stanza carrying the authenticator key, and hands everything
+   else to the inner factory untouched — which it must, or the master connection could not build. Code
+   that can name another tenant's host, database **and** credentials does not need to forge a stanza at
+   all; that is R7's "the mapping source is trusted" residual, already written beside the mechanism, and
+   FP-203 is where it closes.
 
 ---
 
@@ -707,9 +873,10 @@ otherwise be blocked by red tests `dev` may not touch.
   clause, in the shapes R6.1 pre-justifies (R15, amendment 2); the rest is still `qa`'s, and `qa` may
   rewrite those two.
 - `packages/kernel/tests/Feature/QaCredentialSurfaceSweepTest.php` — [qa]. Lines 237-241 and 378-381 (R6.3).
-  **Line 381 was edited by `dev` in step 4** (same clause). One thing R6.3 got wrong and `qa` must fix:
-  the neighbouring `toContain('flexipos_tenant')` now passes on a substring of
-  `flexipos_tenant_authenticator` — see R15, amendment 1.
+  **Line 381 was edited by `dev` in step 4** (same clause) and **rewritten by `qa` in step 5**, which also
+  closed the one thing R6.3 got wrong: the neighbouring `toContain('flexipos_tenant')` was passing on a
+  substring of `flexipos_tenant_authenticator` and is now deleted in favour of a live-key and live-value
+  check — R15, amendment 1.
 - `docs/qa/T-007-gate-headroom-and-tenancy-hardening.md` — **new** [qa].
 
 **Not touched:** `docs/database.md`, `docs/architecture.md`, `CLAUDE.md`, `docs/backlog.md`,
@@ -918,7 +1085,8 @@ pasted into the commit message, because a guard whose first run is green is defe
       specified, with four declared deviations, all accepted: the `::read`/`::write` widening and AC-28's
       comment-stripped source search (R15.4, R15.5), `gc_collect_cycles()` in `afterAll` (R15.6), and one
       AC-27 case beyond the list — `app('db.factory')->make()`, the only route that can demonstrate a
-      cross-tenant *read* (R14). Fifteen reds at the T-006 tip, four of them that one route (R13). AC-13
+      cross-tenant *read* (R14). **Sixteen** reds at the T-006 tip for the committed file, four of them
+      that one route (R13 and R14 as amended by `qa`; `dev`'s pasted 15 is its draft's count). AC-13
       and AC-14 stayed red at the end of it, as R5 requires.
       *Gate: green, 380 / 1753 [state: WARM], +53 cases and +210 assertions, none of them in an existing
       test.*
@@ -964,15 +1132,21 @@ pasted into the commit message, because a guard whose first run is green is defe
       `beforeStartingTransaction`, exactly one of each (AC-24); `ReflectionProperty(…, 'guardedConnections')`
       throws `ReflectionException`, plus a source search of `packages/kernel/src/Tenancy/` finding no
       `WeakMap` holding a `Connection` and no `ConnectionEstablished` reference (AC-25, AC-28);
-      **AC-27, in two shapes and only one of them red first (amended by R14 — the sentence here was
-      wrong):** under `Event::fake()`, (a) **red first**, a connection that keeps its own PDO *across* a
-      switch must throw `TenantConnectionMismatch` — which needs the `app('db.factory')->make()` route,
-      because `build()` and `connectUsing()` both cache under the connection name and are purged by the
-      switch, so neither can demonstrate a cross-tenant read; and (b) a **regression guard**, a built
-      connection queried *after* the scope ends must throw `NoTenantResolved` — green at the T-006 tip
-      already, because `leave()` purges the name and the reconnect returns through `makeConnection()`
-      where the old name-keyed extension did run. Label (b) as a guard on an accidental protection, never
-      as a red-first criterion; the AC-23 table repeated under
+      **AC-27, in three shapes and two of them red first — amended twice, by R14 and then by `qa`'s run,
+      because the sentence here was wrong both times.** Under `Event::fake()`: **(A) red first**, a held
+      connection whose PDO *survives* the switch must throw `TenantConnectionMismatch` — only
+      `app('db.factory')->make()` can show this, because it is the one connection the manager never caches,
+      and it returned tenant A's own row inside tenant B's scope (a cross-tenant **read**); **(B) red
+      first**, a held `connectUsing` connection *purged* by the switch must also refuse — the purge nulls
+      the PDO but the next query is silently **repointed** through `reconnectIfMissingConnection()` and the
+      manager's reconnector, so at the tip it answered as tenant B though built for tenant A (a
+      repointing, weaker than A but unguarded); **(C) regression guard**, a built connection queried
+      *after* the scope ends must throw `NoTenantResolved` — **green at the T-006 tip already**, because
+      there is no tenant to repoint to and the rebuild runs through `makeConnection()` where the old
+      name-keyed extension did run. Label (C) as a guard on an accidental protection, never as a red-first
+      criterion. AC-27's literal "build, switch, query" wording is reachable for the `build()` route only
+      at the **entering** stage (R16's wedge); the query stage is what (A) and (B) cover. The AC-23 table
+      repeated under
       `Event::fake()` with identical results (AC-28); and the two installation invariants — the resolved
       `DatabaseManager`'s injected factory **is** ours, and no name-keyed extension is registered under the
       tenant connection name (R7). Each guard row has the paired positive control AC-40 requires.
@@ -1039,7 +1213,14 @@ pasted into the commit message, because a guard whose first run is green is defe
       written and needs no substitute.
       *Gate: green.* Commit `T-007: FP-161 bind the tenant stanza to an authenticator Tenancy alone can mint`.
 
-- [ ] **Step 5 — The proof suite and the measurements [qa].**
+- [x] **Step 5 — The proof suite and the measurements [qa]. DONE 2026-10-07, `292bdaa` and `ee67a18`.
+      PASS, zero defects.** Cache-cold `composer check` exit 0, **463 passed / 2403 assertions, 156.27 s
+      [state: CACHE-COLD]**, sentinel absent; +22 cases and +202 assertions over the step-4 tip, reconciled
+      case by case in the report. AC-45's limit derived as **69** (R17), AC-2's diff figure measured at
+      **0.963** (R17), machine-cold proved unobserved rather than assumed. Four declared partials —
+      AC-5 per-step only, AC-8's kill outside a probe window, AC-35 pending with nothing to map, and the
+      unguarded other-name stanza deliberately unpinned — all accepted in R17. Two of the five notes
+      correct this plan: R13 confirmed, R14 half wrong. The two rulings R16 and R17 came out of it.
       *Covers AC-1, AC-2, AC-5 to AC-8 (whole-gate forms), AC-10, AC-23, AC-27, AC-28, AC-30, AC-32,
       AC-33, AC-34, AC-35, AC-37, AC-38, AC-39 to AC-45 — AC-45 included, and it is the one criterion
       whose limit `qa` derives rather than reads (recipe 4, R10).*
@@ -1115,7 +1296,9 @@ is used as an input to a limit, take it more than once and use the worst.
 2. **AC-2's "(diff)" number at the T-006 tip.** `git stash` or a scratch worktree at `cef6a17`, then
    `composer config process-timeout` → **300** (MEASURED by `architect` 2026-10-06, re-run by `dev`
    2026-10-07, same value), against a cold step that exceeded it on 2026-10-06 → a ratio below 1. Report
-   the number, not the reasoning.
+   the number, not the reasoning. **DONE, and the number is 300 / 311.67 = 0.963** (`qa`, 2026-10-07,
+   scratch worktree at `cef6a17` with the vendor directory junctioned). R17 says what it does and does not
+   prove.
 3. **AC-4, per-step form (always works).** `COMPOSER_PROCESS_TIMEOUT=2 composer test` in `modules/host`:
    budget 1 s, the sentinel appears at ≈1.5 s, exit 3. MEASURED in the scratchpad with the real
    `composer.phar` before this plan was written.
@@ -1128,7 +1311,9 @@ is used as an input to a limit, take it more than once and use the worst.
    not symmetric, which is why R10 states them on the limit) — an illustration from `dev`'s numbers, not
    the limit itself; `qa` derives its own
    and states it with the figures and states it came from. Report both margins in seconds, `limit − A` and
-   `T − budget`. Per AC-45, an analysis step that overruns makes the **run invalid** — re-pick the limit
+   `T − budget`. **DONE: `qa` derived 69** from A = 45.68 and T = 103.89, budget 67, margins 23.32 s and
+   36.89 s, ratios 1.511 and 1.506 on the limit, no discarded runs (R17) — one second from the
+   illustration, which is the first evidence that the recipe is stable rather than merely valid. Per AC-45, an analysis step that overruns makes the **run invalid** — re-pick the limit
    from that run's numbers and re-run, reporting the discarded run — not a product failure. If A ≥ T there
    is no window at all: record that and fall back to recipe 3, with the measured reason (R2: at a 2 s limit
    Composer kills `lint` and the test step never starts).
@@ -1169,11 +1354,12 @@ is used as an input to a limit, take it more than once and use the worst.
 
 **Criteria red at the T-006 tip, by step** — AC-4 in step 1, AC-27 in step 3, AC-13 and AC-14 in step 4,
 and AC-13/AC-14 are **still red at the end of step 3**, which is the evidence that FP-160 did not
-accidentally close FP-161. **One exception, measured and ruled in R14:** AC-27 was red at the tip only in
-its held-PDO shape; its post-scope shape was **already green** there, because `leave()` purges the name and
-the reconnect returns through `makeConnection()`, the one route the old name-keyed extension covered. It
-is a regression guard on an accidental protection, and `qa` must keep both shapes — measuring only the
-post-scope one reproduces the accidental green.
+accidentally close FP-161. **One exception, ruled in R14 and corrected by `qa`'s run:** AC-27 has three
+shapes and **two** were red at the tip — the held handle whose PDO survives (a cross-tenant read) and the
+held handle the switch purges and silently repoints (answers as the wrong tenant). The **post-scope** shape
+was **already green**, because `leave()` purges the name and the rebuild returns through `makeConnection()`,
+the one route the old extension covered. It is a regression guard on an accidental protection; all three
+shapes stay in the suite, and measuring only the post-scope one reproduces the accidental green.
 
 ## Risks & rollback
 
@@ -1182,6 +1368,7 @@ post-scope one reproduces the accidental green.
 | Something resolves `db` before `TenancyServiceProvider::register()`, so the manager keeps the undecorated factory and the choke point is absent | Measured not to happen on today's boot (`decoration landed: true`, and that probe extended *later* than a provider would), and the installation invariant test in step 3 asserts it on every run — it fails loudly rather than leaking quietly | bind earlier in `register()`; worst case re-register `db` itself |
 | A framework upgrade adds a key between `configuration()` and the factory, or renames `make()` | Fails **closed**: every tenant connection is refused and the whole tenancy suite goes red on the first `composer update`. `TenancyFrameworkContractTest`'s new case names the cause in one read. **Observed once already in step 4, from `build()` rather than from an upgrade, and in exactly this direction — a refused *legitimate* stanza, not an accepted forged one (R12)** | widen the digest's excluded keys — but only by R12's rule (the framework writes the key before the factory is called **and** it cannot redirect which database is opened) — or pin the framework |
 | A third party registers a name-keyed extension for the tenant connection and bypasses the factory | The standing test in step 3 | remove the extension; the test names it |
+| **A module calls `DB::build()` under the tenant connection name and wedges the worker** — every later `enter()` is refused for the life of the process (R16, measured and pinned by `qa`) | `qa`'s case "refuses to enter another tenant once the tenant name has been built", which also shows that clearing the retained entry restores service. Fail-closed and pre-existing: a stale stanza is refused, never served | clear `dynamicConnectionConfigurations` for the tenant name in `Tenancy::resetTenantConnection()` — out of scope here because it changes the teardown §4.4 describes (R4), so it is the lead's backlog row |
 | `process-timeout: 900` lets a genuinely hung step hang for 15 minutes | Accepted (R8): the limit is what AC-2 requires once D-12's S is the input, and 600 fails that criterion outright. The wrapper's budget (882 s) is the binding limit for the test step, and the margin line reports the ratio on every completed run; `lint`, `stan` and `deptrac` are unwrapped, so a hang in one of those is the 15-minute case (R7's residual) | lower the limit **and** the factor or the state it is derived from, together; the manifest assertion tells you how far |
 | AC-45's limit is derived from single samples on both sides, so a thin window reads as a product failure | Recipe 4's geometric mean cannot produce an invalid limit while a window exists (R10); `qa` samples the analysis side three times and reports both margins; AC-45 itself declares an analysis overrun an invalid run | widen the window by re-measuring, or fall back to recipe 3 and record why |
 | Pest's own exit code 3 read as a kill | The sentinel is the discriminator (D-3); a child's 3 arrives with the margin line, not the sentinel | drop the distinct code (one line) |
@@ -1195,7 +1382,7 @@ Each step is one commit, so `git revert` of step 4 restores the marker while kee
 
 ## Questions for the human
 
-None. Five things for the lead's queue rather than the human's, one of them already closed:
+None. Six things for the lead's queue rather than the human's, three of them already closed:
 
 1. `docs/database.md` §4.4 names `TenantConnectionResolver`, a class that does not exist — the code calls
    it `Tenancy`. Pre-existing drift, untouched by this task (R4), worth a backlog row.
@@ -1213,8 +1400,18 @@ None. Five things for the lead's queue rather than the human's, one of them alre
    `name`, it invents `dynamic_<md5>` when none is given (DatabaseManager.php:119, 132). The mechanism and
    the exclusion are both right — `build()` writes the key either way — but this is a claim about a
    framework contract sitting in a security class, and `TenancyFrameworkContractTest` exists so such claims
-   can be checked. One sentence, no code. R12 has the wording. `dev`'s to fix, not mine.
-5. **`QaCredentialSurfaceSweepTest`'s `toContain('flexipos_tenant')` is now an accidental pass** on a
-   substring of `flexipos_tenant_authenticator`, because R6.3 told `qa` to keep it. `qa`'s to fix in
-   step 5; R15, amendment 1 says how. `dev` flagged it rather than silently editing a file it did not own,
-   which is the right order.
+   can be checked. One sentence, no code. R12 has the wording. `dev`'s to fix, not mine. **In hand:** `dev`
+   is making exactly that change, and `qa` notes (report note 5) that a comment-only edit under
+   `packages/kernel/src` still changes the Pint and PHPStan input, so the final tip needs one more
+   `composer check` — which the reviewer round runs anyway. It cannot move S or the AC-45 limit.
+5. **Closed by `qa` in `292bdaa`, one better than I asked for.** The accidental
+   `toContain('flexipos_tenant')` pass is **deleted**, not renamed, along with the stale
+   `toContain('qa-cred-a')`, and replaced by a check that the live stanza holds exactly one 32-hex value
+   plus assertions on the live key and the live value — so it cannot pass on a prefix. R15, amendment 1
+   offered "name the key or drop the line"; `qa` dropped it and made the replacement stronger. Nothing
+   outstanding.
+6. **`DB::build()` under the tenant connection name wedges the process** — every later `enter()` refused
+   until restart, because nothing clears `dynamicConnectionConfigurations['tenant']`. Fail-closed,
+   pre-existing, measured and pinned by `qa`, ruled in **R16**, and in the risk table with its candidate
+   fix. The lead is taking the backlog row. Not a T-007 defect and not a human question: nothing in the
+   codebase does it, and the failure mode is a refusal rather than a leak.
