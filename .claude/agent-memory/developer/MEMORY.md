@@ -11,4 +11,5 @@
 - [Cleanup must survive a killed process](feedback_cleanup_must_survive_a_killed_process.md) — probe cleanup belongs first in `composer check`, not in a test hook: stan and deptrac run before any hook.
 - [Repo-wide rename recipe](project_repo_wide_rename_recipe.md) — two commits, enumerate-then-classify tokens, the protect list, and the Composer path-package traps.
 - [Defer in a comment, or file a row](feedback_defer_in_a_comment_or_file_a_row.md) — which residuals earn a row, declared-beats-silent deviation, and when "gate: green" hits another role's files.
-- [Gate timing spread](project_gate_timing_spread.md) — range 34.51 s run-to-run and 2.8x session-cold, so no gap under ~35 s is evidence; cache-cold vs machine-cold.
+- [Gate timing spread](project_gate_timing_spread.md) — no gap under ~35 s is evidence; list the other php processes before believing a red gate.
+- [Correct a claim in every copy](feedback_correct_a_claim_in_every_copy.md) — one false sentence, four files; sweep whitespace-collapsed, cite symbols not lines.

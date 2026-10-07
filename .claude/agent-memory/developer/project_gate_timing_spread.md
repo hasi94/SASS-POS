@@ -1,6 +1,6 @@
 ---
 name: project-gate-timing-spread
-description: The gate's wall time on this machine varies ~30 % run to run and ~3x on the first run of a session, so one timing is never evidence for a limit or a performance claim
+description: The gate's wall time on this machine varies ~30 % run to run, ~3x session-cold and ~5x under contention from other projects, so one timing is never evidence - and a red gate here is often another project's suite
 metadata:
   type: project
 ---
@@ -45,6 +45,27 @@ Two consequences that already changed a decision:
   117.63) - an order of magnitude below the run-to-run spread. Without a bare-against-wrapped
   pair measured back to back I would have reported a 40-second regression that was noise plus
   thirteen new cases.
+
+**Before believing a red gate, list the other PHP processes.** MEASURED 2026-10-07 (T-007 fix
+round 1), the same tree twice, 30 minutes apart:
+
+- run 1: **3 failed / 470 passed**, error code 2, analysis steps alone taking 750 s before the
+  test step even started. `Get-CimInstance Win32_Process -Filter "Name like '%php%'" |
+  Select ProcessId,CreationDate,CommandLine` showed **another project's full suite**
+  (`D:\Flexiata\Scriber\backend`, `artisan test` + phpunit, running 20 minutes), a `php -S`
+  holding 123 s of CPU, an `artisan serve` and a `queue:work`;
+- run 2, caches warm and the competitor finished: **exit 0, 473 passed, 86.27 s**, ratio 10.41.
+
+None of the three failures was a code defect, and two of them were the inherited 60 s child
+timeout (FP-172's sibling). The third is worth knowing on its own: **`GateStepTimerTest`'s kill
+case asserts `elapsed < 2.0` because its limit is 2 s, and under contention the kill landed at
+2.22 s.** Symfony's `checkTimeout()` only runs between read-loop iterations, so detection latency
+is unbounded under load while the assertion's ceiling is not - a false red in the very test that
+exists to prevent false reds. Do not widen it to make a run green; it is a real finding and
+belongs in a row.
+
+The process list is the cheap half of the measurement and it comes first: it costs one command
+and it separates "my change broke the gate" from "this machine is busy" before any re-run.
 
 **Why:** FP-171 and FP-172 both turn on durations, and a false performance claim in a commit
 message is as hard to retract as a false test result.

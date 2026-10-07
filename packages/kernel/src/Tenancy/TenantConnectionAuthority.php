@@ -50,9 +50,19 @@ use SensitiveParameter;
  *   the forger's own tenant and is guarded per query like any other connection;
  *   what it escapes is the name-based teardown. FP-163 territory.
  * - **spl_object_id reuse** in the digest's object encoding would need the
- *   original object to be freed first; config() holds a strong reference to the
- *   stanza's ConnectionPassword for the life of the record, so an id cannot be
- *   recycled while the record it is part of is live.
+ *   original object to be freed first. Nothing here depends on whether it can
+ *   be, because a recycled id cannot redirect a connection: every value that
+ *   selects a database - `database`, `host`, `port`, `username`, an injected
+ *   `read`/`write` split, a `url` - is in the digest by value, so a collision
+ *   has to be a collision inside an otherwise identical stanza. The most it
+ *   could buy a forger is a different credential object attached to their own
+ *   tenant and their own database, which they are authorised for already.
+ *   (This bullet used to argue instead that config() holds a strong reference
+ *   to the stanza's ConnectionPassword for the life of the record, so no id
+ *   could be recycled. That premise is defeasible - an F2 forger drops the
+ *   reference by overwriting the connection stanza, which is the one thing
+ *   every F2 row in TenantStanzaForgeryTest does. The residual is harmless for
+ *   the structural reason above, which a forger cannot arrange around.)
  *
  * Scoped, beside TenantContext and Tenancy, so a queue worker's
  * forgetScopedInstances() between jobs drops every record with them.

@@ -50,7 +50,8 @@ role is not surprised, and say plainly in the report that the later step may rew
 
 **A gate requirement can also force a mechanism change, and that is the kind of deviation to
 lead with rather than bury.** The same step's whole-stanza digest refused a *legitimate*
-`DB::build()`, because the framework makes the caller supply `name`. The fix (exclude one key)
+`DB::build()`, because the framework writes `name` into the stanza whether the caller supplied
+one or not. The fix (exclude one key)
 weakens the mechanism by exactly one accepted residual the plan already listed - so the right
 move was to make that residual an executable test and put the deviation at the top of the
 commit message, not in a footnote.

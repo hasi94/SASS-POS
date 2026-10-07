@@ -129,6 +129,18 @@ it('ends a step that outlasts its own budget, names what happened, and exits 3',
     // reason a sentinel printed by project code is readable at all.
     expect($output)->toContain('child tick');
 
+    /*
+     * The timestamp, and explicitly its offset (S-1). The wrapper formats with
+     * gmdate(DATE_ATOM) on purpose: this machine's PHP CLI runs Europe/Berlin,
+     * so date() here would print +02:00 - matching neither the commits (+05:30)
+     * nor UTC, and drifting with configuration. Asserting the +00:00 literal is
+     * what makes a later gmdate -> date edit redden instead of silently shifting
+     * every timestamp the gate has ever printed.
+     */
+    expect($output)->toMatch(
+        '/FLEXIPOS-GATE-TIMEOUT[^\r\n]* at=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00/'
+    );
+
     // A killed step is never also a completed one.
     expect($output)->not->toContain('FLEXIPOS-GATE-MARGIN');
 
@@ -178,6 +190,12 @@ it('reads the limit from the manifest when none is forced, and puts the margin l
     // the last field of the line.
     expect(gateTimerLastLine($output))->toStartWith('FLEXIPOS-GATE-MARGIN step=probe')
         ->and(gateTimerLastLine($output))->toEndWith('source=manifest');
+
+    // S-1 again, on the wrapper's other gmdate() call site: the kill case's
+    // assertion would stay green if only this line were switched to local time.
+    expect($output)->toMatch(
+        '/FLEXIPOS-GATE-MARGIN[^\r\n]* at=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00/'
+    );
 });
 
 it('passes a failing step through with its own status, on its own stream, and no sentinel', function () {

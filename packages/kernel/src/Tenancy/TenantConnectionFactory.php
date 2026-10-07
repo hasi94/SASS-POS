@@ -52,10 +52,14 @@ use SensitiveParameter;
  * any other extender of 'db.factory' stays composed instead of being silently
  * discarded.
  *
- * Known residual (R7): makeConnection() consults `$extensions[$name]` *before*
- * the factory (DatabaseManager.php:195), so anything registering a name-keyed
- * extension for the tenant connection would bypass this class. Nothing does,
- * and TenantConnectionChokePointTest asserts that as a standing invariant.
+ * Known residual (R7): DatabaseManager::makeConnection() consults
+ * `$extensions[$name]` in its first branch, *before* it reaches the factory, so
+ * anything registering a name-keyed extension for the tenant connection would
+ * bypass this class. Nothing does, and TenantConnectionChokePointTest asserts
+ * that as a standing invariant. Cited by symbol: the line was :195 when this
+ * was written and is :192 on v12.69.2, and a line number no test checks is
+ * decoration - the behaviour is pinned by TenancyFrameworkContractTest and the
+ * absence of such an extension by the choke-point test.
  */
 final class TenantConnectionFactory extends ConnectionFactory
 {

@@ -225,6 +225,20 @@ function forgeryStanzas(): array
             'username' => 'forgery_other_app',
         ]),
 
+        // S-5. Not a redirection at all - `prefix` decides nothing about which
+        // database is opened - and refused anyway, which is the point: it is
+        // the other key ConnectionFactory::parseConfig() writes, and the only
+        // plausible candidate for a third digest exclusion. A refusal here is
+        // what makes "two keys, not three" behaviour. MEASURED by mutation:
+        // add `prefix` to the exclusion list and six of this row's seven route
+        // cases go red - five of them serving tenant A's row, the Eloquent one
+        // on the forged table prefix - while the read/write route stays green,
+        // because that row's stanza also carries the injected split and is
+        // refused for it. The pin does not rest on that route.
+        'F2 copies every value and changes only the prefix' => static fn (array $genuine): array => array_merge($genuine, [
+            'prefix' => 'forgery_',
+        ]),
+
         // The key a whitelist of "redirecting" keys would have had to know
         // about: ConnectionFactory::make() branches to a read/write connection
         // on isset($config['read']) alone.
@@ -535,9 +549,24 @@ it('publishes the authenticator nowhere but the stanza it authenticates', functi
 
 it('lets the connection name change, and nothing else, without breaking the binding', function () {
     // The one key the digest excludes, stated as behaviour rather than left in
-    // a docblock. It has to be excluded: DatabaseManager::build() makes the
-    // caller supply `name`, so with it inside the digest AC-23's third column
-    // could never pass for that route.
+    // a docblock. It has to be excluded: DatabaseManager::build() writes `name`
+    // into the stanza whether the caller supplied one or not - the key is
+    // defaulted (`$config['name'] ??= static::calculateDynamicConnectionName()`)
+    // and that same stanza is handed to connectUsing() and so to this factory -
+    // so with `name` inside the digest AC-23's third column could never pass for
+    // that route, named or unnamed. The framework half is pinned by
+    // TenancyFrameworkContractTest, under "still writes a connection name into
+    // the stanza build() hands the factory", which is where a vendor change
+    // reddens; this case is the tenancy half. Cited by symbol rather than by
+    // line, because the line moves between patch releases and the assertion
+    // does not.
+    //
+    // This comment used to say the framework makes the caller supply `name`. It
+    // does not - that is the claim 78ae627 corrected in
+    // TenantConnectionAuthority::digest(), and the correction landed in the
+    // class without reaching the evidence beside it, which is exactly FP-176's
+    // shape. Written out rather than quietly swapped, so the next reader knows
+    // the conclusion survived the reason being wrong.
     //
     // And the residual of excluding it, measured rather than asserted away
     // (plan R7): a genuine stanza rebuilt under another connection name does
@@ -567,6 +596,29 @@ it('lets the connection name change, and nothing else, without breaking the bind
         ->toThrow(NoTenantResolved::class);
 
     DB::purge('forgery-elsewhere');
+});
+
+it('serves a stanza that adds only `name`, the lower bound of the exclusion list', function () {
+    // S-5's second half, and the pair to the "changes only the prefix" forgery
+    // row above: add one key and nothing else, on the plain config route rather
+    // than through DB::build(), and the connection is served. Between the two,
+    // the exclusion list is pinned at exactly two keys by behaviour - this case
+    // reddens if `name` ever leaves it, the forgery row reddens if a third key
+    // ever joins it. Neither can be satisfied by a comment.
+    tenancy()->enter('tenant-a');
+
+    try {
+        config()->set('database.connections.tenant', [
+            'name' => 'forgery-named-in-config',
+        ] + tenancyTenantStanza());
+
+        DB::purge('tenant');
+
+        expect((string) DB::connection('tenant')->scalar('select value from marker'))->toBe('tenant-a');
+    } finally {
+        DB::purge('tenant');
+        tenancy()->leave();
+    }
 });
 
 it('records two strings per authorisation and nothing of the stanza, and empties on revoke', function () {

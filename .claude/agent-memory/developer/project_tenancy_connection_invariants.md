@@ -29,17 +29,24 @@ boundary in `packages/kernel/src/Tenancy/`. Each one changed a decision or caugh
   by injection, so the decorator **must** subclass `ConnectionFactory` and **must** be registered
   in `register()` before anything resolves `db`. Delegate to the inner factory, never
   `parent::make()`, or another extender of `db.factory` is silently discarded. Residual, measured:
-  `makeConnection()` still consults `$extensions[$name]` *before* the factory
-  (DatabaseManager.php:195), so a name-keyed extension would bypass it - pinned by a standing
-  test asserting none is registered under the tenant name.
+  `makeConnection()` still consults `$extensions[$name]` in its first branch, *before* the
+  factory call, so a name-keyed extension would bypass it - pinned by a standing test asserting
+  none is registered under the tenant name. Cite that by symbol: the line was :195 when this was
+  written and :192 on v12.69.2, and no test checks a line number.
 - **Binding a stanza to its own content is the only thing that detects a forged one.** MEASURED
   (T-007 R1, both designs run side by side): a sentinel object in a private `WeakMap` *accepts*
   the "copy every value, change the database" forgery, because an array copy carries the same
   object instance - identity is not authority. A random token stored only in the stanza fails the
   same way. What works is a per-`enter()` token recorded against a digest of the whole stanza.
   Two keys must be excluded from that digest and no others: the token itself, and **`name`** -
-  `DatabaseManager::build()` makes the caller supply it and `ConnectionFactory::parseConfig()`
-  adds it inside `make()`, so with `name` in the digest a legitimate `DB::build()` is refused.
+  `DatabaseManager::build()` writes `name` into the stanza **whether the caller supplied one or
+  not** (`$config['name'] ??= static::calculateDynamicConnectionName($config)`, which invents
+  `dynamic_<md5>` when none is given) and `ConnectionFactory::parseConfig()` adds it again inside
+  `make()`, so with `name` in the digest a legitimate `DB::build()` is refused either way - named
+  or unnamed. **The false version of that sentence - "build() makes the caller supply it" - had
+  to be corrected three times on one task**: the authority's docblock, this file, and the forgery
+  test that is the mechanism's published proof. Correcting a framework claim in the class does
+  not finish the job; sweep every copy with whitespace collapsed, agent memory included.
   Excluding it is what creates the accepted residual "a genuine stanza rebuilt under another
   connection name", which the per-query guard still contains.
 - **`Event::fake()` retains every `Connection` its test opened.** The fake records all dispatched
