@@ -44,6 +44,11 @@ for any of them. | The requester asked for absence plus a positive control. | Re
 D-8 | Which criteria need the diff or history? | Those marked "(diff)". `ba` has no shell in this session.
 They are for `qa` or `reviewer` to run. | Same handover as T-006. | Reversible: yes.
 
+D-9 | Are the criteria that pin today's mechanisms (the reflection test of `guardedConnections`, the
+Event::fake test that declines to assert the hole) allowed to change? | Yes, and only those, each listed by
+name in the plan and in the QA report. | They assert the thing being removed. Any other edited test is
+suspect (AC-41). | Reversible: yes.
+
 D-10 | How is AC-4 reworded after the architect measured that a 2 s limit kills `lint` first? | AC-4 and
 AC-10 become per-step (`composer test` run alone, limit forced). The whole-gate form is a second criterion,
 AC-45, gated on the AC-1 numbers: a limit between the longest of the other steps and the cold test step.
@@ -59,7 +64,4 @@ D-12 | What does "cold" mean in AC-1, AC-2 and AC-33, given dev measured two col
 
 D-13 | Is AC-10's recipe achievable, and AC-45's window? | AC-10 now states a forced limit of at least 5 s (the criterion named no limit, so no number was wrong, but the impossible region was unstated; dev used 8). AC-45 keeps a pending-until-AC-1 gate, records dev's window (43.86 s to 105.46 s, plan's limit 53, budget 51) as a brief figure, and is marked as needing the branch; the thin margin over stan is flagged. | The warning needs limit/2 < limit - reserve with reserve at least 2 (plan lines 164-165), giving limit above 4. Reasoning derived by ba from the plan; the measurements are dev's. | Reversible: yes.
 
-D-9 | Are the criteria that pin today's mechanisms (the reflection test of `guardedConnections`, the
-Event::fake test that declines to assert the hole) allowed to change? | Yes, and only those, each listed by
-name in the plan and in the QA report. | They assert the thing being removed. Any other edited test is
-suspect (AC-41). | Reversible: yes.
+D-14 | AC-45 cited "the plan's limit of 53", which the architect withdrew (plan R10). What does it cite now? | The plan's recipe (R10), not a number. `qa` derives limit = round(sqrt(A x T)) from three CACHE-COLD samples of the slowest analysis step and one test-step figure, and reports both margins in seconds. The clause that an analysis step overrunning the budget makes the run invalid, not a product failure, is kept. Note for later editors: the factor 3 in D-12 is load-bearing. It makes S 318 s, at which a limit of 600 fails AC-2 (budget 588 is under 2 x S = 636) and 900 passes; changing the factor means re-deriving the limit. | A spec that names a number the plan no longer holds sends `qa` to a figure nobody defends; pointing at the recipe cannot go stale. The 318 and 600 arithmetic is from the brief; the 636 and 588 are simple products, checked by ba. | Reversible: yes.

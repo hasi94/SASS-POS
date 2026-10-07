@@ -134,11 +134,13 @@ the gate's own code prints when it ends a step because the time limit was reache
   `stan` and `deptrac` complete, the test step is ended, the exit status is non-zero and the sentinel
   appears. `qa` states the limit chosen and the AC-1 numbers it was derived from, each tagged with its state.
   **Window (CACHE-COLD, dev's measurement of 2026-10-07, taken from the brief, not re-derived):** longest of
-  lint/stan/deptrac 43.86 s (stan), test step 105.46 s; the plan's limit of 53 lies between them (with the
-  plan's reserve of 2 s the budget is 51, leaving about 7 s over stan). That margin is thin against the
-  ~30 % warm-run spread dev also measured (85.59 to 120.10 s), so 53 is a starting point, not part of the
-  criterion: `qa` derives the limit from its own AC-1 numbers and runs AC-45 CACHE-COLD, the state in which
-  the window was measured. If an analysis step exceeds the chosen budget the run is invalid (re-pick the
+  lint/stan/deptrac 43.86 s (stan), test step 105.46 s. The limit is not pinned by this spec or by the
+  plan: `qa` derives it by the plan's recipe (plan R10, the geometric mean of the window's two ends,
+  `round(sqrt(A x T))`), taking A as the worst of three CACHE-COLD samples of the slowest analysis step and
+  T as the CACHE-COLD test step, and reports both margins in seconds (`limit - A` and `T - budget`). Any
+  number the plan shows (68 on dev's figures) is an illustration only. The earlier figure of 53 is
+  withdrawn. `qa` runs AC-45 CACHE-COLD, the state in which the window was measured.
+  If an analysis step exceeds the chosen budget the run is invalid (re-pick the
   limit from that run's numbers and re-run), not a product failure; `qa` reports any discarded run.
   **(branch)**: proven only by running it on the branch in step 5; "achievable" here is dev's measurement,
   not a pass. It cannot be run before AC-1 exists; until then it is pending, not failed.
