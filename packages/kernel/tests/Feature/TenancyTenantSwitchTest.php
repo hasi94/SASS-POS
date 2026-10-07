@@ -3,7 +3,7 @@
 use Flexipos\Kernel\Tenancy\Exceptions\NoTenantResolved;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantConnectionMismatch;
 use Flexipos\Kernel\Tenancy\Secrets\ConnectionPassword;
-use Flexipos\Kernel\Tenancy\Tenancy;
+use Flexipos\Kernel\Tenancy\TenantConnectionAuthority;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -100,7 +100,11 @@ it('leaves nothing of the first tenant in the connection configuration', functio
         expect(tenancyComparableStanza())->toBe($fromClean)
             ->and($fromClean['password'])->toBe('password:'.ConnectionPassword::class)
             ->and(tenancyTenantStanza()['password'])->toBeInstanceOf(ConnectionPassword::class)
-            ->and(tenancyTenantStanza()[Tenancy::TENANT_MARKER])->toBe('tenant-b');
+            // T-007 AC-41: what the projection must not be allowed to hide is
+            // no longer a tenant id in the stanza but an authenticator that
+            // does not vouch for the resolved tenant.
+            ->and($fromClean['flexipos_tenant_authenticator'])->toBe('authenticator:string')
+            ->and(app(TenantConnectionAuthority::class)->verify(tenancyTenantStanza()))->toBe('tenant-b');
     } finally {
         tenancy()->leave();
     }

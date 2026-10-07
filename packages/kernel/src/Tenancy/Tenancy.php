@@ -26,8 +26,16 @@ use Throwable;
  *
  * `run()` is the API every caller should use; `enter()`/`leave()` exist for the
  * cases that genuinely cannot wrap a closure. Nothing else in the codebase may
- * write `database.connections.tenant`, and the guard in TenancyServiceProvider
- * refuses a configuration this class did not write.
+ * write `database.connections.tenant`, and TenantConnectionFactory refuses a
+ * configuration this class did not write.
+ *
+ * That refusal rests on an authenticator rather than on a name: every stanza
+ * this class writes goes out through TenantConnectionAuthority::authorise(),
+ * which returns it carrying a per-enter() token bound to a digest of the whole
+ * stanza, and the factory asks the authority to vouch for whatever it is handed.
+ * The tenant id is not in the stanza at all - it lives in the authority's
+ * private record - because a tenant id is exactly what anything in scope can
+ * read off TenantContext and write into a stanza of its own (FP-161).
  *
  * Teardown is config()->set() of the placeholder plus DB::purge(), never
  * DatabaseManager::build() or connectUsing(). That is not a style choice:
@@ -45,12 +53,6 @@ use Throwable;
 final class Tenancy
 {
     /**
-     * The key the connection array carries so both guards can check that the
-     * configuration they were handed belongs to the tenant the context reports.
-     */
-    public const TENANT_MARKER = 'flexipos_tenant';
-
-    /**
      * Nesting depth of re-entrant enter() calls for the *same* tenant. Zero
      * means "one scope", so the next leave() tears the connection down.
      */
@@ -61,6 +63,7 @@ final class Tenancy
         private readonly TenantContext $context,
         private readonly TenantDatabaseRepository $repository,
         private readonly SecretResolver $secrets,
+        private readonly TenantConnectionAuthority $authority,
     ) {}
 
     /**
@@ -227,6 +230,11 @@ final class Tenancy
         if ($this->config()->get($key) !== $this->placeholder()) {
             $this->config()->set($key, $this->placeholder());
         }
+
+        // Last, not first: the rollback above runs against a live connection,
+        // and revoking while it was still open would turn an AC-31 rollback
+        // into a refusal (which leave() would then have to swallow).
+        $this->authority->revoke();
     }
 
     /**
@@ -299,7 +307,7 @@ final class Tenancy
      */
     private function writeTenantConnection(TenantDatabase $database, #[SensitiveParameter] Secret $secret): void
     {
-        $this->config()->set('database.connections.'.$this->connectionName(), [
+        $stanza = [
             'driver' => $database->driver,
             'host' => $database->host,
             'port' => $database->port,
@@ -324,8 +332,22 @@ final class Tenancy
             // tenant's database user and cannot be reused once another tenant is
             // resolved in the same process (docs/database.md section 2, rule 4).
             'options' => [],
-            self::TENANT_MARKER => $database->tenantId,
-        ]);
+        ];
+
+        // The stanza carries an authenticator, not the tenant id. A tenant id
+        // is something anything in scope can compute from
+        // TenantContext::tenantId(), so comparing one proved only that the
+        // writer knew which shop was resolved - which every forger does
+        // (AC-13). The authority returns the stanza with a token bound to a
+        // digest of the whole of it, and keeps the tenant id in a private
+        // record of its own.
+        //
+        // set(), through the authority's return value, so this is still the one
+        // write in the codebase: the authority never touches config().
+        $this->config()->set(
+            'database.connections.'.$this->connectionName(),
+            $this->authority->authorise($stanza, $database->tenantId)
+        );
     }
 
     /**
@@ -358,13 +380,17 @@ final class Tenancy
         ];
     }
 
+    /**
+     * The tenant this teardown is tearing down, for the warning log only.
+     *
+     * Read from the context rather than from the stanza, because the stanza no
+     * longer carries a tenant id. The 'unknown' fallback is kept: leave() must
+     * never throw, and a dropped container scope can leave a cached connection
+     * behind with no context to name it.
+     */
     private function configuredTenantId(): string
     {
-        $configured = $this->config()->get(
-            'database.connections.'.$this->connectionName().'.'.self::TENANT_MARKER
-        );
-
-        return is_string($configured) && $configured !== '' ? $configured : 'unknown';
+        return $this->context->hasTenant() ? $this->context->tenantId() : 'unknown';
     }
 
     /**

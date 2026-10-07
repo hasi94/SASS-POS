@@ -14,15 +14,21 @@ namespace Flexipos\Kernel\Tenancy\Exceptions;
 final class TenantConnectionMismatch extends TenancyException
 {
     /**
-     * The configuration handed to the connection factory does not belong to the
-     * tenant the context reports. Something other than Tenancy wrote it.
+     * The configuration handed to the connection factory carries no
+     * authenticator the authority vouches for, while a tenant is resolved.
+     * Something other than Tenancy wrote it.
+     *
+     * Nothing the forger supplied is echoed back, and the resolved tenant is
+     * the only identifier named: there is no trustworthy configured tenant to
+     * report, because the value that used to be reported here was precisely the
+     * one a forger could compute (FP-161, AC-13). No credential and no
+     * authenticator reaches this message (AC-16, AC-30).
      */
-    public static function forConfiguration(string $tenantId, ?string $configuredTenantId): self
+    public static function forUnauthorisedConfiguration(string $tenantId): self
     {
         return new self(sprintf(
-            'The [tenant] connection configuration belongs to tenant [%s] but tenant [%s] is resolved. '.
-            'Flexipos\Kernel\Tenancy\Tenancy is the only code allowed to write that configuration.',
-            $configuredTenantId ?? 'unknown',
+            'The [tenant] connection configuration was not authorised for tenant [%s], so the connection was '.
+            'refused. Flexipos\Kernel\Tenancy\Tenancy is the only code allowed to write that configuration.',
             $tenantId
         ));
     }

@@ -7,7 +7,7 @@ use Flexipos\Kernel\Tenancy\Exceptions\TenantConnectionMismatch;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantDatabaseNotActive;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantDatabaseNotMapped;
 use Flexipos\Kernel\Tenancy\Secrets\ConnectionPassword;
-use Flexipos\Kernel\Tenancy\Tenancy;
+use Flexipos\Kernel\Tenancy\TenantConnectionAuthority;
 use Flexipos\Kernel\Tenancy\TenantDatabase;
 use Tests\TestCase;
 
@@ -53,7 +53,13 @@ it('configures the tenant connection from the mapping record and reaches that da
             ->and($stanza['port'])->toBe(3307)
             ->and($stanza['database'])->toBe(tenancyFixtureDatabasePath('tenant-a'))
             ->and($stanza['username'])->toBe('flx_ta_app')
-            ->and($stanza[Tenancy::TENANT_MARKER])->toBe('tenant-a');
+            // T-007 AC-41: the stanza used to carry the tenant id here. It now
+            // carries an authenticator the authority vouches for, and the
+            // tenant id is not in the stanza at all - which is the point, so
+            // both halves are asserted.
+            ->and(app(TenantConnectionAuthority::class)->verify($stanza))->toBe('tenant-a')
+            ->and($stanza['flexipos_tenant_authenticator'])->not->toBe('tenant-a')
+            ->and(in_array('tenant-a', array_map('strval', array_filter($stanza, 'is_scalar')), true))->toBeFalse();
 
         // AC-7.
         expect(tenancy()->current()->hasTenant())->toBeTrue()

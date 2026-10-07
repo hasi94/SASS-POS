@@ -26,8 +26,8 @@ use Symfony\Component\VarDumper\Cloner\AbstractCloner;
  * 1. config/database.php's `tenant` stanza holds a sentinel driver and nothing
  *    else, so there is no usable database to connect to at rest (AC-3);
  * 2. the connection factory is decorated with TenantConnectionFactory, which
- *    refuses to *build* a tenant connection unless a tenant is resolved and the
- *    stanza it was handed belongs to that tenant;
+ *    refuses to *build* a tenant connection unless a tenant is resolved and
+ *    TenantConnectionAuthority vouches for the exact stanza it was handed;
  * 3. a per-query callback on the built connection re-checks the context on every
  *    query and before every transaction.
  *
@@ -71,6 +71,11 @@ final class TenancyServiceProvider extends ServiceProvider
         // to the "no tenant" state whether or not the job left its scope.
         $this->app->scoped(TenantContext::class);
         $this->app->scoped(Tenancy::class);
+        // Scoped for the same reason, and it matters more here: the authority's
+        // records are what make a stanza usable, so a scope reset must take
+        // them with it rather than leave a stanza from a dropped scope
+        // verifiable.
+        $this->app->scoped(TenantConnectionAuthority::class);
 
         $this->app->singleton(SecretResolver::class, static function (Application $app): SecretResolver {
             // env:// only in T-003 (decision D-31). Every other scheme

@@ -4,7 +4,6 @@ use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
 use Flexipos\Kernel\Tenancy\Exceptions\NoTenantResolved;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantConnectionFailed;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantConnectionMismatch;
-use Flexipos\Kernel\Tenancy\Tenancy;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Http\Request;
 use Illuminate\Log\Events\MessageLogged;
@@ -272,7 +271,13 @@ it('refuses a stanza that does not belong to the resolved tenant, credential-fre
     tenancy()->enter('tenant-a');
 
     try {
-        config()->set('database.connections.tenant.'.Tenancy::TENANT_MARKER, 'tenant-b');
+        // T-007 AC-41: the stanza no longer carries a tenant id for a forger
+        // to repoint, so breaking the AC-15 rule on purpose now means the F1
+        // forgery - write the authenticator key an F1 forger reads off the
+        // published source, and set it to the resolved tenant id, which is the
+        // one value the public surface really does hand out. The authority
+        // vouches for no such token.
+        config()->set('database.connections.tenant.flexipos_tenant_authenticator', 'tenant-a');
 
         DB::purge('tenant');
 
@@ -284,8 +289,10 @@ it('refuses a stanza that does not belong to the resolved tenant, credential-fre
 
         $message = (string) $refusal?->getMessage();
 
-        expect($message)->toContain('tenant-b')
+        expect($message)->toContain('tenant-a')
             ->and($message)->toContain('only code allowed to write that configuration')
+            // And nothing the forger supplied is echoed back.
+            ->and($message)->not->toContain('flexipos_tenant_authenticator')
             ->and($message)->not->toContain(tenancyFixturePassword())
             ->and((string) $refusal)->not->toContain(tenancyFixturePassword())
             ->and($refusal?->getPrevious())->toBeNull();

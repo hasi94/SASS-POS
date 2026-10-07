@@ -3,6 +3,7 @@
 use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
 use Flexipos\Kernel\Tenancy\Exceptions\NoTenantResolved;
 use Flexipos\Kernel\Tenancy\Exceptions\TenancyException;
+use Flexipos\Kernel\Tenancy\Exceptions\TenantConnectionFailed;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantConnectionMismatch;
 use Flexipos\Kernel\Tenancy\Tenancy;
 use Illuminate\Database\DatabaseManager;
@@ -194,7 +195,12 @@ it('refuses a fully usable tenant stanza before any network attempt, when no ten
         'strict' => true,
         'engine' => null,
         'options' => [],
-        Tenancy::TENANT_MARKER => 'qa-iso-a',
+        // T-007 FP-161 (dev, declared): the stanza no longer carries a tenant
+        // id. A hand-written one carries whatever its writer chose, and a
+        // plausible authenticator of the right shape keeps this the hardest
+        // case rather than the easiest - the refusal below has to be about the
+        // missing tenant, not about a missing key.
+        'flexipos_tenant_authenticator' => str_repeat('a', 32),
     ]);
 
     DB::purge('tenant');
@@ -228,33 +234,37 @@ it('still reaches the driver when a tenant IS resolved, so the refusal above is 
     // The negative control for the case above. Without it, "it threw" proves
     // only that something was wrong, not that the *missing tenant* was what
     // stopped it before the driver ran.
-    qaIso()->enter('qa-iso-a');
+    //
+    // T-007 R6.1 (dev, declared): this control used to mutate
+    // database.connections.tenant.database inside the scope. Under FP-161 the
+    // stanza is bound to its own content, so that mutation IS the refusal and
+    // the control would prove the opposite of what it exists to prove. The
+    // unopenable database comes from the MAPPING instead, before entering,
+    // which keeps the discrimination intact: the driver is what complains, not
+    // the authenticator and not the missing tenant.
+    $mapping = qaIsoMapping();
+    $mapping['qa-iso-a']['database'] = qaIsoRoot().DIRECTORY_SEPARATOR.'no-such-dir'.DIRECTORY_SEPARATOR.'x.sqlite';
+
+    config()->set('tenancy.databases', $mapping);
+    app()->forgetInstance(TenantDatabaseRepository::class);
+    app()->forgetScopedInstances();
+
+    $refusal = null;
 
     try {
-        // Same shape, same marker, same resolved tenant - but an unopenable
-        // database. The guard lets this through and the driver is the one that
-        // complains, which is what makes the previous test's NoTenantResolved
-        // meaningful.
-        config()->set(
-            'database.connections.tenant.database',
-            qaIsoRoot().DIRECTORY_SEPARATOR.'no-such-dir'.DIRECTORY_SEPARATOR.'x.sqlite'
-        );
-
-        DB::purge('tenant');
-
-        $refusal = null;
-
-        try {
-            DB::connection('tenant')->scalar('select 1');
-        } catch (Throwable $exception) {
-            $refusal = $exception;
-        }
-
-        expect($refusal)->toBeInstanceOf(Throwable::class)
-            ->and($refusal)->not->toBeInstanceOf(TenancyException::class);
-    } finally {
-        qaIso()->leave();
+        qaIso()->enter('qa-iso-a');
+    } catch (Throwable $exception) {
+        $refusal = $exception;
     }
+
+    // It got as far as the driver: TenantConnectionFailed is the class Tenancy
+    // raises only after an open attempt failed, and it is neither of the two
+    // refusals the guard raises before one.
+    expect($refusal)->toBeInstanceOf(TenantConnectionFailed::class)
+        ->and($refusal)->not->toBeInstanceOf(TenantConnectionMismatch::class)
+        ->and($refusal)->not->toBeInstanceOf(NoTenantResolved::class)
+        // And the failed entry left nothing resolved behind it.
+        ->and(qaIso()->current()->hasTenant())->toBeFalse();
 });
 
 it('refuses a tenant connection captured inside a closure across a tenant switch', function () {

@@ -378,8 +378,11 @@ it('keeps the credential out of what the framework prints about itself', functio
 
         // Not merely "no credential": prove the command really printed the
         // stanza, so a command that silently did nothing cannot pass this.
+        // T-007 R6.3 (dev, declared): the tenant id is no longer in the stanza,
+        // so the proof that config:show really printed it is a value that is
+        // still there and still not a secret - the mapping record's username.
         expect($shown)->toContain('flexipos_tenant')
-            ->and($shown)->toContain('qa-cred-a')
+            ->and($shown)->toContain('qa_cred_app')
             ->and($shown)->toContain(ConnectionPassword::class)
             ->and($shown)->not->toContain(qaCredPassword())
             ->and($about)->not->toBe('')

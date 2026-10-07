@@ -23,6 +23,13 @@ use SensitiveParameter;
  * factory therefore covers all of them with no event and no second attachment
  * point.
  *
+ * What it checks there is TenantConnectionAuthority::verify(), which is the one
+ * question asked about a stanza anywhere in the codebase (FP-161). The stanza
+ * carries no tenant id to compare against the context - comparing one only ever
+ * proved that the writer knew which shop was resolved, which every forger does -
+ * so the tenant id the per-query guard pins comes back from the authority's
+ * private record instead.
+ *
  * What this replaced, and why none of it survived:
  *
  * - a name-keyed `DB::extend('tenant', ...)` connection extension. Keyed by
@@ -87,14 +94,19 @@ final class TenantConnectionFactory extends ConnectionFactory
         $settings = $this->settings();
         $connectionName = (string) $settings->get('tenancy.connection', 'tenant');
 
+        // The authority is resolved per call, never captured: it is scoped and
+        // this factory is a singleton, so a captured one would outlive the
+        // scope whose records it holds.
+        $authority = $this->authority();
+
         // Two halves, and both are load bearing. The name catches every route
-        // that asks the manager for the tenant connection; the key catches
-        // `make($legitimateStanza, null)`, which would otherwise produce an
-        // unguarded tenant connection with no name to recognise it by. The
-        // read/write suffixes are part of the same connection as far as
+        // that asks the manager for the tenant connection; the authenticator
+        // catches `make($legitimateStanza, null)`, which would otherwise
+        // produce an unguarded tenant connection with no name to recognise it
+        // by. The read/write suffixes are part of the same connection as far as
         // DatabaseManager::parseConnectionName() is concerned, and
         // Tenancy::cachedTenantConnectionNames() already treats them that way.
-        if (! $this->isTenantConnectionName($name, $connectionName) && ! self::carriesTenancyKey($config)) {
+        if (! $this->isTenantConnectionName($name, $connectionName) && ! $authority->carries($config)) {
             return $this->inner->make($config, $name);
         }
 
@@ -111,16 +123,19 @@ final class TenantConnectionFactory extends ConnectionFactory
             throw NoTenantResolved::forConnection($refusalName);
         }
 
-        $configuredTenant = is_string($config[Tenancy::TENANT_MARKER] ?? null)
-            ? (string) $config[Tenancy::TENANT_MARKER]
-            : null;
+        // The one question, and the only place it is asked: does the authority
+        // vouch for this exact stanza, and for the tenant that is resolved. The
+        // tenant id comes back from the authority's private record rather than
+        // out of the stanza, so the value the per-query guard pins is one no
+        // caller supplied.
+        $tenantId = $authority->verify($config);
 
         // Which refusal matters (review R-5): saying "no tenant has been
         // resolved" while one plainly has been sends the reader hunting for a
         // missing Tenancy::run() instead of for the code that wrote this stanza
         // behind Tenancy's back.
-        if ($configuredTenant !== $context->tenantId()) {
-            throw TenantConnectionMismatch::forConfiguration($context->tenantId(), $configuredTenant);
+        if ($tenantId === null || $tenantId !== $context->tenantId()) {
+            throw TenantConnectionMismatch::forUnauthorisedConfiguration($context->tenantId());
         }
 
         $allowed = [];
@@ -130,10 +145,10 @@ final class TenantConnectionFactory extends ConnectionFactory
         }
 
         if (! in_array($driver, $allowed, true)) {
-            throw TenantConnectionMismatch::forDisallowedDriver($configuredTenant, $driver, $allowed);
+            throw TenantConnectionMismatch::forDisallowedDriver($tenantId, $driver, $allowed);
         }
 
-        return $this->guardEveryQuery($this->inner->make($config, $name), $refusalName, $configuredTenant);
+        return $this->guardEveryQuery($this->inner->make($config, $name), $refusalName, $tenantId);
     }
 
     /**
@@ -186,19 +201,6 @@ final class TenantConnectionFactory extends ConnectionFactory
         return $connection;
     }
 
-    /**
-     * Whether the stanza carries the key that marks it as Tenancy's own.
-     *
-     * The one place the key is consulted besides Tenancy itself, so FP-161 has
-     * exactly one call site to change.
-     *
-     * @param  array<string, mixed>  $config
-     */
-    private static function carriesTenancyKey(#[SensitiveParameter] array $config): bool
-    {
-        return array_key_exists(Tenancy::TENANT_MARKER, $config);
-    }
-
     private function isTenantConnectionName(mixed $name, string $connectionName): bool
     {
         if (! is_string($name)) {
@@ -206,6 +208,14 @@ final class TenantConnectionFactory extends ConnectionFactory
         }
 
         return $name === $connectionName || str_starts_with($name, $connectionName.'::');
+    }
+
+    private function authority(): TenantConnectionAuthority
+    {
+        /** @var TenantConnectionAuthority $authority */
+        $authority = $this->container->make(TenantConnectionAuthority::class);
+
+        return $authority;
     }
 
     private function context(): TenantContext
