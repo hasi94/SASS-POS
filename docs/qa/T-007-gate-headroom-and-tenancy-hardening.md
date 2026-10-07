@@ -187,3 +187,52 @@ Critical findings: **none in round 1, so nothing is "closed on measurement"**; A
 Not independently re-verified by me: the content of S-2 and the mutation claims in S-1/S-3/S-5 (taken from the `9b689e7` message; the tests they added are in the green 473). The dev change to the kill-case ceiling (`9b59793` message, "replace the flaky ceiling") touches only the plan document in that commit; `GateStepTimerTest` stayed green in all three of my runs, which says nothing about its load behaviour.
 
 Run history: Run 1: PASS (463 / 2403). Run 2: PASS (473 / 2475).
+
+---
+
+# Round 3 (R18 implemented in `3b93389`; tip `d7415e2`)
+
+## Verdict: PASS
+
+Defects: 0 critical, 0 major, 0 minor. Round 2 was PASS; this round confirms one code change and corrects two records of mine.
+
+## Gate, reconciled
+
+- `composer check` on a clean tree of mine, `[state: WARM]` (same machine, same day, caches from my round-2 runs; not otherwise measured), 2026-10-07: **473 passed / 2473 assertions**, exit 0 of the composer run (no `returned with error` and no `FAILED` line in the captured output). Test step 88.89 s Pest duration, margin line `step=test elapsed=89.16s limit=900s ratio=10.09 source=manifest` `[state: WARM]` 2026-10-07. The margin line is the last line of output; `FLEXIPOS-GATE-TIMEOUT` occurs 0 times and the only `FLEXIPOS-GATE-` line is the margin.
+- Reconciliation against round 2 (473 / 2475): cases unmoved, assertions -2. Counted from the diff of the kill case: three `toContain` on `budget=1s`, `limit=2s`, `source=env` became one contiguous-triple `toContain` (-2); `child done` absent added (+1); the `>= 1.0` plus `< 2.0` pair became one `>= budget` (-1); the sentinel, step, exit and NO TEST RESULT assertions are unchanged. -2 +1 -1 = -2. Matches dev's 473 / 2473 and my measurement.
+- `modules/host/tools/gate-step.php` md5 `50326167d3860ad8f4e586e6ddc95d77`, equal to the hash dev recorded; the wrapper is untouched. `3b93389` touches exactly one file (`GateStepTimerTest.php`, +56/-14); `d7415e2` is memory only. Line 199 is `toBeGreaterThanOrEqual((float) $matches[2])`, a lower bound; no upper bound on elapsed remains in the case.
+- `git status` shows one modified file, `docs/plans/...` (architect's, in flight; not mine and not touched).
+
+## AC-41 additions (diff `5beb820..d7415e2`, test files)
+
+`GateStepTimerTest.php`, kill case `it('ends a step that outlasts its own budget ...')`:
+- child program gains `echo "child done"` after the sleep; `$limit`, `$reserve`, `$budget` derived in-test from the forced limit by the wrapper's documented rule (`max(2, ceil(0.02*limit))`, `max(1, limit-reserve)`), call passes `(string) $limit`.
+- removed: separate `toContain` for `budget=1s`, `limit=2s`, `source=env`.
+- added: `toContain(' budget='.$budget.'s limit='.$limit.'s source=env')`; `not->toContain('child done')`.
+- changed: the elapsed regex now captures the budget (`elapsed=... budget=(\d+)s`); the `>= 1.0` and `< 2.0` pair replaced by `>= (float) $matches[2]`. Net: one upper bound deleted, one lower bound kept, comments rewritten.
+- `toBeLessThan` elsewhere in the file (ratio < factor, budget < limit) is unchanged and is not a wall-clock bound.
+
+## AC-35 mapping, corrected
+
+| Row | Was | Now |
+|---|---|---|
+| Kill-case ceiling (the "replace the flaky ceiling" item) | backlog row (lead) | **fixed in code, `3b93389`** (R18). The `9b59793` commit touched only the plan; its message read as a code outcome and was not one. My round-2 closing note was correct. |
+
+I checked the other rows (W-1..W-4, S-1..S-7): none depends on the kill-case ceiling or on assertion counts, so none shifts. W-3 (timeouts) stays a backlog row; the precondition window below is filed, not a W-3 closure. Correction to the round-2 sentence "GateStepTimerTest stayed green in all three of my runs, which says nothing about its load behaviour": it still says nothing about load, but the ceiling it referred to no longer exists.
+
+## Dev's two qualifications, preserved as declared
+
+I agree with both characterisations and re-ran only the gate, not the mutations, so the mutation claims below are dev's, taken from the `3b93389` message and report; what I verified is the restored wrapper hash and the green gate.
+
+1. **Budget mutation.** Dev's first budget mutation passed because the mutation was wrong, not the test: at forced limit 2 the budget sits on its floor of 1 for every reserve >= 1, so mutating the ratio or the reserve floor is invisible at that input. Only moving the budget's own floor (1 -> 2) changes the observable. An input where those terms do not bind, not a hole in the case; but it means the case does **not** pin the ratio or the reserve floor, and I do not claim it does.
+2. **`child done` absent is corroborating, not independently proven.** The tree kill happens inside the vendored component before the exception reaches our handler, so no mutation of our code isolates it. It is supported by direct-invocation evidence only. Reported as "mutation-proved" for the other three assertions in dev's list (sentinel suppressed, exit code changed, budget floor moved, timer removed: four mutations, all red per dev), and as corroborating for this one.
+
+## Observation filed, not fixed
+
+`GateStepTimerTest.php:287` (low-headroom case): a precondition window, not an assertion problem. A 4.5 s child under limit 8 needs elapsed between 4 s and 6 s for the warning to fire on a run that also exits 0; under extreme contention an overshoot past the budget would redden the exit-code expectation. Failure mode is loud (sentinel visible), not a silent pass, the property R18 accepts for AC-4's recipe. Not changed, to avoid a drive-by; becoming a backlog row (lead). I did not reproduce it.
+
+## Nothing in dev's report measured wrong
+
+The counts (473 / 2473, -2 in the kill case), the one-file diff, the wrapper hash and the lower-bound line all reproduce.
+
+Run history: Run 1: PASS (463 / 2403). Run 2: PASS (473 / 2475). Run 3: PASS (473 / 2473).
