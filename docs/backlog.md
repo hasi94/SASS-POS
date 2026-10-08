@@ -19,6 +19,13 @@
 | **Continue in backlog order** | Phase 0 completes before anything is visible. The thin vertical slice was offered and declined. |
 | **Merge each task when committed** | `main` fast-forwarded to `bcd7595`, bringing all four tasks. Future tasks merge on commit rather than stacking. |
 
+## Owner decisions, 2026-10-08
+
+| Decision | Effect |
+|---|---|
+| **Engine tests run locally, behind an allow-list guard** | T-008's engine criteria run against the XAMPP MariaDB 10.4.32. Docker and MySQL 8.4 parity are out of scope for T-008. This ratifies T-008's D-7 rather than leaving it a default. |
+| **The guard is an allow-list and is proven before anything can create a database** | That engine hosts 31 databases that are not this project's, six of about 200 tables each. Two existing names are one character from the name T-008 would have assumed was free, so the reserved prefix must collide with none of them and the refusal must be proven red first with a positive control beside it. |
+
 ---
 
 ## Active build
