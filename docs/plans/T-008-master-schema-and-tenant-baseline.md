@@ -7,6 +7,11 @@ first and says nothing reaches a tenant without it.
 
 Everything measured in this plan was measured on **2026-10-14** on this machine, by the command quoted beside it.
 
+> **Read §11 before doing anything in this plan.** On 2026-10-14 the red phase of step 0 dropped sixteen of the
+> owner's databases on the shared engine, none of them backed up. §11 carries the constraint that replaces the
+> instruction which caused it, the gate the engine steps now wait behind, and the per-step ruling on how each
+> remaining red-first step proves red. It overrides anything earlier in this document that conflicts with it.
+
 ---
 
 ## 0. Rulings asked for, decided here
@@ -21,8 +26,9 @@ query is too slow or too coupled, with the measurement in the task's QA report.*
 projection, and there is no read model in scope, so a projection-state table would break the pattern document the
 owner pinned on 2026-10-14. `ba`'s honest cost — a later `ALTER` on the busiest append-only table in every tenant —
 is bounded three ways: the add is expand-only and nullable, the table has 30-day retention so there is nothing to
-backfill, and `ADD COLUMN` at the end of a table is `ALGORITHM=INSTANT` on both engines (step 0 pins that as an
-assertion rather than a belief). Against that, the claim mark's *shape* is unknown — a worker id, a lease expiry, or
+backfill, and `ADD COLUMN` at the end of a table is believed to be `ALGORITHM=INSTANT` here (step 1 was to pin it as
+an assertion rather than a belief; step 1 is **blocked** behind §11.4, so that third bound is currently **unverified**
+and this ruling rests on the first two, which are enough). Against that, the claim mark's *shape* is unknown — a worker id, a lease expiry, or
 both — and FP-212 is the row that will know. One guessed column becoming two is a contract step across every tenant,
 which is the expensive class.
 Two things are decided now so nobody has to guess later:
@@ -87,8 +93,10 @@ migration tree** · **the tenant migration tree** · **the runner, as vertical s
   beside its port in `packages/kernel/src/Tenancy/`. Slices are for features; an adapter for a published contract lives
   with the contract. Saying this once stops the next twenty tasks turning `Features/` into a second `Services/`.
 - **Everything that touches a real engine goes through one test-support package** (`packages/testing/src/Engine/`),
-  whose first class is the name guard. Nothing else in the suite may issue `CREATE DATABASE` or `DROP DATABASE`, and a
-  static test asserts that.
+  whose first class is the name guard. Nothing else in the suite may issue `CREATE DATABASE` or `DROP DATABASE`, a
+  static test asserts that, and **nothing anywhere derives a list of databases to drop from the engine's contents**
+  (§11.2 rule 4). Every connection to that engine is additionally suspended by `ENGINE_HOLD` until the gate in §11.4
+  clears.
 - **The runner enters a tenant through the T-007 choke point, not beside it.** `Tenancy::enter()` gains a *purpose*
   (`serving` or `migrating`) which selects the mapping repository; both purposes write their stanza through
   `TenantConnectionAuthority` exactly as today. That keeps AC-60's "single connection-construction path" and every
@@ -117,8 +125,13 @@ migration tree** · **the tenant migration tree** · **the runner, as vertical s
   single-statement `UPDATE … WHERE id = ? AND status IN (…) AND attempts < :max`, with the affected-row count as the
   verdict.
 - **Enumerating or cleaning up test databases with SQL `LIKE`.** Rejected, and this is the most important rejection in
-  the plan. MEASURED: `SHOW DATABASES LIKE 'flexipos_%'` returns **`flexipos-master` and `flexipos-master-new`** — the
+  the plan. MEASURED: `SHOW DATABASES LIKE 'flexipos_%'` returns `flexipos-master` and `flexipos-master-new` — the
   two databases the owner flagged as the near-collision hazard — because `_` is a single-character wildcard in `LIKE`.
+  **Corrected 2026-10-14, after the incident:** the same statement matched **five** names once `dev`'s own databases
+  existed, not two. The trap is therefore *wider than a list of two near-collisions*, and that is the point: the set of
+  names the wildcard reaches is a function of whatever is on the engine at the moment the statement runs, so it can
+  never be reviewed, only avoided. AC-61 and the plan text that quoted "two" are corrected to "at least five, and the
+  count is not a property of our code" (spec correction requested of `ba`, §9 finding 6).
   The escaped form `'flexipos\_%'` returns nothing. A teardown written the obvious way would have dropped them. All
   enumeration reads `information_schema.schemata` and filters in **PHP** with `str_starts_with`. Comparison in SQL is
   also refused for a second measured reason: `SELECT schema_name … COLLATE utf8mb4_bin` errors on 10.4 with
@@ -172,17 +185,22 @@ and that is FP-202's own record, not this task's.
   not match its own guard), contains only `[a-z0-9_]`, and is at most 64 characters. Everything else is refused; there
   is no deny-list anywhere in the task.
 - `packages/testing/src/Engine/EngineDatabase.php` — **new.** The only code in the repository permitted to issue
-  `CREATE DATABASE` or `DROP DATABASE`. Calls `ReservedDatabaseName::assert()` at the point of effect on **every**
-  call, including `drop()` and the sweep, not once at planning time. Enumeration is
-  `SELECT schema_name FROM information_schema.schemata` filtered in PHP by `str_starts_with` — never SQL `LIKE` (§2).
-- `packages/testing/src/Engine/EngineConnection.php` — **new.** Builds the engine connections from environment, fails
-  (never skips) with the engine named when it is unreachable, and writes `SELECT VERSION()` into the test output
-  (AC-63).
-- `packages/testing/src/Engine/ThreeTenantFixture.php` — **new.** Tenants A (empty), B (baseline applied) and C
-  (baseline applied, FX-2 fails on it). Creates and drops only reserved-prefix databases, through `EngineDatabase`.
-- `modules/host/tools/clean-engine.php` — **new.** Sweeps leftover reserved-prefix databases, wired **first** in
-  `composer check` beside `probes:clean`, for the same reason that one is first: a killed run leaves artefacts and a
-  test hook never gets to run.
+  `CREATE DATABASE` or `DROP DATABASE`. **It has no sweep and must never gain one** (§11): it drops only names its
+  caller names, one at a time, and `ReservedDatabaseName::assert()` runs at the point of effect on **every** call —
+  plus a second, independent prefix check against this class's own literal, so two rules have to be wrong before
+  anything is lost. Enumeration (`SELECT schema_name FROM information_schema.schemata`, filtered in PHP by
+  `str_starts_with`, never SQL `LIKE` — §2) is **read-only**: no code path turns that list into drops.
+- `packages/testing/src/Engine/EngineConnection.php` — **new.** Builds the engine connections from environment through
+  the framework's connector (never a bare PDO, AC-68), fails (never skips) with the engine named when it is
+  unreachable, writes `SELECT VERSION()` into the test output (AC-63), and refuses to open any connection at all while
+  `ENGINE_HOLD` is set (§11).
+- `packages/testing/src/Engine/EngineOnHold.php`, `EngineUnreachable.php`, `ReservedDatabaseNameViolation.php` —
+  **new.** The three named refusals. `EngineOnHold` is *thrown*, not skipped: the hold is fail-closed in code, and only
+  the handful of tests that declare the skip are absent from a held run (§11, ruling 2.1).
+- `modules/host/tools/clean-engine.php` — **new, and report-only** (§11). It lists leftover reserved-prefix databases
+  and drops nothing. Wired **first** in `composer check` beside `probes:clean`, for the same reason that one is first:
+  a killed run leaves artefacts and a test hook never gets to run. It honours `ENGINE_HOLD` and opens no connection
+  while the hold is set.
 - `modules/host/tests/Engine/ReservedDatabaseNameGuardTest.php` — **new.** The red-first guard proof; controls in §7.
 - `modules/host/tests/Engine/EngineCapabilityTest.php` — **new.** Pins the six engine facts this design rests on as
   assertions rather than beliefs: `SKIP LOCKED` absent, `NOWAIT` present, `GET_LOCK(…,0)` non-blocking,
@@ -275,11 +293,23 @@ packages/kernel/src/Schema/
 
 - `modules/host/bootstrap/providers.php` — **changed.** Registers `SchemaServiceProvider`.
 - `modules/host/config/schema.php` — **new.** `required_version`, `max_attempts` (3, D-20), `claim_ttl_minutes` (30),
-  `per_server_limit`, `queue` (`migrations`), `backups.available` (false, D-10), `tenant_migration_path`,
-  `catalogue_fixture`, and the reserved test prefix (read by the guard so the prefix has exactly one home).
+  `per_server_limit`, `queue` (`migrations`), `backups.available` (false, D-10), `tenant_migration_path` and
+  `catalogue_fixture`. **It does not hold the reserved test prefix** (ruling 2.3, `dev` confirmed): the prefix lives in
+  `ReservedDatabaseName::PREFIX`, because `packages/testing` may not read Laravel configuration without a dependency on
+  the host that the boundary check forbids, and a guard that depends on configuration is a guard an environment
+  variable can widen. Any step that needs the prefix — step 5's config file included — **reads the constant** and never
+  repeats the literal. The two deliberate exceptions are the second, independent point-of-effect checks in
+  `EngineDatabase` and `tools/clean-engine.php`, which must each carry their own literal: reading the constant there
+  would make them a second call to one rule instead of a second rule (§11).
 
 ### Fixtures and tests
 
+- `packages/testing/src/Engine/ThreeTenantFixture.php` — **new, in step 8, not step 0** (ruling 2.2, confirmed against
+  `dev`). Tenants A (empty), B (baseline applied) and C (baseline applied, FX-2 fails on it). It cannot exist in step 0:
+  step 0's bullet names four artefacts, and the fixture needs `tenant_databases` and `database_servers` mappings that
+  do not exist until step 6 and the FX seam that does not exist until step 8. It creates and drops only
+  reserved-prefix databases, through `EngineDatabase`, by name, and it is behind the §11 engine gate like everything
+  else that connects.
 - `modules/host/tests/Fixtures/TenantMigrations/FX1…FX6/` — **new.** The six fixture migrations the spec defines, plus
   the rule-violating fixtures AC-33/34/35/37 need as controls. Never under `database/migrations-tenant`, and step 13
   asserts that by path.
@@ -309,10 +339,14 @@ packages/kernel/src/Schema/
 
 **`flexipos_t8test_`.** MEASURED on this machine, 2026-10-14: `SHOW DATABASES LIKE 'flexipos_t8_%'`,
 `'flxtest_%'`, `'fpt_%'` and `'flexipos_test_%'` all return zero rows, *even unescaped*, while
-`'flexipos_%'` returns `flexipos-master` and `flexipos-master-new`. The engine holds **56** schemas, not the 31 in the
-brief — four `untouched_*`, six `u_<date>x<time>` and three `kokobeach_*` dated copies have appeared, which is a
-working machine, not a static one, so the guard must be a rule and not a reviewed list. Step 0 re-measures the chosen
-prefix's wildcard expansion as its first assertion and `qa` records the output.
+`'flexipos_%'` returned `flexipos-master` and `flexipos-master-new` — and **five** names later the same day, once
+`dev`'s own databases existed. The engine held **56** schemas that morning, not the 31 in the brief — four
+`untouched_*`, six `u_<date>x<time>` and three `kokobeach_*` dated copies had appeared — and **43** that evening, after
+the incident of §11. That is the whole argument in one line: the engine's contents are not a reviewable list, so the
+guard is a rule about *our* names and nothing else. The prefix is a constant in code
+(`ReservedDatabaseName::PREFIX`), not configuration. The wildcard expansion is pinned as an assertion against the
+**recorded** 56-name snapshot, offline, because sixteen of those names can never be measured again; the live
+`SHOW … LIKE` observation is an engine test and sits behind the §11 gate.
 
 ### Master schema, the shapes that are not obvious
 
@@ -384,27 +418,45 @@ prefix's wildcard expansion as its first assertion and `qa` records the output.
 Seventeen steps, against T-007's nine. Owner in brackets. **Where the order is load-bearing it says so and why** —
 elsewhere steps may be reordered or run together.
 
-- [ ] **Step 0 — the allow-list name guard, proven red, with a positive control beside it.** [dev]
+- [x] **Step 0 — the allow-list name guard, proven red, with a positive control beside it.** [dev] **DONE**, commit
+      `a349208`: gate exit 0 at **510 passed, 3 skipped, 2545 assertions**, with the engine's schema count unchanged
+      before and after the run.
       `ReservedDatabaseName`, `EngineDatabase`, `EngineConnection`, `tools/clean-engine.php` wired first in
       `composer check`, and `ReservedDatabaseNameGuardTest`.
-      **Red first, explicitly:** the test is written against a stub `ReservedDatabaseName` that returns true for every
-      name; `dev` records the red output in the step's commit message before replacing the stub. Without that, the
-      guard's test is one of the many here that would pass against an empty implementation.
+      **The red-first instruction in this bullet was wrong and it destroyed data.** It read: *"the test is written
+      against a stub `ReservedDatabaseName` that returns true for every name"*. That stub was handed to the sweep this
+      bullet also asked for, and sixteen of the owner's databases were dropped. The instruction is **withdrawn** and
+      replaced by §11.2: red is proven against the recorded engine snapshot offline and at the point of effect on the
+      suite's sqlite connection; a guard is never stubbed permissively; there is no sweep. As shipped, step 0 is
+      correct — the sweep is gone from `EngineDatabase` and `tools/clean-engine.php` is report-only (§11.2 rule 4).
       **Negative controls (must be refused):** `flexipos_master`, `flexipos-master`, `flexipos-master-new`,
       `flx_t_000001`, `flx_t_000002`, `pms`, `demo_pos`, `flexhms_glow`, `mysql`, the empty string,
       `FLEXIPOS_T8TEST_X` (uppercase), `flexipos_t8test_../x`, and a 70-character reserved-prefix name.
       **Positive controls (must be allowed, or a guard that refuses everything passes the absence test):**
-      `flexipos_t8test_a`, `flexipos_t8test_master`, `flexipos_t8test_tenant_a`; and the sweep, pointed at a fixture
-      list of `flexipos_t8test_a`, `flexipos-master`, `pms`, returns exactly `flexipos_t8test_a`.
-      **One more assertion that is the whole reason this step exists:** the sweep's own enumeration, written the wrong
-      way as a `SHOW DATABASES LIKE` with an unescaped underscore, returns `flexipos-master` — asserted as a *fact
-      about the engine*, so the reason for the `str_starts_with` rule is pinned in a test and cannot be optimised away
-      by a later reader who thinks `LIKE` is tidier.
-      Covers AC-61, and AC-63's fail-not-skip half.
+      `flexipos_t8test_a`, `flexipos_t8test_master`, `flexipos_t8test_tenant_a`; and the **read-only filter**
+      (`ReservedDatabaseName::reservedAmong()`, which is a pure function and not a "sweep control" — this bullet's
+      original wording is what `dev` read as a licence to build `dropAllReserved()`), pointed at a fixture list of
+      `flexipos_t8test_a`, `flexipos-master`, `pms`, returns exactly `flexipos_t8test_a`, by exact equality and never
+      `toContain`.
+      **One more assertion that is the whole reason this step exists:** the wrong enumeration, written as a
+      `SHOW DATABASES LIKE` with an unescaped underscore, returns `flexipos-master` — asserted as a *fact about the
+      engine*, so the reason for the `str_starts_with` rule is pinned in a test and cannot be optimised away by a later
+      reader who thinks `LIKE` is tidier. It is a `SHOW` and never a `DROP`, it is the only place in this task allowed
+      to say `LIKE` at all, and it is `[gated]`; the offline half of the same proof runs against the recorded 56-name
+      snapshot, which is the input the permissive stub was actually given and the only form in which the sixteen lost
+      names still exist.
+      Covers AC-61, and AC-63's fail-not-skip half as §11.6 narrows it.
       **Order is load-bearing: nothing in any later step may create or drop a database, and no migration, runner or
       fixture code may exist in the branch, until this step is on disk and green.** This is the one place in T-008
       where a mistake destroys something that is not ours and that this team cannot restore.
-- [ ] **Step 1 — engine capability probes as assertions.** [dev] `EngineCapabilityTest`: `SKIP LOCKED` is a syntax
+- [ ] **Step 1 — engine capability probes as assertions. BLOCKED on G-1, not skipped. `[gated]`** [dev] One of the
+      five open items is **closed read-only**: `@@default_storage_engine` is **InnoDB** (`dev`, 2026-10-14). The other
+      four need DDL on the engine — `GET_LOCK(name, 0)`, a stored generated column inside a unique key, `ADD COLUMN`
+      instant, and MariaDB's `JSON` alias on invalid JSON — so they wait behind §11.4's dump. Steps 3, 4, 10 and 11
+      depend on the answers; where a step cannot proceed without one, it assumes the conservative branch (an explicit
+      `CHECK (JSON_VALID(col))` is written, and the instant-`ADD COLUMN` claim in §0's D-1 reasoning is downgraded to
+      unverified) and step 1 confirms or corrects it later.
+      `EngineCapabilityTest`: `SKIP LOCKED` is a syntax
       error, `NOWAIT` parses, `GET_LOCK(name, 0)` returns immediately, default engine InnoDB, a stored generated
       column is usable inside a unique key, `ADD COLUMN` at the end of a table is instant, and what MariaDB's `JSON`
       alias does with invalid JSON. Each is a design assumption of steps 4, 10 and 11; measuring them here is cheaper
@@ -415,19 +467,26 @@ elsewhere steps may be reordered or run together.
       AC-33 (an expand step must not drop, rename or change), AC-34 (no foreign key onto an existing table outside a
       contract step), AC-35(a) bare `decimal()`, (b) native `enum`, (c) `timestamp`, (d) charset, collation or engine
       literal, AC-37 (cross-connection and schema-qualified names), AC-24's source half.
+      **Red phase: fixture only, no engine in the loop** (§11.5). The mutation is the violating fixture file; the
+      checker is never weakened. This step is the model the others are bent towards.
       Each rule is asserted **red against its own fixture first and only then green against the tree**. This step is
       before steps 3 and 4 deliberately: run the other way round, every rule passes against a tree of zero tenant
       migrations and proves nothing, which is exactly this project's named failure mode.
       *Order load-bearing: before steps 3 and 4.*
 - [ ] **Step 3 — the master tree.** [dev] Rewrite the stock `users` migration; add the sixteen others; the
-      `sequence` auto-increment statement; the JSON check if step 1 says it is needed. Covers AC-1 to AC-11, and
-      AC-22's "no tenant table in master" half.
+      `sequence` auto-increment statement; the JSON check (written unconditionally while step 1 is blocked). Covers
+      AC-1 to AC-11, and AC-22's "no tenant table in master" half. **The migration files are not gated; the
+      `information_schema` assertions about the applied result are `[gated]`** — they need a reserved-prefix database.
+      Writing the tree under the hold is the right use of the wait.
 - [ ] **Step 4 — the tenant baseline.** [dev] Six files under the tenant tree, the two sentinels, and the four
       key-less columns with a docblock naming the module that owes each foreign key (D-5's replacement). Covers
-      AC-22 to AC-30 and AC-36.
+      AC-22 to AC-30 and AC-36. Same split as step 3: files now, `[gated]` engine assertions later.
 - [ ] **Step 5 — `schema:publish` and the catalogue.** [dev] The `PublishCatalogue` slice, the committed fixture,
       LF-normalised checksums, refusal of a file that sorts before a published one. Covers AC-31, AC-32's catalogue
-      half, and AC-21 (the constant is not ahead of the catalogue).
+      half, and AC-21 (the constant is not ahead of the catalogue). It reads the reserved prefix from
+      `ReservedDatabaseName::PREFIX` and never repeats the literal (ruling 2.3).
+      **Red phase: omit the mechanism, on the suite's sqlite master connection** (§11.5). The refusal is never stubbed
+      permissively; the assertion goes red because the branch is absent. No engine.
       *Order load-bearing: before step 9 — the runner refuses to start without a verified catalogue, so planning
       cannot be tested before publishing exists.*
 - [ ] **Step 6 — the master-backed mapping reader and its cache.** [dev] `MasterTenantDatabaseRepository`,
@@ -447,30 +506,52 @@ elsewhere steps may be reordered or run together.
       written before any tenant database is touched; selection by status and version; ordering by `size_bytes`; the
       contract-step guard; the destructive refusal; the catalogue refusal. Covers AC-39, AC-40, AC-51, AC-58, AC-59
       and AC-32's refusal half.
+      **Red phase: omit the mechanism; no engine, no tenant connection** (§11.5). The destructive refusal is proven red
+      by asserting zero job rows and zero connections against a handler that lacks the branch — **never** by letting
+      FX-5 run to see what happens.
 - [ ] **Step 10 — `ClaimMigrationJob` and the per-tenant lock.** [dev] The single-statement claim with
       `attempts < :max`, claim expiry through the injectable clock, the per-server cap as one statement over a derived
       table (MariaDB 10.4 refuses a subquery on the table being updated unless it is wrapped), `GET_LOCK(name, 0)` on
       the tenant connection, and the queue payload with no secret in it. Covers AC-41, AC-42 and AC-46 to AC-50.
+      **Red phase, split** (§11.5): the claim's `WHERE` is mutated on sqlite — a legitimate mutation, because the
+      statement is an `UPDATE` on a master row and not destructive. The lock and two-session tests are `[gated]`;
+      their only engine traffic is `GET_LOCK` inside a reserved database.
       *Order load-bearing: before step 11 — execution runs inside a claim.*
 - [ ] **Step 11 — `MigrateTenant`: the execution path.** [dev] Migrate through the migrating purpose with the migrate
       credential; write the tenant's own `migrations` table and the master mirror in one step; clear a previous error;
       set `migrating` for a `requires_offline` plan only, and `failed` after an offline failure (D-12); evict the
       cached mapping in the same step as every status or version change (D-19); sanitise every stored error. Covers
       AC-43, AC-44, AC-45, AC-52, AC-53, AC-60, and AC-38 end to end.
+      **`[gated]`, and the only genuinely destructive step in the task** (§11.5). Everything provable without the
+      engine — status transitions, the mirror write, the cleared error, eviction, error sanitising — is red on sqlite
+      against a fake migrator. The engine half is red by **omitting the apply call**, and every database it touches was
+      created by `ThreeTenantFixture` through `EngineDatabase`, by name, in the same run.
 - [ ] **Step 12 — repair, drift and the behind report.** [dev] `RepairSchemaVersion` (a mapping behind its own
       `migrations` table is corrected and nothing is re-applied), `DetectSchemaDrift` (both directions, and a tenant
       whose mapping is *ahead* is refused for serving), the `schema_meta.tenant_id` interlock refusal, and
       `ReportSchemaStatus`. Covers AC-54 to AC-57.
+      **Red phase: omit the mechanism** (§11.5). Nothing here issues a destructive statement; the observables are a row
+      count in the tenant's own `migrations` table and a column in `tenant_databases`. `[gated]` only for the reads
+      that need the three-tenant fixture.
 - [ ] **Step 13 — layout and hygiene checks.** [dev] `VerticalSliceLayoutTest` (every slice has a handler and a
       mirrored test folder — the first executable form of `docs/patterns.md` §3); no FX migration under the shipped
       tenant tree; no database creation or dropping outside `EngineDatabase`; `sessions` carries no foreign key to
       `users` (finding 6). Covers AC-37's remainder and the hygiene non-functional requirements.
-- [ ] **Step 14 — gate wiring and headroom.** [dev] `clean-engine` first in `check`; toolchain registry coverage;
+      **Two static checks added by §11.2 and they are the ones that make the constraint enforceable rather than
+      advisory:** (a) no source file outside `EngineDatabase` and `tools/clean-engine.php` contains `drop database`,
+      and neither of those contains a loop over a list it computed from `information_schema` *that reaches a drop*;
+      (b) no test double, stub or fake of `ReservedDatabaseName` exists anywhere in the branch — the permissive stub
+      is forbidden by a test, not by a memory of October.
+- [ ] **Step 14 — gate wiring and headroom.** [dev] `engine:clean` (report-only, §11.2 rule 4) first in `check`;
+      toolchain registry coverage;
       confirm the T-007 process-timeout headroom ratio still holds for the larger gate, using the existing instrument
       unchanged. Covers AC-64.
 - [ ] **Step 15 — QA: the engine matrix and the calibration counts.** [qa] Every `[E]` criterion run and recorded with
       the engine and version it passed on; the master table recount; the counts and observations AC-66 and AC-67 name,
-      each with its command; and every criterion found unachievable as worded, with its replacement. Covers AC-62 as
+      each with its command; and every criterion found unachievable as worded, with its replacement.
+      **`[gated]`. Under the hold, `qa` records every `[E]` criterion as NOT VERIFIED with `ENGINE_HOLD` and gate G-1
+      named — never PASS, and never silently absent** (§11.6). The report also carries the incident: sixteen databases
+      lost, the mechanism, and the two mitigations it invalidated (§8 R-12). Covers AC-62 as
       narrowed (one engine, per the owner's 2026-10-08 decision), AC-63, AC-65 as narrowed, AC-66 and AC-67.
 - [ ] **Step 16 — review, and the fixes it names.** [reviewer, then dev]
 
@@ -486,6 +567,11 @@ tables at all. So every absence assertion below names the positive control that 
 claims to see, and every red-first claim names the mutation and **the input at which the mutation becomes visible** —
 the T-007 failure was a mutation that passed because at the chosen input the mutated term never bound.
 
+**And since 2026-10-14, one rule above all of them.** A red phase must be **structurally inert**, not merely expected
+to be safe: it may not be capable of a destructive statement against a shared resource, and a safety check is never
+the thing that is weakened to make a test fail. The constraint, its four rules and the per-step ruling are in §11; they
+bind every step in §6 and every step added to this plan later.
+
 ### Proof grades
 
 Graded as this project requires: **independently proven** when a mutation of ours moves the observable,
@@ -493,7 +579,7 @@ Graded as this project requires: **independently proven** when a mutation of our
 
 | Group | Criteria | Grade | Why |
 |---|---|---|---|
-| The name guard | AC-61 | **independently proven** | Mutating the prefix constant, or replacing the guard with `return true`, turns the negative controls red; mutating it to `return false` turns the positive controls red. Both directions move. |
+| The name guard | AC-61 | **independently proven** | Both directions move, and **neither mutation may be executable** (§11.2 rule 2): the permissive direction is proven by *inputs* — thirteen forbidden names handed to the real guard, red if the prefix constant is mutated — and the restrictive direction by mutating the guard to refuse everything, which turns the three positive controls red. A `return true` guard is never built, because during the incident exactly that object was handed to something that could act. |
 | Engine capabilities | step 1 | **independently proven** | They are direct observations of the engine, re-run every gate. |
 | Schema shape from `information_schema` | AC-1 to AC-10, AC-23, AC-24 live, AC-27, AC-29, AC-30, AC-36 | **independently proven** | Each has a fixture mutation: an extra table, a missing table, a MyISAM table, a `tenant_id` column, an `app_password` column. The mutation is a scratch migration run inside a reserved-prefix database, so it moves the observable without touching the shipped tree. |
 | Key and constraint behaviour | AC-5, AC-7, AC-8, AC-9, AC-25, AC-26, AC-28, AC-30 | **independently proven** | Each is a pair: a refused insert and an accepted one. Dropping the sentinel column makes AC-25 and AC-26 go green-on-the-wrong-answer — the duplicate is *accepted* — so the accepted-case assertion is the one carrying the proof, not the refused one. |
@@ -521,9 +607,11 @@ Graded as this project requires: **independently proven** when a mutation of our
 
 - The master applied from scratch, twice (idempotence), with the extra-table and missing-table controls.
 - The baseline applied from scratch to an empty reserved-prefix database, with the same two controls.
-- The three-tenant fixture, built once per test file and dropped afterwards, plus one deliberately failing test
-  followed by an assertion that the reserved-prefix database list is identical to the list taken before it (AC-61's
-  "leaves nothing behind, including after a failure").
+- The three-tenant fixture, built once per test file and dropped **by name** afterwards (never by a sweep), plus one
+  deliberately failing test followed by an assertion that the reserved-prefix database list is identical to the list
+  taken before it (AC-61's "leaves nothing behind, including after a failure"). The same comparison over the
+  **non**-prefixed names is kept as an **alarm, not a proof**: the engine is shared, so another project can move that
+  list without us (R-12).
 - The whole runner, against the fixture, for every criterion in section E.
 - Two concurrent sessions for AC-48, AC-49 and AC-50.
 
@@ -566,7 +654,9 @@ a naive grep for `tenant_id` in a migration would match a comment that merely me
 
 | # | Risk | Likelihood | What it costs | Mitigation |
 |---|---|---|---|---|
-| R-1 | **A test drops one of the 56 databases on this engine, six of which look like live client systems.** | low, catastrophic | unrecoverable by this team | Step 0 before anything else; allow-list only; re-asserted at the point of effect on every call; enumeration in PHP, never SQL `LIKE` (the measured trap in §2); one sweep tool that is itself guarded; a static test that no other code issues a create or drop. |
+| R-1 | **A test drops one of the owner's databases on this engine, several of which are live client systems.** **This risk has occurred.** On 2026-10-14 sixteen of the 56 were dropped, unrecoverable (§11.1). Likelihood and cost are no longer estimates. | **occurred** | sixteen databases, no backup | What is in place now: no sweep anywhere (§11.2 rule 4); two independent prefix rules at the point of effect; drops by name only; `ReservedDatabaseName` may never be stubbed, enforced by a step-13 static test; enumeration in PHP, never SQL `LIKE`; the §11.4 gate; `ENGINE_HOLD` on. What was in place before and did not help: step 0 first, a reviewed bullet, and a guard class that a stub replaced. |
+| R-12 | **The engine is shared.** Another project ran migrations against `127.0.0.1:3306` during our run (MEASURED, §11.1), and the owner's own data lives there. Schema counts, locks and concurrency are all shared with software this team does not control. | certain | a destructive mistake lands on someone else's production data; a flaky lock or count test that is not our bug | **Two mitigations named elsewhere in this plan are invalidated and withdrawn:** (i) *"notice it and kill the process"* — `taskkill /F` on the PHP client does **not** abort an in-flight `DROP DATABASE`; the server completes it; (ii) *any step assuming exclusive use of the engine* — including "the schema list before equals the schema list after" as a *proof of our own correctness*; it is still a useful alarm but another project can move it. What replaces them: structural inertness of the red phase (§11.2), drops by name only, the G-1 dump, and treating every statement against that engine as a production change. |
+| R-13 | The hold blocks the engine steps, and the pressure to clear it comes from wanting the task finished. | high | a safety measure removed for schedule reasons | Only the owner clears it (G-2). The task is sequenced so that steps 2 to 9, 12's logic and 13's checks all proceed under the hold, so the hold costs days of *engine* work rather than the slice. `qa` records held criteria as NOT VERIFIED, which keeps the cost visible instead of making it a reason to remove the hold. |
 | R-2 | The reserved prefix is one character from a real name, as `flexipos-master` already is from `flexipos_master`. | medium | same as R-1 | The prefix contains `t8test`, which no existing name does; step 0 re-measures its wildcard expansion and `qa` records the output. Uppercase and non-`[a-z0-9_]` names are refused outright because `lower_case_table_names = 1` would fold them. |
 | R-3 | **The gate grows a lot.** Seventeen steps of new tests, many of them creating and dropping databases. | high | a slow or timing-out gate | Step 14 re-checks the T-007 headroom instrument without changing its ratio; AC-67 records the before and after with the cold-or-warm state stated. If the fast loop regresses, excluding the `engine` group from `test:fast` only — never from `check` — is the lever, with the measurement attached. |
 | R-4 | A migration is written correctly and the *rule* that was supposed to catch its class is written afterwards, so it never goes red. | high, and it is this project's named failure | a hollow green that survives for years | Step 2 is ordered before steps 3 and 4 for exactly this reason, and each rule is red against its fixture before the tree exists. |
@@ -575,12 +665,14 @@ a naive grep for `tenant_id` in a migration would match a comment that merely me
 | R-7 | `tenants.sequence` needs a raw `ALTER` because Laravel couples `autoIncrement()` to `primary key`. | certain | an unexpected raw statement in a migration | Stated in §5 so it arrives as a design decision instead of a surprise; the statement names no collation, charset or engine, so AC-35(d) still holds. |
 | R-8 | The run continues past a failed tenant (D-13), so a structural bug reaches every tenant before anyone reads the first failure. | medium | a bad migration on 200 shops | Out of scope by D-9, and it is the one risk in this task with no mitigation inside it. Escalated in §10 as a question for the owner, because the mitigation (canary halt) is cheapest to add before FP-206 provisions real tenants. |
 | R-9 | `TenantDatabase` gains two properties and a T-007 test pins its exact property list. | certain | reads as a weakened test in review | The pin is *amended*, not deleted or skipped; the sibling test forbidding password-shaped names is untouched and covers both new names. Flagged here so `qa` and `reviewer` see it as planned rather than found. |
-| R-10 | MariaDB's `JSON` is a `LONGTEXT` alias, so "invalid JSON is refused" may not hold without an explicit check. | medium | three criteria quietly passing on the wrong artefact | Step 1 measures it; step 3 and step 4 add `CHECK (JSON_VALID(…))` if the measurement says so. The criterion is asserted against a real insert either way. |
+| R-10 | MariaDB's `JSON` is a `LONGTEXT` alias, so "invalid JSON is refused" may not hold without an explicit check. | medium | three criteria quietly passing on the wrong artefact | Step 1 was to measure it and is now blocked (§11.4), so steps 3 and 4 write `CHECK (JSON_VALID(…))` **unconditionally** — the conservative branch costs a redundant check if the alias already carries one, and the measurement can remove it later. The criterion is asserted against a real insert either way, once the gate clears. |
 | R-11 | Engine tests connect with a bare PDO and get the server's non-strict `sql_mode` (MEASURED: no strict mode on this server). | medium | refusal criteria passing as truncations | Every engine test connects through the Laravel connector, whose stanza sets `strict`. Asserted once in step 1. |
 
-**Rollback.** Nothing in this task is irreversible in the repository: the branch is `ai/T-008-…`, no tenant database
+**Rollback.** Nothing in this task is irreversible *in the repository*: the branch is `ai/T-008-…`, no tenant database
 exists anywhere yet, and no migration here runs against anything but a reserved-prefix test database. The only
-irreversible act available is dropping someone else's database, which is what step 0 exists to make impossible. There
+irreversible act available is dropping someone else's database — which step 0 was supposed to make impossible and did
+not, because the step that proved the guard was itself allowed to drop things (§11). The correction is structural: the
+red phase cannot reach a shared resource, there is no sweep, and the engine steps wait behind a verified dump. There
 is no `down()` and no runner rollback (D-8); a mistake in the baseline before FP-206 provisions a tenant is corrected
 by editing the baseline, which is the one window in this project's life where that is free — which is also the
 argument for pinning the outbox's own columns now (D-1).
@@ -589,8 +681,9 @@ argument for pinning the outbox's own columns now (D-1).
 
 ## 9. Criteria that are not achievable as worded
 
-`ba` asked to hear these before QA rather than after. Five, and the replacement for each. All need a spec edit by
-`ba`; none changes this plan.
+`ba` asked to hear these before QA rather than after. **Eight**, and the replacement for each. All need a spec edit by
+`ba`. Findings 1 to 5 change nothing in this plan; 6 to 8 were found after the incident of §11 and findings 7 and 8
+are already implemented in the plan's own terms (§11.6 and step 13), so the spec edit is a catch-up, not a decision.
 
 1. **AC-35(d) against AC-2 and AC-36.** AC-35(d) forbids a migration naming a collation or charset; AC-2 and AC-36
    require every ULID id column to be `CHAR(26)` `ascii_bin`. Laravel's `ulid()` yields the *table's* charset
@@ -619,6 +712,30 @@ argument for pinning the outbox's own columns now (D-1).
    **Replacement:** scan `json_encode`, `serialize`, `print_r`, `var_export`, `var_dump` and `(array)` output; keep
    the string cast only for the **control** object, which does implement `__toString` and must be reported.
 
+6. **AC-61's "returns `flexipos-master` and `flexipos-master-new`".** MEASURED again on 2026-10-14, after `dev`'s own
+   databases existed: `SHOW DATABASES LIKE 'flexipos_%'` matched **five** names, not two.
+   **Replacement:** "returns the owner's real databases among others — the matched set is whatever the engine happens
+   to hold when the statement runs, which is why it may not be enumerated in SQL at all." The criterion's control stays
+   as it is; only the claim that the trap is a known pair of names is withdrawn, because it invites a reviewer to
+   believe the hazard is reviewable.
+7. **AC-63 against a declared hold.** As worded, an engine that is not reachable must fail. A deliberate,
+   owner-declared suspension (`ENGINE_HOLD`) is a third state and the criterion does not distinguish it; read
+   literally, it requires a permanently red gate for a condition no agent is allowed to clear.
+   **Replacement:** "an engine that is *unreachable* fails with the engine named. A *declared suspension* — one
+   recorded in the suite's configuration, raised as a named exception by any code that tries to connect, and asserted
+   by an inverted test while it is in force — may skip the tests that require a connection, and `qa` records each
+   affected `[E]` criterion as NOT VERIFIED with the suspension and the condition that clears it named. A suspended
+   criterion is never reported as PASS." Reasoning and the four decay markers are in §11.6.
+8. **AC-61's source scan for SQL `LIKE` has a real false positive.** `dev` found one: the English word "like" inside an
+   error string. A tokenised scan correctly ignores comments and docblocks, but a string token is code, and prose in a
+   message is not SQL.
+   **Replacement:** the rule is about SQL, so the scan matches `like` only in a token that *also* carries a SQL
+   keyword (`select`, `show`, `from`, `where`, `having`, `and`, `or`, `databases`) or is immediately followed by a
+   quote or placeholder. Controls unchanged, plus one more: an error string containing the English word "like" is
+   **not** reported, and `"show databases like 'flexipos_%'"` **is**. (Rejected alternative: ban the word from
+   messages. It makes the rule's enforcement depend on prose style, and the next person writing an error message does
+   not know the rule exists.)
+
 **Not a spec change, but `ba` should know:** AC-1 lists `sessions` among the master system tables where
 `docs/database.md` §4.10 lists `personal_access_tokens`. AC-1 governs (D-18), and `qa`'s recount of finding 1 will
 otherwise look like a defect.
@@ -627,7 +744,7 @@ otherwise look like a defect.
 
 ## 10. Questions for the human
 
-Two, and neither blocks a step. Both are for the lead to relay, not for `ba`.
+Three, and none blocks a step. All are for the lead to relay, not for `ba`.
 
 1. **Canary halt before FP-206 (risk R-8, `ba`'s open question 3).** The design continues past a failed tenant
    (D-13), so a structural migration bug is applied to every tenant before anyone reads the first failure. The
@@ -639,4 +756,151 @@ Two, and neither blocks a step. Both are for the lead to relay, not for `ba`.
    longer it waits the more schema there is to compare. A named follow-up row before the first real tenant is
    provisioned would keep the instrument honest; after FP-206 it is a comparison against production shapes.
 
+3. **A separate engine for the test suite, once the dump exists (new, after §11).** The owner has decided FlexiPOS
+   continues on the local engine and the plan now carries that decision with its three conditions (§11.4). The
+   architectural observation to put in front of the owner anyway: every structural protection in §11 exists to make one
+   shared server survivable, and all of it becomes redundant the moment the suite points at an engine that holds
+   nothing else — the Docker MySQL 8.4 that FP-194 needs for the cross-engine comparison is *already* owed before
+   FP-206. One instance would discharge FP-194 and R-12 together. Not blocking: nothing in T-008 waits on it, and the
+   §11 protections are wanted regardless, because the next agent will still be a `127.0.0.1` away from the owner's
+   data.
+
 Everything else in this task is decided in §0, §3 and §9 and logged there.
+
+---
+
+## 11. The engine gate and the red-first constraint
+
+Added 2026-10-14, after the incident described below. **This section overrides anything earlier in this plan that
+conflicts with it**, including the parts of §6 and §8 written before it.
+
+### 11.1 What happened, in the terms that change the design
+
+While proving step 0's guard red, `dev` ran an `EngineDatabase::dropAllReserved()` sweep with
+`ReservedDatabaseName` **stubbed to return true for every name**. The filter returned all 56 schemas on the engine and
+the sweep dropped them alphabetically until it was stopped at `f`: **sixteen of the owner's databases, several of them
+other clients' systems, none backed up.** Two facts `dev` then measured, and both of them invalidate reasoning that was
+in this plan:
+
+- **`taskkill /F` on the PHP client does not abort an in-flight `DROP DATABASE`.** The server completes it. Every
+  "notice it and kill it" line of reasoning anywhere in this plan is not a mitigation and is withdrawn.
+- **The engine is not ours.** Another project was running migrations against `127.0.0.1:3306` during the run. Any step
+  that assumes exclusive use of that server is wrong; concurrency, locks and schema counts are all shared with software
+  this team does not control.
+
+`dev`'s own conclusion, which I adopt as the governing rule of this task: *"I believed the red phase was safe because
+only the guard was wrong and nothing dropped anything yet — both halves were false."*
+
+### 11.2 The constraint (binds every step, including steps nobody has written yet)
+
+> **A step whose red phase can issue a destructive statement against a shared resource is not an acceptable step,
+> however carefully it is reviewed.** Such a step is rewritten, not reviewed harder. "Destructive" means any `DROP`,
+> `TRUNCATE`, `ALTER … DROP`, `DELETE`/`UPDATE` without a key, or any statement at all against a name the step did not
+> itself create. "Shared" means the engine at `127.0.0.1:3306`, or anything else on this machine that another project
+> or the owner also uses.
+
+Four rules follow, and they are what a reviewer checks a step against:
+
+1. **A red phase proves that the assertion can fail. It does not have to run the real effect against the real
+   resource.** The two are routinely confused and the confusion is what cost the owner sixteen databases.
+2. **A guard is never stubbed permissively.** The only mutation permitted to a guard is one that makes it refuse
+   *more* (`return false`-shaped), which is proven red by the **positive** controls. The permissive direction is proven
+   by the *inputs* — a forbidden name handed to the real guard — never by a weakened guard handed real inputs.
+3. **Prefer, in this order:** (a) red against a fixture or in-memory double; (b) red by **omitting the mechanism**,
+   so the assertion fails because the feature is absent rather than because a safety check was removed; (c) where the
+   mechanism is itself destructive, red on a resource that cannot matter — the suite's sqlite connection, a temporary
+   table, a scratch directory, or a reserved-prefix database **the same test created in the same test**.
+4. **No sweep, ever.** No code in this repository derives a list of things to drop from the *engine's* contents. It
+   drops names a caller named, one at a time. `EngineDatabase` has no sweep and must not gain one; `recreate()` is what
+   makes a leftover harmless, because it drops *that one name* before creating it. Consequently
+   `tools/clean-engine.php` is **report-only**: it lists leftover reserved databases, drops nothing, and exits 0 — the
+   correctness it used to provide is already provided by `recreate()`, so the dropping version bought nothing and
+   risked the whole engine. (Alternative rejected: keep the dropping sweep behind a count ceiling of 32 and two prefix
+   rules, as `tools/clean-engine.php` has it today. It is much safer than what ran — the ceiling *would* have stopped
+   the incident's 56-name filter, and the second literal would have stopped it too — but it is still a list of drops
+   computed from the engine's contents, and the ceiling is a guess: a filter that wrongly returns twenty foreign names
+   passes it. We are not obliged to make that mechanism safe, because `recreate()` already does the only job it has.
+   Delete the capability instead of bounding it.)
+
+### 11.3 The two independent prefix rules, and what the measurement actually shows
+
+`EngineDatabase` and `tools/clean-engine.php` each re-check the prefix at the point of effect against **their own
+literal**, deliberately not reading `ReservedDatabaseName::PREFIX`: reading the constant would make them a second
+*call* to one rule, and the requirement is two *rules*. `dev` measured the value — with the guard class stubbed out,
+11 of 13 forbidden names were still refused by the second rule alone.
+
+The ratio understates it and the plan should record the stronger reading: the two names the second rule misses are
+`flexipos_t8test_../x` and a 70-character reserved name — both **inside our own prefix**. The second rule alone catches
+**every foreign name**, which is the entire class that can destroy data; what it does not catch is malformed names that
+could only ever damage our own test schemas. That is the correct division of labour between the two rules and it should
+not be "improved" by making the second rule a copy of the first.
+
+### 11.4 The gate on the engine steps (the owner's three conditions)
+
+The owner has decided FlexiPOS continues on the local engine. The lead's three conditions are carried here as a gate,
+and **no step marked `[gated]` in §6 may begin until all three hold**:
+
+- **G-1.** A full dump of all **43 surviving databases** to `D:` exists and has been verified non-empty.
+- **G-2.** `ENGINE_HOLD` stays on, in `modules/host/phpunit.xml`, until G-1 holds. It is on by default. Clearing it is
+  the owner's decision, never an agent's.
+- **G-3.** No sweep operation, ever (§11.2 rule 4).
+
+Gated steps: **1** (DDL probes), and the engine halves of **3, 4, 10, 11, 12, 15**. Everything else in this task —
+every static rule, every planning refusal, every master-table write in the suite's sqlite connection — is reachable
+with the hold on, which is why the hold costs the team days rather than the task.
+
+### 11.5 How each remaining red-first step proves red now
+
+The plan required stub-based red-first proofs at steps 2, 5 and 9 to 12. Ruled per step, per §11.2 rule 3:
+
+| Step | How red is proven now | Can it reach the engine? |
+|---|---|---|
+| **0** (done) | **(a) fixture.** The rule is proven against the *recorded* 56-name snapshot offline, and point-of-effect refusal against the suite's **sqlite** connection: a forbidden name throws before any statement, a reserved name reaches the driver and sqlite rejects `CREATE DATABASE` — which is what proves the guard is a guard and not a dead method. The live `SHOW … LIKE` expansion stays an engine test, gated. | No. The red proof opens no engine connection. |
+| **1** | **(c) narrow resource**, and **gated**. Every probe runs inside one reserved-prefix database the test created in the same test; the only DDL is `CREATE`/`ALTER` of its own tables. `GET_LOCK`, `NOWAIT` and `SKIP LOCKED` are read-only probes. Red is by omitting the probe, not by widening anything. | Yes — hence `[gated]`. |
+| **2** | **(a) fixture**, unchanged and already correct: the mutation is the *violating fixture file*, and the checker is never weakened. `SourceRules` is a pure function over file text. This is the model the other steps are bent towards. | No. |
+| **5** | **(b) omit the mechanism.** `schema:publish` writes `schema_versions` on the **master** connection, which in the suite is in-memory sqlite. Red for ordering, idempotence and the out-of-order refusal is proven by writing the assertion before the branch exists — never by stubbing the refusal to allow everything. The catalogue fixture comparison is red against a deliberately stale committed fixture. | No. |
+| **9** | **(b) omit the mechanism.** Planning touches no tenant database *by definition* — that is AC-39 and AC-59's whole content — so the red phase for the destructive refusal, the catalogue refusal, the contract guard and the status filter is "the handler without that branch plans the run", observed as rows in sqlite. The destructive-refusal red phase must **not** be proven by letting FX-5 run; it is proven by asserting zero job rows and zero connections, which fails when the branch is absent. | No. |
+| **10** | **Split.** The claim statement is an `UPDATE` on a master table: red on sqlite, by **omitting the `attempts < :max` and status terms from the production `WHERE`** — a mutation of the real statement, which is legitimate because the statement is not destructive and the resource is the suite's own. `GET_LOCK(name, 0)` and the two-session tests need the engine and are `[gated]`; they issue no DDL and no DML outside reserved databases, so the gated half is lock traffic only. | Partly — lock probes only. |
+| **11** | **Split, and this is the only genuinely destructive step.** Everything provable without the engine is proven there: status transitions, the mirror write, clearing `last_migration_error`, cache eviction and error sanitising are red on sqlite against a fake migrator. The engine half — "FX-1's table exists in A, B and C" — is `[gated]`, and red is proven by **omitting the apply call**, never by pointing a working migrator at a database it did not create. Every tenant database it touches is created by `ThreeTenantFixture` through `EngineDatabase`, by name, in the same run. | Yes — hence `[gated]`. |
+| **12** | **(b) omit the mechanism**, on sqlite plus a reserved scratch database. Repair, drift and the behind report issue no destructive statement at all: the observable is a row count in the tenant's own `migrations` table and a column in `tenant_databases`. Red for repair is "the branch is absent, so the mapping is not corrected". | Barely — reads only, gated with step 11's fixture. |
+
+Two consequences worth stating once. **`dev` may not prove a red phase by making the suite's own safety code wrong** —
+that is now a review-blocking finding, not a style note. And **a red phase that cannot be proven under the hold is
+deferred, not downgraded**: it waits behind G-1 and `qa` records the criterion as *not verified*, per §11.6.
+
+### 11.6 `ENGINE_HOLD` as a declared third state (ruling 2.1)
+
+AC-63 says an absent engine **fails** rather than skips, and it is right: an unreachable engine is an environmental
+fault that a skip would hide, and hiding it is how a suite becomes decorative. **The hold is a different condition and
+AC-63 does not bind it.** Three reasons, in descending order of weight:
+
+1. An unreachable engine is a fault *to be fixed*; a hold is a decision *already taken*, by the owner, for a reason the
+   gate cannot discharge. A red gate for a condition no one on the team is allowed to clear does not inform anyone — it
+   just blocks every other row in the project until the owner is free, and the only way out of it is to clear the
+   hold. A safety measure whose cost is a stopped team is a safety measure that gets removed.
+2. The hold is **fail-closed in code, and skipped only where it is declared.** `EngineConnection::assertNotOnHold()`
+   *throws* `EngineOnHold`, so any code that reaches the engine while the hold is on errors loudly. Only the handful of
+   tests that explicitly declare `->skip(… EngineConnection::onHold() …)` are absent. The distinction matters: the hold
+   is not "engine tests are off", it is "a connection is an error, and the tests that need one say so".
+3. An unreachable engine still **fails** once the hold is cleared — `EngineUnreachable` is untouched by this ruling, and
+   AC-63's control is a cleared hold with the engine stopped.
+
+**How a reader tells a hold from a silently skipped engine suite six months from now.** Four markers, and the plan
+requires all four, because any one of them alone decays:
+
+- **The flag is in `modules/host/phpunit.xml`** with the incident date beside it, so the state is in the suite's own
+  configuration and shows up in a diff rather than in a developer's shell.
+- **Every skip message names the class**, and the class
+  (`Flexipos\Testing\Engine\EngineOnHold`) carries the date, the sixteen databases, the reason (file-level recovery
+  reuses the dropped files' blocks) and the single condition that clears it. A skip reason that says "ENGINE_HOLD" and
+  nothing else is not acceptable.
+- **An inverted test asserts the hold is in force while it is set** — a connection attempt must throw `EngineOnHold` —
+  and that test skips when the hold is cleared. So in *either* state exactly one of the two sets of tests is asserting
+  something, and a suite in which nothing asserts anything is not reachable.
+- **`qa` records every `[E]` criterion under the hold as NOT VERIFIED, never PASS**, naming `ENGINE_HOLD` and the
+  gate G-1 it waits on (AC-63's recording rule already carries this; the spec correction in §9 finding 7 makes it
+  explicit). A skip that is reported as a pass is the failure mode this whole marker list exists to prevent.
+
+A spec correction is requested of `ba` (§9 finding 7) so AC-63 distinguishes *unreachable* (fail) from *declared hold*
+(skip, recorded unverified). Until that lands, this section is the governing reading and `dev`'s deviation is
+**upheld**.
