@@ -23,9 +23,11 @@ use Illuminate\Support\Facades\DB;
 | alphabetical order, including dayananda_hidetest, demo_pos and flexhms_glow.
 | Three things in this file exist because of that hour and are not negotiable:
 |
-| - **No test here sweeps the engine.** A test drops only names it created
-|   itself. EngineDatabase has no sweep at all any more; the one sweep lives in
-|   tools/clean-engine.php, runs ahead of the suite and carries a count ceiling.
+| - **No test here sweeps the engine, and no code in this repository does.** A
+|   test drops only names it created itself. EngineDatabase has no sweep, and
+|   tools/clean-engine.php is report-only: it lists leftover reserved databases
+|   ahead of the suite, drops nothing and exits 0. The capability was deleted
+|   rather than bounded, because the ceiling it used to carry is a guess.
 | - **Point-of-effect refusal is proven on a sqlite connection**, not on the
 |   real engine. A control that hands a forbidden name to a live MySQL
 |   connection is the accident it is testing for: during the incident, exactly

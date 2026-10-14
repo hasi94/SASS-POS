@@ -7,22 +7,39 @@ use Flexipos\Testing\Engine\ReservedDatabaseName;
 
 /*
 |--------------------------------------------------------------------------
-| Drop the reserved test databases a killed run left behind
+| Report the reserved test databases a killed run left behind
 |--------------------------------------------------------------------------
 |
-| The engine suite creates databases. A run killed part-way - a Composer process
-| timeout, Ctrl-C, a CI step limit - executes no PHP teardown at all, so the
-| databases survive. The next run then migrates into a database that already
-| holds tables, and the failure reads like a schema defect rather than a
-| leftover.
+| This tool is REPORT-ONLY. It lists leftover reserved-prefix databases, it
+| drops nothing, and it exits 0. The sweep it used to perform was removed on
+| 2026-10-14 by the ruling in docs/plans/T-008-master-schema-and-tenant-baseline.md
+| section 11.2 rule 4, and the reasoning is worth keeping in front of whoever
+| reads this next:
 |
-| This is the same argument that puts tools/clean-probes.php first in the `check`
-| script, and it is the measured one: `check` runs lint, stan, deptrac and only
-| then test, so nothing driven from a test hook ever gets to run ahead of the
-| steps a leftover breaks. Cleanup that must survive a killed process cannot
-| live in an afterEach.
+| - **The job the sweep existed for is already done elsewhere.**
+|   Flexipos\Testing\Engine\EngineDatabase::recreate() drops *that one name*
+|   before creating it, so a leftover is harmless to the next run on its own.
+|   A sweep bought nothing and risked the whole engine.
+| - **Bounding the capability is not as good as deleting it.** The dropping
+|   version carried a ceiling of 32 names and a second prefix literal. Both
+|   would have stopped the incident of 2026-10-14 - a permissive stub of the
+|   name guard returned all 56 schemas on this engine to a sweep, which dropped
+|   sixteen of the owner's databases, none of them backed up. But the ceiling is
+|   a guess: a filter that wrongly returns twenty foreign names passes it. A
+|   capability that does not exist needs no ceiling.
+| - **Nothing in this repository may issue a database drop except EngineDatabase.**
+|   That is now enforced by a test, not by this comment:
+|   tests/Feature/DestructiveStatementContainmentTest.php.
 |
-| Two deliberate choices:
+| Why it still runs, and runs first in `check`: a leftover reserved database is
+| evidence that a previous run was killed part-way - a Composer process timeout,
+| Ctrl-C, a CI step limit - which executes no PHP teardown at all. Saying so in
+| the gate's first line is cheap and it is the only place a reader will see it.
+| The same argument puts tools/clean-probes.php first; `check` runs lint, stan
+| and deptrac before any test, so nothing driven from a test hook ever gets to
+| run ahead of the steps a leftover breaks.
+|
+| Two choices that survive the change to report-only:
 |
 | - **It enumerates `information_schema.schemata` and filters in PHP.** SQL LIKE
 |   is forbidden here for the reason measured on this engine: `_` is a
@@ -31,15 +48,14 @@ use Flexipos\Testing\Engine\ReservedDatabaseName;
 |   databases. ReservedDatabaseNameGuardTest pins that expansion as a fact about
 |   the engine.
 | - **It is a bare PDO, not a framework connection.** It has to work when the
-|   application cannot boot, and the only statements it issues are DDL against
-|   names the guard has already allowed. That is also why it must never write a
-|   row: on this server `@@sql_mode` carries no strict mode, and only the
-|   framework's connector sets one per session (AC-68). The environment contract
-|   itself is still read from EngineConnection::stanza(), so the variable names
-|   have exactly one home.
+|   application cannot boot. It issues exactly one statement, a read of the
+|   catalogue, and it never writes a row: on this server `@@sql_mode` carries no
+|   strict mode, and only the framework's connector sets one per session
+|   (AC-68). The environment contract itself is still read from
+|   EngineConnection::stanza(), so the variable names have exactly one home.
 |
 | An unreachable engine is a warning here and not a failure: there is nothing to
-| clean, and the engine tests themselves fail with the engine named (AC-63), so
+| report, and the engine tests themselves fail with the engine named (AC-63), so
 | the gate still reports it where a reader can act on it.
 |
 */
@@ -47,22 +63,18 @@ use Flexipos\Testing\Engine\ReservedDatabaseName;
 require __DIR__.'/../vendor/autoload.php';
 
 /*
- * Three circuit breakers, added after the sweep in this exact shape dropped
- * sixteen of the owner's databases on 2026-10-14:
- *
- * - the suite-wide hold is honoured here too, so nothing in the repository
- *   touches that engine while the owner is deciding about recovery;
- * - every name is re-checked against a literal declared in this file, so the
- *   guard class and this script have to be wrong together;
- * - a ceiling on how many databases a sweep may believe are ours. The incident
- *   began with a filter that returned every schema on the engine. A sweep that
- *   thinks it owns dozens of databases is not having a busy day, it is broken.
+ * The reserved prefix again, as an independent literal, deliberately not
+ * ReservedDatabaseName::PREFIX. There is no destructive statement left in this
+ * file for it to stand in front of; what it still does is catch the two rules
+ * disagreeing. If the guard class ever calls a name reserved that this literal
+ * does not, the guard class is wrong - that is exactly the shape of the stub
+ * that caused the incident - and the gate should stop on it rather than print a
+ * report derived from it.
  */
 const CLEAN_ENGINE_PREFIX_LITERAL = 'flexipos_t8test_';
-const CLEAN_ENGINE_MAX_SWEEP = 32;
 
 if (EngineConnection::onHold()) {
-    fwrite(STDOUT, 'clean-engine: the engine suite is on hold (ENGINE_HOLD), so nothing was swept and '
+    fwrite(STDOUT, 'clean-engine: the engine suite is on hold (ENGINE_HOLD), so nothing was read and '
         .'no connection was opened. See Flexipos\\Testing\\Engine\\EngineOnHold.'.PHP_EOL);
 
     exit(0);
@@ -85,8 +97,8 @@ try {
     );
 } catch (Throwable $exception) {
     fwrite(STDERR, sprintf(
-        'clean-engine: the engine at %s:%s is unreachable, so no reserved test database could be swept. '
-        .'The engine tests will fail with the engine named. Underlying error: %s'.PHP_EOL,
+        'clean-engine: the engine at %s:%s is unreachable, so no reserved test database could be '
+        .'reported. The engine tests will fail with the engine named. Underlying error: %s'.PHP_EOL,
         $host,
         $port,
         $exception->getMessage()
@@ -111,62 +123,27 @@ foreach ($statement->fetchAll(PDO::FETCH_COLUMN) as $name) {
     }
 }
 
-$survivors = [];
-$dropped = [];
 $reserved = ReservedDatabaseName::reservedAmong($names);
 
-if (count($reserved) > CLEAN_ENGINE_MAX_SWEEP) {
-    fwrite(STDERR, sprintf(
-        'clean-engine: the name filter returned %d of the engine\'s %d databases as reserved test '
-        ."databases, which is more than the ceiling of %d. That is the shape of a broken filter, so\n"
-        .'nothing was dropped. Check Flexipos\Testing\Engine\ReservedDatabaseName before running again.'
-        .PHP_EOL,
-        count($reserved),
-        count($names),
-        CLEAN_ENGINE_MAX_SWEEP
-    ));
-
-    exit(1);
-}
-
 foreach ($reserved as $name) {
-    // Checked again at the point of effect, after the filter, by two
-    // independent rules: the filter deciding and the statement running are two
-    // different places, and only the second one is safe to trust.
-    ReservedDatabaseName::assert($name);
-
     if (! str_starts_with($name, CLEAN_ENGINE_PREFIX_LITERAL)) {
-        fwrite(STDERR, 'clean-engine: the name guard allowed "'.$name.'", which does not start with "'
-            .CLEAN_ENGINE_PREFIX_LITERAL.'". The two checks disagree, so nothing was dropped.'.PHP_EOL);
+        fwrite(STDERR, 'clean-engine: the name guard called "'.$name.'" a reserved test database, but it '
+            .'does not start with "'.CLEAN_ENGINE_PREFIX_LITERAL.'". The two prefix rules disagree, so the '
+            .'guard class is wrong. Nothing here drops anything, but check '
+            .'Flexipos\\Testing\\Engine\\ReservedDatabaseName before running the engine suite.'.PHP_EOL);
 
         exit(1);
     }
-
-    try {
-        $pdo->exec('drop database if exists `'.$name.'`');
-        $dropped[] = $name;
-    } catch (Throwable $exception) {
-        $survivors[] = $name.' ('.$exception->getMessage().')';
-    }
 }
 
-if ($survivors !== []) {
-    fwrite(
-        STDERR,
-        'clean-engine: a reserved test database survived the sweep. The next engine run would migrate '.
-        'into a database that already holds tables, so drop it by hand:'.PHP_EOL.
-        '  '.implode(PHP_EOL.'  ', $survivors).PHP_EOL
-    );
-
-    exit(1);
-}
-
-// Silent unless something was actually dropped, so the gate's output stays
-// readable - but never silent when it was, because a leftover is evidence that
-// a previous run was killed.
-if ($dropped !== []) {
-    fwrite(STDOUT, 'clean-engine: dropped '.count($dropped).' leftover reserved test database(s): '
-        .implode(', ', $dropped).PHP_EOL);
+// Never silent when there is a leftover, because a leftover is evidence that a
+// previous run was killed - and silent when there is not, so the gate's output
+// stays readable.
+if ($reserved !== []) {
+    fwrite(STDOUT, 'clean-engine: '.count($reserved).' leftover reserved test database(s) on the engine: '
+        .implode(', ', $reserved).'. This tool drops nothing (no sweep, ever). Each is dropped by name by '
+        .'EngineDatabase::recreate() when a test next uses it, so this is information and not a failure.'
+        .PHP_EOL);
 }
 
 exit(0);

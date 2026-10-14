@@ -20,8 +20,8 @@ final class ReservedDatabaseNameViolation extends RuntimeException
     public static function because(string $name, string $reason): self
     {
         return new self(sprintf(
-            'Refusing to touch the database %s: %s. The test suite may only create or drop databases '
-            .'whose names start with "%s", are entirely lowercase, contain only [a-z0-9_] and are at '
+            'Refusing to touch the database %s: %s. The test suite may only create or remove a database '
+            .'whose name starts with "%s", is entirely lowercase, contains only [a-z0-9_] and is at '
             .'most %d characters. This is an allow-list; there is no deny-list.',
             $name === '' ? '(empty name)' : '"'.$name.'"',
             $reason,

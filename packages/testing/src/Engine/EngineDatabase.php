@@ -23,12 +23,18 @@ use Illuminate\Database\Connection;
  * point of effect and not at planning time for the same reason: between a check
  * and a statement, a name can be rebuilt, concatenated or read from a fixture.
  *
- * **2. There is no engine-wide sweep here, and there must not be one.** This
- * class drops names its caller passes in, one at a time. Sweeping every
- * reserved database on the engine happens in exactly one place,
- * tools/clean-engine.php, which runs ahead of the suite and never during it. A
- * sweep is the one operation whose blast radius is the whole engine when its
- * filter is wrong, so it does not live in a class that tests call.
+ * **2. There is no engine-wide sweep anywhere in this repository, and there
+ * must not be one.** This class drops names its caller passes in, one at a
+ * time, and {@see recreate()} is what makes a leftover harmless, because it
+ * drops *that one name* before creating it. tools/clean-engine.php used to
+ * sweep and is now report-only: it lists leftover reserved databases, drops
+ * nothing and exits 0. A sweep is the one operation whose blast radius is the
+ * whole engine when its filter is wrong, and no ceiling repairs that, because a
+ * filter that wrongly returns twenty foreign names passes any plausible
+ * ceiling. This class is the only file in the repository permitted to issue a
+ * database drop at all, and that is enforced by
+ * modules/host/tests/Feature/DestructiveStatementContainmentTest.php rather
+ * than by this docblock.
  *
  * **3. Enumeration reads `information_schema.schemata` and filters in PHP.**
  * SQL `LIKE` is forbidden: `_` is a single-character wildcard, so on this engine

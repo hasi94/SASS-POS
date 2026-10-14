@@ -33,12 +33,17 @@ namespace Flexipos\Testing\Engine;
  * - **It is at most {@see MAX_LENGTH} characters**, MySQL's and MariaDB's
  *   schema-name limit.
  *
- * This class is the single home of the rule, and {@see EngineDatabase} and
- * tools/clean-engine.php each re-check the prefix independently, with their own
- * literal, immediately before the statement they issue. That redundancy is not
- * decoration: on 2026-10-14 a permissive stub of this class, written to prove
- * the guard test red, was handed to an engine-wide sweep and dropped sixteen of
- * the owner's databases. One class being wrong must not be enough.
+ * This class is the single home of the rule. {@see EngineDatabase} re-checks
+ * the prefix independently, with its own literal, immediately before the
+ * statement it issues, and tools/clean-engine.php - which is report-only and
+ * drops nothing - re-checks it too, as a tripwire for the two rules
+ * disagreeing. That redundancy is not decoration: on 2026-10-14 a permissive
+ * stub of this class, written to prove the guard test red, was handed to an
+ * engine-wide sweep and dropped sixteen of the owner's databases. One class
+ * being wrong must not be enough. No stub, fake or double of this class may
+ * exist anywhere in the repository, and
+ * modules/host/tests/Feature/DestructiveStatementContainmentTest.php fails if
+ * one is added.
  */
 final class ReservedDatabaseName
 {
