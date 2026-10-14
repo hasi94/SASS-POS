@@ -298,9 +298,10 @@ packages/kernel/src/Schema/
   `ReservedDatabaseName::PREFIX`, because `packages/testing` may not read Laravel configuration without a dependency on
   the host that the boundary check forbids, and a guard that depends on configuration is a guard an environment
   variable can widen. Any step that needs the prefix — step 5's config file included — **reads the constant** and never
-  repeats the literal. The two deliberate exceptions are the second, independent point-of-effect checks in
-  `EngineDatabase` and `tools/clean-engine.php`, which must each carry their own literal: reading the constant there
-  would make them a second call to one rule instead of a second rule (§11).
+  repeats the literal. The two deliberate exceptions are `EngineDatabase`, whose second independent check is at the
+  point of effect, and `tools/clean-engine.php`, whose second literal has had no statement in front of it since
+  `5e2e708` and instead fails the gate when the two rules disagree (§11.3 and §11.2 rule 4a). Each must carry its
+  **own** literal: reading the constant there would make it a second call to one rule instead of a second rule (§11).
 
 ### Fixtures and tests
 
@@ -325,7 +326,12 @@ packages/kernel/src/Schema/
   will see the diff.
 - `modules/host/phpunit.xml` — **changed.** Adds the engine environment variables. The SQLite default for everything
   else is untouched (Assumption in the spec, and T-003's tests depend on it).
-- `modules/host/composer.json` — **changed.** `clean-engine` in `check`; no new dependency.
+- `modules/host/composer.json` — **changed.** `engine:clean` first in `check` (shipped in step 0, confirmed still
+  first on 2026-10-14, so step 14 needs no wiring); no new dependency. Its **script description** was also changed in
+  `5e2e708`, outside the boundary the lead drew for that commit, because it was the fifth copy of the retracted
+  "the tool sweeps" claim. Accepted by the lead and by me; it is not an undeclared change.
+- `modules/host/tests/Feature/DestructiveStatementContainmentTest.php` — **new, step 13** (shipped early in
+  `5e2e708`). The two teeth of §11.2: one drop-issuing file, and no double of `ReservedDatabaseName`.
 - `modules/host/phpstan.neon.dist`, `modules/host/deptrac.yaml` — **changed** only if a new path appears. With the
   layout above, none does: `packages/kernel/src`, `packages/kernel/tests`, `packages/testing/src`,
   `modules/host/database`, `tests` and `tools` are all already registered. `QaToolchainRegistryCoverageTest` is the
@@ -538,12 +544,26 @@ elsewhere steps may be reordered or run together.
       tenant tree; no database creation or dropping outside `EngineDatabase`; `sessions` carries no foreign key to
       `users` (finding 6). Covers AC-37's remainder and the hygiene non-functional requirements.
       **Two static checks added by §11.2 and they are the ones that make the constraint enforceable rather than
-      advisory:** (a) no source file outside `EngineDatabase` and `tools/clean-engine.php` contains `drop database`,
-      and neither of those contains a loop over a list it computed from `information_schema` *that reaches a drop*;
-      (b) no test double, stub or fake of `ReservedDatabaseName` exists anywhere in the branch — the permissive stub
-      is forbidden by a test, not by a memory of October.
-- [ ] **Step 14 — gate wiring and headroom.** [dev] `engine:clean` (report-only, §11.2 rule 4) first in `check`;
-      toolchain registry coverage;
+      advisory:** (a) **no source file but `EngineDatabase` issues a database drop at all** — `tools/clean-engine.php`
+      is **not** exempt, because the tool is report-only (§11.2 rule 4) and an exemption for it is exactly the hole
+      through which the sweep could be restored with the gate still green; the owning class is additionally asserted to
+      still issue **exactly one** such statement, so the scan cannot pass by matching nothing;
+      (b) no test double, stub, fake, subclass or alias of `ReservedDatabaseName` exists anywhere in the branch — the
+      permissive stub is forbidden by a test, not by a memory of October.
+      *This wording was corrected on 2026-10-14 after `dev` implemented (a) with the single exemption and said so.*
+      `dev` was right and the earlier two-file wording was wrong: §11.2 rule 4 leaves the tool nothing to drop, so the
+      only file that may name a drop is the one that drops a caller-named database. Both checks carry a positive
+      control (a forbidden fixture, reported) and a negative one (the same words in prose, ignored), scan code with
+      comments and docblocks removed, and **scan their own file** — a scanner that exempts itself can be used to hide
+      what it looks for.
+      **Shipped state (commit `5e2e708`), so this step stays unticked:** check (a) and check (b) exist in
+      `modules/host/tests/Feature/DestructiveStatementContainmentTest.php`. Still to do here:
+      `VerticalSliceLayoutTest`, "no FX migration under the shipped tenant tree", and the `sessions`-carries-no-
+      foreign-key check from §9 finding 6.
+- [ ] **Step 14 — gate wiring and headroom.** [dev] `engine:clean` (report-only, §11.2 rule 4) first in `check`
+      — **already true since step 0 and re-confirmed by `dev` on 2026-10-14; this half of the step needs no work**;
+      toolchain registry coverage (`DestructiveStatementContainmentTest` spawns no child process, so it stays in
+      `test:fast` and must **not** be registered in the toolchain group);
       confirm the T-007 process-timeout headroom ratio still holds for the larger gate, using the existing instrument
       unchanged. Covers AC-64.
 - [ ] **Step 15 — QA: the engine matrix and the calibration counts.** [qa] Every `[E]` criterion run and recorded with
@@ -571,6 +591,28 @@ the T-007 failure was a mutation that passed because at the chosen input the mut
 to be safe: it may not be capable of a destructive statement against a shared resource, and a safety check is never
 the thing that is weakened to make a test fail. The constraint, its four rules and the per-step ruling are in §11; they
 bind every step in §6 and every step added to this plan later.
+
+### Three things `dev` measured writing the containment checks, binding on the next repository-wide scan
+
+Added 2026-10-14 from `dev`'s report on `5e2e708`. All three are about *static scans over the whole branch*, which
+this plan asks for again at step 13 and which FP-2xx tasks will ask for after it.
+
+- **Prune the walk; do not filter it, and do not trust a Finder `exclude()`.** A framework finder's `exclude()` matches
+  only at the root it was given, so excluding the dependency directory at the repository root still walks the one
+  inside `modules/host` and the one inside each path package — tens of thousands of third-party files, every one of
+  them a candidate hit for both detectors. The failure mode is not a crash, it is **a false red whose obvious "fix" is
+  to narrow the scan until it is green**, and the narrowed scan is then blind to our own code. `dev` wrote an explicit
+  prune list applied during the directory walk (`containmentPrunedDirectories()`); copy that shape, and keep the list
+  of pruned directory *names* rather than paths.
+- **A containment check is never repaired with an allow-list entry.** `dev`'s own check reported the forbidden phrase
+  inside a **string literal** — the refusal message of `ReservedDatabaseNameViolation`. It reworded the message
+  instead of exempting the file. That is the precedent: an exemption list is how a containment check rots, and the
+  first exemption is always for a file that "obviously" does not mean it. The only standing exemptions are the one
+  owning class and the mechanical ones (comments stripped, dependencies pruned).
+- **A retracted claim lives in more copies than the one you found.** The sentence "the sweep still lives in the tool"
+  was false in **five** places: the live code, three docblocks, and the `engine:clean` script description — *including
+  inside the guard test that exists to document the incident*. This project has hit the correct-it-in-every-copy shape
+  before; this is its worst instance. When a ruling retracts a claim, grep the branch for the claim, not for the file.
 
 ### Proof grades
 
@@ -654,7 +696,7 @@ a naive grep for `tenant_id` in a migration would match a comment that merely me
 
 | # | Risk | Likelihood | What it costs | Mitigation |
 |---|---|---|---|---|
-| R-1 | **A test drops one of the owner's databases on this engine, several of which are live client systems.** **This risk has occurred.** On 2026-10-14 sixteen of the 56 were dropped, unrecoverable (§11.1). Likelihood and cost are no longer estimates. | **occurred** | sixteen databases, no backup | What is in place now: no sweep anywhere (§11.2 rule 4); two independent prefix rules at the point of effect; drops by name only; `ReservedDatabaseName` may never be stubbed, enforced by a step-13 static test; enumeration in PHP, never SQL `LIKE`; the §11.4 gate; `ENGINE_HOLD` on. What was in place before and did not help: step 0 first, a reviewed bullet, and a guard class that a stub replaced. |
+| R-1 | **A test drops one of the owner's databases on this engine, several of which are live client systems.** **This risk has occurred.** On 2026-10-14 sixteen of the 56 were dropped, unrecoverable (§11.1). Likelihood and cost are no longer estimates. | **occurred** | sixteen databases, no backup | What is in place now: no sweep anywhere (§11.2 rule 4), and **exactly one file in the branch issues a drop at all**, enforced by a static test (`DestructiveStatementContainmentTest`, shipped `5e2e708`); two independent prefix rules, the second of them at the point of effect in `EngineDatabase` and in `engine:clean` as a gate-stopping tripwire on the two rules disagreeing (rule 4a); drops by name only; `ReservedDatabaseName` may never be stubbed or doubled, enforced by the same static test; enumeration in PHP, never SQL `LIKE`; the §11.4 gate; `ENGINE_HOLD` on. What was in place before and did not help: step 0 first, a reviewed bullet, and a guard class that a stub replaced. |
 | R-12 | **The engine is shared.** Another project ran migrations against `127.0.0.1:3306` during our run (MEASURED, §11.1), and the owner's own data lives there. Schema counts, locks and concurrency are all shared with software this team does not control. | certain | a destructive mistake lands on someone else's production data; a flaky lock or count test that is not our bug | **Two mitigations named elsewhere in this plan are invalidated and withdrawn:** (i) *"notice it and kill the process"* — `taskkill /F` on the PHP client does **not** abort an in-flight `DROP DATABASE`; the server completes it; (ii) *any step assuming exclusive use of the engine* — including "the schema list before equals the schema list after" as a *proof of our own correctness*; it is still a useful alarm but another project can move it. What replaces them: structural inertness of the red phase (§11.2), drops by name only, the G-1 dump, and treating every statement against that engine as a production change. |
 | R-13 | The hold blocks the engine steps, and the pressure to clear it comes from wanting the task finished. | high | a safety measure removed for schedule reasons | Only the owner clears it (G-2). The task is sequenced so that steps 2 to 9, 12's logic and 13's checks all proceed under the hold, so the hold costs days of *engine* work rather than the slice. `qa` records held criteria as NOT VERIFIED, which keeps the cost visible instead of making it a reason to remove the hold. |
 | R-2 | The reserved prefix is one character from a real name, as `flexipos-master` already is from `flexipos_master`. | medium | same as R-1 | The prefix contains `t8test`, which no existing name does; step 0 re-measures its wildcard expansion and `qa` records the output. Uppercase and non-`[a-z0-9_]` names are refused outright because `lower_case_table_names = 1` would fold them. |
@@ -813,20 +855,38 @@ Four rules follow, and they are what a reviewer checks a step against:
 4. **No sweep, ever.** No code in this repository derives a list of things to drop from the *engine's* contents. It
    drops names a caller named, one at a time. `EngineDatabase` has no sweep and must not gain one; `recreate()` is what
    makes a leftover harmless, because it drops *that one name* before creating it. Consequently
-   `tools/clean-engine.php` is **report-only**: it lists leftover reserved databases, drops nothing, and exits 0 — the
-   correctness it used to provide is already provided by `recreate()`, so the dropping version bought nothing and
-   risked the whole engine. (Alternative rejected: keep the dropping sweep behind a count ceiling of 32 and two prefix
-   rules, as `tools/clean-engine.php` has it today. It is much safer than what ran — the ceiling *would* have stopped
+   `tools/clean-engine.php` is **report-only**: it lists leftover reserved databases, drops nothing, and its
+   leftover-report path always exits 0 — the correctness it used to provide is already provided by `recreate()`, so
+   the dropping version bought nothing and risked the whole engine. (Alternative rejected: keep the dropping sweep
+   behind a count ceiling of 32 and two prefix rules, which is **what the tool carried on 2026-10-14 before this
+   ruling landed and no longer carries anywhere** — the sweep, the `exec()` and the ceiling were deleted in commit
+   `5e2e708`. It is much safer than what ran — the ceiling *would* have stopped
    the incident's 56-name filter, and the second literal would have stopped it too — but it is still a list of drops
    computed from the engine's contents, and the ceiling is a guess: a filter that wrongly returns twenty foreign names
    passes it. We are not obliged to make that mechanism safe, because `recreate()` already does the only job it has.
    Delete the capability instead of bounding it.)
 
+   **Rule 4a, ruled 2026-10-14 on `dev`'s question: the tripwire exit is required, and it is not a deviation.**
+   Rule 4's "exits 0" binds the **leftover report** — a leftover reserved database is information, never a failure,
+   because `recreate()` makes it harmless. It does **not** bind the one other thing the tool still does.
+   `CLEAN_ENGINE_PREFIX_LITERAL` survives in `tools/clean-engine.php` with no destructive statement left to stand in
+   front of, and its remaining job is to be a **tripwire for the two prefix rules disagreeing**: if
+   `ReservedDatabaseName` calls a name reserved that the independent literal does not, the tool prints both names and
+   **exits 1**. That condition is the exact signature of the permissive guard that destroyed sixteen databases, and it
+   is the only automatic detector of it anywhere in the branch — a stubbed or widened guard reaches the gate's *first*
+   line and stops it. Exiting 0 on a detected rule disagreement would mean printing the incident's signature into a
+   log nobody reads. So: **leftover report → exit 0; rule disagreement → exit 1; a drop → does not exist.** Nobody may
+   later "align" this with rule 4 by making the disagreement path exit 0, and nobody may remove the literal on the
+   grounds that it no longer guards a statement. If the tool is ever made to exit 1 for anything *else*, that is the
+   change rule 4 forbids, because it turns a leftover back into a failure and invites a sweep as the fix.
+
 ### 11.3 The two independent prefix rules, and what the measurement actually shows
 
-`EngineDatabase` and `tools/clean-engine.php` each re-check the prefix at the point of effect against **their own
-literal**, deliberately not reading `ReservedDatabaseName::PREFIX`: reading the constant would make them a second
-*call* to one rule, and the requirement is two *rules*. `dev` measured the value — with the guard class stubbed out,
+`EngineDatabase` re-checks the prefix **at the point of effect** against **its own literal**, deliberately not reading
+`ReservedDatabaseName::PREFIX`: reading the constant would make it a second *call* to one rule, and the requirement is
+two *rules*. `tools/clean-engine.php` carries the same independent literal, but **since `5e2e708` it has no statement
+left to stand in front of**; there it compares the two rules and fails the gate when they disagree (rule 4a above).
+`dev` measured the value — with the guard class stubbed out,
 11 of 13 forbidden names were still refused by the second rule alone.
 
 The ratio understates it and the plan should record the stronger reading: the two names the second rule misses are
