@@ -17,3 +17,5 @@
 - [A red-first stub must be inert](feedback_red_first_stub_must_be_inert.md) — the permissive stub that destroyed 16 of the owner's databases, and the red phase that cannot act.
 - [The shared MariaDB is production](project_shared_mariadb_engine_is_production.md) — other projects' unbacked-up data on 127.0.0.1:3306; ENGINE_HOLD is on.
 - [Delete the capability, not the bound](feedback_delete_the_capability_not_the_bound.md) — a ceiling is a guess; the sweep went, and a self-scanning static test replaced the prose.
+- [SQLite stand-in vs the engine](project_sqlite_standin_vs_engine.md) — the four statements SQLite refuses, and why `migrate` in a test needs `--database=master`.
+- [Exempt by property, not by name](feedback_exempt_by_property_not_by_name.md) — a red scan over correct code is narrowed by a type or a phase, never by an allow-list entry.
