@@ -3,7 +3,12 @@
 Covers backlog rows **FP-203** (master schema), **FP-204** (tenant schema baseline) and **FP-205** (per-tenant
 migration runner) as one slice: a tenant schema with no runner cannot be applied, and a runner with no schema has
 nothing to run. Decisions D-1 to D-21 are in `docs/decisions/T-008-master-schema-and-tenant-baseline.md`. **No
-BLOCKING questions.**
+BLOCKING questions.** Revised after `architect`'s plan (commit 2867974) and its measurements against the live
+engine: decisions D-22 to D-33 record six corrections to criteria that were not achievable as worded (AC-13, AC-19,
+AC-35(d), AC-48, the "both engines" wording, and the AC-1 table-name discrepancy), a rewording of AC-56, a new AC-68,
+and the plan's four upheld rulings. Engine scope is now **one engine, the one the environment names (MariaDB 10.4)**:
+MySQL 8.4 is out of scope for this task by the owner's decision of 2026-10-08, and its half of the cross-engine
+comparison is deferred.
 
 **This task is code and it is the first to write real tables.** Every criterion is checked by running something.
 Where it needs the diff or the branch it is marked **(diff)** or **(branch)**: `ba` has no shell and no git, so those
@@ -64,6 +69,12 @@ tables per tenant (its own header); the master has **39** application tables and
 count of section 4, not the **34** section 4.10 states. That is a reading count, not a command, so `qa` should recount
 it once. The seventeen master tables this task creates are listed in AC-1.
 
+**Which list governs (a ninth discrepancy, found by `architect`).** `docs/database.md` section 4.10 names
+`personal_access_tokens` among the master's system tables. **AC-1 names `sessions` instead, and AC-1 governs** (D-18
+keeps the stock `sessions` table; nothing in this task issues API tokens, so nothing needs the other). AC-1's eight
+system tables are therefore `migrations`, `jobs`, `job_batches`, `failed_jobs`, `cache`, `cache_locks`,
+`password_reset_tokens`, `sessions`. A recount against the design will differ by that one name and that is not a defect.
+
 ## User stories
 
 - As a developer of a later module, I want one tenant migration tree and one runner, so that my table reaches every
@@ -83,7 +94,13 @@ it once. The seventeen master tables this task creates are listed in AC-1.
 
 Defined once so that criteria can use the terms.
 
-- **[E]** the criterion is answered by a real MariaDB 10.4 or MySQL 8.4 server, not SQLite. See AC-62 to AC-65.
+- **[E]** the criterion is answered by a real database server, not SQLite: the engine the environment names, which for
+  this task is MariaDB 10.4 (MySQL 8.4 is out of scope, D-24). See AC-62 to AC-65.
+- **Refusal evidence.** Any criterion whose evidence is "the insert/statement was refused" holds only if the refusal
+  was observed on a connection made **through the framework's connector** (the same path the shipped code uses), never
+  a hand-built one. The engine on this machine has `@@sql_mode` = `NO_ZERO_IN_DATE,NO_ZERO_DATE,NO_ENGINE_SUBSTITUTION`
+  (no strict mode, measured by `architect` and re-verified by the lead; not re-derived by `ba`), where an over-long
+  value truncates silently instead of erroring. AC-68 pins the property.
 - **The three-tenant fixture:** tenant **A**, an empty database (schema version 0); tenant **B**, the baseline already
   applied; tenant **C**, whose mapping is valid and whose database also holds the baseline, but which a fixture
   migration is written to fail on. All three are mapped on one `database_servers` row unless a criterion says
@@ -104,7 +121,8 @@ Defined once so that criteria can use the terms.
   `subscriptions`, `licences`, `feature_flags`, `tenant_feature_flags`, `platform_settings`, `platform_audit_logs`,
   `database_servers`, `tenant_databases`, `schema_versions`, `tenant_migration_runs`, `tenant_migration_jobs`; plus
   only these Laravel system tables: `migrations`, `jobs`, `job_batches`, `failed_jobs`, `cache`, `cache_locks`,
-  `password_reset_tokens`, `sessions`; and nothing else. A second run changes nothing and exits 0. **Controls:** the
+  `password_reset_tokens`, `sessions` (not `personal_access_tokens`, which `docs/database.md` section 4.10 lists;
+  this list governs, D-27); and nothing else. A second run changes nothing and exits 0. **Controls:** the
   same check fails against a master with one extra table and against one with a table missing.
 - **AC-2 [E]**: Given the master after migration, When `users` is inspected, Then its `id` is `CHAR(26)` with
   `ascii_bin`, it has `password_hash`, `is_platform_staff`, `status`, `failed_attempts`, `locked_until` and
@@ -142,10 +160,10 @@ Defined once so that criteria can use the terms.
   key pair and refuse a feature or flag key that is not in `feature_flags`; `plan_limits` refuses a duplicate
   (`plan_id`, `limit_key`). Each has a valid insert beside it that is accepted.
 - **AC-10 [E]**: Given the master after migration, When a JSON payload is written to `platform_audit_logs.before`
-  and read back, Then the decoded value equals what was written on both engines, the table's primary key is an
-  auto-incrementing `BIGINT`, and indexes exist on (`tenant_id`, `created_at`) and (`action`, `created_at`). A string
-  that is not valid JSON written to that column is refused on **both** engines (MariaDB stores JSON as text, so this
-  holds only if the migration made it so).
+  and read back, Then the decoded value equals what was written on the engine the environment names, the table's primary
+  key is an auto-incrementing `BIGINT`, and indexes exist on (`tenant_id`, `created_at`) and (`action`, `created_at`).
+  A string that is not valid JSON written to that column is refused (MariaDB stores JSON as text, so this holds only if
+  the migration made it so). Recorded per AC-63; the MySQL 8.4 half is deferred (D-24).
 - **AC-11 [E]**: Given a freshly migrated master, When every application table in AC-1 is counted, Then each holds
   zero rows. Seeding plans, flags and the first administrator belongs to FP-206, FP-207 and FP-210. **Control:** the
   check fails against a fixture migration that inserts one row.
@@ -158,9 +176,12 @@ Defined once so that criteria can use the terms.
   schema version and credential version. For an unknown tenant, a tenant with no mapping row, and a mapping whose
   server row is absent, it returns null in each case and never a default. The T-003 and T-007 tenancy tests pass
   unchanged.
-- **AC-13 [E]**: Given a resolved mapping, When the `TenantDatabase` object is serialised, cast to a string and
-  printed with `var_export`, Then none of those outputs contains the test password. **Control:** the same scan, run
-  over a fixture object that does hold the password, reports it.
+- **AC-13 [E]**: Given a resolved mapping, When the `TenantDatabase` object is put through every serialising
+  function (`json_encode`, `serialize`, `print_r`, `var_export`, `var_dump`, and an `(array)` cast), Then none of those
+  outputs contains the test password. The object has no `__toString`, so a string cast is not an output to scan (it is
+  a fatal error); if it ever gains one, that output is scanned too. **Control:** the same scan, run over a fixture
+  object that does hold the password **and** implements `__toString` (so the string cast is exercised here only), reports
+  it in every output. (D-26)
 - **AC-14**: Given a warm cache, When `find` is called a second time inside 300 seconds for the same tenant, Then the
   master receives **no** query for it, and the cache key is the tenant id alone (`tenant:conn:<tenant_id>`) with the
   credential version carried as a value inside. When the clock is advanced past 300 seconds and `find` is called,
@@ -179,11 +200,16 @@ Defined once so that criteria can use the terms.
   migrate username and no migrate credential reference. The migrate credential is reachable only through the
   runner's own mapping type, which does carry them. **Control:** the runner's mapping type passes the opposite check.
 - **AC-19 [E]**: Given a mapping whose `schema_version` is below `APP_REQUIRED_SCHEMA_VERSION`, When a tenant scope is
-  entered for it, Then it is refused with a named exception **before any network connection is attempted** (assert no
+  entered for it **for the serving purpose** (a request), Then it is refused with a named exception **before any network connection is attempted** (assert no
   connection was opened), the host's exception handling renders it as HTTP 503 with a `Retry-After` header, the
   message contains no credential, and entering a *different* tenant at the required version in the same process then
-  succeeds. A mapping exactly at the required version is accepted (the control).
-- **AC-20 [E]**: Given a mapping whose `schema_version` is **above** the required one, When a scope is entered, Then
+  succeeds. A mapping exactly at the required version is accepted (the control). **The exemption:** entering the same behind
+  tenant for the **migration** purpose (the runner's) is *not* refused by this version gate, because a tenant below the
+  required version is the only kind the runner ever migrates; the test has the runner enter a tenant at the required
+  version minus one and succeed. The exemption covers the version gate **only**: status rules (AC-51) still apply to
+  the runner, and no other refusal in this spec is waived by purpose. (D-23)
+- **AC-20 [E]**: Given a mapping whose `schema_version` is **above** the required one, When a scope is entered for the
+  serving purpose, Then
   it is accepted and exactly one warning is recorded for that entry, not one per query.
 - **AC-21**: Given the shipped tenant migration tree, When the highest version in the catalogue is compared with
   `APP_REQUIRED_SCHEMA_VERSION`, Then the constant is not greater (a code that requires a version nothing can
@@ -198,7 +224,8 @@ Defined once so that criteria can use the terms.
 - **AC-23 [E]**: Given an empty tenant database, When the baseline is applied, Then exactly these tables exist:
   `schema_meta`, `settings_registry`, `settings`, `number_sequences`, `audit_logs`, `outbox_events` and Laravel's
   `migrations`, and nothing else. In particular **there is no projection-state table and no claim-mark column** on
-  `outbox_events` (D-1). **Controls:** the check fails against a database with one extra table and with one missing.
+  `outbox_events` (D-1). `schema_meta` is created **empty**: the baseline writes no row into it (D-28). **Controls:**
+  the check fails against a database with one extra table and with one missing.
 - **AC-24 [E]**: Given the baseline applied, When every column of every table is listed (live, from the engine) and
   when every tenant migration file is read (source), Then no column named `tenant_id` exists in either. `schema_meta`
   holds the tenant id as a **row** keyed `tenant_id`, not as a column, and needs no exemption. **Controls:** the
@@ -215,8 +242,9 @@ Defined once so that criteria can use the terms.
   aggregate id, payload, occurred at, correlation id, causation id, actor, status, published at, attempts, last
   error), indexes on (`status`, `occurred_at`) and (`aggregate_type`, `aggregate_id`), `occurred_at` as `DATETIME(3)`,
   and a new row defaults to status `pending` and attempts 0. A row written with `occurred_at` = `2026-01-02 03:04:05.678`
-  reads back with `.678` on **both** engines (millisecond precision survives). A JSON payload round-trips by decoded
-  equality, and an invalid one is refused on both engines.
+  reads back with `.678` on the engine the environment names (millisecond precision survives). A JSON payload
+  round-trips by decoded equality, and an invalid one is refused. Recorded per AC-63; the MySQL 8.4 half is deferred
+  (D-24).
 - **AC-28 [E]**: Given the baseline applied, When a business row (a `settings` row) and an `outbox_events` row are
   written in one transaction and the transaction is rolled back, Then neither exists; When it is committed, Then
   both exist. This is the property that makes the outbox the seam for the read side. **Control:** the same test, run
@@ -224,12 +252,16 @@ Defined once so that criteria can use the terms.
 - **AC-29 [E]**: Given the baseline applied, When `audit_logs` is inspected, Then its primary key is an
   auto-incrementing `BIGINT`, it has the indexes section 6.21 names (on `created_at`; on `subject_type` and
   `subject_id`; on `actor_id` and `created_at`; on `module`, `action` and `created_at`), and `before`, `after` and
-  `changed_fields` round-trip JSON by decoded equality and refuse invalid JSON on both engines.
+  `changed_fields` round-trip JSON by decoded equality and refuse invalid JSON, on the engine the environment names
+  (recorded per AC-63; the MySQL 8.4 half is deferred, D-24).
 - **AC-30 [E]**: Given the baseline applied, When foreign keys are listed, Then none references a table named
   `branches` or `employees`, while the columns `number_sequences.branch_id`, `audit_logs.branch_id`,
   `outbox_events.branch_id` and `settings.updated_by` exist with `CHAR(26)` and are nullable (D-5), and
   `settings.key` does reference `settings_registry`. **Control:** inserting a `settings` row with an unknown key is
-  refused.
+  refused. **(diff)** The baseline migration's own docblock records the four unguarded columns and which module owes
+  each foreign key (`number_sequences.branch_id`, `audit_logs.branch_id`, `outbox_events.branch_id` to the branches
+  module; `settings.updated_by` to the employees module), and states that nothing in the database stops a bad id there
+  until that key is added (D-32).
 
 ### D. The catalogue and the rules that make expand-and-contract enforceable (FP-205)
 
@@ -249,13 +281,19 @@ Defined once so that criteria can use the terms.
 - **AC-34**: Given the same, When `up()` bodies are read, Then no migration alters an **existing** table to add a
   foreign key unless its phase is `contract`; creating a new table with foreign keys in an expand migration is allowed.
   **Controls:** a fixture expand step that adds a foreign key to an existing table is reported; the baseline itself
-  (which creates `settings` with a foreign key to `settings_registry`) is not.
+  (which creates `settings` with a foreign key to `settings_registry`) is not. **(branch)** The check that enforces this
+  rule is committed **before the first real (shipped) migration** on the branch, so that the later foreign keys to
+  `branches` and `employees` (D-5) are forced into a contract step; `qa` or `reviewer` confirms the commit order (D-32).
 - **AC-35**: Given the shipped master and tenant migrations, When their source is read, Then (a) no `decimal` call
   lacks a precision argument; (b) no column uses the native `enum` type (enumerations are `VARCHAR(30)` with
   application enums, section 3.2); (c) no `timestamp` column is declared, except in the eight Laravel system tables
-  named in AC-1; (d) no migration names a collation, a charset or a storage engine literal (so `utf8mb4_0900_ai_ci`,
-  which MariaDB lacks, cannot be written). **Control:** a fixture migration violating each of (a) to (d) is reported
-  once per rule.
+  named in AC-1; (d) no migration file names a charset, a collation or a storage-engine literal, with **exactly one exemption**: the
+  single shared identifier-column helper, which may name only `ascii` and `ascii_bin` (AC-2 and AC-36 require ULID
+  columns to be binary ASCII, which cannot be had without naming it); and no first-party code anywhere names
+  `utf8mb4_0900_*` or `utf8mb4_general_ci` (so a collation MariaDB lacks cannot be written). The table-level charset and
+  collation come from the connection configuration, not from migrations. (D-22) **Controls:** a fixture migration
+  violating each of (a) to (d) is reported once per rule, including one naming `utf8mb4_0900_ai_ci`; the identifier
+  helper is **not** reported; a fixture migration naming `ascii_bin` outside the helper **is** reported.
 - **AC-36 [E]**: Given both schemas applied, When `information_schema` is read, Then every table created by this task
   is InnoDB and `utf8mb4`, every `id` column that holds a ULID is `CHAR(26)` with `ascii_bin`, and every `DATETIME`
   business column has precision 3. **Control:** the check reports a fixture table created as MyISAM.
@@ -307,7 +345,10 @@ can never satisfy it.
   resumed, Then the `done` job is not re-applied, a job whose claim has **expired** is claimed again, and a job whose
   claim has **not** expired is not claimable by a second worker. All three observations in one dataset.
 - **AC-48 [E]**: Given one `pending` job, When two workers attempt to claim it, Then exactly one claim succeeds and
-  the other reports it failed (the claim is one statement, not read-then-write).
+  the other reports it failed. The mutation that **grants** the claim is a single statement whose `WHERE` re-checks
+  status and attempts, and the verdict is that statement's affected-row count; reading candidate ids beforehand grants
+  nothing. (The engine has no `SELECT ... FOR UPDATE SKIP LOCKED`: it is a syntax error on 10.4.32, so select-for-update
+  is not an available design. D-25.)
 - **AC-49 [E]**: Given a second database session holding the per-tenant lock for tenant B, When the runner reaches B,
   Then it does not wait: B is reported as not run because it is locked, nothing in B's database changed, and the
   remaining tenants complete. (The holder must be a separate session, because a lock is re-entrant within one.)
@@ -323,7 +364,7 @@ can never satisfy it.
   **fails**, the status afterwards is `failed` (D-12). For a migration that is **not** `requires_offline`, the status
   seen inside is `active` and is never `migrating`.
 - **AC-53 [E]**: Given a warm mapping cache for tenant B, When the runner sets B's status to `migrating`, Then in the
-  same process, with no clock advance, entering B's scope is refused as not served; and after the run restores
+  same process, with no clock advance, entering B's scope for the serving purpose is refused as not served; and after the run restores
   `active` and advances the version, entering B's scope is accepted without a stale refusal (D-19).
 - **AC-54 [E]**: Given a tenant whose own `migrations` table shows the target applied but whose mapping still shows an
   older `schema_version` (a crash between the two writes), When a run is executed for it, Then the mapping is
@@ -337,6 +378,13 @@ can never satisfy it.
   runner reaches it, Then it refuses that tenant, alters nothing in that database and records the mismatch. A
   matching row proceeds; a database with no `schema_meta` table or no such row also proceeds (nothing to contradict,
   D-14).
+  **What this does and does not deliver (D-28).** This is a read-only identity check in the runner. **T-008 writes
+  nothing into `schema_meta`** (AC-23 asserts it is empty after the baseline, and a completed run of any tenant leaves
+  it empty), so for every tenant this task can produce the "no row" path **is the shipped path**, not an edge case, and
+  the identity check has nothing to contradict. The safety interlock `docs/database.md` section 6.21 describes (assert
+  `schema_meta.tenant_id` equals the request's tenant before any write) is **not delivered** here: it needs the writer,
+  which belongs to FP-206's provisioning step, and the request-path assertion, a later row. The mismatch case is
+  exercised by a test that plants a row; nothing in the product does.
 - **AC-57 [E]**: Given tenants at several versions, on two servers, with one `archived` at an old version, When the
   behind report is run, Then it prints, per version and per server, how many `active` and `read_only` tenants are
   there, names the oldest laggard, lists every tenant below the required version, and **does not list the archived
@@ -346,8 +394,14 @@ can never satisfy it.
   with the blocking tenants named and **no job row is written for FX-4**. When every `active` tenant is at or above the
   expand version, the same run is planned. Tenants in status `provisioning` do not block.
 - **AC-59 [E]**: Given FX-5 (`is_destructive`), When a run that would apply it is requested, Then it is refused for
-  every tenant with a message saying no backup facility exists, and no tenant is altered (D-10). FX-4, which is
-  contract but **not** destructive, is not refused for that reason.
+  every tenant with a message that names the migration and says no backup facility exists, and no tenant is altered
+  (D-10). The shape of the refusal is part of the criterion (D-33): it happens at **plan time**, so **zero
+  `tenant_migration_jobs` rows are written for it and zero tenant connections are opened**; it is keyed on the
+  catalogue's `is_destructive` flag, never on reading the migration body at run time; and it is gated by one
+  configuration key (the plan names it `schema.backups.available`) whose default is false. **Controls:** FX-4, which
+  is contract but **not** destructive, is **not** refused for that reason (this catches an implementation that refuses
+  on the wrong field); and with the configuration key set true, FX-5 is planned (this shows the refusal is keyed on the
+  key, not hard-coded).
 - **AC-60 [E]**: Given a runner job, When it connects to a tenant database, Then it uses the **migrate** username and
   credential reference, never the app one, through the single connection-construction path T-007 established
   (a test that forces the runner to use the app credential sees a DDL statement refused by the database; **control:**
@@ -356,25 +410,44 @@ can never satisfy it.
 ### F. Engines, hygiene and the gate
 
 - **AC-61 [E]**: Given any test that creates a database, When it runs, Then it creates and drops only databases whose
-  names carry the reserved test prefix, **refuses** to run against any other name including `flexipos_master`,
-  `flx_t_000001` and `flx_t_000002`, and leaves no test-prefixed database behind, including after a test that fails.
-  **Control:** the name guard rejects `flexipos_master`; a deliberately failing test is followed by a check that the
-  prefixed database list equals the list before.
-- **AC-62 [E]**: Given the master schema and the tenant baseline applied from scratch on MariaDB 10.4 and on MySQL 8.4,
-  When each table is reduced to a normalised signature (column name, nullability, data-type family, key columns,
-  index columns, foreign key target), Then the two signatures are equal. The data-type families the design already
-  names as engine-specific (JSON as `longtext` on MariaDB, collation names) are normalised and the normalisation is
-  listed in the test. **Control:** the comparison reports a fixture where one engine has one extra index.
+  names carry the reserved test prefix (the plan names it `flexipos_t8test_`), **refuses** to run against any other
+  name including `flexipos_master`, `flx_t_000001`, `flx_t_000002` and the two real databases on this machine,
+  `flexipos-master` and `flexipos-master-new`, and leaves no test-prefixed database behind, including after a test
+  that fails. **Enumeration and cleanup must not use SQL `LIKE`** (D-30): in `LIKE`, `_` is a single-character
+  wildcard, so `SHOW DATABASES LIKE 'flexipos_%'` returns `flexipos-master` and `flexipos-master-new`, and a teardown
+  written that way drops the owner's real databases (measured by `architect` and verified by the lead on this engine,
+  which then held 56 schemas; the count is from the brief, not re-derived). The prefix test is a literal string
+  comparison in code on the list of names. **Controls:** the name guard rejects `flexipos_master`, `flexipos-master`
+  and `flexipos-master-new`; a source scan of the test-support code that enumerates, creates or drops databases finds
+  no `LIKE`, and reports a fixture that has one; a deliberately failing test is followed by a check that the
+  prefixed database list equals the list before; and every non-prefixed database that existed before a test run
+  still exists after it.
+- **AC-62 [E]**: Given the master schema and the tenant baseline applied from scratch on the engine the environment
+  names (MariaDB 10.4), When each table is reduced to a normalised signature (column name, nullability, data-type
+  family, key columns, index columns, foreign key target), Then a signature exists for every table in AC-1 and AC-23,
+  is written to the test output with the engine and version, and the comparison function accepts two equal signatures.
+  The data-type families the design already names as engine-specific (JSON as `longtext` on MariaDB, collation names)
+  are normalised and the normalisation is listed in the test. **Control:** the comparison reports a fixture pair where
+  one side has one extra index. **Deferred (D-24):** running the comparison between MariaDB 10.4 and MySQL 8.4. The
+  instrument ships and runs here; only the second engine's half does not.
 - **AC-63**: Given an engine-dependent test and the environment naming an engine, When that engine is unreachable,
   Then the test **fails** with the engine named; it does not skip. Each engine run writes `SELECT VERSION()` into the
   test output, and `qa`'s report records, per **[E]** criterion, the engine and version it passed on. A criterion
-  verified on one engine only is recorded as such and is not reported as PASS for both (D-7).
+  verified on one engine only is recorded as such and is not reported as PASS for both (D-7); for this task every
+  **[E]** criterion is expected to be recorded as verified on MariaDB 10.4 only.
 - **AC-64**: Given the branch, When `composer check` is run from `modules/host`, Then it exits 0 on the engine the
   environment names, with the existing tenancy and isolation tests still present and passing. **(diff)** No test that
   existed at the T-007 tip is deleted, skipped or weakened; `qa` compares the test list against the tip.
-- **AC-65 [E]**: Given the real engines, When the runner's claim and lock behaviour (AC-47 to AC-50) is exercised, Then
-  it passes on both MariaDB 10.4 and MySQL 8.4 (lock names, the single-statement claim and the lock timeout of zero
-  behave identically). Recorded separately from AC-62 because it is behaviour, not shape.
+- **AC-65 [E]**: Given the engine the environment names, When the runner's claim and lock behaviour (AC-47 to AC-50)
+  is exercised, Then it passes on MariaDB 10.4 (lock names, the single-statement claim and the lock timeout of zero).
+  Recorded separately from AC-62 because it is behaviour, not shape. Identical behaviour on MySQL 8.4 is deferred
+  (D-24).
+- **AC-68 [E]**: Given the connections the shipped configuration opens for the master and for a tenant, and the same
+  connections as the tests open them (through the framework's connector, not a hand-built one), When the effective
+  `@@sql_mode` of each is read, Then it contains a strict mode, and an over-long value inserted into a `VARCHAR`
+  column on each is **refused with an error**, not truncated. **Control:** a deliberately non-strict connection made
+  in the test truncates the same value silently, which proves the check can tell the two apart. This is what gives
+  every "refused" observation in this spec its meaning on an engine whose server default is not strict (D-29).
 
 ### Calibration
 
@@ -406,6 +479,8 @@ These make the cost of the work legible without a schedule. None contains a dura
 - Canary mode, `--pretend`, abort, pre-migration backups, plugin migrations, template import, `tenant:doctor`,
   `tenant_backfill_jobs`, run notifications (D-9). Rollback of any kind (D-8).
 - Module-contributed tenant migrations (D-15).
+- MySQL 8.4 and Docker for this task, and therefore the cross-engine comparison (D-24).
+- Writing any row into a tenant's `schema_meta` and the request-path interlock that reads it (FP-206 and later, D-28).
 - Rewriting `App\Models\User`, its factory or the seeder (D-18); the stock `sessions` table stays as shipped.
 - Editing `docs/architecture.md`, `docs/database.md` or `CLAUDE.md`. The contradictions found are in "Open questions".
 
@@ -414,7 +489,8 @@ These make the cost of the work legible without a schedule. None contains a dura
 - **Security.** The mapping holds a credential reference and never a value (AC-6, AC-13, AC-15). The migrate credential
   never reaches the request path (AC-18). Errors stored by the runner carry no secret (AC-45). A job payload carries no
   secret (AC-41). Deny by default on tenant status (AC-51).
-- **Portability.** Both engines or it is a defect (AC-35, AC-36, AC-62, AC-65). Stored generated columns inside unique
+- **Portability.** Nothing in a migration may be MariaDB-only where the design claims parity (AC-35, AC-36). The
+  cross-engine comparison itself is deferred with MySQL 8.4 (AC-62, AC-65, D-24). Stored generated columns inside unique
   keys are the one schema feature this task adds that `docs/database.md` already claims parity for; AC-25, AC-26 and
   AC-62 are where that claim is first tested rather than asserted.
 - **Safety of the shared machine.** Tests never touch a database outside the test prefix (AC-61).
@@ -426,11 +502,9 @@ These make the cost of the work legible without a schedule. None contains a dura
 
 All **non-blocking**; each has a default recorded in the decisions file.
 
-1. **Outbox ordering for read models.** `outbox_events.id` is a ULID. A reader that resumes from "the last id I saw"
-   can miss an event committed later with a smaller id (two transactions, one slow). A relay that selects `pending`
-   rows is unaffected, which is the design's own model. A **projection** that checkpoints by position would be
-   affected. The baseline does not add a position column (D-1); `architect` should decide when the first projection is
-   designed whether one is needed. Not blocking.
+1. **Backlog row for the deferred MySQL 8.4 half (D-24).** The cross-engine signature comparison (AC-62) and claim and
+   lock parity (AC-65) need a named follow-up row, ideally before the first real tenant is provisioned (`architect`'s
+   advice). `ba` may not edit `docs/backlog.md`; the lead should add it. Not blocking.
 2. **Owner's CQRS level 2 versus `Refference/ARCH.md` section 16** ("normal business reports should run against the
    tenant database"). The owner's directive of 2026-10-06 outranks, but `docs/architecture.md` has not been revised
    and still says projections are deleted. The architecture revision is owed and is not this task.
@@ -442,9 +516,12 @@ All **non-blocking**; each has a default recorded in the decisions file.
    `architect` to confirm that two is right and the row should be removed from the design.
 5. **`docs/database.md` section 4.10 says "Master table count: 34".** `ba` counts 39 application tables and 8 system
    tables from section 4. One of them is wrong. Not material to this task (AC-1 lists the seventeen by name).
-6. **Whether the engines are available where `qa` runs.** MariaDB under XAMPP must be running for the gate, and Docker
-   Desktop (currently stopped, per `CLAUDE.md`) for the MySQL 8.4 run. The lead owns that; AC-63 makes an absent engine
-   a failure, not a skip.
+6. **Whether the engine is available where `qa` runs.** MariaDB under XAMPP must be running for the gate. Docker and
+   MySQL 8.4 are out of scope for this task (D-24). The lead owns availability; AC-63 makes an absent engine a
+   failure, not a skip.
+
+Answered and removed: the former question 1 (outbox ordering for read models) is answered by `architect` and recorded
+as D-31.
 
 ## Assumptions
 
@@ -455,6 +532,11 @@ All **non-blocking**; each has a default recorded in the decisions file.
 - A new `outbox_events` row defaults to status `pending` and attempts 0; section 6.21 gives no defaults.
 - Command names (`tenant:migrate`, `tenant:schema-status`, `schema:publish`) are the design's; `architect` may name
   them otherwise and the criteria follow the behaviour, not the name.
+- The shipped master and tenant connections are strict-mode connections, or can be made so by the framework's own
+  connection option; if they are not and cannot be, AC-68 fails and `architect` decides (`ba` does not choose the
+  server setting).
+- The first projection or relay checkpoint will use a claim mark (a nullable mark column on the source row), never a
+  cursor or a `position` column (D-31). It is not built here.
 - A bulk run's maximum job attempts is configuration with a default of 3 (D-20).
 - "Behind" means a schema version below the required one for an `active` or `read_only` tenant, the section 9.2 query.
 - The architect, not `ba`, decides where the fixtures, the tenant tree and the runner live; no criterion depends on a
