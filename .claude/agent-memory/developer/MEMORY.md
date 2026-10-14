@@ -16,3 +16,4 @@
 - [A mutation must move the observable](feedback_mutation_must_move_the_observable.md) — a floor absorbed my mutation and the green run nearly read as a hole in the test.
 - [A red-first stub must be inert](feedback_red_first_stub_must_be_inert.md) — the permissive stub that destroyed 16 of the owner's databases, and the red phase that cannot act.
 - [The shared MariaDB is production](project_shared_mariadb_engine_is_production.md) — other projects' unbacked-up data on 127.0.0.1:3306; ENGINE_HOLD is on.
+- [Delete the capability, not the bound](feedback_delete_the_capability_not_the_bound.md) — a ceiling is a guess; the sweep went, and a self-scanning static test replaced the prose.
