@@ -4,7 +4,8 @@ Covers backlog rows **FP-203** (master schema), **FP-204** (tenant schema baseli
 migration runner) as one slice: a tenant schema with no runner cannot be applied, and a runner with no schema has
 nothing to run. Decisions D-1 to D-21 are in `docs/decisions/T-008-master-schema-and-tenant-baseline.md`. **No
 BLOCKING questions.** Revised after `architect`'s plan (commit 2867974) and its measurements against the live
-engine: decisions D-22 to D-33 record six corrections to criteria that were not achievable as worded (AC-13, AC-19,
+engine: decisions D-22 to D-33 (and D-34 to D-36, added after the 2026-10-14 data-loss incident: AC-61 and AC-63 reworded,
+the engine hold made legible) record six corrections to criteria that were not achievable as worded (AC-13, AC-19,
 AC-35(d), AC-48, the "both engines" wording, and the AC-1 table-name discrepancy), a rewording of AC-56, a new AC-68,
 and the plan's four upheld rulings. Engine scope is now **one engine, the one the environment names (MariaDB 10.4)**:
 MySQL 8.4 is out of scope for this task by the owner's decision of 2026-10-08, and its half of the cross-engine
@@ -96,6 +97,8 @@ Defined once so that criteria can use the terms.
 
 - **[E]** the criterion is answered by a real database server, not SQLite: the engine the environment names, which for
   this task is MariaDB 10.4 (MySQL 8.4 is out of scope, D-24). See AC-62 to AC-65.
+- **Held / NOT VERIFIED.** While `ENGINE_HOLD` is set, an **[E]** criterion cannot be answered. It is recorded **NOT
+  VERIFIED (ENGINE_HOLD, G-1)**, never PASS (AC-63, D-35). This is a status, not a defect and not a pass.
 - **Refusal evidence.** Any criterion whose evidence is "the insert/statement was refused" holds only if the refusal
   was observed on a connection made **through the framework's connector** (the same path the shipped code uses), never
   a hand-built one. The engine on this machine has `@@sql_mode` = `NO_ZERO_IN_DATE,NO_ZERO_DATE,NO_ENGINE_SUBSTITUTION`
@@ -413,15 +416,26 @@ can never satisfy it.
   names carry the reserved test prefix (the plan names it `flexipos_t8test_`), **refuses** to run against any other
   name including `flexipos_master`, `flx_t_000001`, `flx_t_000002` and the two real databases on this machine,
   `flexipos-master` and `flexipos-master-new`, and leaves no test-prefixed database behind, including after a test
-  that fails. **Enumeration and cleanup must not use SQL `LIKE`** (D-30): in `LIKE`, `_` is a single-character
-  wildcard, so `SHOW DATABASES LIKE 'flexipos_%'` returns `flexipos-master` and `flexipos-master-new`, and a teardown
-  written that way drops the owner's real databases (measured by `architect` and verified by the lead on this engine,
-  which then held 56 schemas; the count is from the brief, not re-derived). The prefix test is a literal string
-  comparison in code on the list of names. **Controls:** the name guard rejects `flexipos_master`, `flexipos-master`
-  and `flexipos-master-new`; a source scan of the test-support code that enumerates, creates or drops databases finds
-  no `LIKE`, and reports a fixture that has one; a deliberately failing test is followed by a check that the
-  prefixed database list equals the list before; and every non-prefixed database that existed before a test run
-  still exists after it.
+  that fails. **Enumeration and cleanup must not use SQL `LIKE`** (D-30, D-34): in `LIKE`, an unescaped `_` is a
+  single-character wildcard, so a pattern such as `'flexipos_%'` also matches names that merely have another character
+  where the underscore is, including the owner's real databases. **The set a `LIKE` matches is a function of whatever
+  the engine holds at the moment the statement runs; it is not a reviewable list of names**, and this criterion
+  therefore does not enumerate it (an earlier text named two hits; the same statement was later measured returning
+  five once the task's own databases existed, a figure from the brief, not re-derived by `ba`). A teardown written that
+  way can drop databases that belong to the owner or to other clients. The prefix test is a literal string comparison
+  in code on a name a caller supplied. **No sweep (D-34, plan section 11.2 rule 4):** no code derives a list of
+  databases to drop from the engine's contents; it drops only names a caller named, one at a time. **Controls:** the
+  name guard rejects `flexipos_master`, `flexipos-master` and `flexipos-master-new`; a source scan of the test-support
+  code that enumerates, creates or drops databases finds no SQL `LIKE`, and reports a fixture that has one; a
+  deliberately failing test is followed by a check that the prefixed database list equals the list before; and every
+  non-prefixed database that existed before a test run still exists after it. **The scan matches `like` only as SQL**
+  (D-36): a token is reported when it contains `like` together with a SQL keyword (`select`, `show`, `from`, `where`,
+  `having`, `and`, `or`, `databases`) or when `like` is immediately followed by a quote or a placeholder. Two further
+  controls: an error string containing the English word "like" and no SQL keyword (for example "looks like a
+  reserved name") is **not** reported, and `"show databases like 'flexipos_%'"` **is**. The scan has **no allow-list,
+  exemption or suppression mechanism of any kind**; a flagged string is reworded, never exempted (D-36). Banning the
+  word from messages is rejected, because it makes enforcement depend on prose style. **(diff)** The scan, its
+  fixtures and the absence of any exemption mechanism are read from the branch.
 - **AC-62 [E]**: Given the master schema and the tenant baseline applied from scratch on the engine the environment
   names (MariaDB 10.4), When each table is reduced to a normalised signature (column name, nullability, data-type
   family, key columns, index columns, foreign key target), Then a signature exists for every table in AC-1 and AC-23,
@@ -430,14 +444,41 @@ can never satisfy it.
   are normalised and the normalisation is listed in the test. **Control:** the comparison reports a fixture pair where
   one side has one extra index. **Deferred (D-24):** running the comparison between MariaDB 10.4 and MySQL 8.4. The
   instrument ships and runs here; only the second engine's half does not.
-- **AC-63**: Given an engine-dependent test and the environment naming an engine, When that engine is unreachable,
-  Then the test **fails** with the engine named; it does not skip. Each engine run writes `SELECT VERSION()` into the
-  test output, and `qa`'s report records, per **[E]** criterion, the engine and version it passed on. A criterion
-  verified on one engine only is recorded as such and is not reported as PASS for both (D-7); for this task every
-  **[E]** criterion is expected to be recorded as verified on MariaDB 10.4 only.
+- **AC-63**: Three states, not two (D-35).
+  (a) **Unreachable.** Given an engine-dependent test, the environment naming an engine and **no hold in force**, When
+  that engine is unreachable, Then the test **fails** with the engine named; it does not skip. An unreachable engine
+  is a fault, and a skip would hide it.
+  (b) **Held.** Given a **declared hold** (`ENGINE_HOLD`, gate G-1: the owner's decision, recorded in the suite's
+  configuration, awaiting a verified dump of all surviving databases on `D:`), When an engine-dependent test runs,
+  Then any code that tries to open an engine connection **throws a named exception** (`EngineOnHold`), and only tests
+  that explicitly declare the skip are absent. The hold is not "engine tests are off".
+  (c) **Cleared.** Given the hold cleared by the owner, When the engine is unreachable, Then (a) applies again.
+  **The hold must be legible; all four markers are required together, because any one alone decays:** (1) the flag
+  sits in `modules/host/phpunit.xml` with the incident date beside it; (2) every skip message names the exception
+  class, and that class's docblock carries the date, the sixteen databases, and the single clearing condition (a skip
+  message that says only "ENGINE_HOLD" fails this); (3) an **inverted** test asserts that a connection attempt throws
+  `EngineOnHold` while the hold is set and itself skips when it is cleared, so in either state exactly one of the two
+  sets asserts something; (4) `qa` reports as in the next paragraph. **Controls:** with the hold set, the inverted
+  test passes and the declared-skip tests are skipped; with the hold cleared and the engine stopped, an engine test
+  **fails** (this control can be run only after the owner clears the hold, and until then it is NOT VERIFIED itself).
+  **(diff)** markers 1 to 3 are read from the branch.
+  **How a held criterion is reported (binding on `qa`).** Each **[E]** criterion (and every other criterion whose
+  evidence needs the engine) whose engine test was skipped under the hold is recorded as **NOT VERIFIED**, naming
+  `ENGINE_HOLD` and gate **G-1**. It is **never PASS**, and a skipped test is never counted as a passing test in any
+  criterion's evidence. A criterion that has both a static half and an engine half is recorded per half: the static half
+  may be PASS, the engine half is NOT VERIFIED, and the criterion as a whole is **PARTIAL**, not PASS. The report opens
+  with one line of totals: criteria PASS, PARTIAL, NOT VERIFIED (held), FAIL, out of 68. **A task whose report has any
+  held engine criterion is not reported as verified**, and the lead is told in so many words. Each engine run writes
+  `SELECT VERSION()` into the test output, and `qa`'s report records, per **[E]** criterion that did run, the engine and
+  version it passed on. A criterion verified on one engine only is recorded as such and is not reported as PASS for
+  both (D-7); for this task every **[E]** criterion that runs is expected to be recorded as verified on MariaDB 10.4
+  only.
 - **AC-64**: Given the branch, When `composer check` is run from `modules/host`, Then it exits 0 on the engine the
   environment names, with the existing tenancy and isolation tests still present and passing. **(diff)** No test that
-  existed at the T-007 tip is deleted, skipped or weakened; `qa` compares the test list against the tip.
+  existed at the T-007 tip is deleted, skipped or weakened; `qa` compares the test list against the tip. **Under the
+  hold (AC-63) a green gate means "nothing failed", not "the engine criteria pass":** the report states the number of
+  tests skipped under the hold next to the exit code, and the engine-dependent part of this criterion is NOT VERIFIED.
+  Skips that are not declared under the hold remain forbidden (the T-007 rule above).
 - **AC-65 [E]**: Given the engine the environment names, When the runner's claim and lock behaviour (AC-47 to AC-50)
   is exercised, Then it passes on MariaDB 10.4 (lock names, the single-statement claim and the lock timeout of zero).
   Recorded separately from AC-62 because it is behaviour, not shape. Identical behaviour on MySQL 8.4 is deferred
@@ -493,7 +534,10 @@ These make the cost of the work legible without a schedule. None contains a dura
   cross-engine comparison itself is deferred with MySQL 8.4 (AC-62, AC-65, D-24). Stored generated columns inside unique
   keys are the one schema feature this task adds that `docs/database.md` already claims parity for; AC-25, AC-26 and
   AC-62 are where that claim is first tested rather than asserted.
-- **Safety of the shared machine.** Tests never touch a database outside the test prefix (AC-61).
+- **Safety of the shared machine.** Tests never touch a database outside the test prefix (AC-61). The engine is shared
+  with the owner's other work and other clients' systems; a step whose red phase could issue a destructive statement
+  against it is not acceptable (plan section 11.2), and no criterion here may be answered by such a step. The engine
+  work is on hold (AC-63, D-35).
 - **Performance.** No numeric target. The gate's cost is recorded, not bounded (AC-67). `composer.json`'s process
   timeout headroom from T-007 must still be adequate for the larger gate; the existing T-007 headroom check is the
   instrument and this task does not change its ratio.
@@ -517,8 +561,10 @@ All **non-blocking**; each has a default recorded in the decisions file.
 5. **`docs/database.md` section 4.10 says "Master table count: 34".** `ba` counts 39 application tables and 8 system
    tables from section 4. One of them is wrong. Not material to this task (AC-1 lists the seventeen by name).
 6. **Whether the engine is available where `qa` runs.** MariaDB under XAMPP must be running for the gate. Docker and
-   MySQL 8.4 are out of scope for this task (D-24). The lead owns availability; AC-63 makes an absent engine a
-   failure, not a skip.
+   MySQL 8.4 are out of scope for this task (D-24). The lead owns availability; AC-63 makes an **unreachable** engine a
+   failure, not a skip, and distinguishes a **declared hold** (`ENGINE_HOLD`, D-35), under which engine criteria are
+   NOT VERIFIED. **Clearing the hold is the owner's decision**, after G-1 (a verified dump of all surviving databases
+   on `D:`); no agent clears it, and until it is cleared this task cannot be reported as verified.
 
 Answered and removed: the former question 1 (outbox ordering for read models) is answered by `architect` and recorded
 as D-31.
