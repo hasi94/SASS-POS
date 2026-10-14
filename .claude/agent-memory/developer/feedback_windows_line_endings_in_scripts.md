@@ -6,7 +6,9 @@ metadata:
 ---
 
 When batch-editing files from the Bash tool on this machine, **open in binary mode**
-(`open(p, 'rb')` / `open(p, 'wb')`) or use the Edit/Write tools. Python's text-mode
+(`open(p, 'rb')` / `open(p, 'wb')`) and do not trust the Edit/Write tools either: on 2026-10-14 every file the Write and Edit
+tools touched here - new PHP sources, `phpunit.xml`, `composer.json`, an existing `Pest.php` -
+came out entirely CRLF, which Pint then rejected. Python's text-mode
 `open(path, 'w')` applies universal-newline translation on Windows and rewrites the **entire
 file** as CRLF, not just the lines you touched.
 

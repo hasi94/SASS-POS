@@ -14,3 +14,5 @@
 - [Gate timing spread](project_gate_timing_spread.md) — no gap under ~35 s is evidence; list the other php processes before believing a red gate.
 - [Correct a claim in every copy](feedback_correct_a_claim_in_every_copy.md) — one false sentence, four files; sweep whitespace-collapsed, cite symbols not lines.
 - [A mutation must move the observable](feedback_mutation_must_move_the_observable.md) — a floor absorbed my mutation and the green run nearly read as a hole in the test.
+- [A red-first stub must be inert](feedback_red_first_stub_must_be_inert.md) — the permissive stub that destroyed 16 of the owner's databases, and the red phase that cannot act.
+- [The shared MariaDB is production](project_shared_mariadb_engine_is_production.md) — other projects' unbacked-up data on 127.0.0.1:3306; ENGINE_HOLD is on.
