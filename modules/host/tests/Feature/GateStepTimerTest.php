@@ -506,15 +506,22 @@ it('never disables the process timeout in the gate or in any test command', func
     expect((string) json_encode(gateTimerManifestValue(['scripts', 'dev'])))->toContain('disableProcessTimeout');
 });
 
-it('wraps the test step only, and leaves the five gate steps and the group flags alone', function () {
+it('wraps the test step only, and leaves the six gate steps and the group flags alone', function () {
     /*
      * AC-12. The timer is deliberately applied to one step: a kill of lint,
      * stan or deptrac still shows only the package manager's message, which the
      * plan records as a residual (R7) rather than something this commit closes.
      * Asserting it here is what stops it being closed by accident, unnoticed.
      */
+    /*
+     * T-008 step 0 adds a sixth step, engine:clean, beside probes:clean and for
+     * the same measured reason: a killed run leaves a reserved test database
+     * behind, and check runs lint, stan and deptrac before any test hook could
+     * remove it. The list is still pinned exactly - amended, not loosened - so
+     * the timer still wraps one step and only one.
+     */
     expect(gateTimerManifestValue(['scripts', 'check']))
-        ->toBe(['@probes:clean', '@lint', '@stan', '@deptrac', '@test']);
+        ->toBe(['@probes:clean', '@engine:clean', '@lint', '@stan', '@deptrac', '@test']);
 
     foreach (['lint', 'stan', 'deptrac', 'test:fast', 'test:slow'] as $name) {
         expect((string) json_encode(gateTimerManifestValue(['scripts', $name])))

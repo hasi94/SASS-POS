@@ -61,6 +61,32 @@
         <env name="DB_MASTER_DRIVER" value="sqlite"/>
         <env name="DB_MASTER_DATABASE" value=":memory:"/>
         <env name="TENANCY_ALLOWED_DRIVERS" value="mysql,mariadb,sqlite"/>
+        <!--
+            The engine the engine-group tests run against (T-008). These name an
+            engine rather than a database: the suite's databases are created and
+            dropped by Flexipos\Testing\Engine\EngineDatabase, under the
+            reserved prefix flexipos_t8test_, and no other name is allowed near
+            a CREATE or a DROP. An unreachable engine fails the tests with the
+            engine named; it never skips them (AC-63).
+        -->
+        <!--
+            ENGINE_HOLD suspends every connection to that engine, and it is ON.
+            On 2026-10-14 a deliberately permissive stub of ReservedDatabaseName,
+            written to prove the guard test red, was handed to an engine-wide
+            sweep and dropped sixteen of the owner's databases on this server.
+            There is no backup. Until the owner has decided whether file-level
+            recovery will be attempted, no test may write to that engine: every
+            write can overwrite the blocks the dropped files used. The tests that
+            need the engine are skipped with the reason printed; an unreachable
+            engine still FAILS once the hold is cleared (AC-63). Clearing it -
+            value="0" - is the owner's call, not an agent's.
+        -->
+        <env name="ENGINE_HOLD" value="1"/>
+        <env name="ENGINE_DRIVER" value="mariadb"/>
+        <env name="ENGINE_HOST" value="127.0.0.1"/>
+        <env name="ENGINE_PORT" value="3306"/>
+        <env name="ENGINE_USERNAME" value="root"/>
+        <env name="ENGINE_PASSWORD" value=""/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
