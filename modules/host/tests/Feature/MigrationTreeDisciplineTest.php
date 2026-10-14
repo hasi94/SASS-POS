@@ -118,6 +118,16 @@ it('creates exactly the master tables AC-1 names', function () {
         ->and(masterSystemTables())->toHaveCount(7);
 });
 
+it('creates exactly the six tenant baseline tables AC-23 names', function () {
+    // Six files, one table each, so that every table gets its own catalogue
+    // version and AC-31's "strictly increasing in file-name order" has something
+    // to be true of. No projection-state table and no claim-mark column (D-1):
+    // `docs/patterns.md` section 5 wants a measurement first, and there is none.
+    expect(migrationTreeTables(MigrationTree::Tenant))->toBe(tenantBaselineTables())
+        ->and(tenantBaselineTables())->toHaveCount(6)
+        ->and(migrationTreeSources(MigrationTree::Tenant))->toHaveCount(6);
+});
+
 it('creates no tenant table in the master tree and no master table in the tenant tree', function () {
     // AC-22's source half. The live half - migrate the master, look for a tenant
     // table in it - is [E] and gated; this is the part that can be true of a
@@ -129,10 +139,11 @@ it('creates no tenant table in the master tree and no master table in the tenant
     expect(array_values(array_intersect($master, tenantBaselineTables())))->toBe([])
         ->and(array_values(array_intersect($tenant, masterApplicationTables())))->toBe([]);
 
-    // And the control, because an empty intersection is also what an empty tree
-    // produces: the master tree holds the table whose absence would make the
-    // whole architecture unreachable.
-    expect($master)->toContain('tenant_databases');
+    // And the controls, because two empty intersections are also what two empty
+    // trees produce: each tree holds the table whose absence would make the
+    // architecture unreachable from its own side.
+    expect($master)->toContain('tenant_databases')
+        ->and($tenant)->toContain('outbox_events');
 });
 
 it('reads a table list that only a non-empty tree can produce', function () {
