@@ -191,6 +191,23 @@ final class SourceRules
     }
 
     /**
+     * The tables one migration file creates.
+     *
+     * Read from `up()`, with comments stripped, so a table named only in prose -
+     * the baseline names `branches` and `employees`, which it deliberately does
+     * not create - is not counted. This is what lets AC-1's and AC-23's table
+     * lists be asserted against the branch while the engine is on hold: the
+     * live `information_schema` half of those criteria is `[E]` and gated, and a
+     * list read from the source is the only other place the answer exists.
+     *
+     * @return list<string>
+     */
+    public static function tablesCreatedIn(string $source): array
+    {
+        return self::createdTables(self::upBody(self::codeOnly($source)));
+    }
+
+    /**
      * The given PHP source with every comment and docblock removed.
      *
      * Tokenised rather than regexed, because the rules are about code.

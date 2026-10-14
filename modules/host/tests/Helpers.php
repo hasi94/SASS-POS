@@ -383,3 +383,98 @@ function qaFixturePackageNames(): array
         'unlistedfixture',
     ];
 }
+
+/*
+|--------------------------------------------------------------------------
+| The table lists of T-008's two schemas
+|--------------------------------------------------------------------------
+|
+| Here rather than in a test file because three files need them - the static
+| tree sweep, the master apply and the tenant baseline apply - and a bare
+| function declared in whichever file happened to be collected first is the trap
+| FP-164 closes: it would make a single-file run fail and a full run pass.
+|
+| These are the *criteria's* lists, written out once so that a table added to a
+| migration tree has to be added here too, in a diff a reviewer sees.
+|
+*/
+
+/**
+ * The seventeen master application tables AC-1 governs.
+ *
+ * AC-1 and `docs/database.md` section 4.10 disagree about one name - the design
+ * lists `personal_access_tokens`, AC-1 lists `sessions` - and **AC-1 governs**
+ * (D-27, D-18): nothing in this task issues an API token, and the stock
+ * `sessions` table stays because the shipped `.env.example` names the database
+ * session driver and a test pins it. A recount against the design will differ
+ * by that one name and that is not a defect.
+ *
+ * @return list<string>
+ */
+function masterApplicationTables(): array
+{
+    return [
+        'database_servers',
+        'feature_flags',
+        'licences',
+        'plan_features',
+        'plan_limits',
+        'plans',
+        'platform_audit_logs',
+        'platform_settings',
+        'schema_versions',
+        'subscriptions',
+        'tenant_databases',
+        'tenant_feature_flags',
+        'tenant_migration_jobs',
+        'tenant_migration_runs',
+        'tenant_users',
+        'tenants',
+        'users',
+    ];
+}
+
+/**
+ * The Laravel system tables the master tree creates: seven of AC-1's eight.
+ *
+ * `migrations` is the eighth and is deliberately absent - the framework creates
+ * it itself before it runs the first migration, so a tree that created it would
+ * fail on the statement that records it.
+ *
+ * @return list<string>
+ */
+function masterSystemTables(): array
+{
+    return [
+        'cache',
+        'cache_locks',
+        'failed_jobs',
+        'job_batches',
+        'jobs',
+        'password_reset_tokens',
+        'sessions',
+    ];
+}
+
+/**
+ * The six tables of the tenant baseline (AC-23).
+ *
+ * `migrations` is Laravel's own and is created by the runner, for the same
+ * reason it is absent from the master list. There is **no projection-state
+ * table and no claim-mark column** (D-1): `docs/patterns.md` section 5 requires
+ * a measurement before a projection exists and there is none, and the mark the
+ * first relay needs is already served by the (status, occurred_at) index.
+ *
+ * @return list<string>
+ */
+function tenantBaselineTables(): array
+{
+    return [
+        'audit_logs',
+        'number_sequences',
+        'outbox_events',
+        'schema_meta',
+        'settings',
+        'settings_registry',
+    ];
+}

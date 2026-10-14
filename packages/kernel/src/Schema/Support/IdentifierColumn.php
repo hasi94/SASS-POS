@@ -6,6 +6,7 @@ namespace Flexipos\Kernel\Schema\Support;
 
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\ColumnDefinition;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * The one site in this repository that names a character set.
@@ -102,9 +103,29 @@ final class IdentifierColumn
 
     /**
      * The two names, applied in the one place they are written.
+     *
+     * **Applied only on an engine that has them.** The suite runs on in-memory
+     * SQLite, whose only collations are `BINARY`, `NOCASE` and `RTRIM`:
+     * `collate 'ascii_bin'` there is not ignored, it is an error at
+     * `CREATE TABLE`, so naming it unconditionally would make every master
+     * table unbuildable in the suite and block every later step of this task
+     * while the engine is on hold. SQLite compares `TEXT` byte-exactly by
+     * default, which is the property `ascii_bin` buys on the real engine, so the
+     * column that results has the behaviour the design depends on either way.
+     * The *declared* type is still asserted - AC-2 and AC-36 read
+     * `information_schema`, which only the real engine has, and both are `[E]`.
+     *
+     * The connection is taken from the schema builder rather than the blueprint
+     * (which keeps its own connection private). That is the migration's own
+     * connection by construction: AC-37 forbids a migration from naming any
+     * other.
      */
     private static function apply(ColumnDefinition $column): ColumnDefinition
     {
+        if (! in_array(Schema::getConnection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            return $column;
+        }
+
         return $column->charset(self::CHARSET)->collation(self::COLLATION);
     }
 }
