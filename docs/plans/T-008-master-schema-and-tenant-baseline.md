@@ -780,6 +780,63 @@ elsewhere steps may be reordered or run together.
       rather than green.
       Red is proven on planted fixtures first, because the real `Support/` directory and both shipped trees are
       silent today (the R-4 shape).
+- [ ] **Step 13b — one authority for "which statuses may be migrated", and the restore that follows from it.
+      [FIX] BUG-1.** [dev] Ruled in **§16.1**. Four changes, one new file, one test file:
+      `packages/kernel/src/Tenancy/TenantConnectionPurpose.php` gains `acceptedStatuses(): array` — `Serving` returns
+      `[active]`, `Migrating` returns D-11's four — and `permits(string $status): bool`, deny-by-default over that
+      list; `Tenancy::enter()` step 4 stops calling `$database->isActive()` and calls `$purpose->permits($database->status)`,
+      throwing the same `TenantDatabaseNotActive` with the status named; `PlanMigrationRunHandler`'s two constants are
+      **derived** from `TenantConnectionPurpose::Migrating->acceptedStatuses()` rather than written out, so planner and
+      gate cannot disagree by construction; and `MigrateTenantHandler` restores **the status it entered on** instead of
+      the literal `active`, with one documented exception (`failed` → `active`, §16.1).
+      `TenantDatabase::isActive()` and `TenantMigrationTarget::isActive()` stay — the serving path and AC-18's control
+      both use them — but `TenantMigrationTarget::isActive()`'s docblock, which currently *states the defect as the
+      design* ("the one status that permits a migration connection"), is corrected in the same commit.
+      **Red first, on sqlite, no engine:** `qa`'s `QaPlannedStatusReachabilityTest` is already the red test and must go
+      green unweakened; its `active` row is the control. Add the gate's own dataset beside `TenancyResolutionTest`'s:
+      a **serving** entry on `read_only`, `provisioning` and `failed` is still refused (if those turn green too, the
+      waiver has leaked into serving, which is the one way this fix can be worse than the defect).
+      **The single-authority tooth, in the shape step 5 set:** one test asserts
+      `PlanMigrationRunHandler::NAMED_ACCEPTED === TenantConnectionPurpose::Migrating->acceptedStatuses()` by exact
+      equality and `BULK_STATUSES ⊂` it, and a second **moves the key** — a scratch purpose-policy list with one status
+      added makes a planned-and-then-refused case impossible to construct, i.e. the reachability test is red only if
+      the two lists are read from two places.
+      Covers AC-40, AC-46, AC-51, AC-52's retry path. *Order: before step 14a; it changes what an engine test of the
+      execution path would assert.*
+- [ ] **Step 13c — the contract-step blocking set is the fleet. [FIX] BUG-7.** [dev] Ruled in **§16.2**: the
+      implementation is wrong, not the ruling. `PlanMigrationRunHandler::tenantsBelow()`'s blocking read stops reading
+      `whereIn('status', BULK_STATUSES)` and reads **every `tenant_databases` row whose status is not `provisioning`**
+      — an exclusion of exactly one value, deny-by-default in the opposite direction to 13b's allow-list, so an
+      unrecognised status **blocks**. **It needs a test and it is cheap**: a bulk run with one `active` tenant at
+      V − 1 and a second tenant at 0 in each of `suspended`, `failed`, `migrating`, `moving`, `restoring`, `archived`
+      and one unknown value is refused and names the blocker, with `provisioning` as the control that does **not**
+      block. No engine, no fixture database.
+      **Stated so a later tidy-up cannot undo it:** 13b's set and 13c's set answer different questions and must not be
+      merged. One test asserts they differ — a status the planner refuses (`suspended`) still blocks a contract step —
+      because the day they are "unified" the contract guard silently stops seeing six statuses again.
+      Covers AC-58. *Order: independent of 13b, may share its commit.*
+- [ ] **Step 13d — a mechanism nothing calls is not shipped: the reachability check.** [dev] §16.3 item 2, and `qa`
+      is right that §7 is where it belongs. `VerticalSliceLayoutTest` proves a slice has its parts; the sibling it
+      needs proves something **calls** them. One new static check, in the same stripped-code reader `SourceRules`
+      already uses: **every public method of every class under `packages/kernel/src/Schema/Support/` is named as a
+      call in at least one production file outside `Support/`**. Controls both ways: a planted fixture Support class
+      with an uncalled public method is **reported**; the same name in prose and in a test file is **not** (a test
+      calling it is exactly the evidence this check refuses to accept). The scan asserts its own scanned set is
+      non-empty, as 13a's scope rule requires.
+      Two known reds it must produce on day one, and they are [FIX] BUG-3 and [FIX] BUG-4's real content:
+      `PerTenantLock::acquire()` has no caller (so `MigrateTenantHandler` takes the lock and reports a locked tenant as
+      not run), and the credential-rotation retry **does not exist** in `src/Tenancy` (AC-16: evict, re-read, retry
+      exactly once, two attempts and no more). Both pass every structure check today, which is the whole argument for
+      this step. Covers AC-49's wiring half and AC-16's wiring half; neither becomes PASS by being wired — AC-49 and
+      AC-65 stay NOT VERIFIED behind G-1 (§14.4) and AC-16's behavioural half needs an authentication failure the
+      stand-in cannot produce.
+- [ ] **Step 14a — the engine matrix: the 42 criteria with no engine test.** [dev, graded by `qa`] §16.3 item 1.
+      `qa` measured that 10 of the 52 `[E]` criteria have an engine test and 42 have none. This step writes them,
+      grouped `engine`, against `ThreeTenantFixture`, reusing `QaSchemaSignatureInstrumentTest`'s instrument (it takes
+      any `Connection`) for every shape criterion rather than hand-rolling a second reducer. It may be written **while
+      the hold is on** — the tests are red-or-skipped by `EngineOnHold` and that is the declared third state (§11.6) —
+      and it must be on disk before step 15 can mean anything. *Order load-bearing: after 13b and 13c, because both
+      change what the execution path asserts; before step 15.*
 - [ ] **Step 14 — gate wiring and headroom.** [dev] `engine:clean` (report-only, §11.2 rule 4) first in `check`
       — **already true since step 0 and re-confirmed by `dev` on 2026-10-14; this half of the step needs no work**;
       toolchain registry coverage (`DestructiveStatementContainmentTest` spawns no child process, so it stays in
@@ -789,6 +846,13 @@ elsewhere steps may be reordered or run together.
 - [ ] **Step 15 — QA: the engine matrix and the calibration counts.** [qa] Every `[E]` criterion run and recorded with
       the engine and version it passed on; the master table recount; the counts and observations AC-66 and AC-67 name,
       each with its command; and every criterion found unachievable as worded, with its replacement.
+      **Corrected 2026-10-15 after QA run 1, and this correction is the point of §16.3: clearing G-1 verifies ten
+      criteria, not fifty-two.** `qa` measured that only **10 of the 52 `[E]` criteria have an engine test of any
+      kind** (AC-38, 43, 44, 49, 52, 54, 55, 61, 63's version line, 65), all currently skipped; **the other 42 have
+      none**, so lifting the hold leaves them exactly as unverified as they are today. Writing those 42 is **step 14a**
+      and it is [dev]'s work with `qa` grading it, not a line inside this step. Step 15 begins when 14a is on disk.
+      Nobody is to read "the dump landed" as "the engine criteria pass"; the two are separated by a test-writing step
+      whose size is 42 criteria.
       **`[gated]`. Under the hold, `qa` records every `[E]` criterion as NOT VERIFIED with `ENGINE_HOLD` and gate G-1
       named — never PASS, and never silently absent** (§11.6). The report also carries the incident: sixteen databases
       lost, the mechanism, and the two mitigations it invalidated (§8 R-12). Covers AC-62 as
@@ -933,6 +997,7 @@ Graded as this project requires: **independently proven** when a mutation of our
 | Resumability and drift | AC-43, AC-46, AC-54, AC-55 | **independently proven** | The observable is the tenant's own `migrations` table row count and batch numbers; re-applying moves it. |
 | Engine parity | AC-62 | **corroborating, and partial** | Only one engine is in scope (owner, 2026-10-08). The signature reduction is built and run, so the *instrument* is proven on MariaDB; the comparison it exists for cannot run. See §9. |
 | Gate hygiene and calibration | AC-64, AC-66, AC-67 | **covered by reading plus command output** | They are measurements of the branch, not behaviours of it. |
+| Reachability of a mechanism | AC-16, AC-49, AC-65's lock half | **covered by structure only, until step 13d** | Added 2026-10-15 after QA run 1. `PerTenantLock` has a unit test, an engine test and a layout check, and **no caller**; the rotation retry has a decision, a plan line and **no code**. Both pass every structure check in the branch. A layout check proves a slice has its parts; only a **reachability** check proves anything calls them, and a mechanism nothing calls is a mechanism that does not ship. The grade of any criterion whose mechanism has no production caller is **not** "independently proven" however good the unit test is. |
 | The `schema_meta` interlock | AC-56 | **corroborating** | T-008 never writes the row, so the mismatch case is constructed entirely by the fixture. Nothing we can mutate in production code makes a real mismatch appear; the refusal is proven, the interlock in service is FP-206's. |
 
 ### Unit tests
@@ -981,6 +1046,23 @@ source tests · AC-38 to AC-60 → steps 9 to 12, every one against the three-te
   path and the ordinary migrate path are indistinguishable.
 - **AC-21 (constant not ahead):** the control is the comparison run with a constant one higher, which must fail.
   Against the shipped constant alone the assertion is vacuous.
+
+### A standing rule for every source rule in this task (added 2026-10-15, BUG-5's lesson)
+
+`qa` found that `$table->foreignUlid('x')->references('id')->on('employees')` creates a foreign key and that
+`SourceRules` does not see it, because the rule matches `->foreign(`, `->constrained(` and `add foreign key`. That is
+the spelling **D-5's four deferred keys will most naturally take**, so the rule is blind in exactly the case it was
+written for. The same shape defeats AC-24's and AC-35(c)'s rules through raw SQL (BUG-6).
+
+**The lesson is general and it binds every rule in `SourceRules` from here: a rule proven only against the spelling
+its author had in mind is proven against one spelling.** So each rule carries, beside its violating fixture, an
+**evasion set** — every other spelling of the same effect that the framework supports — and `qa`'s
+`QaSourceRuleEvasionShapesTest` is the model and must not be deleted when `dev` turns it green. For a builder rule
+the evasion set is enumerated from the vendored `Blueprint` / `ForeignIdColumnDefinition` API, not from memory; for
+anything raw, the rule's subject is the statement text and the fixture is a `DB::statement()`. Where a spelling
+genuinely cannot be caught in source, the rule says so in its docblock and names the live `information_schema` check
+that catches it instead — which is the honest form, and the one that stops a reader believing in a defence that is
+not there.
 
 ### A standing rule for every absence assertion in this task
 
@@ -1847,3 +1929,136 @@ Everything else in the account matches the tree: nine slices under `Schema/Featu
 inside the migrating scope, before the status write and before the apply; `migrating` written only for a
 `requires_offline` plan; the ahead-mapping refusal with one throw site; `MigrationRunRefused::contractStepBlocked()`
 naming `tenant:migrate --to=<version − 1>`; and the two statement pins with the signatures `dev` reports.
+
+---
+
+## 16. Rulings after QA run 1 — the two design conflicts, and the three gaps the report exposed
+
+QA run 1 is **FAIL and not verified**: 13 PASS, 49 PARTIAL, 4 NOT VERIFIED, 2 FAIL out of 68, no `[E]` criterion run
+on any engine (`docs/qa/T-008-master-schema-and-tenant-baseline.md`, `959b0ab`). Two of the ten defects are mine
+rather than `dev`'s: BUG-1 is a contradiction between two things this plan ruled separately, and BUG-7 is an
+implementation narrower than §14.1's words. Both are ruled here. `ENGINE_HOLD` stays on and nothing in this section
+needs an engine.
+
+### 16.1 BUG-1 — ruled: the status gate is purpose-scoped, over one list, owned by the purpose
+
+**The defect is real and it is a deadlock, not an inconvenience.** `Tenancy::enter()` step 4 refuses every status but
+`active` for **both** purposes, while D-11 has the planner accept `read_only` in a bulk run and `provisioning` and
+`failed` in a named one. So three of the four statuses the planner accepts produce a job row that then fails with
+"cannot be served" — and because D-12 sets a tenant to `failed` after a failed offline migration, **a failed tenant
+can never be entered and therefore never retried**. The retry slice step 11 shipped has nothing it can act on, which
+makes AC-46's recovery path unreachable by construction.
+
+**Ruled: waive the status gate for the migrating purpose over a declared set, and make that set the planner's set by
+construction.** The second option — narrowing the planner to what `enter()` accepts — is rejected, and not on taste:
+it makes `failed` terminal, which contradicts D-12 (`failed` exists precisely so an operator can fix the cause and
+re-run) and deletes AC-46's retry, and it also kills FP-206's `migrate_remainder` on a `provisioning` tenant, which
+is the next task in the queue. A design that cannot migrate the states it invents for "needs migrating" is the wrong
+design; the gate is what is wrong here, exactly as it was for the version gate.
+
+**The mirror to §13/D-23 is exact, and the limit is stated the same way.** D-23 waived the *version* gate for the
+migrating purpose and said in terms that no other refusal is waived by purpose. That sentence now has one more
+exception and it must be written as an exception, never loosened into a principle: **the migrating purpose waives
+the version gate entirely and the status gate only over D-11's four statuses.** Everything else — the identifier
+check, re-entrancy, the mapping's existence, the driver whitelist, the credential dereference, `schema_meta`'s
+identity check — is untouched by purpose, and `Serving` still accepts exactly `active`. The migrating list is an
+**allow list, deny by default**: `suspended`, `moving`, `restoring`, `archived`, `migrating` and every unrecognised
+value are refused for both purposes.
+
+**`migrating` is deliberately not in the list**, and the consequence is stated rather than discovered: a worker
+killed mid-offline-run leaves a tenant at `migrating`, and no later run can enter it. That is correct for now — the
+schema may be half-applied and nothing in T-008 can tell a live run from a dead one — and the operator's path is
+`RepairSchemaVersion` plus a status correction in the master. The row that makes it automatic needs a lease on the
+mapping, which is FP-206's shape and not this task's. Recorded; not scheduled.
+
+**The single authority, which is the part that must not be lost.** Two lists that must agree will not stay agreed,
+so there is one list and the other site reads it:
+
+- `TenantConnectionPurpose::acceptedStatuses()` is **the** authority. It lives on the purpose because the purpose is
+  already the thing that scopes a waiver — it selects the mapping source and waives the version gate — and because
+  it lives in `Tenancy/`, which `Schema/` may depend on while the reverse would invert the kernel's own layering.
+  `enter()` asks `$purpose->permits($status)`; nothing in `Tenancy` holds a second copy.
+- `PlanMigrationRunHandler`'s accepted set is **derived** from `TenantConnectionPurpose::Migrating->acceptedStatuses()`
+  — `NAMED_ACCEPTED` is that list, `BULK_STATUSES` is it minus `NAMED_ONLY_STATUSES`. A derived list cannot drift; a
+  copied one is one edit away from BUG-1 again. `ReportSchemaStatusHandler`, which already reads `BULK_STATUSES`
+  rather than repeating it, is the convention this follows.
+- The tooth is the shape step 5 used, and it is in step 13b: exact equality between the planner's accepted set and
+  the purpose's, **plus** `qa`'s behavioural reachability test — every status the planner accepts is actually
+  migrated. Equality alone passes on two lists that are equal and both wrong; the behavioural test alone passes on
+  two lists that happen to agree today. Both, or neither proves the invariant.
+
+**The restore is part of this ruling, because the waiver creates a bug if it is not.** `MigrateTenantHandler` writes
+the literal `active` after a successful offline migration. With the waiver, a `read_only` tenant entered for
+migration would come back **`active`** — a silent promotion of a shop the business put into read-only, caused by a
+schema change. Ruled: **the handler restores the status it entered on**, captured inside the scope with the rest of
+the identity work, with exactly one documented exception: **a tenant entered at `failed` that migrates successfully
+becomes `active`**, because `failed` means "do not serve, the schema may be half-applied" and a successful run is
+precisely the removal of that condition — restoring `failed` would make the retry path a no-op and re-open the
+deadlock from the other end. `provisioning` restores to `provisioning`; FP-206 owns when that becomes `active`. The
+failure side is unchanged: D-12's `failed` on an offline failure, and an ordinary expand writes no status at all.
+
+**To `ba`, three lines, through the lead.** (1) **D-23** must record the second waiver and its limit, because it
+currently says the opposite in terms. (2) **D-11** should say that its four statuses are *also* the set the
+migrating entry accepts, and name `TenantConnectionPurpose::acceptedStatuses()` as the one place they live.
+(3) **AC-10/AC-51** should say that the non-`active` refusal is the *serving* rule, and **AC-52** should carry the
+restore-the-entry-status rule with the `failed` → `active` exception, or the next implementer will put the literal
+back. Dataset and behaviour otherwise unchanged; nothing here changes what the request path does.
+
+### 16.2 BUG-7 — ruled: the implementation is wrong, the ruling meant the fleet, and it needs a test
+
+**§14.1 and D-46 mean exactly what they say: the whole fleet the master holds, minus `provisioning`.**
+`PlanMigrationRunHandler::tenantsBelow()`'s `whereIn('status', BULK_STATUSES)` is the defect — it is the *selection*
+predicate reused for the *blocking* question, and the two questions are opposites. Selection asks "whom may I
+touch", and is rightly an allow list. Blocking asks "whose existence makes this contract step unsafe", and the
+answer is every database that will ever run it: a suspended shop comes back, an archived one is restored, a `moving`
+one lands somewhere. A contract step that dropped a column while six statuses looked away is the failure D-46 exists
+to prevent, and it is unrecoverable in the way this project's worst failures are.
+
+So: the blocking read excludes exactly one value, `provisioning`, and **an unrecognised status blocks**. The two
+sets stay separate rules with opposite defaults, and step 13c carries the assertion that they differ, because "these
+two lists look the same, let us unify them" is precisely how this returns.
+
+**Yes, it needs a test, and the absence of one is why it survived.** `qa` calls it a probe with no red test and
+grades it minor; I grade the *gap* major and the *exposure* currently nil — there is no shipped contract migration,
+so nothing can be wrongly permitted today, and that is exactly the condition under which a latent rule rots. Step
+13c specifies it: seven statuses below the target blocking, `provisioning` as the control that does not, the blocker
+named in the message. It costs no engine and no fixture database. Until that test exists, AC-58's bulk half is
+**corroborating at best**, whatever the engine later says.
+
+### 16.3 The three things from the report that change this plan
+
+1. **The engine matrix is 42 criteria of unwritten work and step 15 implied otherwise.** `qa` is right and the
+   wording was mine: only 10 of the 52 `[E]` criteria have an engine test at all, and all ten are skipped. Clearing
+   G-1 unblocks **ten**. Step 15 is corrected and **step 14a** now carries the 42 explicitly, before step 15 can
+   mean anything. The report's framing — that nobody should treat the dump as the finish line — is adopted into the
+   step. This is the largest piece of remaining work in T-008 and it was previously invisible in the plan.
+2. **Reachability is the sibling of the layout check, and §7 is where it belongs.** Agreed without reservation. A
+   lock with no caller and a retry that does not exist both pass every structure check in the branch, which means
+   the checks measure shape and nothing measures connection. §7 gains the grade row and **step 13d** gains the
+   check, with BUG-3 and BUG-4 as its two day-one reds. The general form, for every later task: **a criterion whose
+   mechanism has no production caller is not proven by any test of that mechanism.**
+3. **A rule proven against one spelling is proven against one spelling.** BUG-5 is the sharpest finding in the
+   report, because the evaded spelling is the one D-5's four deferred keys will be written in — the rule is blind in
+   the exact case the whole D-5 defence rests on. `dev` fixes the rule; §7 now carries the standing rule that every
+   source rule ships an **evasion set** enumerated from the framework's API rather than from the author's memory,
+   and that `qa`'s `QaSourceRuleEvasionShapesTest` is kept, not consumed, when it goes green.
+
+### 16.4 What I judge wrong in the account
+
+Little, and nothing load-bearing.
+
+- **The account calls BUG-7 "a reading question rather than a measured failure"; the first half is right and the
+  second understates it.** It is a measured failure of the *code against this plan's own ruling*; what is missing is
+  a test, not a finding. Graded in §16.2.
+- **BUG-1's framing as "the same seam as §15.1 from the other side" is exactly right**, and the record should say
+  which of the two is normative: §15.1's order — enter on `active`, then write `migrating` inside the scope — is
+  unaffected and stays, with the one addition that the status written back at the end is now the entry status rather
+  than a literal. If anything the waiver makes §15.1's order *more* necessary, since more entry statuses now exist
+  to be preserved.
+- **One thing in the QA report I would not let stand as written:** AC-16 and AC-49 are FAIL "on a finding that needs
+  no engine", which is true, but a reader could conclude that wiring them makes them PASS. It does not. AC-49 and
+  AC-65 stay NOT VERIFIED behind G-1 (§14.4, `GET_LOCK` is re-entrant within a session) and AC-16's behavioural half
+  needs an authentication failure the stand-in cannot produce. Step 13d says so; the re-test report should too.
+- **The master recount, the statement-pin mutation and the assertion-shape guard catching `qa`'s own draft are
+  confirmed and correct.** 25 live tables = 17 + 8, our files create 24, the design's 39 means 17 built by
+  deferral: **not a shortfall**, and that now has two independent counts behind it.
