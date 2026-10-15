@@ -1,11 +1,11 @@
 ---
 name: suite-rules-for-new-test-files
-description: Two rules this suite enforces on any new test file - unique basenames across every collected directory, and no `*/` inside a block comment.
+description: Three rules this suite enforces on any new test file - unique basenames across every collected directory, no `*/` inside a block comment, and short fixture tenant stems.
 metadata:
   type: project
 ---
 
-Two things the host suite refuses, both met while adding T-008 step 10 and 13
+Three things the host suite refuses, all met while adding T-008 step 10 and 13
 files:
 
 - **No two collected test files may share a basename.**
@@ -18,7 +18,14 @@ files:
   `packages/` + `*` + `/tests` inside the banner ends the comment and the file
   is a parse error. Say it in words instead.
 
-**Why:** both cost a whole gate run (~82 s) to discover, and the first one is
+- **A fixture tenant stem must be short and distinct.**
+  `runFixtureTenant()` / `masterMappingDatabase()` derive `database_name` from
+  the stem and **truncate** it, and `(server_id, database_name)` is unique. Two
+  tenants named `authority-read_only` and `authority-provisioning` on one
+  server collide on the index rather than testing anything. Use `auth-0`,
+  `auth-1` when a case needs one tenant per status.
+
+**Why:** the first two cost a whole gate run (~82 s) to discover, and the first one is
 invisible until the full suite collects.
 
 **How to apply:** check the basename against the repository before naming a new

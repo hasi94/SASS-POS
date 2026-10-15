@@ -25,9 +25,15 @@ entirely because of this.
 - Treat any statement against that engine as a production change. Read-only
   queries (`information_schema`, `SHOW`) are fine; `CREATE`/`DROP DATABASE` goes
   through `Flexipos\Testing\Engine\EngineDatabase` and nothing else.
-- `ENGINE_HOLD=1` in `modules/host/phpunit.xml` suspends every connection to it
-  and is **on**; clearing it is the owner's decision, not an agent's. Verify the
-  current value before assuming engine tests run.
+- The hold is **a constant**, `Flexipos\Testing\Engine\EngineOnHold::HELD`,
+  since 2026-10-15 (BUG-2): it used to be read from `ENGINE_HOLD`, and
+  `ENGINE_HOLD=0` in the shell beat phpunit.xml's `<env>` - PHPUnit does not
+  overwrite a variable that is already set, and the reader preferred `$_SERVER`,
+  which `<env>` never writes. `composer check`'s first step reads the same hold.
+  The phpunit.xml entries remain, forced on both `<env>` and `<server>`.
+  Clearing the hold is an edit to that constant, by the owner, and it clears on
+  gate **G-1**: a dump of all 43 surviving databases, on `D:`, verified
+  non-empty.
 - Before and after anything that writes there, record
   `SELECT schema_name FROM information_schema.schemata` and diff it. Never
   enumerate with SQL `LIKE`: `_` is a single-character wildcard, and

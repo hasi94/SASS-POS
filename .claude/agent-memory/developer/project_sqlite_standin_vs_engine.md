@@ -30,6 +30,16 @@ The suite's connections are in-memory SQLite (`phpunit.xml`), and under
   foreign keys are ignored unless the connection sets
   `'foreign_key_constraints' => true`.
 
+- **A capability SQLite lacks is faked at the driver seam, never by weakening
+  the production check.** `Illuminate\Database\Connection::resolverFor($driver,
+  $callback)` registers a connection class for a driver name that has no
+  connector at all, so the resolver can build its own PDO and override
+  `getDriverName()`, `getPdo()` or `selectOne()`. That is how a refused
+  `GET_LOCK` (AC-49) and a server rejecting a credential with SQLSTATE 28000
+  (AC-16) are exercised with no engine: everything above the seam is the shipped
+  code, and the granted/reachable case is the control beside it. The fake driver
+  name must also be added to `tenancy.allowed_drivers` for that test.
+
 **Why:** it decides what can be proven while the engine is on hold, which is
 most of T-008. A stand-in proof is never `[E]` evidence - those criteria stay
 NOT VERIFIED until G-1 - but "the tree applies, in order, with every key finding
