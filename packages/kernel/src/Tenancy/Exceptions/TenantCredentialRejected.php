@@ -22,8 +22,16 @@ use Throwable;
  * The recognition lives here, beside the name, because an exception named for
  * its throw site and recognised somewhere else is two definitions of the same
  * thing.
+ *
+ * **Final** (R-W3). The base is open by exactly one subclass and this is it;
+ * there is no third reading of a rejected credential, and a subclass of this
+ * one would inherit a `describes()` that answers for a name it no longer
+ * carries. The count itself is enforced in
+ * packages/kernel/tests/Unit/TenantConnectionFailedFamilyTest.php, because a
+ * second class extending the base directly is the growth this keyword cannot
+ * see.
  */
-class TenantCredentialRejected extends TenantConnectionFailed
+final class TenantCredentialRejected extends TenantConnectionFailed
 {
     /**
      * The SQLSTATE class every supported server uses for "the credential was

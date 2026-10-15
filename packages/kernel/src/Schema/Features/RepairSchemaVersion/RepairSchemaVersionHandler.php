@@ -9,7 +9,7 @@ use Flexipos\Kernel\Schema\Features\DetectSchemaDrift\DetectSchemaDrift;
 use Flexipos\Kernel\Schema\Features\DetectSchemaDrift\DetectSchemaDriftHandler;
 use Flexipos\Kernel\Schema\Features\DetectSchemaDrift\SchemaDrift;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
-use Flexipos\Kernel\Tenancy\CachingTenantDatabaseRepository;
+use Flexipos\Kernel\Tenancy\Contracts\EvictsTenantMappings;
 use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Database\DatabaseManager;
@@ -117,6 +117,10 @@ final class RepairSchemaVersionHandler
     /**
      * One mapping write and the eviction that belongs with it (D-19).
      *
+     * The eviction is asked of the reader by capability rather than by class
+     * (S-2), so any source that holds a copy is told - not only the one
+     * decorator the shipped container happens to bind.
+     *
      * @param  array<string, mixed>  $values
      */
     private function writeMapping(string $tenantId, array $values): void
@@ -125,7 +129,7 @@ final class RepairSchemaVersionHandler
             ->where('tenant_id', $tenantId)
             ->update(array_merge($values, ['updated_at' => $this->clock->timestamp()]));
 
-        if ($this->mappings instanceof CachingTenantDatabaseRepository) {
+        if ($this->mappings instanceof EvictsTenantMappings) {
             $this->mappings->evict($tenantId);
         }
     }

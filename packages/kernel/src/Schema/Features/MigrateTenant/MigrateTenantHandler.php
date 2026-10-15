@@ -9,7 +9,7 @@ use Flexipos\Kernel\Schema\Exceptions\TenantMigrationFailed;
 use Flexipos\Kernel\Schema\Support\MigrationSet;
 use Flexipos\Kernel\Schema\Support\PerTenantLock;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
-use Flexipos\Kernel\Tenancy\CachingTenantDatabaseRepository;
+use Flexipos\Kernel\Tenancy\Contracts\EvictsTenantMappings;
 use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
 use Flexipos\Kernel\Tenancy\Secrets\SecretResolver;
 use Flexipos\Kernel\Tenancy\Tenancy;
@@ -627,12 +627,14 @@ final class MigrateTenantHandler
      * Asked of the object rather than of the container's configuration: the
      * suite binds the in-memory reader and a deployment binds the caching
      * decorator, and a handler that assumed either would be wrong in one of
-     * them. Never a flush - a cache clear would make one tenant's migration a
+     * them. Asked by **capability** rather than by class (S-2), so a second
+     * caching decorator is evicted too instead of silently making D-19 false.
+     * Never a flush - a cache clear would make one tenant's migration a
      * stampede for every other shop on the server.
      */
     private function evict(string $tenantId): void
     {
-        if ($this->mappings instanceof CachingTenantDatabaseRepository) {
+        if ($this->mappings instanceof EvictsTenantMappings) {
             $this->mappings->evict($tenantId);
         }
     }

@@ -2,6 +2,7 @@
 
 namespace Flexipos\Kernel\Tenancy;
 
+use Flexipos\Kernel\Tenancy\Contracts\EvictsTenantMappings;
 use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 
@@ -35,7 +36,7 @@ use Illuminate\Contracts\Cache\Repository as CacheRepository;
  * written by one deployment is still readable by the next one after the record
  * gains a property - which it just did.
  */
-final class CachingTenantDatabaseRepository implements TenantDatabaseRepository
+final class CachingTenantDatabaseRepository implements EvictsTenantMappings, TenantDatabaseRepository
 {
     /**
      * The key shape AC-14 pins. One prefix, in one place, so the reader and

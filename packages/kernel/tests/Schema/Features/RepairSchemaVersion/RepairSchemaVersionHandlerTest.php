@@ -4,7 +4,9 @@ use Flexipos\Kernel\Schema\Exceptions\SchemaRepairRefused;
 use Flexipos\Kernel\Schema\Features\RepairSchemaVersion\RepairSchemaVersion;
 use Flexipos\Kernel\Schema\Features\RepairSchemaVersion\RepairSchemaVersionHandler;
 use Flexipos\Kernel\Schema\Features\RepairSchemaVersion\RepairSchemaVersionResult;
+use Flexipos\Kernel\Tenancy\Contracts\EvictsTenantMappings;
 use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
+use Flexipos\Kernel\Tenancy\TenantDatabase;
 use Tests\TestCase;
 
 /*
@@ -97,6 +99,45 @@ it('evicts the cached mapping it corrected', function () {
     repairAll();
 
     expect(app(TenantDatabaseRepository::class)->find(migrateFixtureId('tenant-behind'))?->schemaVersion)->toBe(6);
+});
+
+it('evicts a second caching decorator too, because the capability is what it checks', function () {
+    // S-2. The eviction used to be discovered with
+    // `instanceof CachingTenantDatabaseRepository`, which is one class. A
+    // second decorator - a per-request memo in front of the shipped one, say
+    // - would have stopped being evicted with nothing going red, and D-19
+    // ("every status or version write is followed by an eviction") would
+    // have quietly become false. This is the reader that would have been
+    // missed: it caches, it is not that class, and it must still be told.
+    $recorder = new class(app(TenantDatabaseRepository::class)) implements EvictsTenantMappings, TenantDatabaseRepository
+    {
+        /** @var list<string> */
+        public array $evicted = [];
+
+        public function __construct(private readonly TenantDatabaseRepository $inner) {}
+
+        public function find(string $tenantId): ?TenantDatabase
+        {
+            return $this->inner->find($tenantId);
+        }
+
+        public function evict(string $tenantId): void
+        {
+            $this->evicted[] = $tenantId;
+        }
+    };
+
+    app()->instance(TenantDatabaseRepository::class, $recorder);
+    app()->forgetInstance(RepairSchemaVersionHandler::class);
+
+    migrateFixtureTenant('tenant-behind', migrateFixtureId('server-one'), ['schema_version' => 4]);
+    migrateFixtureApplyLog('tenant-behind', 6);
+
+    expect(repairAll()->corrected)->toBe([migrateFixtureId('tenant-behind') => 6]);
+
+    // Exactly the corrected tenant, and never a flush: one tenant's repair is
+    // not a reason to make every other shop read the master again.
+    expect($recorder->evicted)->toBe([migrateFixtureId('tenant-behind')]);
 });
 
 /*

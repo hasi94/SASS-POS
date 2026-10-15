@@ -3,6 +3,7 @@
 namespace Flexipos\Kernel\Tenancy;
 
 use Closure;
+use Flexipos\Kernel\Tenancy\Contracts\EvictsTenantMappings;
 use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
 use Flexipos\Kernel\Tenancy\Contracts\TenantMigrationTargetRepository;
 use Flexipos\Kernel\Tenancy\Exceptions\InvalidTenantIdentifier;
@@ -266,12 +267,14 @@ final class Tenancy
      * Asked of the object rather than of the container's configuration: the
      * suite binds the in-memory reader and a deployment binds the caching
      * decorator, and a path that assumed either would be wrong in one of them.
+     * Asked by **capability** rather than by class (S-2): the question is
+     * whether this reader holds a copy, not which class it is.
      * Never a flush - one tenant's rotation is not a reason to make every
      * other shop on the server read the master again.
      */
     private function evictCachedMapping(string $identifier): void
     {
-        if ($this->repository instanceof CachingTenantDatabaseRepository) {
+        if ($this->repository instanceof EvictsTenantMappings) {
             $this->repository->evict($identifier);
         }
     }
