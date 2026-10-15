@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Schema;
 | What this file does answer is the part that needs no engine and that nothing
 | else in the branch would notice:
 |
-| - the seventeen migrations **apply**, in the order their file names impose,
+| - every migration in the tree **applies**, in the order their file names impose,
 |   with every foreign key finding its table;
 | - a second run changes nothing and exits 0 (AC-1's idempotence half);
 | - the applied schema holds exactly AC-1's tables and no others;

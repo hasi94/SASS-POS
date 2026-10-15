@@ -114,7 +114,8 @@ it('creates exactly the master tables AC-1 names', function () {
     // Exact equality, not toContain: "and nothing else" is half of AC-1, and it
     // is the half an extra table slips through.
     expect(migrationTreeTables(MigrationTree::Master))->toBe($expected)
-        ->and(masterApplicationTables())->toHaveCount(17)
+        // Seventeen from T-008 plus T-009 step 3's four (AC-50).
+        ->and(masterApplicationTables())->toHaveCount(21)
         ->and(masterSystemTables())->toHaveCount(7);
 });
 

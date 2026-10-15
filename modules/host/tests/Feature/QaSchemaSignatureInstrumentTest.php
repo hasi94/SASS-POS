@@ -173,9 +173,11 @@ it('writes a signature for every master and baseline table, and accepts two equa
     $master = qaSignaturesOf($masterOne);
     $tenant = qaSignaturesOf($tenantOne);
 
-    // 25 = AC-1's seventeen application tables and eight system tables;
+    // 29 = AC-1's seventeen application tables, T-009 step 3's four more
+    // (login_history, refresh_tokens, security_events, signing_keys; AC-50) and
+    // the eight system tables;
     // 7 = AC-23's six baseline tables and the framework's `migrations`.
-    expect($master)->toHaveCount(25)
+    expect($master)->toHaveCount(29)
         ->and($tenant)->toHaveCount(7)
         ->and(array_keys($master))->toContain('tenants', 'tenant_databases', 'users', 'sessions', 'migrations')
         ->and(array_keys($tenant))->toContain('settings', 'outbox_events', 'schema_meta', 'migrations');

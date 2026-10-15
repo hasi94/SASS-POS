@@ -401,7 +401,13 @@ function qaFixturePackageNames(): array
 */
 
 /**
- * The seventeen master application tables AC-1 governs.
+ * The master application tables AC-1 governs, plus T-009's four.
+ *
+ * T-009 step 3 adds `login_history`, `refresh_tokens`, `security_events` and
+ * `signing_keys` (AC-50, FP-207), taking the list from seventeen to
+ * twenty-one. The four are `docs/database.md` section 4.1's and were absent
+ * from the tree; the counts pinned in MigrationTreeDisciplineTest and
+ * QaSchemaSignatureInstrumentTest move with them.
  *
  * AC-1 and `docs/database.md` section 4.10 disagree about one name - the design
  * lists `personal_access_tokens`, AC-1 lists `sessions` - and **AC-1 governs**
@@ -418,12 +424,16 @@ function masterApplicationTables(): array
         'database_servers',
         'feature_flags',
         'licences',
+        'login_history',
         'plan_features',
         'plan_limits',
         'plans',
         'platform_audit_logs',
         'platform_settings',
+        'refresh_tokens',
         'schema_versions',
+        'security_events',
+        'signing_keys',
         'subscriptions',
         'tenant_databases',
         'tenant_feature_flags',
