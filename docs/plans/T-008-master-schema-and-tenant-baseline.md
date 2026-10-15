@@ -215,8 +215,11 @@ and that is FP-202's own record, not this task's.
   `is_platform_staff`, `platform_role` nullable, `status`, `failed_attempts`, `locked_until`, and the rest of §4.1.
   `password` and `remember_token` are gone (AC-2). `password_reset_tokens` and `sessions` in the same file are
   untouched (D-18).
-- `modules/host/database/migrations/2026_10_14_0001xx_*.php` — **new**, one file per concern, in dependency order:
-  plans → plan_features / plan_limits (need `plans`) and feature_flags → tenants (FK `plans`) → tenant_users →
+- `modules/host/database/migrations/2026_10_14_0001xx_*.php` — **new**, one file per concern, in dependency order.
+  **Corrected 2026-10-15 against the shipped tree (`38e9537`):** `feature_flags` comes **before** `plan_features`,
+  because `plan_features` keys onto it; the earlier reading of this line put the two the other way round and could not
+  have built. The order is:
+  plans → feature_flags → plan_features → plan_limits → tenants (FK `plans`, **nullable**) → tenant_users →
   subscriptions → licences → tenant_feature_flags → platform_settings → platform_audit_logs → database_servers →
   tenant_databases → schema_versions → tenant_migration_runs → tenant_migration_jobs.
 - `modules/host/database/migrations/0001_01_01_000001_create_cache_table.php`,
@@ -468,8 +471,19 @@ elsewhere steps may be reordered or run together.
       alias does with invalid JSON. Each is a design assumption of steps 4, 10 and 11; measuring them here is cheaper
       than discovering one at step 11. Covers nothing on its own; de-risks AC-10, AC-25 to AC-27, AC-29, AC-48 to AC-50.
       *Order: after step 0, because it needs a reserved-prefix database to create a table in.*
-- [ ] **Step 2 — the static migration rules, proven red on fixtures, before a single real migration exists.**
-      [dev] `Schema\Support\SourceRules` + `MigrationSourceRulesTest` + the violating fixtures.
+- [x] **Step 2 — the static migration rules, proven red on fixtures, before a single real migration exists.**
+      [dev] **DONE**, commit `e749aea`. `SourceRules` is red on **fourteen** fixtures, each caught by the rule meant to
+      catch it, and that is the step's own proof: the rules existed on the branch before a single shipped migration did,
+      which is what AC-34's `(branch)` half asks `qa` to confirm by commit order.
+      **Declared deviation (accepted):** step 2 ships **no tree-silence assertion** — it lands in step 3. At `e749aea`
+      the tenant tree did not exist and the stock `users` migration still called `timestamps()`, a true violation of
+      AC-35(c), so the only ways to be green were to do step 3's work inside step 2's commit or to narrow a rule.
+      Neither is acceptable and `dev` chose the third option, which this plan's own wording permits ("red against its
+      own fixture first and only then green against the tree"): the fixture half here, the tree half in step 3. The
+      reason is in the test file, where the next reader meets it. **Two further narrowings, both accepted and both
+      recorded in §12.4:** AC-33 and AC-34 do not treat a table the same migration created as "existing", and AC-37's
+      schema-qualified half is applied to **both** trees rather than only the tenant one.
+      `Schema\Support\SourceRules` + `MigrationSourceRulesTest` + the violating fixtures.
       AC-33 (an expand step must not drop, rename or change), AC-34 (no foreign key onto an existing table outside a
       contract step), AC-35(a) bare `decimal()`, (b) native `enum`, (c) `timestamp`, (d) charset, collation or engine
       literal, AC-37 (cross-connection and schema-qualified names), AC-24's source half.
@@ -479,18 +493,44 @@ elsewhere steps may be reordered or run together.
       before steps 3 and 4 deliberately: run the other way round, every rule passes against a tree of zero tenant
       migrations and proves nothing, which is exactly this project's named failure mode.
       *Order load-bearing: before steps 3 and 4.*
-- [ ] **Step 3 — the master tree.** [dev] Rewrite the stock `users` migration; add the sixteen others; the
-      `sequence` auto-increment statement; the JSON check (written unconditionally while step 1 is blocked). Covers
-      AC-1 to AC-11, and AC-22's "no tenant table in master" half. **The migration files are not gated; the
-      `information_schema` assertions about the applied result are `[gated]`** — they need a reserved-prefix database.
-      Writing the tree under the hold is the right use of the wait.
-- [ ] **Step 4 — the tenant baseline.** [dev] Six files under the tenant tree, the two sentinels, and the four
-      key-less columns with a docblock naming the module that owes each foreign key (D-5's replacement). Covers
-      AC-22 to AC-30 and AC-36. Same split as step 3: files now, `[gated]` engine assertions later.
+- [x] **Step 3 — the master tree.** [dev] **DONE**, commit `38e9537`. Seventeen application tables plus seven of
+      AC-1's eight system tables (the framework creates `migrations` itself, so the eighth needs no file); the stock
+      `users` migration rewritten in place; the `sequence` auto-increment statement; `JsonValidity` writing the
+      `CHECK (JSON_VALID(…))` unconditionally while step 1 is blocked. Covers AC-1 to AC-11 on the source and
+      stand-in; the `information_schema` half stays `[gated]`.
+      **Correction to this plan, not a deviation:** §4's arrow order listed `plan_features` / `plan_limits` before
+      `feature_flags`. That order cannot build — `plan_features` keys onto `feature_flags` — so the shipped order is
+      `plans` → `feature_flags` → `plan_features` → `plan_limits` → `tenants` → … `dev` is right and the plan text
+      was wrong; §4 is corrected. `tenants.plan_id` is **nullable**, because a tenant exists as pending before a plan
+      is chosen (accepted; §12.4).
+- [x] **Step 4 — the tenant baseline.** [dev] **DONE**, commit `52aca02`. Six files under
+      `database/migrations-tenant/`, the two stored generated sentinels (both working on the stand-in), `schema_meta`
+      created **empty**, no projection table and no claim mark (D-1, D-14), and the four key-less columns with a
+      docblock naming the module that owes each foreign key (D-5's replacement). **The boundary rule is verified
+      directly: no `tenant_id` column in any tenant migration** (AC-24's source half). Covers AC-22 to AC-30 and
+      AC-36 on the source and stand-in; the `information_schema` half stays `[gated]`.
+      **Gate after steps 2 to 4, verified by the lead:** exit 0, **551 passed, 3 skipped, 2705 assertions**, engine
+      schema count unchanged at 40 across the run.
+      **Three driver-guarded statements on SQLite, accepted and load-bearing** (§12.4): the ASCII collation, the
+      JSON constraint and the second auto-increment column each skip on the stand-in and say so where they skip.
+      Without them no later step could test anything at all while the hold is on, which is the whole gated period.
 - [ ] **Step 5 — `schema:publish` and the catalogue.** [dev] The `PublishCatalogue` slice, the committed fixture,
       LF-normalised checksums, refusal of a file that sorts before a published one. Covers AC-31, AC-32's catalogue
       half, and AC-21 (the constant is not ahead of the catalogue). It reads the reserved prefix from
       `ReservedDatabaseName::PREFIX` and never repeats the literal (ruling 2.3).
+      **It also closes the second literal `dev` flagged, and this is part of the step, not a tidy-up** (§12.5):
+      `config/schema.php`'s `tenant_migration_path` becomes the **one authority for applying or publishing the tenant
+      tree**, and the four sites that currently hold the literal `database/migrations-tenant` are reduced to it —
+      the two `Artisan::call('migrate', ['--path' => …])` calls in `TenantBaselineBuildsTest` and the two
+      tree-discovery helpers (`migrationTreeSources()`, `migrationRuleTreeSources()`), which move to one shared helper
+      in `tests/Helpers.php` reading the same key. A discovery helper that can disagree with the applied path is a scan
+      over a tree nobody runs. **`MigrationTree::forPath()` keeps its own literal, deliberately**: it *classifies* an
+      arbitrary path, including fixture paths that are in no tree, and a classifier that asked configuration which
+      directory is "tenant" would let one environment variable reclassify every rule in §11.3's sense. So the two rules
+      stay independent and step 5 adds the tripwire for their disagreeing —
+      `MigrationTree::forPath(config('schema.tenant_migration_path').'/x.php')` is asserted to be `Tenant`, and the
+      configured directory is asserted to exist and to be **absent from the framework's auto-discovered paths**, which
+      is AC-22's structural half said once in configuration instead of believed per call site.
       **Red phase: omit the mechanism, on the suite's sqlite master connection** (§11.5). The refusal is never stubbed
       permissively; the assertion goes red because the branch is absent. No engine.
       *Order load-bearing: before step 9 — the runner refuses to start without a verified catalogue, so planning
@@ -556,10 +596,34 @@ elsewhere steps may be reordered or run together.
       control (a forbidden fixture, reported) and a negative one (the same words in prose, ignored), scan code with
       comments and docblocks removed, and **scan their own file** — a scanner that exempts itself can be used to hide
       what it looks for.
+      **Two more checks added 2026-10-15 by ruling §12.1 — the rules follow a statement into a shared helper:**
+      (c) **every file under `packages/kernel/src/Schema/Support/` is scanned under AC-33's and AC-34's statement
+      rules with the created-table set empty and no phase** — a helper has no phase comment, so it can never be the
+      contract step that licenses a drop, a rename, a `change` or a foreign key onto an existing table, and AC-37's
+      connection-name and schema-qualified rules apply to it unchanged. The existing raw-SQL patterns already cover
+      `JsonValidity`'s `DB::statement` shape, so the rule is reused rather than rewritten;
+      (d) **a migration file imports only `Illuminate\…` and `Flexipos\Kernel\Schema\Support\…`** (MEASURED
+      2026-10-15: the 25 shipped migrations import exactly six symbols, all inside those two namespaces), which is
+      what makes (c) complete — without it a helper placed in a third namespace is invisible again, and with it there
+      is no third place a statement can hide. One further tooth, because it is the real failure mode of a text scan:
+      in a scanned helper the first argument of `DB::statement()` / `DB::unprepared()` must **begin with a string
+      literal**, so the statement's verb cannot arrive in a variable the scan cannot read.
+      Both carry the usual controls: a fixture helper that drops, and a fixture migration importing outside the two
+      namespaces, are **reported**; the same words in prose are not; and because the real Support directory and both
+      shipped trees are **silent today**, red must be proven on the fixtures first or these two checks prove nothing —
+      the R-4 shape, in this step.
+      This replaces "additive by construction" as the *proof*. `dev` is right that both helpers are additive today and
+      right that the docblocks say so; the ruling is that a property of today's implementation is not a property of
+      the type, and this project has twice been bitten by a claim that was true when it was written. The docblocks
+      stay as explanation; the scan becomes the authority. Scanning helper sources has its own failure mode — a scan
+      over a *set of files* is only as good as the set — which is exactly why (d) ships with (c) and not after it.
       **Shipped state (commit `5e2e708`), so this step stays unticked:** check (a) and check (b) exist in
       `modules/host/tests/Feature/DestructiveStatementContainmentTest.php`. Still to do here:
-      `VerticalSliceLayoutTest`, "no FX migration under the shipped tenant tree", and the `sessions`-carries-no-
-      foreign-key check from §9 finding 6.
+      `VerticalSliceLayoutTest`, "no FX migration under the shipped tenant tree", the `sessions`-carries-no-
+      foreign-key check from §9 finding 6, checks (c) and (d) above, and **(e) AC-35(a) tightened to require both of
+      `decimal()`'s arguments** (§9 finding 10, ruling §12.3) — a three-line change in
+      `SourceRules::decimalStatesPrecision()` plus one fixture, collected here rather than reopening the ticked step 2
+      so that all three post-step-4 rule changes land in one commit with one `qa` pass over them.
 - [ ] **Step 14 — gate wiring and headroom.** [dev] `engine:clean` (report-only, §11.2 rule 4) first in `check`
       — **already true since step 0 and re-confirmed by `dev` on 2026-10-14; this half of the step needs no work**;
       toolchain registry coverage (`DestructiveStatementContainmentTest` spawns no child process, so it stays in
@@ -723,9 +787,11 @@ argument for pinning the outbox's own columns now (D-1).
 
 ## 9. Criteria that are not achievable as worded
 
-`ba` asked to hear these before QA rather than after. **Eight**, and the replacement for each. All need a spec edit by
-`ba`. Findings 1 to 5 change nothing in this plan; 6 to 8 were found after the incident of §11 and findings 7 and 8
-are already implemented in the plan's own terms (§11.6 and step 13), so the spec edit is a catch-up, not a decision.
+`ba` asked to hear these before QA rather than after. **Ten**, and the replacement for each. Findings 1 to 8 need a
+spec edit by `ba`; **findings 9 and 10 explicitly do not** — they are recorded here so `qa` reads a known, ruled
+divergence rather than a defect. Findings 1 to 5 change nothing in this plan; 6 to 8 were found after the incident of
+§11 and findings 7 and 8 are already implemented in the plan's own terms (§11.6 and step 13), so the spec edit is a
+catch-up, not a decision.
 
 1. **AC-35(d) against AC-2 and AC-36.** AC-35(d) forbids a migration naming a collation or charset; AC-2 and AC-36
    require every ULID id column to be `CHAR(26)` `ascii_bin`. Laravel's `ulid()` yields the *table's* charset
@@ -777,6 +843,31 @@ are already implemented in the plan's own terms (§11.6 and step 13), so the spe
    **not** reported, and `"show databases like 'flexipos_%'"` **is**. (Rejected alternative: ban the word from
    messages. It makes the rule's enforcement depend on prose style, and the next person writing an error message does
    not know the rule exists.)
+
+9. **AC-6's name list against AC-6's own governing clause. No spec edit, and the detector stands as `dev` built it**
+   (ruling §12.2). Read as a list of names, AC-6 reports three columns `docs/database.md` requires:
+   `platform_settings.is_secret` (a flag), `tenant_databases.credential_version` (a counter) and
+   `credential_rotated_at` (a moment). But the criterion's governing clause is its first one — *no column in any
+   master table **can hold a credential value*** — and the names that follow are the heuristic by which that is
+   detected, not the requirement. A `tinyint`, an `int` and a `datetime` cannot hold a password, so exempting **by
+   column type, read from the schema** is faithful to the clause that governs and only diverges from the illustration.
+   A name-based exemption list would not be: this project has already ruled that shape rots, and its first entry is
+   always for a column that "obviously" does not mean it. The control is what makes the distinction real and it
+   exists: `credential_version_text` as a **string** *is* reported. The rejected alternative was rewording AC-6 in
+   `ba`'s file; rejected because the wording is not wrong — it names a property and then a heuristic, and the
+   implementation keeps the property.
+10. **AC-35(a)'s gap, closed by making the rule stricter than the criterion.** AC-35(a) says "no `decimal` call lacks
+   a precision argument", so `decimal('x', 18)` — precision given, scale defaulted by the framework to **2** —
+   passes, and `dev` implemented it exactly as worded and declined to go further unasked, which is the right
+   discipline and the reason it asked. Ruled: **tighten the rule to require both arguments.** The harm class is the
+   criterion's own — a silent truncation decided by a default nobody wrote — and only its magnitude differs from a
+   bare `decimal()`: this design's money and quantity columns are 18,4 and 18,6, and a scale that defaults to 2
+   rounds a 0.001 quantity to zero exactly as `DECIMAL(10,0)` rounds 0.5 kg. Every column in both shipped trees is
+   fully specified, so **nothing is wrong today and the tightening is green on the tree** — which means the fixture
+   control is the whole proof: `decimal('x', 18)` must be **reported**, `decimal('x', 18, 4)` must not. The rule is
+   therefore **strictly stronger than AC-35(a) as worded**, in the same way step 2's AC-37 half is, and like that one
+   it is recorded rather than spec-edited: a test stricter than its criterion is safe when it is asserted both ways
+   and written down; it is only dangerous when it is undeclared.
 
 **Not a spec change, but `ba` should know:** AC-1 lists `sessions` among the master system tables where
 `docs/database.md` §4.10 lists `personal_access_tokens`. AC-1 governs (D-18), and `qa`'s recount of finding 1 will
@@ -964,3 +1055,107 @@ requires all four, because any one of them alone decays:
 A spec correction is requested of `ba` (§9 finding 7) so AC-63 distinguishes *unreachable* (fail) from *declared hold*
 (skip, recorded unverified). Until that lands, this section is the governing reading and `dev`'s deviation is
 **upheld**.
+
+---
+
+## 12. Rulings asked for after step 4, and the deviations on record
+
+Three questions `dev` asked rather than assumed, after steps 2, 3 and 4 landed (`e749aea`, `38e9537`, `52aca02`;
+gate exit 0, 551 passed, 3 skipped, 2705 assertions, verified by the lead). Asking was right in all three cases, and
+in two of them `dev`'s implementation stands unchanged.
+
+### 12.1 The rules read files, so a statement inside a shared helper is invisible — ruled: follow the statement, in two bounded rules
+
+`SourceRules` inspects migration *files*. `IdentifierColumn` and `JsonValidity` issue statements of their own
+(column modifiers; exactly one `ADD CONSTRAINT` per column), so AC-33 and AC-34 cannot see them, and what currently
+stands in for the rule is a sentence in each docblock: *additive by construction*.
+
+**Ruled: the scan is extended, as step 13 checks (c) and (d).** "Additive by construction" is true today, and it is a
+property of the implementation rather than of the type — a later edit to either helper, or a third helper, needs no
+approval from any rule. This project has twice shipped a claim that was true when it was written.
+
+The shape matters more than the decision, because a scan over helper sources has a real failure mode of its own: a
+scan over a *set of files* is only as good as the set, and the obvious version ("follow the call") needs a call graph
+nobody wants to maintain. So the ruling is two rules that bound the set instead:
+
+- **(c)** every file under `packages/kernel/src/Schema/Support/` is scanned under AC-33's and AC-34's existing
+  statement rules with the created-table set **empty** and no phase — a helper has no phase comment, so it can never
+  be the contract step that licenses a drop, a rename, a `change` or a foreign key onto an existing table. AC-37's
+  connection-name and schema-qualified rules apply to it unchanged. The raw-SQL patterns already in `SourceRules`
+  cover `JsonValidity`'s `DB::statement` shape, and the first argument of such a call must begin with a string
+  literal so the verb cannot arrive in a variable the scan cannot read.
+- **(d)** a migration file imports only `Illuminate\…` and `Flexipos\Kernel\Schema\Support\…`. MEASURED 2026-10-15:
+  the 25 shipped migrations import exactly six symbols and all six are inside those two namespaces, so the rule is
+  green on the tree today. **(d) is what makes (c) complete** — without it a helper in a third namespace is invisible
+  again — and it ships with it rather than after it.
+
+Both helpers are silent under (c) today, which is why the fixture controls are the whole proof, and why a green check
+without them would be the R-4 shape in this very step. The docblocks keep their prose; the scan becomes the authority.
+
+### 12.2 One criterion reports three columns the design requires — ruled: the detector stands, AC-6 is not reworded
+
+`dev` exempted by **column type, read from the schema, never by name**, with `credential_version_text` as a string
+reported as the control. **Upheld, and no spec edit.** AC-6's governing clause is "no column … **can hold a credential
+value**"; the name list that follows is the heuristic by which that is detected. A flag, a counter and a moment cannot
+hold a password, so a type-based exemption serves the clause that governs and diverges only from the illustration —
+while a name-based exemption list would diverge from the clause itself, and is the shape this project has already
+ruled rots, its first entry always for a column that "obviously" does not mean it. Recorded as §9 finding 9 so `qa`
+meets a ruled divergence rather than a defect. The alternative — rewording AC-6 in `ba`'s file — is rejected: the
+wording is not wrong, and spending `ba`'s file on it would make the criterion describe our implementation instead of
+the requirement.
+
+### 12.3 A rule implemented exactly as worded, with a gap — ruled: tighten it, and say that it is stricter
+
+AC-35(a) as worded asks only for a precision, so `decimal('x', 18)` passes with the framework defaulting scale to
+**2**. `dev` declined to exceed the criterion unasked, which is correct, and asked. **Ruled: require both arguments**
+(step 13 check (e), §9 finding 10). The harm is the criterion's own class — a silent truncation decided by a default
+nobody wrote — and differs from a bare `decimal()` only in magnitude: at 18,6 a 0.001 quantity becomes zero under a
+defaulted scale of 2, which is the same sentence as "0.5 kg truncates to zero". Every shipped column is fully
+specified at 18,4 or 18,6, so the tightening is green on both trees and the fixture control carries the proof:
+`decimal('x', 18)` reported, `decimal('x', 18, 4)` not. The rule is **strictly stronger than its criterion**, which is
+acceptable because it is asserted both ways and written down here; an undeclared stricter rule is what is not.
+
+### 12.4 The deviations worth carrying in this plan
+
+Eleven were declared; these four change what a criterion means, so they belong here and not only in `dev`'s report.
+All four are **accepted**.
+
+1. **Step 2 ships no tree-silence assertion; it lands in step 3.** At `e749aea` the tenant tree did not exist and the
+   stock `users` migration still called `timestamps()` — a true violation of AC-35(c) — so the only ways to be green
+   were to pull step 3's work into step 2's commit or to narrow a rule. `dev` did neither, split the proof on this
+   plan's own wording ("red against its own fixture first and only then green against the tree"), and put the reason
+   in the test file. That is the correct reading of a step whose whole point is to exist before the tree.
+2. **Three statements are driver-guarded on SQLite** — the ASCII collation, the JSON constraint and the second
+   auto-increment column — each saying so where it skips. The framework's SQLite grammar *does* emit `collate`, so an
+   unguarded collation is an error at `CREATE TABLE` and not a no-op. **These guards are load-bearing for the whole
+   gated period**: without them nothing in steps 3 to 13 could be tested on the stand-in while the hold is on. Every
+   criterion they stand in for is `[E]` and is recorded NOT VERIFIED until G-1 clears (§11.6), so none of them can be
+   mistaken for a pass.
+3. **AC-33 and AC-34 do not treat a table the same migration created as "existing".** Accepted: the alternative is
+   enforcement by syntax accident — the shipped tree would pass by choosing `MODIFY sequence` over
+   `MODIFY COLUMN sequence` — and nothing can be lost by altering a table that had no rows a moment earlier. The
+   narrowing is in the rule's own docblock, where the next reader will suspect exactly this.
+4. **AC-37's schema-qualified half applies to both trees**, not only the tenant one, and is asserted both ways.
+   Strictly stronger than the criterion, declared, and the same shape §12.3 now adopts for AC-35(a).
+
+Two further shipped facts, neither a deviation from a criterion: **`feature_flags` is created before the two tables
+that key onto it** — §4's arrow order was wrong and is corrected; `dev` is right — and **`tenants.plan_id` is
+nullable**, because a tenant exists as pending before a plan is chosen, which the master's own lifecycle requires.
+
+### 12.5 The residual for step 5: `database/migrations-tenant` has four literals
+
+`dev` flagged the path as hardcoded in the tenant test. Ruled into step 5 explicitly so it is not left as a second
+literal: `config('schema.tenant_migration_path')` becomes the **one authority for applying or publishing** the tenant
+tree, and the four current sites collapse onto it — the two `Artisan::call('migrate', ['--path' => …])` calls in
+`TenantBaselineBuildsTest` and the two tree-discovery helpers (`migrationTreeSources()` in
+`MigrationTreeDisciplineTest`, `migrationRuleTreeSources()` in `MigrationSourceRulesTest`), which become one shared
+helper in `tests/Helpers.php` reading the same key. A discovery helper able to disagree with the applied path is a
+scan over a tree nobody runs.
+
+**`MigrationTree::forPath()` keeps its own literal, and that is not an oversight.** It classifies an arbitrary path,
+including fixture paths that belong to no tree; a classifier that asked configuration which directory is "tenant"
+would let one environment variable reclassify every rule — §11.3's two-independent-rules argument, applied to the
+tree name instead of the database prefix. So step 5 adds the tripwire for the two rules disagreeing:
+`MigrationTree::forPath()` over the configured directory must classify as `Tenant`, the directory must exist, and it
+must be **absent from the framework's auto-discovered migration paths** — AC-22's structural half stated once in
+configuration rather than believed at each call site.
