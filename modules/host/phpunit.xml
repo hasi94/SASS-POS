@@ -109,10 +109,21 @@
             recovery will be attempted, no test may write to that engine: every
             write can overwrite the blocks the dropped files used. The tests that
             need the engine are skipped with the reason printed; an unreachable
-            engine still FAILS once the hold is cleared (AC-63). Clearing it -
-            value="0" - is the owner's call, not an agent's.
+            engine still FAILS once the hold is cleared (AC-63).
+
+            The authority is NOT this declaration: it is the constant
+            Flexipos\Testing\Engine\EngineOnHold::HELD, and clearing the hold is
+            an edit to that line, by the owner. Measured 2026-10-15: with the
+            hold read from here, ENGINE_HOLD=0 in the shell won - <env> does not
+            overwrite a variable that is already set, and the reader preferred
+            $_SERVER, which <env> never writes. These two entries remain, forced
+            on both <env> and <server>, so that any other reader of the variable
+            - a tool, a child process - also sees the held value and a shell
+            variable cannot make the suite's environment disagree with the
+            constant.
         -->
-        <env name="ENGINE_HOLD" value="1"/>
+        <env name="ENGINE_HOLD" value="1" force="true"/>
+        <server name="ENGINE_HOLD" value="1" force="true"/>
         <env name="ENGINE_DRIVER" value="mariadb"/>
         <env name="ENGINE_HOST" value="127.0.0.1"/>
         <env name="ENGINE_PORT" value="3306"/>

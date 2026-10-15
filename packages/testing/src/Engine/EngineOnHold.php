@@ -22,6 +22,31 @@ use RuntimeException;
  */
 final class EngineOnHold extends RuntimeException
 {
+    /**
+     * Whether the hold is in force. **A constant, and that is the fix for the
+     * way it used to be clearable.**
+     *
+     * It was read from `ENGINE_HOLD` in the environment, with
+     * `modules/host/phpunit.xml` declaring the value. MEASURED 2026-10-15 by
+     * `qa`: `ENGINE_HOLD=0` in the shell won over that declaration, because
+     * PHPUnit's `<env>` does not overwrite a variable that is already set and
+     * the reader preferred `$_SERVER` anyway - so `ENGINE_HOLD=0 composer check`
+     * opened a PDO to the owner's engine in the gate's first step, which is the
+     * same engine the incident below happened on.
+     *
+     * Adding `force="true"` to the declaration would close that one path. A
+     * constant closes the class of path: a hold that any single environment
+     * variable can switch off is the same kind of thing as a guard an
+     * environment variable can widen, and the reserved-name prefix is a
+     * constant for that reason. Clearing this hold is an edit to this line, in
+     * a commit, by the owner - which is what "the owner's decision" means.
+     *
+     * The declaration in phpunit.xml stays, forced on both `<env>` and
+     * `<server>`, so that no reader of the variable anywhere - a tool, a child
+     * process - can see anything but the held value either.
+     */
+    public const HELD = true;
+
     public static function sinceTheIncident(): self
     {
         return new self(

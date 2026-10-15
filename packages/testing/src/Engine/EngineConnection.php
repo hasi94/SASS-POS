@@ -152,14 +152,18 @@ final class EngineConnection
     }
 
     /**
-     * Whether the engine suite is suspended (`ENGINE_HOLD`).
+     * Whether the engine suite is suspended.
      *
-     * On by default since the data-loss incident of 2026-10-14; see
-     * {@see EngineOnHold}.
+     * **It reads no environment variable.** The answer is
+     * {@see EngineOnHold::HELD}, a constant, because a hold a shell variable
+     * could clear is not a hold: `ENGINE_HOLD=0` in the shell used to beat
+     * phpunit.xml's declaration and open a connection to the engine the
+     * incident of 2026-10-14 happened on. The declaration is still in
+     * phpunit.xml, forced, for every other reader of that variable.
      */
     public static function onHold(): bool
     {
-        return ! in_array(strtolower(self::environment('ENGINE_HOLD', '1')), ['0', 'off', 'false', 'no'], true);
+        return EngineOnHold::HELD;
     }
 
     public static function assertNotOnHold(): void
