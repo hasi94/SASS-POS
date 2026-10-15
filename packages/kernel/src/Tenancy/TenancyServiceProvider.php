@@ -105,8 +105,11 @@ final class TenancyServiceProvider extends ServiceProvider
 
                 // The local stand-in: a configuration array and no query. It is
                 // what T-003 shipped and what T-003's and T-007's fixtures
-                // still use, so those proofs need no master schema.
-                if ((string) $config->get('tenancy.mapping.source', 'master') === 'config') {
+                // still use, so those proofs need no master schema. Selecting
+                // it outside local development is refused in MappingSource,
+                // not here, so the runner's binding below cannot drift from
+                // this one (review S-4).
+                if (MappingSource::isConfigStandIn($config, $app)) {
                     /** @var array<string, mixed> $databases */
                     $databases = (array) $config->get('tenancy.databases', []);
 
@@ -135,7 +138,7 @@ final class TenancyServiceProvider extends ServiceProvider
             static function (Application $app): TenantMigrationTargetRepository {
                 $config = $app->make(ConfigRepository::class);
 
-                if ((string) $config->get('tenancy.mapping.source', 'master') === 'config') {
+                if (MappingSource::isConfigStandIn($config, $app)) {
                     /** @var array<string, mixed> $targets */
                     $targets = (array) $config->get('tenancy.migration_targets', []);
 
