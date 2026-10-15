@@ -119,15 +119,20 @@ function runFixtureRunRows(): array
  *
  * @template T
  *
+ * `sql` is every statement in order, which is what AC-48's "the mutation that
+ * grants the claim is a **single** statement" is counted from.
+ *
  * @param  Closure(): T  $work
- * @return array{result: T|null, thrown: Throwable|null, queried: list<string>, resolved: list<string>}
+ * @return array{result: T|null, thrown: Throwable|null, queried: list<string>, resolved: list<string>, sql: list<string>}
  */
 function runFixtureConnectionsUsedBy(Closure $work): array
 {
     $queried = [];
+    $sql = [];
 
-    DB::listen(static function ($query) use (&$queried): void {
+    DB::listen(static function ($query) use (&$queried, &$sql): void {
         $queried[] = (string) $query->connectionName;
+        $sql[] = (string) $query->sql;
     });
 
     $result = null;
@@ -155,5 +160,6 @@ function runFixtureConnectionsUsedBy(Closure $work): array
         'thrown' => $thrown,
         'queried' => array_values(array_unique($queried)),
         'resolved' => $resolved,
+        'sql' => $sql,
     ];
 }
