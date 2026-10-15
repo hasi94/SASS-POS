@@ -112,9 +112,7 @@ function migrationRuleFixture(string $name): string
  */
 function migrationRuleTreeSources(MigrationTree $tree): array
 {
-    $directory = base_path(
-        'database/'.($tree === MigrationTree::Tenant ? 'migrations-tenant' : 'migrations')
-    );
+    $directory = migrationTreeDirectory($tree);
 
     $sources = [];
 

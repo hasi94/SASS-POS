@@ -208,6 +208,34 @@ final class SourceRules
     }
 
     /**
+     * Whether one migration's `up()` destroys anything that existed before it
+     * ran.
+     *
+     * The catalogue's `is_destructive` flag, and D-10's refusal is keyed on it,
+     * so it is read from the code rather than declared in a comment: a file
+     * says what phase it is in, but a file that *said* it was harmless would be
+     * the one lie with a cost. The question asked is deliberately the same one
+     * AC-33 asks of an expand step - drops, renames, `change()`s and
+     * `ALTER … DROP/MODIFY` against a table the migration did not itself
+     * create - evaluated as though the file were an expand step whatever phase
+     * it declares. That is what makes a *contract* step that drops come out
+     * destructive, which is the only answer D-10 can act on.
+     *
+     * `TRUNCATE` is added on top, because it destroys every row while leaving
+     * the shape alone and so trips none of AC-33's patterns.
+     */
+    public static function isDestructive(string $source): bool
+    {
+        $code = self::codeOnly($source);
+
+        if (self::expandOnlyAdds($code, MigrationPhase::Expand) !== []) {
+            return true;
+        }
+
+        return preg_match('/\btruncate\b/i', self::upBody($code)) === 1;
+    }
+
+    /**
      * The given PHP source with every comment and docblock removed.
      *
      * Tokenised rather than regexed, because the rules are about code.

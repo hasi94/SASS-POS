@@ -1,5 +1,6 @@
 <?php
 
+use Flexipos\Kernel\Schema\Support\MigrationTree;
 use Illuminate\Support\Facades\File;
 use Symfony\Component\Finder\Finder;
 
@@ -477,4 +478,44 @@ function tenantBaselineTables(): array
         'settings',
         'settings_registry',
     ];
+}
+
+/*
+|--------------------------------------------------------------------------
+| Where the two migration trees are
+|--------------------------------------------------------------------------
+|
+| T-008 step 5. Three files apply or scan a tree - the static tree sweep, the
+| source-rules scan and the baseline apply - and each of them used to build
+| `database/migrations-tenant` out of a literal of its own. config/schema.php's
+| `tenant_migration_path` is now the **one authority** for that location, and
+| these two helpers are the only place the suite reads it, so a tree that moves
+| moves for every caller at once.
+|
+| The master tree is deliberately *not* a configuration key: it is the
+| directory Laravel itself discovers, so the framework is its authority and
+| `database_path('migrations')` is how to ask.
+|
+| Both are proven to follow the configuration rather than merely agree with it:
+| SchemaCataloguePublishTest moves the key and asserts the helpers move with it.
+|
+*/
+
+/**
+ * The tenant tree's path relative to the base path - the form `migrate --path`
+ * takes.
+ */
+function tenantMigrationPath(): string
+{
+    return (string) config('schema.tenant_migration_path');
+}
+
+/**
+ * The absolute directory of one migration tree.
+ */
+function migrationTreeDirectory(MigrationTree $tree): string
+{
+    return $tree === MigrationTree::Tenant
+        ? base_path(tenantMigrationPath())
+        : database_path('migrations');
 }

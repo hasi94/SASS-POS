@@ -57,6 +57,10 @@ function tenantStandIn(): string
 
 /**
  * Configure the stand-in and apply the baseline to it.
+ *
+ * The tree's location comes from tenantMigrationPath(), which reads
+ * config/schema.php's `tenant_migration_path` - the one authority for it since
+ * step 5. This file used to carry the directory name as a literal, twice.
  */
 function applyTenantBaseline(): void
 {
@@ -74,7 +78,7 @@ function applyTenantBaseline(): void
 
     expect(Artisan::call('migrate', [
         '--database' => tenantStandIn(),
-        '--path' => 'database/migrations-tenant',
+        '--path' => tenantMigrationPath(),
         '--force' => true,
     ]))->toBe(0);
 }
@@ -126,7 +130,7 @@ it('applies the baseline to an empty database and creates exactly six tables', f
     // A second run changes nothing and exits 0.
     expect(Artisan::call('migrate', [
         '--database' => tenantStandIn(),
-        '--path' => 'database/migrations-tenant',
+        '--path' => tenantMigrationPath(),
         '--force' => true,
     ]))->toBe(0)
         ->and(tenantStandInTables())->toBe($expected);

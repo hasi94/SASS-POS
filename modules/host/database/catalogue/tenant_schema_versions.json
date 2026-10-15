@@ -1,0 +1,50 @@
+[
+    {
+        "version": 1,
+        "migration": "0001_01_01_000001_create_schema_meta_table",
+        "phase": "expand",
+        "checksum": "22d5106399666935d64241d65037985a07ad1ccc9af9b06e83f7e38c6a119073",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 2,
+        "migration": "0001_01_01_000002_create_settings_registry_table",
+        "phase": "expand",
+        "checksum": "510c0f4a3f3d9f756897f034f1ec5d9e84efb5c7bdd9d0a0577e573e9dcb6f5f",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 3,
+        "migration": "0001_01_01_000003_create_settings_table",
+        "phase": "expand",
+        "checksum": "46ed79a75b5c605939f8610ee18c27170f9b41c84e8e2e7f8780d5503eb3ef01",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 4,
+        "migration": "0001_01_01_000004_create_number_sequences_table",
+        "phase": "expand",
+        "checksum": "976937277c637c49bb50ce420eeb31cddfa43721e414c6fe3f370c84d5ef35a5",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 5,
+        "migration": "0001_01_01_000005_create_audit_logs_table",
+        "phase": "expand",
+        "checksum": "e3ac4eee50003809f5f74eedafc2cddf1ba90c5ec9bf12d1be53bac57f94d10c",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 6,
+        "migration": "0001_01_01_000006_create_outbox_events_table",
+        "phase": "expand",
+        "checksum": "4e1c09b9d5690be55e6135f0f558db14ec880285ffee2c3a1d8f4241df3584a6",
+        "is_destructive": false,
+        "requires_offline": false
+    }
+]

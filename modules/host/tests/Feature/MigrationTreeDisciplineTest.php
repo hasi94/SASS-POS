@@ -39,9 +39,7 @@ use Flexipos\Kernel\Schema\Support\SourceRules;
  */
 function migrationTreeSources(MigrationTree $tree): array
 {
-    $directory = base_path(
-        'database/'.($tree === MigrationTree::Tenant ? 'migrations-tenant' : 'migrations')
-    );
+    $directory = migrationTreeDirectory($tree);
 
     $paths = glob($directory.DIRECTORY_SEPARATOR.'*.php') ?: [];
 
