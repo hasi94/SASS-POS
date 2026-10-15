@@ -7,7 +7,9 @@ BLOCKING questions.** Revised after `architect`'s plan (commit 2867974) and its 
 engine: decisions D-22 to D-33 (and D-34 to D-36, added after the 2026-10-14 data-loss incident: AC-61 and AC-63 reworded,
 the engine hold made legible) record six corrections to criteria that were not achievable as worded (AC-13, AC-19,
 AC-35(d), AC-48, the "both engines" wording, and the AC-1 table-name discrepancy), a rewording of AC-56, a new AC-68,
-and the plan's four upheld rulings. Engine scope is now **one engine, the one the environment names (MariaDB 10.4)**:
+and the plan's four upheld rulings. D-44 to D-48 (after plan `dd863c7`) record the status authority, how AC-58's
+dependency is known, the fleet-wide blocking set, the statement pin behind AC-48, and the split of AC-40 from AC-51.
+Engine scope is now **one engine, the one the environment names (MariaDB 10.4)**:
 MySQL 8.4 is out of scope for this task by the owner's decision of 2026-10-08, and its half of the cross-engine
 comparison is deferred.
 
@@ -338,10 +340,13 @@ can never satisfy it.
   exactly one run row and exactly one job row per selected tenant exist, every job `pending`, **before any tenant
   database has been touched** (FX-1's `up()` for the first tenant reads the job table and records the count it sees,
   which must equal the number of tenants).
-- **AC-40 [E]**: Given tenants at different `schema_version` and `size_bytes`, When a bulk run is planned, Then the
-  selected tenants are exactly those with status `active` or `read_only` and a version below the target; a tenant
-  already at the target is not planned; a tenant with status `archived` and an old version is not planned (control:
-  an `active` one at the same version **is**); and jobs are ordered by ascending `size_bytes`.
+- **AC-40 [E]**: Given tenants at different `schema_version` and `size_bytes`, When a **bulk** run (one that names no
+  tenant) is planned, Then the selected tenants are exactly those with status `active` or `read_only` and a version
+  below the target; a tenant already at the target is not planned; a tenant with status `archived` and an old version
+  is **filtered out silently**: it is not planned, the run does not throw and does not name it (control:
+  an `active` one at the same version **is** planned); and jobs are ordered by ascending `size_bytes`. This criterion
+  governs the **bulk** invocation only; the invocation that names a tenant is AC-51's, and it refuses instead of
+  filtering. The status read is `tenant_databases.status` (D-11).
 - **AC-41**: Given a planned run, When the work is dispatched, Then each tenant is one queue job on the `migrations`
   queue, and the serialised job payload contains the run, job and tenant identifiers and contains no credential,
   no reference and no password (scan the payload; **control:** the scan reports a payload with a planted password).
@@ -373,16 +378,27 @@ can never satisfy it.
   status and attempts, and the verdict is that statement's affected-row count; reading candidate ids beforehand grants
   nothing. (The engine has no `SELECT ... FOR UPDATE SKIP LOCKED`: it is a syntax error on 10.4.32, so select-for-update
   is not an available design. D-25.)
+  **What the evidence is (D-47).** The behavioural cases (two workers, one winner, expiry, the cap) cannot prove the
+  `WHERE` re-check on their own: the candidate read repeats the same terms, so they would pass with the re-check
+  deleted. The evidence for "independently proven" is therefore a **statement pin**: an assertion, read from the query
+  log, on the text of the executed claiming `UPDATE`, requiring that its `WHERE` re-checks status and attempts. That
+  assertion is SQL-shaped and looks like duplication beside the behavioural cases. **It is not duplication; it is the
+  only evidence of the re-check, and it must not be deleted or merged away.** `qa` quotes the pin itself in its
+  report, not the count of behavioural cases.
 - **AC-49 [E]**: Given a second database session holding the per-tenant lock for tenant B, When the runner reaches B,
   Then it does not wait: B is reported as not run because it is locked, nothing in B's database changed, and the
   remaining tenants complete. (The holder must be a separate session, because a lock is re-entrant within one.)
 - **AC-50 [E]**: Given a per-server cap of 1 and two `pending` jobs on one server and one on another, When three
   workers claim, Then the first server yields one claim and the second server's job is also claimable; when the first
   claim finishes, the second job on the first server becomes claimable.
-- **AC-51 [E]**: Given a tenant for each status, When a bulk run and a run naming that single tenant are planned, Then
-  bulk accepts only `active` and `read_only`; a named run also accepts `provisioning` and `failed`; and `migrating`,
-  `suspended`, `moving`, `restoring`, `archived` and an unrecognised status string are refused with the status named
-  (D-11). Each refused tenant's database is unchanged.
+- **AC-51 [E]**: Given a tenant for each status (read from `tenant_databases.status`, D-11), When a bulk run and a run
+  **naming that single tenant** are planned, Then the two invocations behave differently, and each half is its own case:
+  (a) a **bulk** run accepts only `active` and `read_only` and **silently omits** every other status (no exception, as
+  AC-40); (b) a **named** run accepts those two and also `provisioning` and `failed`, and **refuses with an
+  exception that names the status** for `migrating`, `suspended`, `moving`, `restoring`, `archived` and an
+  unrecognised status string (D-11). A reader who expects a bulk run to throw on `archived` is reading half (b) as if
+  it governed (a); it does not. In both invocations each excluded or refused tenant's database is unchanged and no job
+  row is written for it.
 - **AC-52 [E]**: Given FX-3 (`requires_offline`, recording the mapping status from inside `up()`), When it runs on
   an `active` tenant, Then the status seen inside is `migrating`, the status afterwards is `active`; when it
   **fails**, the status afterwards is `failed` (D-12). For a migration that is **not** `requires_offline`, the status
@@ -413,10 +429,25 @@ can never satisfy it.
   behind report is run, Then it prints, per version and per server, how many `active` and `read_only` tenants are
   there, names the oldest laggard, lists every tenant below the required version, and **does not list the archived
   one**. A tenant exactly at the required version is not listed (the control).
-- **AC-58 [E]**: Given FX-4 (a contract step that depends on an expand version) and an `active` tenant still below that
-  expand version, When a run (bulk or naming one tenant) is requested that would apply FX-4, Then the plan is refused
+- **AC-58 [E]**: Given FX-4 (a contract step at version V) and an `active` tenant still below the expand version it
+  depends on, When a run (bulk or naming one tenant) is requested that would apply FX-4, Then the plan is refused
   with the blocking tenants named and **no job row is written for FX-4**. When every `active` tenant is at or above the
-  expand version, the same run is planned. Tenants in status `provisioning` do not block.
+  expand version, the same run is planned. Tenants in status `provisioning` do not block. The blocking set is the
+  **whole fleet** the master holds, not the run's selection: a tenant left out of a named run still blocks (D-46).
+  **How the dependency is known (D-45).** Nothing in the catalogue declares it: there is no tag and no field. Today
+  it is **inferred as the version immediately before the contract step (V − 1)**, so a contract step at V is refused
+  while any such tenant is below V − 1. This is a reading, labelled as one in the code, and not a declared
+  dependency; a declared one (an optional header tag defaulting to V − 1, with a column on `schema_versions`) is a
+  backlog row to be built when the first contract step depends on a version more than one back. The inference **errs
+  safe**: it refuses more runs than a declared dependency would, never fewer, and it names its blockers. **The
+  deliberately strict case:** a single run that would apply several expands and then the contract step is
+  **refused**, even though every tenant would pass through those expands inside the same run; the expand must reach
+  and settle across the fleet before the contract touches any tenant. The remedy is a two-step run: first
+  `tenant:migrate --to=<V − 1>`, then the run that includes the contract. Test that refusal as its own case so
+  nobody "fixes" it. Because no input in this task can distinguish the inference from a declared dependency (the
+  baseline has no contract step and FX-4 and FX-5 depend on the adjacent expand), the dependency's declaration is
+  **not** claimed as delivered. **(diff)** that the refusal message names `--to=<V − 1>` as the next action is
+  `architect`'s plan §14.1 request for step 13a; `ba` has not seen the code.
 - **AC-59 [E]**: Given FX-5 (`is_destructive`), When a run that would apply it is requested, Then it is refused for
   every tenant with a message that names the migration and says no backup facility exists, and no tenant is altered
   (D-10). The shape of the refusal is part of the criterion (D-33): it happens at **plan time**, so **zero
