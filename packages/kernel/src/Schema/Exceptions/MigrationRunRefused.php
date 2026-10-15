@@ -49,6 +49,15 @@ final class MigrationRunRefused extends RuntimeException
      * A contract step would be applied to tenants that have not reached the
      * version before it (AC-58).
      *
+     * **It names the next action, not only the obstacle** (ruling 14.1, landed
+     * with step 13a). The known false refusal of the V - 1 reading is a single
+     * run that would apply several expands *and then* the contract: that run
+     * is refused even though every tenant would pass through those expands
+     * inside it, and the remedy is operational - `--to=<version - 1>` first,
+     * then the run that includes the contract step. An operator meets that
+     * remedy where they meet the refusal rather than in a document, because
+     * the refusal is the only thing they are certain to read.
+     *
      * @param  list<string>  $blockingTenants
      */
     public static function contractStepBlocked(string $migration, int $version, array $blockingTenants): self
@@ -57,7 +66,8 @@ final class MigrationRunRefused extends RuntimeException
             'The contract migration ['.$migration.'] (version '.$version.') cannot be planned while'
             .' these tenants are below version '.($version - 1).': '.implode(', ', $blockingTenants)
             .'. Expand and contract requires every tenant to carry the expand step before the'
-            .' contract step is applied to any of them. Nothing was planned.'
+            .' contract step is applied to any of them. Run `tenant:migrate --to='.($version - 1).'`'
+            .' first, then this run. Nothing was planned.'
         );
     }
 

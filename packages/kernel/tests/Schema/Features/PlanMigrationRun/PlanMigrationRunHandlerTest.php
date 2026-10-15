@@ -363,7 +363,11 @@ it('refuses a contract step while a tenant is below the version before it, namin
         ->and($touched['thrown']->getMessage())->toContain('fx4_contract_adds_the_key')
         // The blocking tenant by name: only the guard knows which tenant held
         // the run up, and a reader of the message has to be told where to look.
-        ->and($touched['thrown']->getMessage())->toContain($behind);
+        ->and($touched['thrown']->getMessage())->toContain($behind)
+        // And the next action, not only the obstacle (ruling 14.1, landed with
+        // step 13a): the V - 1 reading's known false refusal has an
+        // operational remedy, and an operator meets it here or not at all.
+        ->and($touched['thrown']->getMessage())->toContain('tenant:migrate --to=6');
 
     expect(runFixtureJobRows())->toBe([])
         ->and(runFixtureRunRows())->toBe([]);

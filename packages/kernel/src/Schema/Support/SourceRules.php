@@ -126,6 +126,235 @@ final class SourceRules
     }
 
     /**
+     * The statement rules, applied to a **shared helper** rather than to a
+     * migration file (step 13a check (c), ruling 12.1).
+     *
+     * `SourceRules::inspect()` reads migration files, so a statement that
+     * lives inside a helper the migration calls is invisible to it, and what
+     * stood in for the rule was a sentence in each helper's docblock:
+     * *additive by construction*. That is a property of today's
+     * implementation and not of the type, and this project has twice shipped
+     * a claim that was true when it was written.
+     *
+     * **Two differences from the migration pass, and both are the ruling's.**
+     * The created-table set is **empty** - a helper creates nothing, so every
+     * table it touches is one that existed before it ran - and there is **no
+     * phase**: a helper carries no phase comment, so it can never be the
+     * contract step that licenses a drop, a rename, a `change` or a foreign
+     * key onto an existing table. The statements are therefore matched over
+     * the whole file rather than inside `Schema::create()` / `Schema::table()`
+     * blocks, because a helper is handed a `Blueprint` and has no block of
+     * its own.
+     *
+     * AC-37 applies unchanged except that **both** connection names are
+     * forbidden rather than the one a tree would pick: a helper belongs to no
+     * tree, and there is no case for a shared helper naming either. Stricter
+     * than the criterion's wording, and declared here for the same reason
+     * check (e) declares its own tightening.
+     *
+     * **(c) is only as good as the set of files it is given**, which is why
+     * check (d) - {@see importsOutsideAllowedNamespaces()} - ships with it:
+     * without (d) a helper placed in a third namespace is invisible again.
+     *
+     * @return list<array{rule: string, found: string}>
+     */
+    public static function inspectSupportHelper(string $source): array
+    {
+        $code = self::codeOnly($source);
+
+        return array_merge(
+            self::helperTouchesWhatItDidNotCreate($code),
+            self::matchesAgainst($code, self::FOREIGN_KEY_CALLS, 'AC-34'),
+            self::matchesAgainst($code, self::HELPER_CONNECTION_NAMES, 'AC-37'),
+            self::qualifiedTableNames($code),
+            self::rawStatementVerbsAreLiterals($code),
+        );
+    }
+
+    /**
+     * Every `use` import in a migration file that is outside the two
+     * namespaces a migration may reach for (step 13a check (d), ruling 12.1).
+     *
+     * MEASURED 2026-10-15: the shipped migrations import six symbols between
+     * them and all six are inside those two namespaces, so the rule is green
+     * on both trees today.
+     *
+     * **This is what makes check (c) complete.** (c) scans one directory; (d)
+     * is the reason that directory is the only place a statement can hide,
+     * because a migration cannot import a helper from anywhere else. They
+     * ship together rather than one after the other, since either alone
+     * proves less than it appears to.
+     *
+     * Its subject is the files under the two **shipped** trees, read from
+     * configuration by the caller. Fixture migrations are outside the subject
+     * - which is why FX-3 may import `FixtureMigrationLog` - and that is a
+     * scope rule rather than an exemption list: a list would rot, and the
+     * scan asserts that the set it looked at equals those two trees.
+     *
+     * @return list<array{rule: string, found: string}>
+     */
+    public static function importsOutsideAllowedNamespaces(string $source): array
+    {
+        $found = [];
+
+        preg_match_all('/\buse\s+([A-Za-z_\\\\][A-Za-z0-9_\\\\]*)\s*;/', self::codeOnly($source), $matches);
+
+        foreach ($matches[1] as $import) {
+            $import = ltrim((string) $import, '\\');
+
+            foreach (self::MIGRATION_IMPORT_NAMESPACES as $allowed) {
+                if (str_starts_with($import, $allowed)) {
+                    continue 2;
+                }
+            }
+
+            $found[] = ['rule' => 'AC-37(d)', 'found' => $import];
+        }
+
+        return $found;
+    }
+
+    /**
+     * The only two namespaces a shipped migration may import from: the
+     * framework, and the one shared-helper directory check (c) scans.
+     *
+     * @var list<string>
+     */
+    private const MIGRATION_IMPORT_NAMESPACES = [
+        'Illuminate\\',
+        'Flexipos\\Kernel\\Schema\\Support\\',
+    ];
+
+    /**
+     * The calls that really create a foreign key, shared by the migration
+     * pass and the helper pass so the two cannot drift apart.
+     *
+     * @var list<string>
+     */
+    private const FOREIGN_KEY_CALLS = [
+        '/->\s*foreign\s*\(/',
+        '/->\s*constrained\s*\(/',
+        '/\badd\s+(?:constraint\s+\S+\s+)?foreign\s+key\b/i',
+    ];
+
+    /**
+     * Naming either connection, for a file that belongs to no tree.
+     *
+     * Assembled from fragments so this file does not carry the literals its
+     * own scan looks for - the technique the containment check and the
+     * vocabulary sweep use, and the reason neither has to exempt itself.
+     *
+     * @var list<string>
+     */
+    private const HELPER_CONNECTION_NAMES = [
+        '/connection\s*\(\s*[\x27"]mas'.'ter[\x27"]\s*\)/i',
+        '/connection\s*\(\s*[\x27"]ten'.'ant[\x27"]\s*\)/i',
+    ];
+
+    /**
+     * AC-33, for a helper: it may add, and nothing else.
+     *
+     * The created-table set is empty by definition, so every drop, rename and
+     * `change` here is against something that existed before the helper ran.
+     *
+     * @return list<array{rule: string, found: string}>
+     */
+    private static function helperTouchesWhatItDidNotCreate(string $code): array
+    {
+        $found = self::matchesAgainst($code, [
+            '/->\s*drop[A-Za-z]*\s*\(/',
+            '/->\s*rename[A-Za-z]*\s*\(/',
+            '/->\s*change\s*\(/',
+            '/Schema::\s*(?:drop|dropIfExists|rename)\s*\(/',
+            '/\bdrop\s+table\b/i',
+            '/\brename\s+table\b/i',
+            '/\btruncate\b/i',
+        ], 'AC-33');
+
+        preg_match_all('/\balter\s+table\s+[^;\x27"]*/i', $code, $alters);
+
+        foreach ($alters[0] as $alter) {
+            if (preg_match('/\b(?:drop|modify|change|rename)\b/i', (string) $alter) !== 1) {
+                continue;
+            }
+
+            $found[] = ['rule' => 'AC-33', 'found' => trim((string) $alter)];
+        }
+
+        return $found;
+    }
+
+    /**
+     * AC-37's schema-qualified half, over whatever blocks the code has.
+     *
+     * @return list<array{rule: string, found: string}>
+     */
+    private static function qualifiedTableNames(string $code): array
+    {
+        $found = [];
+
+        foreach (self::schemaBlocks($code) as $block) {
+            if (! str_contains($block['table'], '.')) {
+                continue;
+            }
+
+            $found[] = ['rule' => 'AC-37', 'found' => 'schema-qualified table '.$block['table']];
+        }
+
+        return $found;
+    }
+
+    /**
+     * The first argument of a raw-statement call must **begin with a string
+     * literal** (step 13a check (c), the extra tooth).
+     *
+     * This is the real failure mode of a text scan: every rule above reads
+     * the statement's verb out of the source, so a verb that arrives in a
+     * variable is a statement no rule can read, and the drop the whole of
+     * check (c) exists to catch would travel in a string nobody scanned.
+     *
+     * Matched in the method form as well as the static one the ruling words,
+     * because a helper holding a Connection would otherwise escape. Stricter
+     * than the wording, and declared.
+     *
+     * Concatenation onto a leading literal is allowed: `JsonValidity`'s
+     * statement is exactly that shape, and the verb is in the part the scan
+     * can read.
+     *
+     * @return list<array{rule: string, found: string}>
+     */
+    private static function rawStatementVerbsAreLiterals(string $code): array
+    {
+        $pattern = '/(?:DB::|->)\s*(statement|unprepared)\s*\(/';
+
+        if (preg_match_all($pattern, $code, $matches, PREG_OFFSET_CAPTURE | PREG_SET_ORDER) === 0) {
+            return [];
+        }
+
+        $found = [];
+
+        foreach ($matches as $match) {
+            $open = (int) $match[0][1] + strlen((string) $match[0][0]) - 1;
+            $close = self::matchingBracket($code, $open, '(', ')');
+
+            if ($close === null) {
+                continue;
+            }
+
+            $arguments = self::topLevelArguments(substr($code, $open + 1, $close - $open - 1));
+            $first = $arguments[0] ?? '';
+
+            if (str_starts_with($first, "'") || str_starts_with($first, '"')) {
+                continue;
+            }
+
+            $found[] = ['rule' => 'AC-33(c)', 'found' => (string) $match[1][0].'('.$first.')'];
+        }
+
+        return $found;
+    }
+
+    /**
      * The identifier-column helper's own, narrower rule: `ascii` and `ascii_bin`
      * are what AC-2 and AC-36 require of a ULID column and cannot be had without
      * naming them; any other charset, collation or engine literal in this file is
@@ -384,11 +613,7 @@ final class SourceRules
             return [];
         }
 
-        $patterns = [
-            '/->\s*foreign\s*\(/',
-            '/->\s*constrained\s*\(/',
-            '/\badd\s+(?:constraint\s+\S+\s+)?foreign\s+key\b/i',
-        ];
+        $patterns = self::FOREIGN_KEY_CALLS;
 
         $found = [];
         $body = self::upBody($code);
@@ -411,7 +636,21 @@ final class SourceRules
     }
 
     /**
-     * AC-35(a): a decimal column states its precision.
+     * AC-35(a): a decimal column states **both** its precision and its scale.
+     *
+     * Three arguments, because the first is the column name:
+     * `decimal('x', 18, 4)` passes and `decimal('x', 18)` does not.
+     *
+     * **Stricter than the criterion as `ba` first worded it, deliberately and
+     * on the record** (ruling 12.3, step 13a check (e)). AC-35(a) asked only
+     * for a precision, which lets `decimal('x', 18)` through with the
+     * framework defaulting the scale to 2 - and at 18,6 a quantity of 0.001
+     * then becomes zero, which is the same sentence as the bare-`decimal()`
+     * harm the rule exists for, differing only in magnitude. Every shipped
+     * column is fully specified at 18,4 or 18,6, so the tightening is green on
+     * both trees and the fixture pair carries the proof: `decimal('x', 18)` is
+     * reported and `decimal('x', 18, 4)` is not. An undeclared stricter rule
+     * would not be acceptable; a declared one is.
      *
      * @return list<array{rule: string, found: string}>
      */
@@ -420,7 +659,7 @@ final class SourceRules
         $found = [];
 
         foreach (self::callsNamed($code, ['decimal', 'unsignedDecimal']) as $call) {
-            if (count($call['arguments']) >= 2) {
+            if (count($call['arguments']) >= 3) {
                 continue;
             }
 
