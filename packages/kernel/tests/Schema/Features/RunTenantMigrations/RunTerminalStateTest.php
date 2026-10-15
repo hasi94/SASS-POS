@@ -221,6 +221,49 @@ it('writes no new status and no new finished_at when the run is already terminal
 
 /*
 |--------------------------------------------------------------------------
+| R-W1: the sibling of the case above, for the other end of the run
+|--------------------------------------------------------------------------
+|
+| `markRunning()` ran on every invocation and wrote `started_at`
+| unconditionally, while `finish()` preserves `finished_at`. A drained queued
+| run therefore ended with a start **later than** its finish - a row that
+| lies about its own duration, the same defect class the case above closes
+| for the other column. The moved clock is what makes this an assertion: with
+| a stopped clock the restamped value and the original are the same string.
+*/
+
+it('leaves started_at where it was when a finishing invocation runs a second time', function () {
+    $runId = terminalStateRun([
+        'status' => 'done',
+        'finished_at' => '2026-10-15 09:06:00.000',
+    ]);
+
+    terminalStateResume($runId);
+
+    $first = migrateFixtureRunRow($runId);
+    $startedAt = (string) $first['started_at'];
+    $finishedAt = (string) $first['finished_at'];
+
+    expect($startedAt)->not->toBe('');
+
+    // The second invocation is not hypothetical: it is what the queued path
+    // requires, because only a resumption after the queue drains can write
+    // the run's counters.
+    app(RunnerClock::class)->advanceMinutes(17);
+
+    terminalStateResume($runId);
+
+    $run = migrateFixtureRunRow($runId);
+
+    expect((string) $run['started_at'])->toBe($startedAt)
+        ->and((string) $run['finished_at'])->toBe($finishedAt)
+        // The property the column exists for, asserted rather than inferred
+        // from the two equalities above.
+        ->and((string) $run['started_at'] <= (string) $run['finished_at'])->toBeTrue();
+});
+
+/*
+|--------------------------------------------------------------------------
 | What the operator is told
 |--------------------------------------------------------------------------
 */

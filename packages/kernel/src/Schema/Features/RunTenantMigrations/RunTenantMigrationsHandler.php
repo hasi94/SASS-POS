@@ -237,6 +237,18 @@ final class RunTenantMigrationsHandler
         }
     }
 
+    /**
+     * Put the run into `running`, keeping the moment it actually started.
+     *
+     * **`started_at` is written once** (R-W1). Every invocation passes
+     * through here, and the queued path *requires* a second one - the
+     * resumption that writes the counters after the queue drains runs
+     * `markRunning()` before `finish()`. Restamping would move the start
+     * past the `finished_at` that `finish()` deliberately preserves, and the
+     * row would report a run that ended before it began. Same rule, and the
+     * same reason, as `coalesce(started_at, ...)` in the job claim: the first
+     * writer of a start is the one that means it.
+     */
     private function markRunning(string $runId): void
     {
         $now = $this->clock->timestamp();
@@ -245,7 +257,7 @@ final class RunTenantMigrationsHandler
             ->where('id', $runId)
             ->update([
                 'status' => self::RUN_RUNNING,
-                'started_at' => $now,
+                'started_at' => $this->runTimestamp($runId, 'started_at') ?? $now,
                 'updated_at' => $now,
             ]);
     }
@@ -307,7 +319,7 @@ final class RunTenantMigrationsHandler
         ]);
 
         if ($outstanding === 0) {
-            $update['finished_at'] = $this->finishedAt($runId) ?? $now;
+            $update['finished_at'] = $this->runTimestamp($runId, 'finished_at') ?? $now;
         }
 
         $this->table('tenant_migration_runs')->where('id', $runId)->update($update);
@@ -324,9 +336,14 @@ final class RunTenantMigrationsHandler
     }
 
     /**
-     * When this run was finished before, if it was.
+     * One of the run's own moments, if it has been written already.
+     *
+     * One reader for both `started_at` and `finished_at`, so "a moment is
+     * written once" cannot hold for one column and lapse for the other -
+     * which is exactly how R-W1 arrived: the rule was built for
+     * `finished_at` and not for its twin.
      */
-    private function finishedAt(string $runId): ?string
+    private function runTimestamp(string $runId, string $column): ?string
     {
         $row = $this->table('tenant_migration_runs')->where('id', $runId)->first();
 
@@ -334,9 +351,9 @@ final class RunTenantMigrationsHandler
             return null;
         }
 
-        $finishedAt = ((array) $row)['finished_at'] ?? null;
+        $value = ((array) $row)[$column] ?? null;
 
-        return is_string($finishedAt) && $finishedAt !== '' ? $finishedAt : null;
+        return is_string($value) && $value !== '' ? $value : null;
     }
 
     private function table(string $table): Builder
