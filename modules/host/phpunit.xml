@@ -46,6 +46,26 @@
         <env name="APP_ENV" value="testing"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
+        <!--
+            The Argon2id work factor the suite hashes at (T-009 step 4). The
+            shipped defaults in config/hashing.php are the real ones -
+            memory 65536, time 4, threads 1 - and they are asserted from that
+            file itself, so this override cannot be mistaken for the
+            platform's choice.
+
+            Measured on this machine: default Argon2id costs 0.232 s to hash
+            and 0.222 s to verify, against 0.0015 s / 0.0014 s at the triple
+            below - 150x. The lockout criteria alone submit dozens of
+            passwords, so the default would add tens of seconds to a gate
+            whose slowest step is budgeted at 106 s cache-cold. **The
+            algorithm under test is unchanged**; only its work factor moves,
+            which is the same decision BCRYPT_ROUNDS=4 above already encodes.
+            A test asserting a duration would be invalid under this, and the
+            spec's security NFR already forbids one.
+        -->
+        <env name="ARGON_MEMORY" value="1024"/>
+        <env name="ARGON_TIME" value="1"/>
+        <env name="ARGON_THREADS" value="1"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
         <env name="DB_CONNECTION" value="sqlite"/>
