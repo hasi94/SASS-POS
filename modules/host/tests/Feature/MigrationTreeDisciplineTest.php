@@ -1,7 +1,9 @@
 <?php
 
+use Flexipos\Kernel\Schema\Support\MigrationCatalogue;
 use Flexipos\Kernel\Schema\Support\MigrationTree;
 use Flexipos\Kernel\Schema\Support\SourceRules;
+use Illuminate\Support\Facades\File;
 
 /*
 |--------------------------------------------------------------------------
@@ -160,4 +162,121 @@ it('reads a table list that only a non-empty tree can produce', function () {
     $prose = '<?php /* creates nothing: Schema::create(\'branches\') is not ours */ $x = 1;';
 
     expect(SourceRules::tablesCreatedIn($prose))->toBe([]);
+});
+
+/*
+|--------------------------------------------------------------------------
+| No fixture migration under the shipped tenant tree
+|--------------------------------------------------------------------------
+|
+| T-008 step 13, buildable only now that step 8's fixtures exist. The FX files
+| are migrations in every sense - a Migration subclass with an up() - and the
+| shipped tenant tree is applied to **every tenant database there will ever
+| be**. One of them copied or moved into that directory would be published
+| into the catalogue by `schema:publish`, numbered, and then applied to real
+| shops; FX-5 drops a column, and FX-2 fails on purpose.
+|
+| Matched two ways, because a copy is renamed more often than it is rewritten:
+| by LF-normalised checksum, which survives any rename, and by the FX naming
+| convention, which survives an edit. Either one reports the file.
+|
+*/
+
+/**
+ * Every FX fixture migration, as checksum => file name.
+ *
+ * @return array<string, string>
+ */
+function fixtureMigrationFingerprints(): array
+{
+    $fingerprints = [];
+
+    foreach (range(1, 6) as $number) {
+        $directory = base_path('tests/Fixtures/TenantMigrations/FX'.$number);
+
+        foreach (glob($directory.DIRECTORY_SEPARATOR.'*.php') ?: [] as $path) {
+            $fingerprints[MigrationCatalogue::checksumOf((string) file_get_contents($path))]
+                = pathinfo($path, PATHINFO_FILENAME);
+        }
+    }
+
+    return $fingerprints;
+}
+
+/**
+ * The files in one directory that are fixture migrations.
+ *
+ * @return list<string>
+ */
+function fixtureMigrationsUnder(string $directory): array
+{
+    $fingerprints = fixtureMigrationFingerprints();
+    $found = [];
+
+    foreach (glob(rtrim($directory, '/\\').DIRECTORY_SEPARATOR.'*.php') ?: [] as $path) {
+        $name = pathinfo($path, PATHINFO_FILENAME);
+        $checksum = MigrationCatalogue::checksumOf((string) file_get_contents($path));
+
+        // By content, so a renamed copy is still reported, or by name, so an
+        // edited one is.
+        if (array_key_exists($checksum, $fingerprints) || preg_match('/(^|_)fx\d+(_|$)/i', $name) === 1) {
+            $found[] = $name;
+        }
+    }
+
+    sort($found);
+
+    return $found;
+}
+
+it('holds no fixture migration under the shipped tenant tree', function () {
+    expect(fixtureMigrationsUnder(migrationTreeDirectory(MigrationTree::Tenant)))->toBe([])
+        // The master tree too: the runner does not apply it, but `php artisan
+        // migrate` does, and a fixture there would reach the master database.
+        ->and(fixtureMigrationsUnder(migrationTreeDirectory(MigrationTree::Master)))->toBe([]);
+});
+
+it('reports a fixture migration copied into a tree, under either name', function () {
+    // Without this the check above also passes against a detector that matches
+    // nothing - which is how a hygiene check becomes decorative.
+    $scratch = storage_path('app'.DIRECTORY_SEPARATOR.'fixture-migration-scan');
+
+    File::deleteDirectory($scratch);
+    File::ensureDirectoryExists($scratch);
+
+    try {
+        $fx5 = glob(base_path('tests/Fixtures/TenantMigrations/FX5').DIRECTORY_SEPARATOR.'*.php')[0];
+
+        // Copied and **renamed**, so the name rule cannot be what catches it:
+        // this one is caught by its checksum.
+        File::copy($fx5, $scratch.DIRECTORY_SEPARATOR.'0007_create_something_harmless.php');
+
+        // Edited and left named like a fixture, so the checksum cannot be what
+        // catches it: this one is caught by its name.
+        File::put(
+            $scratch.DIRECTORY_SEPARATOR.'0008_fx9_renamed_but_edited.php',
+            (string) file_get_contents($fx5)."\n// edited, so the checksum moved\n"
+        );
+
+        // The negative control, in the same directory: an ordinary migration is
+        // not reported, or the check would forbid the tree from holding
+        // anything at all.
+        File::copy(
+            glob(migrationTreeDirectory(MigrationTree::Tenant).DIRECTORY_SEPARATOR.'*.php')[0],
+            $scratch.DIRECTORY_SEPARATOR.'0009_an_ordinary_baseline_file.php'
+        );
+
+        expect(fixtureMigrationsUnder($scratch))->toBe([
+            '0007_create_something_harmless',
+            '0008_fx9_renamed_but_edited',
+        ]);
+    } finally {
+        File::deleteDirectory($scratch);
+    }
+});
+
+it('fingerprints the six fixtures it is scanning for', function () {
+    // The scan is only as good as the set it scans for: six directories, one
+    // migration each, and six distinct checksums.
+    expect(fixtureMigrationFingerprints())->toHaveCount(6);
 });

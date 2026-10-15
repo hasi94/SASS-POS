@@ -266,3 +266,67 @@ it('reports a planted credential column, and not the design flag of the same sha
     // cannot hold one; the same credential name on a string column can.
     expect($found)->toBe(['api_secret', 'app_password', 'credential_version_text', 'db_credential']);
 });
+
+/*
+|--------------------------------------------------------------------------
+| `sessions` carries no foreign key to `users`
+|--------------------------------------------------------------------------
+|
+| T-008 step 13, and plan section 3 finding 6. `users.id` is a ULID CHAR(26)
+| and the stock `sessions.user_id` is a bigint. Correcting that is FP-207 and
+| is out of scope here; what is in scope is that the mismatch cannot surface
+| as a failing insert in production. The stock migration ships no key, so this
+| is a guard against one being added by a well-meaning later edit - on the day
+| it is added, the two column types have to be reconciled first, and this test
+| is where that is said.
+|
+| Read from the applied schema rather than from the migration source: a key can
+| be added by an ALTER in a later migration, and the source of the file that
+| creates the table would not know.
+|
+*/
+
+/**
+ * The foreign keys one table carries, as "column -> table.column".
+ *
+ * SQLite's `pragma foreign_key_list` answers whatever the schema declares,
+ * whether or not the connection enforces keys - and the master stanza does not
+ * enforce them - so the reading is about the schema and not about enforcement.
+ *
+ * @return list<string>
+ */
+function masterStandInForeignKeys(string $table): array
+{
+    $keys = [];
+
+    foreach (DB::connection('master')->select('pragma foreign_key_list('.$table.')') as $key) {
+        $key = (array) $key;
+        $keys[] = $key['from'].' -> '.$key['table'].'.'.$key['to'];
+    }
+
+    sort($keys);
+
+    return $keys;
+}
+
+it('gives sessions no foreign key to users, so the ULID and bigint mismatch cannot bite', function () {
+    masterStandInIsConfigured();
+
+    expect(Artisan::call('migrate', ['--database' => 'master', '--force' => true]))->toBe(0);
+
+    expect(masterStandInForeignKeys('sessions'))->toBe([]);
+
+    // The control, and it is the whole value of the case: the reader does find
+    // keys where the schema declares them, so an empty list above is a fact
+    // about `sessions` rather than about a pragma that answers nothing. The
+    // master tree is full of real keys - this one is in the same database, on
+    // a table the same migration run created.
+    expect(masterStandInForeignKeys('tenant_databases'))
+        ->toContain('server_id -> database_servers.id')
+        ->toContain('tenant_id -> tenants.id');
+
+    // And the column types that make the key a bad idea today, named here so
+    // FP-207 meets this test when it changes one of them.
+    expect(Schema::connection('master')->getColumnType('sessions', 'user_id'))->toBe('integer')
+        ->and(Schema::connection('master')->getColumnType('users', 'id'))->toBe('varchar');
+});
