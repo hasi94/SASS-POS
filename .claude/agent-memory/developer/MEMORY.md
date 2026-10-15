@@ -19,3 +19,6 @@
 - [Delete the capability, not the bound](feedback_delete_the_capability_not_the_bound.md) — a ceiling is a guess; the sweep went, and a self-scanning static test replaced the prose.
 - [SQLite stand-in vs the engine](project_sqlite_standin_vs_engine.md) — the four statements SQLite refuses, and why `migrate` in a test needs `--database=master`.
 - [Exempt by property, not by name](feedback_exempt_by_property_not_by_name.md) — a red scan over correct code is narrowed by a type or a phase, never by an allow-list entry.
+- [A red phase needs a restore path](feedback_red_phase_needs_a_restore_path.md) — `cp && script` short-circuited and the only copy of an uncommitted step was the mutated file.
+- [Prove an authority by moving it](feedback_prove_an_authority_by_moving_it.md) — a test that agrees with the shipped value cannot tell a config read from a second literal.
+- [The suite absorbs a changed default](project_suite_absorbs_a_changed_default.md) — a new shipped default broke 34 cases in another role's files; phpunit.xml is where it goes.
