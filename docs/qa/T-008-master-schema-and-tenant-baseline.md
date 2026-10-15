@@ -211,3 +211,52 @@ Green (28 cases): `modules/host/tests/Feature/` `QaMasterStandInShapeTest`, `QaT
 Red by design, one defect each (9 cases fail): `QaPlannedStatusReachabilityTest` (BUG-1), `QaEngineHoldIsNotClearableFromTheShellTest` (BUG-2), `QaPerTenantLockWiringTest` (BUG-3), `QaCredentialRotationRetryWiringTest` (BUG-4), `QaSourceRuleEvasionShapesTest` (BUG-5, BUG-6). They turn green when `dev` fixes the defect and must not be skipped or weakened.
 
 Run 1: FAIL (not verified).
+
+---
+
+# Round 2 (2026-10-15, tip 63c635f)
+
+## Verdict: FAIL on a technicality of one open minor, NOT VERIFIED as a task
+
+Round-2 line, same method as round 1: **PASS 13 · PARTIAL 49 · NOT VERIFIED (held) 6 · FAIL 0 · out of 68** (13+49+6+0=68).
+
+- AC-16 and AC-49 move FAIL to NOT VERIFIED: the wiring now exists (BUG-3, BUG-4 closed), so there is no longer a finding that needs no engine. They are **not** PASS and **not** PARTIAL-by-wiring. The advisory lock is re-entrant inside one session, so a single-session test cannot show exclusion (AC-49, AC-65), and the credential half of AC-16 needs an authentication failure SQLite cannot produce. **Wiring did not make them pass; an engine will not either, without a two-session and a real-auth-failure test nobody has written.**
+- AC-7, AC-8, AC-9, AC-65 unchanged NOT VERIFIED. AC-51, AC-52, AC-58 stay `[E]`, NOT VERIFIED on the engine half; what landed is their stand-in half (PARTIAL).
+- **Planning number, unchanged: only 10 of the 52 `[E]` criteria have an engine test at all.** Clearing G-1 runs 10 skipped tests; the other 42 need a matrix nobody has written. The dump does not finish the task.
+- Step 13d (reachability check) is **not built**; not recorded as covered.
+- A green gate under the hold means nothing failed, not that engine criteria pass.
+
+## Gate (D-12 state: warm, 2026-10-15, my own run)
+`composer check` exit 0: 818 passed, 11 skipped, 4258 assertions, matches the lead's figure. Pest step 100.56s, whole check 1m50s, ratio 8.92 against the 900s limit. `clean-engine` printed "nothing was read and no connection was opened". No connection to MySQL by me; nothing written to E:. Working tree clean after every mutation (restored with git checkout, verified by git status).
+
+## BUG status
+| BUG | Result | Evidence I produced |
+|---|---|---|
+| 1 | CLOSED | `permits()` is the one authority; mutating the planner away from it fails 3 tests when the authority moves (see attack 1) |
+| 2 | CLOSED | `onHold()` returns `EngineOnHold::HELD`, a constant. `ENGINE_HOLD=0` in the shell: the two hold tests still pass |
+| 3 | CLOSED | Mutant: `takeLock` returns true without acquiring: 4 failed (3 behavioural + wiring scan) |
+| 4 | CLOSED | Mutant no-evict: 2 failed. Mutant no-retry (rethrow): 2 failed |
+| 5, 6 | CLOSED | gate green; rules not narrowed (not re-mutated) |
+| 7 | CLOSED | Mutant: blocking = `bulkStatuses()`: 8 failed (7 dataset rows + the "two different rules" case) |
+| 8, 9 | CLOSED | dispatch has a caller (`RunTenantMigrationsHandler::dispatch`, `TenantMigrateCommand`); hold class names G-1 and its clearing condition |
+| 10 | CLOSED (round 1) | |
+| restore rule | CLOSED, signature reproduced | below |
+
+### Attack 2: restore rule control signature (reproduced)
+Mutant: `restoredStatus()` body replaced by `return self::TENANT_ACTIVE;` (the literal). Result: **2 failed, 2 passed**: (a) read_only and (b) provisioning FAIL; (c) active and (d) failed-to-active PASS. Exactly the designed signature, so the test is specific to the promotion defect. Restored; clean.
+
+### Attack 1: derived-set proof (partially broken)
+- Mutant A: planner `NAMED_ACCEPTED` replaced by a second literal copy `["active","read_only","provisioning","failed"]`. **All 11 relevant tests pass.** Equality passes (same values); the source scan passes because it searches the single-quoted needle `'active'`, so a double-quoted spelling or a concatenation evades it. This is the hole `dev` described, constructed.
+- Mutant B: A plus `suspended` added to the authority. **3 fail** (equality, the authority-driven plan dataset, and the `suspended` refusal row). So a second copy is caught the moment the authority moves, which is the case that matters. What is NOT caught is the copy sitting there agreeing today.
+- Incidental guard: Pint fails the double-quote form (`single_quote`) and removing the only use of the import (`no_unused_imports`); the concatenation form with the import kept was not isolated cleanly (other fixers also fired on my sed-edited file, so I do not claim lint is a reliable second tooth).
+
+### BUG-11 (minor)
+- Test: `PlannedStatusAuthorityTest` "writes no accepted status of its own anywhere in the planner source".
+- Expected: a second literal list of the accepted statuses in the planner fails the scan.
+- Actual: passes for `"active"` (double quotes) or `'act'.'ive'`; needle is `"'".$status."'"`.
+- Fix suggestion (not mine to edit): scan with a quote-agnostic regex (`/['"]active['"]/`) and also fail on any array literal of two or more of the statuses. Low severity because drift is caught by the dataset tooth (Mutant B).
+
+## QA files this round
+None added; mutation only, all restored.
+
+Run 2: FAIL (BUG-11 minor open) -> task still NOT VERIFIED.
