@@ -9,6 +9,8 @@ the engine hold made legible) record six corrections to criteria that were not a
 AC-35(d), AC-48, the "both engines" wording, and the AC-1 table-name discrepancy), a rewording of AC-56, a new AC-68,
 and the plan's four upheld rulings. D-44 to D-48 (after plan `dd863c7`) record the status authority, how AC-58's
 dependency is known, the fleet-wide blocking set, the statement pin behind AC-48, and the split of AC-40 from AC-51.
+D-49 and D-50 (after plan `3f32a1f`, sections 15.1 and 15.2) record the split of AC-53 into halves (a) and (b) and the
+normative order enter, mark, apply, restore.
 Engine scope is now **one engine, the one the environment names (MariaDB 10.4)**:
 MySQL 8.4 is out of scope for this task by the owner's decision of 2026-10-08, and its half of the cross-engine
 comparison is deferred.
@@ -402,10 +404,32 @@ can never satisfy it.
 - **AC-52 [E]**: Given FX-3 (`requires_offline`, recording the mapping status from inside `up()`), When it runs on
   an `active` tenant, Then the status seen inside is `migrating`, the status afterwards is `active`; when it
   **fails**, the status afterwards is `failed` (D-12). For a migration that is **not** `requires_offline`, the status
-  seen inside is `active` and is never `migrating`.
-- **AC-53 [E]**: Given a warm mapping cache for tenant B, When the runner sets B's status to `migrating`, Then in the
-  same process, with no clock advance, entering B's scope for the serving purpose is refused as not served; and after the run restores
-  `active` and advances the version, entering B's scope is accepted without a stale refusal (D-19).
+  seen inside is `active` and is never `migrating`. **Order (D-50):** the run enters the tenant's scope while the
+  status is still `active`, then writes `migrating`, applies, and restores `active` (or `failed`); the status write is
+  inside the scope, never before the entry, because scope entry refuses any status but `active`.
+- **AC-53 [E]**: Production behaviour: while tenant B is being migrated, a serving entry for B is refused, and
+  after the run B is served again at the new version with no stale refusal (D-19). That sentence cannot be asserted
+  as worded and is **split into halves (a) and (b), each its own case, which compose to it (D-49)**. The literal
+  form (a serving entry **during** the run) is unreachable in one process: scope entry for a tenant already entered
+  is re-entrant, increments a depth counter and returns **before** the status check, so a test written to that form
+  would pass for the wrong reason. A real database engine does not change that; the literal form needs a **second
+  request-path process**, the same class as AC-49 and the lock criteria of AC-65, and is not in this task.
+  (a) **The cache tells the truth.** Given a warm mapping read for tenant B made through the request path's caching
+  reader, When the runner marks B `migrating`, Then that same read, from inside the run and with no clock advance,
+  answers `migrating`; and after the run restores `active` and advances the version, the same read answers `active`
+  at the new version. **The evidence is the mask control beside it, not the eviction case:** the same warm read,
+  after a status change written **around** the mapping writer (directly, bypassing it), still answers the stale
+  value. Without that control the test also passes on a cache that never updates. (Shipped, plan step 11.)
+  (b) **A `migrating` mapping is refused for serving.** Given a mapping whose status is `migrating`, When a serving
+  entry for that tenant is attempted, Then it throws `TenantDatabaseNotActive` naming the status `migrating`, and
+  the state is exactly as before (the AC-10 assertions: tenant stanza unchanged, no current tenant). No run, no
+  second process, no engine is needed.
+  **Current standing (plan 15.2, D-49).** Half (b) is true of the code and **asserted nowhere**: the non-active
+  refusal dataset in `packages/kernel/tests/Feature/TenancyResolutionTest.php` (lines 134-135 at the time of
+  writing) holds `suspended` and `provisioning` only. It is closed by **one dataset row**, `migrating`, with its
+  fixture mapping, which `dev` adds. Until it lands AC-53 is **NOT VERIFIED for two reasons, and `qa` records both**:
+  the `[E]` marker (with the engine hold and G-1 named), and the unasserted half (b). Half (a) alone must not be
+  reported as AC-53 passing.
 - **AC-54 [E]**: Given a tenant whose own `migrations` table shows the target applied but whose mapping still shows an
   older `schema_version` (a crash between the two writes), When a run is executed for it, Then the mapping is
   corrected to the applied version and **no migration is re-applied** (assert the tenant's `migrations` table is
