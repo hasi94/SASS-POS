@@ -6,6 +6,7 @@ use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -29,20 +30,25 @@ return Application::configure(basePath: dirname(__DIR__))
         // runner is what clears it. 503 with Retry-After is what says that to a
         // browser, a till and a monitor alike (AC-19).
         //
-        // The message is the exception's own, which carries the tenant id and
-        // the two version numbers and no credential - the version gate runs
-        // before the credential reference is dereferenced, so there is nothing
-        // in it to redact.
+        // **The body is a fixed sentence; the detail goes to the log** (R-W2).
+        // The exception's own message carries the tenant id and both version
+        // numbers. It carries no credential - the version gate runs before the
+        // credential reference is dereferenced, so there is nothing in it to
+        // redact - but it is still operational detail about a deployment, and
+        // this response reaches anyone who can make a request. An operator
+        // reads the log; a till reads the status code.
         $exceptions->render(function (TenantSchemaBehind $behind, Request $request) {
             $retryAfter = (string) max(1, (int) config('tenancy.behind_retry_after', 30));
 
+            Log::warning($behind->getMessage());
+
             if ($request->expectsJson()) {
                 return response()->json([
-                    'message' => $behind->getMessage(),
+                    'message' => TenantSchemaBehind::PUBLIC_MESSAGE,
                 ], 503, ['Retry-After' => $retryAfter]);
             }
 
-            return response($behind->getMessage(), 503, ['Retry-After' => $retryAfter]);
+            return response(TenantSchemaBehind::PUBLIC_MESSAGE, 503, ['Retry-After' => $retryAfter]);
         });
 
         // A floor nobody configured is a misconfiguration, and it is 503
@@ -52,13 +58,21 @@ return Application::configure(basePath: dirname(__DIR__))
         // that retried forever against one would be a second incident. Its
         // absence is what makes the two states distinguishable at the wire and
         // not only in a log.
+        //
+        // **The body is a fixed sentence** (R-W2), and here the reason is
+        // sharper than above: the message names the configuration key that
+        // fixes the deployment, so returning it verbatim hands an
+        // unauthenticated client the remedy for a server it does not own. The
+        // key and the tenant go to the log.
         $exceptions->render(function (RequiredSchemaVersionNotConfigured $unconfigured, Request $request) {
+            Log::warning($unconfigured->getMessage());
+
             if ($request->expectsJson()) {
                 return response()->json([
-                    'message' => $unconfigured->getMessage(),
+                    'message' => RequiredSchemaVersionNotConfigured::PUBLIC_MESSAGE,
                 ], 503);
             }
 
-            return response($unconfigured->getMessage(), 503);
+            return response(RequiredSchemaVersionNotConfigured::PUBLIC_MESSAGE, 503);
         });
     })->create();

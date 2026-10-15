@@ -24,6 +24,18 @@ namespace Flexipos\Kernel\Tenancy\Exceptions;
  */
 final class TenantSchemaBehind extends TenancyException
 {
+    /**
+     * What an unauthenticated caller is told, which is everything it can act
+     * on and nothing more (R-W2).
+     *
+     * `getMessage()` names the tenant and both version numbers. That belongs
+     * in the log, where an operator reads it, and not in a 503 body, which
+     * anyone who can reach the deployment receives. The sentence lives here
+     * rather than in the host's renderer so that the public half and the
+     * operator half of this refusal are written side by side.
+     */
+    public const PUBLIC_MESSAGE = 'This shop is temporarily unavailable while its database is brought up to date. Please try again shortly.';
+
     public static function forTenant(string $tenantId, int $schemaVersion, int $requiredVersion): self
     {
         return new self(sprintf(

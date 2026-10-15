@@ -35,9 +35,22 @@ final class RequiredSchemaVersionNotConfigured extends TenancyException
 {
     /**
      * The environment variable an operator has to set, named in the message
-     * because the message is the whole of what an operator gets.
+     * because the message is the whole of what an operator gets - on the log
+     * line, which since R-W2 is the only place it is written.
      */
     public const VARIABLE = 'APP_REQUIRED_SCHEMA_VERSION';
+
+    /**
+     * What an unauthenticated caller is told (R-W2).
+     *
+     * `getMessage()` names the tenant **and the configuration key that fixes
+     * the deployment**. Handing both to anyone who can reach a misconfigured
+     * installation is the leak; the status code and the deliberate absence of
+     * `Retry-After` are not. So the message goes to the log an operator
+     * reads, and the wire gets a sentence that says only "not us to fix, and
+     * waiting will not help".
+     */
+    public const PUBLIC_MESSAGE = 'This shop is not available. The deployment is misconfigured and an operator has to act; retrying will not help.';
 
     public static function forTenant(string $tenantId): self
     {
