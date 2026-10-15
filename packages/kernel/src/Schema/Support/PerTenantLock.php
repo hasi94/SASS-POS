@@ -43,9 +43,23 @@ final class PerTenantLock
     public const SUPPORTED_DRIVERS = ['mysql', 'mariadb'];
 
     /**
-     * MariaDB truncates a lock name at 64 characters, so the name is a fixed
-     * prefix and a 26-character ULID and is never built from anything whose
-     * length is not known.
+     * MariaDB truncates a lock name at 64 characters, and this prefix is 24 of
+     * them.
+     *
+     * **The bound is a property of the ids, not of {@see nameFor()}**, which
+     * takes any string and checks its length nowhere. Every tenant id this
+     * schema can produce is the `CHAR(26)` ULID primary key
+     * {@see IdentifierColumn::primary()} declares, so a lock name is 50
+     * characters with 14 to spare - and PerTenantLockTest asserts that
+     * headroom from a generated ULID's length rather than from a sample id.
+     *
+     * The earlier wording here said the name "is never built from anything
+     * whose length is not known", which claimed a check this class does not
+     * make. It is a documented bound rather than a refusal because the failure
+     * direction is safe: two ids sharing their first 64 characters would share
+     * one lock, which reports a tenant as `skipped` when it could have run. It
+     * cannot put two runners inside one tenant, and a throw here would turn
+     * that harmless over-lock into a failed tenant.
      */
     public const PREFIX = 'flexipos_tenant_migrate_';
 

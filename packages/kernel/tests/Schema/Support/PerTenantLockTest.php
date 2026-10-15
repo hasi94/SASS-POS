@@ -3,6 +3,7 @@
 use Flexipos\Kernel\Schema\Exceptions\TenantLockUnsupported;
 use Flexipos\Kernel\Schema\Support\PerTenantLock;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /*
@@ -41,6 +42,24 @@ it('builds one lock name per tenant, inside the engine 64-character limit', func
         // truncated to the same string are one lock: the prefix plus a
         // 26-character ULID has to fit with room to spare.
         ->and(strlen($a))->toBeLessThanOrEqual(64);
+});
+
+it('keeps the lock name inside the 64-character limit for any id the schema can produce', function () {
+    // The docblock on PerTenantLock::PREFIX states a bound rather than a check:
+    // nameFor() accepts any string, and what keeps every name short is the
+    // *source* of the ids - the CHAR(26) ULID primary key every master table
+    // takes from IdentifierColumn::primary(), which is $table->ulid() and so
+    // is the same ULID this case generates. The length is therefore derived
+    // rather than written down: a framework whose ULIDs grew would redden here
+    // instead of silently letting two tenants share one truncated lock name.
+    // A wider id column is a change to IdentifierColumn, which is a reviewed
+    // code change and not something this case can see.
+    $idLength = strlen((string) Str::ulid());
+
+    expect($idLength)->toBe(26)
+        ->and(strlen(PerTenantLock::PREFIX) + $idLength)->toBeLessThanOrEqual(64)
+        ->and(strlen(PerTenantLock::nameFor((string) Str::ulid())))
+        ->toBe(strlen(PerTenantLock::PREFIX) + $idLength);
 });
 
 it('refuses to report a lock on a driver that has no GET_LOCK, naming the driver', function () {
