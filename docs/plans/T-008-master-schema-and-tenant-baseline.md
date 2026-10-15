@@ -438,9 +438,12 @@ guard is a rule about *our* names and nothing else. The prefix is a constant in 
 
 ## 6. Implementation steps
 
-Nineteen steps (seventeen plus step 13a, split out on 2026-10-15, plus step 13e, added after QA run 2 under §18),
+Nineteen steps to build (seventeen plus step 13a, split out on 2026-10-15, plus step 13e under §18, plus step 13f
+under §19.2, **minus step 13d, deferred out of the task under §19.1**),
 against T-007's nine. Owner in brackets. **Where the order is load-bearing it says so and why** —
 elsewhere steps may be reordered or run together.
+**Box legend:** `[x]` built and on disk · `[ ]` outstanding · `[~]` **deferred out of this task by a ruling** — it
+is neither outstanding work nor done, it blocks nothing, and the ruling that moved it is named in the bullet.
 
 - [x] **Step 0 — the allow-list name guard, proven red, with a positive control beside it.** [dev] **DONE**, commit
       `a349208`: gate exit 0 at **510 passed, 3 skipped, 2545 assertions**, with the engine's schema count unchanged
@@ -824,7 +827,19 @@ elsewhere steps may be reordered or run together.
       merged. One test asserts they differ — a status the planner refuses (`suspended`) still blocks a contract step —
       because the day they are "unified" the contract guard silently stops seeing six statuses again.
       Covers AC-58. *Order: independent of 13b, may share its commit.*
-- [ ] **Step 13d — a mechanism nothing calls is not shipped: the reachability check.** [dev] §16.3 item 2, and `qa`
+- [~] **Step 13d — the general reachability check. DEFERRED out of T-008 to a backlog row (§19.1). Not built, not
+      half-built, and not replaced by a narrowed version.** [nobody — the lead files the row]
+      Ruled 2026-10-15 in **§19.1**, on `dev`'s second measurement: §17.1's kind model is red on **14** public methods
+      of which **zero** are defects, and the defect class it was written for is empty today. The two mechanisms it
+      existed to catch — `PerTenantLock::acquire()` and the rotation retry — are already wired *and already guarded
+      by two name-qualified wiring tests that cost nothing and have no false positives*
+      (`packages/kernel/tests/Schema/Support/QaPerTenantLockWiringTest.php`,
+      `packages/kernel/tests/Feature/QaCredentialRotationRetryWiringTest.php`). The generalisation adds no detection
+      and cannot be made green without a refactor. **Nothing in the branch changes for this step and no checkbox is
+      ticked.** §7's grade row is corrected instead, which is where the honest statement of the gap belongs.
+      The instruction follows, unchanged, because the backlog row inherits it verbatim and §17.1's six rules are the
+      best design anyone has for it:
+      §16.3 item 2, and `qa`
       is right that §7 is where it belongs. `VerticalSliceLayoutTest` proves a slice has its parts; the sibling it
       needs proves something **calls** them.
       **The wording in this bullet's first draft — "named as a call in at least one production file outside
@@ -899,9 +914,37 @@ elsewhere steps may be reordered or run together.
       the planner and the moved-key case goes red with the two lists in the message. That mutation is written into
       the test file.
       Covers AC-40, AC-46, AC-51 — the same criteria 13b covers, now with a proof that is not a spelling.
-      *Order: after 13d, because 13d's per-kind census pins exact counts of public methods and this step adds four
-      and removes two; running it first would make `dev` tune the census twice. It may share nothing with 13d's
-      commit.*
+      *Order: **free, as of §19.1**. The "after 13d" constraint existed only because 13d's per-kind census pinned
+      exact public-method counts that this step moves by six; with 13d deferred there is no census to tune and 13e
+      may be taken next. It still may share no commit with anything else, because its proof is the moved key.*
+- [ ] **Step 13f — a run's terminal state stops being a lie, and the report says which `running` it means.** [dev]
+      Ruled in **§19.2**. §17.2 attached two conditions to confirming the queued-run residual and assigned neither;
+      `dev` is right that the second has no home in 13d, and I have measured that **the first is not implemented
+      either** — `RunTenantMigrationsHandler::finish()` (line 262) counts `pending` and `running` jobs into the run
+      row and then writes a terminal status anyway. Two changes, one commit:
+      1. **`finish()` refuses to finalise a run that still has a non-terminal job.** If `pending + running > 0` the
+         run keeps `status = running`, `finished_at` stays null, the counters and `total` are still written (they
+         are a true count either way, and the report needs them), and the result carries the outstanding count with
+         a non-zero exit code and the `tenant:migrate --run=<id>` instruction naming the run. **Idempotent on a run
+         already terminal:** a second invocation writes no status and no `finished_at`, and exits 0. The only job a
+         full in-process loop can leave behind is one `running` under an **unexpired** lease — an expired one is
+         claimable and the loop takes it — which is exactly the in-flight worker this condition protects.
+      2. **`tenant:schema-status` learns about runs.** The report today reads tenant schema versions and names
+         neither runs nor jobs, so this is a new section, not a line: for each run that is `running`, the per-status
+         job counts and the two-way distinction **"running, every job terminal — awaiting `tenant:migrate --run=<id>`"**
+         against **"running, N jobs outstanding"**. It is a second master-connection query in
+         `ReportSchemaStatusHandler`, a field on `SchemaStatusReport` and a block in `SchemaStatusCommand`.
+      **Red first, on sqlite, no engine** (§11.5): the input is a run with one `done` job and one `pending` job.
+      Today `finish()` marks it `completed` with a pending job counted in its own row — assert the run is still
+      `running` and the test fails on the shipped behaviour, which is the hole. The control beside it is a run whose
+      jobs are all terminal: unchanged behaviour, still `completed`, still `finished_at`. A third case re-invokes
+      the finishing path on that completed run and asserts nothing moved.
+      **Expect existing tests to go red and report them rather than adapt them silently**: any case that finishes a
+      run with a residual `pending` job was asserting the defect. Each one changed needs a line saying which.
+      Covers no new criterion; it closes §17.2's two conditions and stops **AC-44**'s run status (`completed` /
+      `completed_with_failures`, and its exit code) from being written over jobs that contradict it. AC-44's own
+      cases are unaffected — in both of them every job is terminal, which is condition 1's control. *Order: independent of 13e, before 14a — 14a writes engine tests over
+      the run tables and should test the corrected shape once.*
 - [ ] **Step 14a — the engine matrix: the 42 criteria with no engine test.** [dev, graded by `qa`] §16.3 item 1.
       `qa` measured that 10 of the 52 `[E]` criteria have an engine test and 42 have none. This step writes them,
       grouped `engine`, against `ThreeTenantFixture`, reusing `QaSchemaSignatureInstrumentTest`'s instrument (it takes
@@ -1069,7 +1112,7 @@ Graded as this project requires: **independently proven** when a mutation of our
 | Resumability and drift | AC-43, AC-46, AC-54, AC-55 | **independently proven** | The observable is the tenant's own `migrations` table row count and batch numbers; re-applying moves it. |
 | Engine parity | AC-62 | **corroborating, and partial** | Only one engine is in scope (owner, 2026-10-08). The signature reduction is built and run, so the *instrument* is proven on MariaDB; the comparison it exists for cannot run. See §9. |
 | Gate hygiene and calibration | AC-64, AC-66, AC-67 | **covered by reading plus command output** | They are measurements of the branch, not behaviours of it. |
-| Reachability of a mechanism | AC-16, AC-49, AC-65's lock half | **covered by structure only, until step 13d** | Added 2026-10-15 after QA run 1. `PerTenantLock` has a unit test, an engine test and a layout check, and **no caller**; the rotation retry has a decision, a plan line and **no code**. Both pass every structure check in the branch. A layout check proves a slice has its parts; only a **reachability** check proves anything calls them, and a mechanism nothing calls is a mechanism that does not ship. The grade of any criterion whose mechanism has no production caller is **not** "independently proven" however good the unit test is. **Updated 2026-10-15 (§17.1):** the check's own grade is **independently proven only by mutation** — both of BUG-3's and BUG-4's day-one reds are now fixed, so a check written today is green on arrival and its evidence is deleting a known call site, not observing a red. Its failure mode is tuning, and the census counts are what make tuning visible. |
+| Reachability of a mechanism | AC-16, AC-49, AC-65's lock half | **covered per mechanism, not as a class of defect — and T-008 ships it that way deliberately (§19.1)** | **Corrected 2026-10-15 (§19.1), and this row is now the whole statement of the gap, because step 13d is deferred.** What the branch has is two **name-qualified** wiring checks, one per known mechanism (`QaPerTenantLockWiringTest` on `PerTenantLock::acquire`, `QaCredentialRotationRetryWiringTest` on the rotation retry), each with its own control and each matching a *qualified* call, so neither can be silenced by an unrelated method of the same name. What the branch does **not** have is a check that notices the *next* unwired mechanism; that is the deferred row, and a reader of this plan should not believe otherwise. The honest grade of the two criteria is unchanged by either fact: AC-49 and AC-65 stay NOT VERIFIED behind G-1 and AC-16's behavioural half needs an authentication failure the stand-in cannot produce. The previous text of this row follows, because its argument is why the backlog row exists. Added 2026-10-15 after QA run 1. `PerTenantLock` has a unit test, an engine test and a layout check, and **no caller**; the rotation retry has a decision, a plan line and **no code**. Both pass every structure check in the branch. A layout check proves a slice has its parts; only a **reachability** check proves anything calls them, and a mechanism nothing calls is a mechanism that does not ship. The grade of any criterion whose mechanism has no production caller is **not** "independently proven" however good the unit test is. **Updated 2026-10-15 (§17.1):** the check's own grade is **independently proven only by mutation** — both of BUG-3's and BUG-4's day-one reds are now fixed, so a check written today is green on arrival and its evidence is deleting a known call site, not observing a red. Its failure mode is tuning, and the census counts are what make tuning visible. |
 | The `schema_meta` interlock | AC-56 | **corroborating** | T-008 never writes the row, so the mismatch case is constructed entirely by the fixture. Nothing we can mutate in production code makes a real mismatch appear; the refusal is proven, the interlock in service is FP-206's. |
 
 ### Unit tests
@@ -2227,6 +2270,8 @@ Two conditions, because "a residual" must not become "a run whose state lies":
   human reading the report is the only watcher this task ships, so the report has to carry the distinction the
   watcher would have acted on. If that is not already true it is one line in `ReportSchemaStatus` and it rides in
   13d's or 14a's commit.
+  **Both sentences of that last bullet are corrected in §19.2: it is not one line, 13d no longer exists, and the
+  *first* condition above is not implemented either. Both are step 13f.**
 
 ### 17.3 Residual 2 — `TenantConnectionFailed` is no longer `final`: ACCEPTED, with four conditions
 
@@ -2390,3 +2435,93 @@ reader can find out which change caused which red.
   I endorse the reading; `qa` was right not to claim lint as a second check it could not isolate; step 13d is
   correctly recorded as not built; and "clearing G-1 verifies 10 of 52" is unchanged and still the number that
   matters most about this branch.
+
+---
+
+## 19. Rulings after the second 13d measurement — the step is deferred, and §17.2 gets an owner
+
+### 19.1 Step 13d — ruled: DEFERRED out of T-008 to a backlog row. The lead's recommendation is upheld, on a stronger reason than the ratio
+
+`dev` built §17.1 exactly as ruled, measured before committing, changed no production file and left the checkbox
+unticked. That is the third time this step has been routed back with a measurement instead of a narrowed check, and
+it is the behaviour §7 asks for. The ruling is **defer**, and the step is removed from T-008 rather than reduced.
+
+**The ∞:1 ratio is the symptom; three measured facts are the reason.**
+
+1. **The defect class is empty and already guarded where it mattered.** Cause 3 is zero. The step's two real targets
+   were BUG-3 and BUG-4, both fixed, and — the fact that decides this, which the lead's note did not reach for —
+   each already carries a **name-qualified** wiring test with its own control:
+   `packages/kernel/tests/Schema/Support/QaPerTenantLockWiringTest.php` (matches `PerTenantLock\s*::\s*acquire\s*\(`
+   over `SourceRules::codeOnly()`, asserts its scanned set and proves it ignores a comment that names the class) and
+   `packages/kernel/tests/Feature/QaCredentialRotationRetryWiringTest.php`. Verified in the tree today, with
+   `MigrateTenantLockTest` as the behavioural half. So the generalisation buys **no detection that the branch does
+   not already have**, and the two checks it would subsume are strictly *better* than it at the one case it is
+   named for, for the reason in point 3.
+2. **The 14 split cleanly, and neither half can be closed without work that is not a check.** Cause 1's eight are a
+   definitional error in the check, not in the code — "reachable" is a closure over the call graph and a caller set
+   that stops one hop short is simply wrong. Cause 2's six are the real blocker: the kind is declared **per class**
+   (§17.1 rule 1) and `RunnerClock` is one class holding both a mechanism (`now`, `timestamp`, five production
+   callers) and a test seam (`fixedAt`, `advanceMinutes`). No per-class kind can describe that, per-method
+   exemptions are forbidden (rule 2), and a fourth kind applied to the whole class would stop the check seeing
+   `now()` the day its production callers vanish — a real loss of teeth on a real mechanism. The only honest green
+   is to **move the test seam into `packages/testing`**, touching the clock, the fixture machinery and about eight
+   test files, during the hold, on a branch that is otherwise QA-clean. That is a refactor, and the lead is right
+   that reaching green has become the work, which is what §7 forbids.
+3. **The check cannot do its job without type resolution, and that is the finding worth carrying forward.**
+   `dev` measured the detection as receiver-blind: `MigrationSet::with` scored 23 spurious callers from the test
+   framework's own `->with(...)`, and the same blindness means a future `->acquire(` on *any* object would keep the
+   flagship mutation green. A check whose stated proof is a mutation it only survives by the accident of a unique
+   method name is a **false guarantee**, which is worse than the absence it replaces. The two per-mechanism checks
+   do not have this problem because they match a qualified static call.
+
+**Therefore:** no narrowed 13d ships in T-008. §7's grade row is corrected to say exactly what the branch has
+(per-mechanism, name-qualified) and exactly what it lacks (any notice of the *next* unwired mechanism), so the gap
+is recorded where a reader meets the grade rather than lost in a deferred step.
+
+**The backlog row the lead files** (next free id is **FP-197**; FP-196 is taken and is corrected below):
+*A reachability check that uses the type graph, not a textual scan.* It carries §17.1's six rules verbatim as the
+best available design of the *policy*, and adds the three constraints this measurement produced: the caller set is
+the **transitive closure** seeded by the production set, not one hop; a test seam must not live in a production
+class, so the row includes moving `RunnerClock`'s `fixedAt`/`advanceMinutes` into `packages/testing`; and
+**detection resolves the receiver** — which almost certainly means not writing it at all but configuring an
+existing type-aware tool, since PHPStan is already in `composer check` and the dead-public-method detectors in that
+ecosystem resolve calls properly. A new dev dependency is justified there and would not have been justified here.
+*Wanted before FP-206*, which is the first row that adds mechanisms nobody has a wiring test for.
+
+**One thing in the lead's recommendation I judge wrong, and it does not change the answer.** Point 1 calls what
+remains "a regression guard against a defect class already caught once by a human reading the code". The class was
+not caught by a human reading code: it was caught by `qa` writing **two** targeted checks, which still run every
+gate and are the regression guard. The distinction matters because it is the argument for the deferral being cheap
+— we are not trading a check for nothing, we are declining to generalise two checks that already work.
+
+**Two things `dev` measured that the plan now carries, both correct and both adopted:**
+
+- **`Support/` is not one directory.** `modules/host/app/Support/ModuleHost/` holds `ModuleRegistry` and
+  `UnknownModuleException` and §17.1's census named neither. `dev` was right to include it rather than exclude it
+  by path — an exclusion spelled as a directory is an allow-list with one entry, which is the shape §11.3 refuses.
+  The backlog row inherits the corrected census: **four** `Support` directories in the tree, two of them production.
+- **§17.1's second stated mutation is green because the check never looks, not because it looked and chose.** The
+  deleted call is a private method of `Tenancy`, outside `Support/` under every kind model. The 13d bullet's
+  "(it is reachability, not arity)" is therefore misleading as written; the accurate sentence — *the check has no
+  visibility of this call at all, so its silence is not evidence about arity* — goes in the backlog row and into the
+  test file if the row is ever built. Recorded here so the wrong reading is not inherited.
+
+### 19.2 §17.2 — ruled: both conditions are step 13f, and the first one is also unimplemented
+
+`dev` is right that the second condition has no home: `ReportSchemaStatus` names neither runs nor jobs; it reports
+tenant schema versions. I checked the first condition too, because an unassigned pair should be measured as a pair,
+and **it is not implemented either**: `RunTenantMigrationsHandler::finish()` (line 262) counts `pending` and
+`running` jobs into the run row and then writes `completed` or `completed_with_failures` over them unconditionally.
+A run can therefore be terminal with work outstanding — the exact "a run whose state lies" that §17.2 attached the
+conditions to prevent. It is reachable the moment a job is held by a worker under an unexpired lease, which is the
+queued path the residual is about.
+
+So §17.2's "one line, riding in 13d's or 14a's commit" was wrong twice over. Both conditions become **step 13f**,
+owned by `dev`, with its red-first input stated there. Not 14a: 14a writes engine tests, and a behaviour that is
+missing on sqlite should not first appear in an engine-gated file.
+
+**One correction the lead owns, because the backlog is the lead's file.** `docs/backlog.md`'s **FP-196** currently
+reads that T-008's "status report distinguishes outstanding work from a finished run, so nothing is silently
+wrong". That is false today and only becomes true when step 13f lands. Either the row's wording follows 13f, or —
+if 13f is itself deferred, which I do not recommend — the row must say that the distinction is missing, because
+that sentence is the entire reason FP-196 is a watcher row and not a correctness row.
