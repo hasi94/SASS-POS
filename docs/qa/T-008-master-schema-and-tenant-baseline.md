@@ -260,3 +260,43 @@ Mutant: `restoredStatus()` body replaced by `return self::TENANT_ACTIVE;` (the l
 None added; mutation only, all restored.
 
 Run 2: FAIL (BUG-11 minor open) -> task still NOT VERIFIED.
+
+---
+
+# Round 3 (2026-10-15, tip eb2f10f)
+
+## Verdict: FAIL (one new minor, BUG-12), NOT VERIFIED as a task
+
+Round-3 line, same method: **PASS 13 · PARTIAL 49 · NOT VERIFIED (held) 6 · FAIL 0 · out of 68** (13+49+6+0=68). Nothing moved: steps 13e and 13f are guard-rails and a terminal-state rule, not engine criteria. **Only 10 of the 52 `[E]` criteria have an engine test; clearing G-1 verifies 10, the other 42 need a matrix nobody has written.** Step 13d is deferred to FP-197 and is not recorded as covered. A green gate under the hold means nothing failed, not that engine criteria pass. No MySQL connection by me, nothing written to E:.
+
+## Gate (D-12 state: warm, 2026-10-15, my own run, tip eb2f10f)
+`composer check`: 832 passed, 11 skipped, 4368 assertions, no failures, test step 103.90 s, ratio 8.64 against 900 s. Matches the lead. With my one new file: `composer test` = 1 failed (BUG-12, red by design), 11 skipped, 844 passed, 4444 assertions, 102.63 s `[WARM]`. `composer lint` and `composer stan` pass with the new file.
+
+## Step 13e, measured by me
+- **Mutant A reproduces exactly as `dev` reports.** Planner's accepted list replaced by a second literal copy `["active","read_only","provisioning","failed"]`: **3 failed, 38 passed**, all three in `TenantStatusPolicyTest` (plans and admits a moved status; reports the moved list; narrows the authority). `PlannedStatusAuthorityTest` stays green. Control first: 130 passed on the clean tip. So the scan was blind to it and the moved key is not. BUG-11 is CLOSED by deleting the scan, correctly.
+- Mutant C (planner reads the enum constant instead of the policy): 13 failed. Mutant D (door reads the enum constant): 2 failed. Both readers follow the policy or the case is red.
+- Guard-rails: adding a `Config\Repository` parameter to the policy constructor: `no constructor argument reaches serving / by type` case red (1 failed, 7 passed). Serving answering from the migratable property: 2 failed (serving stays exactly one; shipped container). Each guard-rail has a tooth.
+
+## Step 13f, measured by me (clean control 23 passed)
+- Status ignores outstanding work: 3 failed. `finished_at` written regardless: 2 failed. `finished_at` restamped on a terminal run: 1 failed (the 17-minute clock case). Each mutant is caught by the case designed for it.
+
+## BUG-11
+CLOSED. Evidence above.
+
+## Printed-instruction sweep (the defect class)
+Inventory of strings that tell an operator to run something: `tenant:migrate --run=<id>` (three sites: dispatch closing line, outstanding warning, status report), `tenant:migrate --to=<V-1>` (contract-guard refusal), `schema:publish --write-fixture` (catalogue mismatch), `config:clear && config:cache` (framework commands), and docblock remedies for the version floor.
+New file `packages/kernel/tests/Schema/Features/RunTenantMigrations/QaPrintedInstructionRoundTripTest.php` (13 cases): takes each instruction **from the output that carried it**, parses it, calls it back through Artisan, and uses the guard's own sentence as the instrument (with a control that a bare invocation produces it).
+- The three `--run` sites: round-trip green. Reverting `dev`'s guard exemption reddens all three, so the cases bite.
+- **Exemption narrowness: confirmed.** `--to`, `--retry-failed`, `--queue`, `--concurrency`, `--worker`, `--per-server` alone are all still refused; `--run=<unknown>` and `--run=` (empty) exit 1 and write no run or job row, so the exemption cannot be a bulk run in disguise. Removing the guard entirely reddens 8 cases.
+- `schema:publish --write-fixture`: option exists in the signature. Not called back by me; the flag is real, the claim is true.
+
+### BUG-12 (minor)
+- Test: `QaPrintedInstructionRoundTripTest` "runs the remedy the contract-guard refusal prints" (red by design).
+- Expected: the remedy `MigrationRunRefused::contractStepBlocked()` prints, `` Run `tenant:migrate --to=6` first``, is an invocation that runs.
+- Actual: `tenant:migrate --to=6` alone is refused by the command's own argument guard ("Name the tenants with --tenant, or ask for every eligible tenant with --all"), exit 1, nothing planned. The same class as the `--run` defect, in a message that predates step 13f. `PlanMigrationRunHandlerTest` line 370 asserts only `toContain('tenant:migrate --to=6')`, which is why it was green.
+- Suspected location: `packages/kernel/src/Schema/Exceptions/MigrationRunRefused.php` line 69 (message should say `tenant:migrate --all --to=N` or name the tenants); the test at `PlanMigrationRunHandlerTest.php:370` should assert the corrected text. Severity minor: the refusal still names the obstacle and the operator can add `--all`; the guidance is wrong, not the guard.
+
+## QA files this round
+`packages/kernel/tests/Schema/Features/RunTenantMigrations/QaPrintedInstructionRoundTripTest.php`: 13 cases, 12 green, 1 red by design (BUG-12). Must not be skipped or weakened.
+
+Run 3: FAIL (BUG-12 minor open) -> task still NOT VERIFIED.
