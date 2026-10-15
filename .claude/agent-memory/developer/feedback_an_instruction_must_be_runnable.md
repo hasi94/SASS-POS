@@ -29,4 +29,12 @@ invocation to see it.
   specific as `--tenant` and plans nothing;
 - such a fix is a production change outside the step's two bullets - declare it
   in the commit and in the test file rather than letting it ride, per
-  [[defer-in-a-comment-or-file-a-row]].
+  [[defer-in-a-comment-or-file-a-row]];
+- **the first remedy is the text, not the guard.** A third site (the contract
+  guard's `tenant:migrate --to=<N-1>`, BUG-12, older than the `--run` fix) was
+  wrong the other way: `--to` genuinely does not name the work, so the message
+  gained `--all`. Widen a guard only for an option that is already as specific
+  as `--tenant`; otherwise correct the printed string;
+- when the class is found, grep every *printed* occurrence of each command name
+  at once (skip docblocks) - three of the four sites here were in different
+  slices, and the fourth was a shell `&&` of two framework commands.
