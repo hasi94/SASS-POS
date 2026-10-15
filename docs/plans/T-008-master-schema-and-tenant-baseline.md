@@ -811,7 +811,7 @@ elsewhere steps may be reordered or run together.
       `tenant_databases.status` at the entry status **and** `schema_version` untouched.
       Covers AC-40, AC-46, AC-51, AC-52's retry path. *Order: before step 14a; it changes what an engine test of the
       execution path would assert.*
-- [ ] **Step 13c — the contract-step blocking set is the fleet. [FIX] BUG-7.** [dev] Ruled in **§16.2**: the
+- [x] **Step 13c — the contract-step blocking set is the fleet. [FIX] BUG-7.** [dev] Ruled in **§16.2**: the
       implementation is wrong, not the ruling. `PlanMigrationRunHandler::tenantsBelow()`'s blocking read stops reading
       `whereIn('status', BULK_STATUSES)` and reads **every `tenant_databases` row whose status is not `provisioning`**
       — an exclusion of exactly one value, deny-by-default in the opposite direction to 13b's allow-list, so an

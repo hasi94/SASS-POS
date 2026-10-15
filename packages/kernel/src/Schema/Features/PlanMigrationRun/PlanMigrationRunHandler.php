@@ -42,11 +42,13 @@ use Illuminate\Support\Str;
  *    `is_destructive` and never on the phase: a contract step that only *adds*
  *    - FX-4 - is not refused, and that control is what catches an
  *    implementation that refused on `phase = contract` instead.
- * 4. **The contract guard** (AC-58). A contract step at version V is refused
- *    while any tenant a bulk run would touch is below V - 1, with the blocking
- *    tenants named. Expand and contract means the expand step has reached every
- *    tenant before the contract step reaches any; a tenant in `provisioning`
- *    does not block, because it holds nothing yet.
+ * 4. **The contract guard** (AC-58, D-46). A contract step at version V is
+ *    refused while **any tenant database in the fleet** is below V - 1, with
+ *    the blocking tenants named. Expand and contract means the expand step has
+ *    reached every tenant before the contract step reaches any, and "every"
+ *    is the whole fleet and not this run's selection: a suspended shop comes
+ *    back and an archived one is restored. Exactly one status does not block,
+ *    `provisioning`, because it holds nothing yet.
  * 5. **Only then the writes**, run row first, then the job rows in ascending
  *    `size_bytes`.
  *
@@ -89,6 +91,17 @@ final class PlanMigrationRunHandler
      * @var list<string>
      */
     public const NAMED_ONLY_STATUSES = ['provisioning', 'failed'];
+
+    /**
+     * The one status a contract step does **not** wait for (AC-58, D-46).
+     *
+     * A `provisioning` database holds nothing yet, so a column it never had
+     * cannot be dropped out from under it. Everything else in the fleet
+     * blocks, including a status this code has never heard of - see
+     * {@see tenantsBelow()} for why this is an exclusion of one rather than
+     * the selection list.
+     */
+    public const BLOCKING_EXEMPT_STATUS = 'provisioning';
 
     /**
      * The statuses a bulk run touches (D-11): the accepted list minus the
@@ -327,8 +340,9 @@ final class PlanMigrationRunHandler
      * touch carries the version before it.
      *
      * The blocking set is read fresh from the master and is **not** the
-     * selection: a tenant left out of a named run still blocks, because the
-     * contract step is about the fleet rather than about this run.
+     * selection: a tenant left out of a named run still blocks, and so does
+     * one in a status no run would ever select, because the contract step is
+     * about the fleet rather than about this run (plan 16.2).
      *
      * @param  list<MigrationCatalogue>  $catalogue
      * @param  list<int>  $applied
@@ -353,7 +367,22 @@ final class PlanMigrationRunHandler
     }
 
     /**
-     * The tenants a bulk run would touch that are below one version.
+     * Every tenant database in the fleet that is below one version (D-46,
+     * AC-58, plan 16.2).
+     *
+     * **This is the blocking question and not the selection question, and the
+     * two have opposite defaults.** Selection asks "whom may I touch" and is
+     * rightly an allow list. Blocking asks "whose existence makes this
+     * contract step unsafe", and the answer is every database that will ever
+     * run it: a suspended shop comes back, an archived one is restored, a
+     * `moving` one lands somewhere. So the exclusion is **exactly one value**,
+     * `provisioning` - a database that holds nothing yet - and an unrecognised
+     * status **blocks**.
+     *
+     * Reusing `bulkStatuses()` here was BUG-7: it let a contract step drop a
+     * column while six statuses looked away. The two sets must stay separate
+     * rules; a test asserts they differ, because "these two lists look the
+     * same, let us unify them" is precisely how this returns.
      *
      * @return list<string>
      */
@@ -362,7 +391,7 @@ final class PlanMigrationRunHandler
         $tenants = [];
 
         $rows = $this->table('tenant_databases')
-            ->whereIn('status', self::bulkStatuses())
+            ->where('status', '!=', self::BLOCKING_EXEMPT_STATUS)
             ->where('schema_version', '<', $version)
             ->orderBy('tenant_id')
             ->get();
