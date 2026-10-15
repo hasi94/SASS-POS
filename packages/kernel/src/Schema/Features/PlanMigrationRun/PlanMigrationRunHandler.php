@@ -8,6 +8,7 @@ use Flexipos\Kernel\Schema\Exceptions\MigrationRunRefused;
 use Flexipos\Kernel\Schema\Support\MigrationCatalogue;
 use Flexipos\Kernel\Schema\Support\MigrationPhase;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
+use Flexipos\Kernel\Tenancy\TenantConnectionPurpose;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Database\Query\Builder;
@@ -68,18 +69,42 @@ use Illuminate\Support\Str;
 final class PlanMigrationRunHandler
 {
     /**
-     * The statuses a bulk run touches (D-11).
+     * The statuses a run naming one tenant accepts (D-11, D-52).
+     *
+     * **Derived, never restated.** It is the migrating scope entry's own list,
+     * read from the one place it lives. A copied list is one edit away from
+     * BUG-1 - a planner that accepts a status the door then refuses, which
+     * writes a job row that can only fail (plan 16.1).
      *
      * @var list<string>
      */
-    public const BULK_STATUSES = ['active', 'read_only'];
+    public const NAMED_ACCEPTED = TenantConnectionPurpose::MIGRATING_STATUSES;
 
     /**
-     * The statuses a run naming one tenant additionally accepts (D-11).
+     * The statuses only a run that *names* a tenant accepts (D-11).
+     *
+     * This is the subtraction, and it is the one list this handler owns: which
+     * of the enterable statuses a bulk run declines to pick up on its own.
      *
      * @var list<string>
      */
     public const NAMED_ONLY_STATUSES = ['provisioning', 'failed'];
+
+    /**
+     * The statuses a bulk run touches (D-11): the accepted list minus the
+     * named-only ones.
+     *
+     * A method rather than a constant because PHP has no `array_diff` in a
+     * constant expression, and the derivation is the point: `BULK_STATUSES`
+     * written out as a literal is the second copy this fix exists to remove.
+     * `ReportSchemaStatusHandler` reads this rather than repeating it.
+     *
+     * @return list<string>
+     */
+    public static function bulkStatuses(): array
+    {
+        return array_values(array_diff(self::NAMED_ACCEPTED, self::NAMED_ONLY_STATUSES));
+    }
 
     public function __construct(
         private readonly DatabaseManager $database,
@@ -179,7 +204,7 @@ final class PlanMigrationRunHandler
         $selected = [];
 
         foreach ($byTenant as $row) {
-            if (! in_array((string) $row['status'], self::BULK_STATUSES, true)) {
+            if (! in_array((string) $row['status'], self::bulkStatuses(), true)) {
                 continue;
             }
 
@@ -203,7 +228,7 @@ final class PlanMigrationRunHandler
      */
     private function selectNamed(array $tenantIds, array $byTenant, int $target): array
     {
-        $accepted = [...self::BULK_STATUSES, ...self::NAMED_ONLY_STATUSES];
+        $accepted = self::NAMED_ACCEPTED;
 
         foreach ($tenantIds as $tenantId) {
             if (! array_key_exists($tenantId, $byTenant)) {
@@ -337,7 +362,7 @@ final class PlanMigrationRunHandler
         $tenants = [];
 
         $rows = $this->table('tenant_databases')
-            ->whereIn('status', self::BULK_STATUSES)
+            ->whereIn('status', self::bulkStatuses())
             ->where('schema_version', '<', $version)
             ->orderBy('tenant_id')
             ->get();

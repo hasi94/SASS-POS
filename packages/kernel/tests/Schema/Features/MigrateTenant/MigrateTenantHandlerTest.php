@@ -282,6 +282,86 @@ it('leaves an offline tenant failed when its migration fails', function () {
 
 /*
 |--------------------------------------------------------------------------
+| AC-52 / D-53 - a successful offline run restores the status it entered on
+|--------------------------------------------------------------------------
+|
+| T-008 step 13b, and this is the defect the BUG-1 waiver creates if it is
+| not fixed with it. The migrating entry now accepts `read_only`,
+| `provisioning` and `failed` as well, and the handler used to write the
+| literal `active` on success - so a schema migration would silently promote
+| a shop the business put into read-only.
+|
+| The four cases check each other: an implementation that writes the literal
+| `active` passes (c) and (d) and fails (a) and (b), which is the signature
+| of that specific defect rather than of a general failure. (d) is the one
+| documented exception, and it is not a convenience: restoring `failed`
+| would make a retry a no-op and reopen the deadlock from the other end.
+*/
+
+it('restores the status an offline run entered on, promoting only a failed tenant', function (string $entry, string $after) {
+    $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'), ['status' => $entry]);
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), 7);
+
+    $seen = [];
+
+    migrateFixtureApplier()->onMigration = function () use ($tenant, &$seen): void {
+        $seen[] = app(TenantDatabaseRepository::class)->find($tenant)?->status;
+    };
+
+    // FX-3 declares @requires-offline, so this plan is an offline one and the
+    // status does move - without that the restore would have nothing to
+    // restore and every row below would pass on a handler that writes no
+    // status at all.
+    $result = migrateAs($job, 'worker-one', 3);
+
+    expect($result->succeeded)->toBeTrue()
+        ->and(array_unique($seen))->toBe(['migrating'])
+        ->and((string) migrateFixtureMappingRow($tenant)['status'])->toBe($after);
+})->with([
+    '(a) read_only stays read_only: a schema change must not promote a shop the business stopped serving' => ['read_only', 'read_only'],
+    '(b) provisioning stays provisioning: FP-206 owns when that becomes active' => ['provisioning', 'provisioning'],
+    '(c) active stays active: the control, and the case the old literal already passed' => ['active', 'active'],
+    '(d) failed becomes active: the one documented exception, or AC-46 retry is a no-op' => ['failed', 'active'],
+]);
+
+it('writes failed whatever the entry status when an offline run fails', function (string $entry) {
+    // The failure side is unchanged by D-53: D-12 stops the shop whatever it
+    // was before, because the schema is in an unknown state. Without this
+    // pair the restore above is also true of a handler that writes the entry
+    // status back on *every* path.
+    $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'), ['status' => $entry]);
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), 7);
+
+    migrateFixtureApplier()->onMigration = function (string $database, string $migration): void {
+        if (str_contains($migration, 'fx3')) {
+            throw new RuntimeException('FX-3 failed on this tenant');
+        }
+    };
+
+    $result = migrateAs($job, 'worker-one', 3);
+
+    expect($result->succeeded)->toBeFalse()
+        ->and((string) migrateFixtureMappingRow($tenant)['status'])->toBe('failed');
+})->with([
+    'read_only' => ['read_only'],
+    'provisioning' => ['provisioning'],
+]);
+
+it('writes no status at all for a non-offline run on a read_only tenant', function () {
+    // The other half of "only when this handler moved it": an ordinary expand
+    // plan leaves the status alone, so a read_only tenant is still read_only
+    // and the restore never ran.
+    $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'), ['status' => 'read_only']);
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), 6);
+
+    $result = migrateAs($job, 'worker-one');
+
+    expect($result->succeeded)->toBeTrue()
+        ->and((string) migrateFixtureMappingRow($tenant)['status'])->toBe('read_only');
+});
+
+/*
+|--------------------------------------------------------------------------
 | D-19 / AC-53's stand-in half - the eviction, and the mask under it
 |--------------------------------------------------------------------------
 */

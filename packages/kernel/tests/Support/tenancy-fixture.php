@@ -104,7 +104,7 @@ function tenancyWriteEnvironment(string $variable, ?string $value): void
 }
 
 /**
- * The fake mapping: two servable tenants, two non-active ones, one whose
+ * The fake mapping: two servable tenants, four non-active ones, one whose
  * database cannot be opened and one asking for a driver the platform forbids.
  *
  * host/port/username are distinct per tenant and deliberately meaningless to
@@ -154,6 +154,27 @@ function tenancyFixtureMapping(): array
             'username' => 'flx_ta_app',
             'credential_ref' => 'env://TENANT_A_APP_PASSWORD',
             'status' => 'migrating',
+        ],
+        // AC-51(d): the two statuses the **migrating** entry now accepts and
+        // the serving entry still must not. Without these rows the waiver
+        // could leak into serving and every test here would stay green.
+        'tenant-read-only' => [
+            'driver' => 'sqlite',
+            'host' => 'db-fixture-a',
+            'port' => 3307,
+            'database' => tenancyFixtureDatabasePath('tenant-a'),
+            'username' => 'flx_ta_app',
+            'credential_ref' => 'env://TENANT_A_APP_PASSWORD',
+            'status' => 'read_only',
+        ],
+        'tenant-failed' => [
+            'driver' => 'sqlite',
+            'host' => 'db-fixture-a',
+            'port' => 3307,
+            'database' => tenancyFixtureDatabasePath('tenant-a'),
+            'username' => 'flx_ta_app',
+            'credential_ref' => 'env://TENANT_A_APP_PASSWORD',
+            'status' => 'failed',
         ],
         'tenant-provisioning' => [
             'driver' => 'sqlite',

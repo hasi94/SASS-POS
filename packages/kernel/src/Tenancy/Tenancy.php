@@ -187,10 +187,17 @@ final class Tenancy
             throw TenantDatabaseNotMapped::forTenant($identifier);
         }
 
-        // 4. The status gate (decision D-26: only `active` connects). Not
-        //    waived by the migration purpose: a suspended or moving tenant is
-        //    not migrated either (AC-51).
-        if (! $database->isActive()) {
+        // 4. The status gate, scoped by purpose and owned by the purpose
+        //    (D-26, D-51, AC-51, plan 16.1). Serving accepts exactly `active`;
+        //    the migrating purpose additionally accepts D-11's `read_only`,
+        //    `provisioning` and `failed`, because those are the statuses the
+        //    planner writes job rows for and a tenant it cannot enter is a job
+        //    that cannot run - and a `failed` tenant that cannot be entered
+        //    can never be retried. Both lists live on
+        //    TenantConnectionPurpose and nowhere else; `suspended`, `moving`,
+        //    `restoring`, `archived`, `migrating` and every unrecognised value
+        //    are refused for both purposes.
+        if (! $purpose->permits($database->status)) {
             throw TenantDatabaseNotActive::forTenant($identifier, $database->status);
         }
 

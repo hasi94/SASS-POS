@@ -14,7 +14,7 @@ use Illuminate\Database\Query\Builder;
  *
  * **Who is counted is the criterion, not a filter.** Only `active` and
  * `read_only` tenants appear - the same two statuses a bulk run touches - and
- * the list is read from `PlanMigrationRunHandler::BULK_STATUSES` rather than
+ * the list is read from `PlanMigrationRunHandler::bulkStatuses()` rather than
  * repeated here, so a report that says "three tenants are behind" is counting
  * the tenants a run would actually reach. An `archived` tenant at an ancient
  * version is not behind; it is gone, and a report that listed it would send
@@ -85,7 +85,7 @@ final class ReportSchemaStatusHandler
 
         $query = $this->table()
             ->select(['tenant_id', 'server_id', 'schema_version'])
-            ->whereIn('status', PlanMigrationRunHandler::BULK_STATUSES)
+            ->whereIn('status', PlanMigrationRunHandler::bulkStatuses())
             ->orderBy('schema_version')
             ->orderBy('tenant_id');
 

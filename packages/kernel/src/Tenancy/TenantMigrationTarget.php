@@ -60,12 +60,14 @@ final readonly class TenantMigrationTarget
     }
 
     /**
-     * The one status that permits a migration connection, which is the same one
-     * that permits a serving connection.
+     * Whether this tenant is `active`.
      *
-     * Status rules are not waived by the migration purpose: a tenant that is
-     * suspended, moving or restoring is not migrated either, and the runner's
-     * own planning filters on status before a job row is written (AC-51).
+     * **It is not the migration gate and must not be read as one.** The gate is
+     * `TenantConnectionPurpose::Migrating->permits($status)`, which accepts
+     * D-11's four statuses (`active`, `read_only`, `provisioning`, `failed`);
+     * this method answers one narrower question and survives because AC-18's
+     * control compares the two mapping types property for property (plan
+     * 16.1, which corrected the opposite claim that used to stand here).
      */
     public function isActive(): bool
     {

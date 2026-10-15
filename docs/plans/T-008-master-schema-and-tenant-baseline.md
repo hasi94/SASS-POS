@@ -780,7 +780,7 @@ elsewhere steps may be reordered or run together.
       rather than green.
       Red is proven on planted fixtures first, because the real `Support/` directory and both shipped trees are
       silent today (the R-4 shape).
-- [ ] **Step 13b — one authority for "which statuses may be migrated", and the restore that follows from it.
+- [x] **Step 13b — one authority for "which statuses may be migrated", and the restore that follows from it.
       [FIX] BUG-1.** [dev] Ruled in **§16.1**. Four changes, one new file, one test file:
       `packages/kernel/src/Tenancy/TenantConnectionPurpose.php` gains `acceptedStatuses(): array` — `Serving` returns
       `[active]`, `Migrating` returns D-11's four — and `permits(string $status): bool`, deny-by-default over that

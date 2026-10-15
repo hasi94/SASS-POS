@@ -25,12 +25,15 @@ use Throwable;
  *
  * **The order is the design, and five things about it are load-bearing.**
  *
- * 1. **The tenant is entered before its status is changed.** `Tenancy::enter()`
- *    refuses any status but `active`, for the migrating purpose as much as for
- *    serving, so writing `migrating` first would make the tenant unenterable by
- *    the very run that wrote it. The scope is opened on an `active` tenant and
- *    the status moves inside it - which is also the only order at which AC-52's
- *    observation from inside `up()` can see `migrating` at all.
+ * 1. **The tenant is entered before its status is changed.** The migrating
+ *    entry accepts D-11's four statuses and `migrating` is deliberately not
+ *    one of them, so writing `migrating` first would make the tenant
+ *    unenterable by the very run that wrote it. The scope is opened on the
+ *    entry status and the status moves inside it - which is also the only
+ *    order at which AC-52's observation from inside `up()` can see
+ *    `migrating` at all. The entry status is captured there too, because it
+ *    is what a successful offline run writes back (D-53): a literal `active`
+ *    would promote a `read_only` shop by migrating it.
  * 2. **`migrating` is written only for a plan that requires it** (D-12). The
  *    status is a statement to the request path that the shop is offline; a
  *    plan of ordinary expand steps is applied to a serving tenant and says so
@@ -129,11 +132,12 @@ final class MigrateTenantHandler
         $present = [];
         $failure = null;
         $locked = false;
+        $entryStatus = null;
 
         try {
             [$applied, $present] = $this->tenancy->run(
                 $tenantId,
-                function () use ($command, $target, $tenantId, $offline, &$locked): array {
+                function () use ($command, $target, $tenantId, $offline, &$locked, &$entryStatus): array {
                     $connection = $this->tenantConnectionName();
 
                     // AC-56, and it is **first inside the scope** on purpose:
@@ -155,6 +159,15 @@ final class MigrateTenantHandler
 
                     try {
                         if ($offline) {
+                            // AC-52, D-53: the status the run entered on,
+                            // captured **inside the scope** and immediately
+                            // before it is overwritten, because that is the
+                            // value the success path restores. Read from the
+                            // master rather than from the row this handler
+                            // read before the entry, so what is restored is
+                            // what the gate actually let through.
+                            $entryStatus = $this->currentStatus($tenantId);
+
                             $this->writeMapping($tenantId, ['status' => self::TENANT_MIGRATING]);
                         }
 
@@ -181,7 +194,7 @@ final class MigrateTenantHandler
 
         return $failure instanceof Throwable
             ? $this->recordFailure($command, $job, $mapping, $offline, $duration, $failure, $needles)
-            : $this->recordSuccess($command, $job, $mapping, $offline, $duration, $version, $applied);
+            : $this->recordSuccess($command, $job, $mapping, $offline, $duration, $version, $applied, $entryStatus);
     }
 
     /**
@@ -332,6 +345,40 @@ final class MigrateTenantHandler
     }
 
     /**
+     * The mapping status right now, read from the master.
+     */
+    private function currentStatus(string $tenantId): ?string
+    {
+        $row = $this->mappingRow($tenantId);
+
+        return $row === null ? null : (string) $row['status'];
+    }
+
+    /**
+     * The status an offline run writes back when it succeeds (AC-52, D-53).
+     *
+     * The entry status, with **one documented exception**: a tenant entered at
+     * `failed` becomes `active`. `failed` means "do not serve, the schema may
+     * be half-applied", and a successful run is precisely the removal of that
+     * condition; restoring `failed` would make the retry path a no-op and
+     * reopen BUG-1's deadlock from the other end (AC-46).
+     *
+     * `provisioning` restores to `provisioning` - FP-206 owns when that
+     * becomes `active` - and `read_only` to `read_only`, because a schema
+     * change must not promote a shop the business made read-only. A null entry
+     * status cannot happen on this path (it is captured before the `migrating`
+     * write) and falls back to `active` rather than writing nothing.
+     */
+    private static function restoredStatus(?string $entryStatus): string
+    {
+        if ($entryStatus === null || $entryStatus === self::TENANT_FAILED) {
+            return self::TENANT_ACTIVE;
+        }
+
+        return $entryStatus;
+    }
+
+    /**
      * @return array<string, mixed>|null
      */
     private function mappingRow(string $tenantId): ?array
@@ -388,14 +435,22 @@ final class MigrateTenantHandler
      * The success path: the mirror first, then the job.
      *
      * The mirror is written before the bookkeeping because it is the statement
-     * about the database, and the database has already changed. `status` goes
-     * back to `active` only when this handler moved it, so a run of ordinary
+     * about the database, and the database has already changed. A `status` is
+     * written back only when this handler moved it, so a run of ordinary
      * expand steps writes no status at all and cannot resurrect a tenant
      * something else suspended while it ran.
+     *
+     * **What is written back is the entry status, never a fixed `active`**
+     * (AC-52, D-53, plan 16.1). The migrating entry now accepts `read_only`,
+     * `provisioning` and `failed` as well, so a literal `active` here would
+     * let a schema migration silently promote a shop the business put into
+     * read-only.
      *
      * @param  array<string, mixed>  $job
      * @param  array<string, mixed>  $mapping
      * @param  list<string>  $applied
+     * @param  string|null  $entryStatus  the status captured inside the scope;
+     *                                    null when nothing moved the status
      */
     private function recordSuccess(
         MigrateTenant $command,
@@ -405,6 +460,7 @@ final class MigrateTenantHandler
         int $duration,
         int $version,
         array $applied,
+        ?string $entryStatus = null,
     ): MigrateTenantResult {
         $now = $this->clock->timestamp();
 
@@ -414,7 +470,7 @@ final class MigrateTenantHandler
             // AC-43(d): a previous failure is cleared, not left to be read as
             // the explanation of a run that has since succeeded.
             'last_migration_error' => null,
-        ], $offline ? ['status' => self::TENANT_ACTIVE] : []));
+        ], $offline ? ['status' => self::restoredStatus($entryStatus)] : []));
 
         $retained = $this->completeJob($command, [
             'status' => self::JOB_DONE,
