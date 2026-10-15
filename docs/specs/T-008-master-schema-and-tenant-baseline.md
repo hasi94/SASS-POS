@@ -213,8 +213,10 @@ Defined once so that criteria can use the terms.
   succeeds. A mapping exactly at the required version is accepted (the control). **The exemption:** entering the same behind
   tenant for the **migration** purpose (the runner's) is *not* refused by this version gate, because a tenant below the
   required version is the only kind the runner ever migrates; the test has the runner enter a tenant at the required
-  version minus one and succeed. The exemption covers the version gate **only**: status rules (AC-51) still apply to
-  the runner, and no other refusal in this spec is waived by purpose. (D-23)
+  version minus one and succeed. The exemption covers the version gate **and, as one stated exception, the status gate over
+  D-11's four statuses only** (`active`, `read_only`, `provisioning`, `failed`; AC-51). It is an exception, not a
+  principle: no other refusal in this spec is waived by purpose, and the serving purpose still accepts exactly
+  `active`. (D-23, D-51)
   **The floor has three states, not two (D-41).** (a) *A number* above zero is the floor, as above. (b) *An explicit
   `0`* is a recorded opt-out meaning "no floor; `tenant_databases.status` is the only guard": the tenant **is served**,
   and a test asserts it is served (so an implementation that later refuses `0` is red). (c) *The variable absent*
@@ -401,12 +403,33 @@ can never satisfy it.
   unrecognised status string (D-11). A reader who expects a bulk run to throw on `archived` is reading half (b) as if
   it governed (a); it does not. In both invocations each excluded or refused tenant's database is unchanged and no job
   row is written for it.
+  **The two lists and the gate (D-52, plan 16.1).** The named run's accepted statuses are exactly the statuses the
+  **migrating scope entry** accepts, and both read one list, `TenantConnectionPurpose::acceptedStatuses()` for
+  `Migrating`; the bulk list is that list minus `provisioning` and `failed`. So (c) **every status the planner
+  accepts is actually migrated**: for `active`, `read_only`, `provisioning` and `failed`, a planned job reaches `done`
+  and is never refused at scope entry (the reachability case, with `active` as its control). And (d) the
+  non-`active` refusal is the **serving** rule: a **serving** entry on `read_only`, `provisioning`, `failed` and every
+  other non-`active` status is still refused with `TenantDatabaseNotActive` naming the status; the migrating waiver
+  must not leak into serving. `migrating` is refused for the migrating purpose too, deliberately: a worker killed
+  mid-offline-run leaves a tenant no later run can enter, and the operator's path is a repair plus a status
+  correction in the master (recorded, not scheduled).
 - **AC-52 [E]**: Given FX-3 (`requires_offline`, recording the mapping status from inside `up()`), When it runs on
   an `active` tenant, Then the status seen inside is `migrating`, the status afterwards is `active`; when it
   **fails**, the status afterwards is `failed` (D-12). For a migration that is **not** `requires_offline`, the status
   seen inside is `active` and is never `migrating`. **Order (D-50):** the run enters the tenant's scope while the
-  status is still `active`, then writes `migrating`, applies, and restores `active` (or `failed`); the status write is
-  inside the scope, never before the entry, because scope entry refuses any status but `active`.
+  status is still `active`, then writes `migrating`, applies, and restores the entry status (or `failed`); the status
+  write is inside the scope, never before the entry, because a **serving** entry refuses any status but `active` and
+  the migrating entry refuses `migrating` (D-50, D-51).
+  **Restore the entry status, never a fixed `active` (D-53, plan 16.1).** Because the migrating entry now accepts
+  `read_only`, `provisioning` and `failed`, a successful offline migration must write back **the status the run
+  entered on**, captured inside the scope. Cases, each its own: (a) entered `read_only`, succeeds, status afterwards is
+  `read_only` (a schema change must not promote a shop the business made read-only); (b) entered `provisioning`,
+  succeeds, afterwards `provisioning` (FP-206 owns when it becomes `active`); (c) entered `active`, afterwards
+  `active`; (d) **the one documented exception:** entered `failed`, succeeds, afterwards `active`, because restoring
+  `failed` would make a retry a no-op and reopen the deadlock (a failed offline migration sets `failed`; a `failed`
+  tenant must be enterable to be retried, AC-46). The failure side is unchanged: an offline failure writes `failed`
+  whatever the entry status, and an ordinary expand writes no status at all. The `read_only` and `failed` cases
+  are the control pair: an implementation that writes the literal `active` passes (c) and (d) and fails (a) and (b).
 - **AC-53 [E]**: Production behaviour: while tenant B is being migrated, a serving entry for B is refused, and
   after the run B is served again at the new version with no stale refusal (D-19). That sentence cannot be asserted
   as worded and is **split into halves (a) and (b), each its own case, which compose to it (D-49)**. The literal
@@ -422,8 +445,9 @@ can never satisfy it.
   value. Without that control the test also passes on a cache that never updates. (Shipped, plan step 11.)
   (b) **A `migrating` mapping is refused for serving.** Given a mapping whose status is `migrating`, When a serving
   entry for that tenant is attempted, Then it throws `TenantDatabaseNotActive` naming the status `migrating`, and
-  the state is exactly as before (the AC-10 assertions: tenant stanza unchanged, no current tenant). No run, no
-  second process, no engine is needed.
+  the state is exactly as before (tenant stanza unchanged, no current tenant; the plan calls these "the AC-10
+  assertions", a T-007 numbering, since this spec's AC-10 is the audit-log JSON criterion). This is the **serving**
+  rule (AC-51d, D-51). No run, no second process, no engine is needed.
   **Current standing (plan 15.2, D-49).** Half (b) is true of the code and **asserted nowhere**: the non-active
   refusal dataset in `packages/kernel/tests/Feature/TenancyResolutionTest.php` (lines 134-135 at the time of
   writing) holds `suspended` and `provisioning` only. It is closed by **one dataset row**, `migrating`, with its
@@ -458,6 +482,12 @@ can never satisfy it.
   with the blocking tenants named and **no job row is written for FX-4**. When every `active` tenant is at or above the
   expand version, the same run is planned. Tenants in status `provisioning` do not block. The blocking set is the
   **whole fleet** the master holds, not the run's selection: a tenant left out of a named run still blocks (D-46).
+  **Exactly one status is excluded and an unrecognised status blocks (D-54, plan 16.2).** A tenant below the
+  expand version in `suspended`, `failed`, `migrating`, `moving`, `restoring`, `archived` or an unknown value blocks;
+  `provisioning` is the control that does not. The blocking question and the bulk selection (AC-40) are opposite
+  questions with opposite defaults (selection is an allow list, blocking is an exclusion of one value) and must not
+  be unified; one case asserts they differ (`suspended` is not selected yet still blocks). This was a measured failure
+  of the code against the ruling (QA BUG-7), not an open reading.
   **How the dependency is known (D-45).** Nothing in the catalogue declares it: there is no tag and no field. Today
   it is **inferred as the version immediately before the contract step (V − 1)**, so a contract step at V is refused
   while any such tenant is below V − 1. This is a reading, labelled as one in the code, and not a declared
@@ -544,7 +574,13 @@ can never satisfy it.
   criterion's evidence. A criterion that has both a static half and an engine half is recorded per half: the static half
   may be PASS, the engine half is NOT VERIFIED, and the criterion as a whole is **PARTIAL**, not PASS. The report opens
   with one line of totals: criteria PASS, PARTIAL, NOT VERIFIED (held), FAIL, out of 68. **A task whose report has any
-  held engine criterion is not reported as verified**, and the lead is told in so many words. Each engine run writes
+  held engine criterion is not reported as verified**, and the lead is told in so many words.
+  **Clearing the hold is not the finish line (D-55; figures are QA's measurement, not re-derived by `ba`).** Only 10
+  of the 52 **[E]** criteria have an engine test of any kind (AC-38, 43, 44, 49, 52, 54, 55, 61, 63's version line,
+  65). Clearing the hold verifies **those 10 at most**; the other 42 need an engine test written first. Nor does
+  "needs no engine" mean "wiring an engine makes it pass": AC-49 and AC-65's lock cases stay NOT VERIFIED even with an
+  engine, because the advisory lock is re-entrant within one session and the holder must be a separate session; and
+  AC-16's behavioural half needs a server authentication failure the SQLite stand-in cannot produce. Each engine run writes
   `SELECT VERSION()` into the test output, and `qa`'s report records, per **[E]** criterion that did run, the engine and
   version it passed on. A criterion verified on one engine only is recorded as such and is not reported as PASS for
   both (D-7); for this task every **[E]** criterion that runs is expected to be recorded as verified on MariaDB 10.4
