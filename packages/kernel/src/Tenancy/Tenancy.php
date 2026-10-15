@@ -11,6 +11,7 @@ use Flexipos\Kernel\Tenancy\Exceptions\TenancyException;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantAlreadyResolved;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantConnectionFailed;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantConnectionMismatch;
+use Flexipos\Kernel\Tenancy\Exceptions\TenantCredentialRejected;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantDatabaseNotActive;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantDatabaseNotMapped;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantSchemaBehind;
@@ -144,6 +145,38 @@ final class Tenancy
             throw TenantAlreadyResolved::forTenant($this->context->tenantId(), $identifier);
         }
 
+        try {
+            $this->openScope($identifier, $purpose);
+        } catch (TenantCredentialRejected $rejected) {
+            // AC-16, and the whole of it: the cached entries for this tenant
+            // are dropped, the mapping is re-read - openScope() starts at the
+            // mapping source, so the retry reads the rotated reference - and
+            // the connection is attempted **exactly once** more. Two calls,
+            // not a loop, so "exactly two attempts" is a property of the shape
+            // rather than of a counter somebody can increment.
+            //
+            // Only this failure retries. An unreachable host or a missing
+            // database is not changed by reading the mapping again, and
+            // retrying it would double the cost of an outage.
+            $this->evictCachedMapping($identifier);
+
+            $this->openScope($identifier, $purpose);
+        }
+    }
+
+    /**
+     * One attempt at resolving the tenant and opening its connection: steps 3
+     * to 9 of {@see enter()}.
+     *
+     * It leaves nothing behind when it throws - the stanza is the placeholder
+     * again and no tenant is resolved - which is what makes a second call a
+     * genuinely fresh attempt rather than a retry on top of half a scope.
+     *
+     * @throws TenantCredentialRejected the server refused the credential; the
+     *                                  caller may evict and try once more
+     */
+    private function openScope(string $identifier, TenantConnectionPurpose $purpose): void
+    {
         // 3. The mapping, from the source the purpose selects. The serving
         //    source cannot answer with a migrate credential reference - its
         //    record has nowhere to put one - and the runner's source is reached
@@ -206,11 +239,31 @@ final class Tenancy
                 throw $exception;
             }
 
-            throw TenantConnectionFailed::forTenant(
-                $identifier,
-                $database->driver,
-                $this->sanitise($exception->getMessage(), $secret)
-            );
+            $reason = $this->sanitise($exception->getMessage(), $secret);
+
+            // The one failure a re-read can fix is reported as itself, so the
+            // retry in enter() is a decision about what went wrong rather than
+            // a blanket second attempt (AC-16).
+            throw TenantCredentialRejected::describes($exception)
+                ? TenantCredentialRejected::forTenant($identifier, $database->driver, $reason)
+                : TenantConnectionFailed::forTenant($identifier, $database->driver, $reason);
+        }
+    }
+
+    /**
+     * Drop this tenant's cached mapping entries, so the next read is the
+     * master's answer and not the one that was just refused (AC-16, AC-17).
+     *
+     * Asked of the object rather than of the container's configuration: the
+     * suite binds the in-memory reader and a deployment binds the caching
+     * decorator, and a path that assumed either would be wrong in one of them.
+     * Never a flush - one tenant's rotation is not a reason to make every
+     * other shop on the server read the master again.
+     */
+    private function evictCachedMapping(string $identifier): void
+    {
+        if ($this->repository instanceof CachingTenantDatabaseRepository) {
+            $this->repository->evict($identifier);
         }
     }
 
