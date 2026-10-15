@@ -658,7 +658,20 @@ elsewhere steps may be reordered or run together.
       statement is an `UPDATE` on a master row and not destructive. The lock and two-session tests are `[gated]`;
       their only engine traffic is `GET_LOCK` inside a reserved database.
       *Order load-bearing: before step 11 — execution runs inside a claim.*
-- [ ] **Step 11 — `MigrateTenant`: the execution path.** [dev] Migrate through the migrating purpose with the migrate
+- [x] **Step 11 — `MigrateTenant`: the execution path.** [dev] **DONE**, commit `733dcca`. `MigrateTenant`,
+      `RetryFailedJobs` and `RunTenantMigrations` with `tenant:migrate` as the entry point, plus the two criteria that
+      moved here from step 10 (AC-42, AC-46's retry-selection half). Both of §7's fourth-shape constraints were met:
+      the completion statement and the retry reset are each pinned from the query log, and the measured signature of
+      deleting the retry statement's two terms is five behavioural cases green with exactly the pin red — the correct
+      signature.
+      **The order of entry and the status write is a ruling, not a detail: see §15.1.** The shipped order is
+      **enter (on `active`) → write `migrating` → apply → restore**, because `Tenancy::enter()` refuses any status but
+      `active` for *both* purposes. `migrating` is written only for a `requires_offline` plan (D-12, AC-52).
+      **AC-53 is NOT VERIFIED and §15.2 rules on why the in-process form is weaker than its words**; the eviction half
+      of D-19 is proven with the mask control beside it — the same warm read, after a status change written *around*
+      the mapping writer, still answers `active`.
+      The instruction follows, unchanged:
+      Migrate through the migrating purpose with the migrate
       credential; write the tenant's own `migrations` table and the master mirror in one step; clear a previous error;
       set `migrating` for a `requires_offline` plan only, and `failed` after an offline failure (D-12); evict the
       cached mapping in the same step as every status or version change (D-19); sanitise every stored error. Covers
@@ -676,7 +689,16 @@ elsewhere steps may be reordered or run together.
       engine — status transitions, the mirror write, the cleared error, eviction, error sanitising — is red on sqlite
       against a fake migrator. The engine half is red by **omitting the apply call**, and every database it touches was
       created by `ThreeTenantFixture` through `EngineDatabase`, by name, in the same run.
-- [ ] **Step 12 — repair, drift and the behind report.** [dev] `RepairSchemaVersion` (a mapping behind its own
+- [x] **Step 12 — repair, drift and the behind report.** [dev] **DONE**, commit `d00ff55`. `RepairSchemaVersion`
+      (no migrator in the slice, so "nothing is re-applied" is a property of the slice rather than of a flag, and the
+      assertion is the tenant's own `migrations` table by row **and batch**), `DetectSchemaDrift` in both directions,
+      the `schema_meta.tenant_id` interlock refusal — checked **first inside the migrating scope**, before the status
+      write and before the apply, so "that database is unchanged" is structural — and `ReportSchemaStatus`.
+      **The ahead-mapping refusal keeps its throw site and writes the unservable status before it throws** (§15.3,
+      deviation 1), so AC-55's "refused for serving until corrected" does not depend on anyone catching the exception.
+      `Support/TenantSchemaVersion` is the one site stating D-14; its caller count is corrected in §15.4.
+      The instruction follows, unchanged:
+      `RepairSchemaVersion` (a mapping behind its own
       `migrations` table is corrected and nothing is re-applied), `DetectSchemaDrift` (both directions, and a tenant
       whose mapping is *ahead* is refused for serving), the `schema_meta.tenant_id` interlock refusal, and
       `ReportSchemaStatus`. Covers AC-54 to AC-57.
@@ -732,7 +754,18 @@ elsewhere steps may be reordered or run together.
       the type, and this project has twice been bitten by a claim that was true when it was written. The docblocks
       stay as explanation; the scan becomes the authority. Scanning helper sources has its own failure mode — a scan
       over a *set of files* is only as good as the set — which is exactly why (d) ships with (c) and not after it.
-- [ ] **Step 13a — the three rule changes step 13 did not carry.** [dev] Checks **(c)** the `Schema/Support/`
+- [x] **Step 13a — the three rule changes step 13 did not carry.** [dev] **DONE**, commit `8c9a5b1`, all three in one
+      commit over one file's rules as this bullet asked. Two shipped teeth are **stricter than the wording and say so
+      in `SourceRules`**: the scanned helper form covers the method call as well as the static one, and **both**
+      connection names are forbidden in a helper rather than the one a tree would pick — a helper is in no tree, so
+      there is no "other" connection for it to name. Check (d)'s scope rule carries the argument as a file: the (d)
+      fixture holds the *same* import FX-3 does and differs only in where it lives, which is §14.2's scope-not-
+      exemption ruling made executable. Red was proven on planted fixtures first, as the R-4 shape requires, and the
+      prose control goes red when the helper scan is made to read raw text instead of stripped code — the control's
+      whole job. §14.1's tooth landed with it: `MigrationRunRefused::contractStepBlocked()` now names
+      `tenant:migrate --to=<version − 1>` as the next action, with a mutation proving that exact case red.
+      The instruction follows, unchanged:
+      Checks **(c)** the `Schema/Support/`
       statement scan and **(d)** the migration-import rule, both as worded in step 13 above and with its controls,
       plus **(e) AC-35(a) tightened to require both of `decimal()`'s arguments** (§9 finding 10, ruling §12.3) — a
       three-line change in `SourceRules::decimalStatesPrecision()` plus one fixture. All three land in **one commit**
@@ -760,6 +793,18 @@ elsewhere steps may be reordered or run together.
       named — never PASS, and never silently absent** (§11.6). The report also carries the incident: sixteen databases
       lost, the mechanism, and the two mitigations it invalidated (§8 R-12). Covers AC-62 as
       narrowed (one engine, per the owner's 2026-10-08 decision), AC-63, AC-65 as narrowed, AC-66 and AC-67.
+      **Three measurements from steps 11 to 13a belong in this step's own report, because AC-66's and AC-67's numbers
+      are read against them** (`dev`, 2026-10-15, one fixture slice as the subject):
+      - **SQLite fsyncs every bare statement**, so fixture cost is dominated by statement count, not by data volume:
+        eight unwrapped calls per tenant cost ~0.9 s, and **one transaction around the fixture writes took a slice
+        from 8.78 s to 2.27 s**. This is the input for the headroom judgement §3's finding 7 defers to this step: the
+        question "does the engine matrix fit the gate's budget" must be asked of *transaction-wrapped* fixtures, or
+        the answer measures the fixture's bookkeeping instead of the matrix. Any later fixture that writes per-tenant
+        rows one statement at a time is a regression with a number attached.
+      - **The gate now runs 90–91 s with the process-timeout ratio at ~9.9**, inside the band §8's timing note calls
+        normal — so step 14's half of AC-64 is a confirmation, not an investigation.
+      - The baseline these are read against is the step-13a gate: **exit 0, 720 passed, 11 skipped, 3682
+        assertions**, eleven skips of which every one is a declared `[gated]` engine case.
 - [ ] **Step 16 — review, and the fixes it names.** [reviewer, then dev]
 
 ---
@@ -827,9 +872,16 @@ shape from the first three.**
 Every absence-and-refusal criterion in §9's table is now expected to say which of the four it pins, and
 `reviewer` should treat a behavioural-only proof of a re-checking statement as a finding, not a style note.
 
-### Two suite rules `dev` paid for, binding on every new test file in this repository
+### Three suite rules `dev` paid for, binding on every new test file in this repository
 
-Added 2026-10-15 from steps 10 and 13. Both cost a gate run to discover and neither is discoverable by reading.
+Added 2026-10-15 from steps 10, 11 and 13. Each cost a gate run to discover and none is discoverable by reading.
+
+- **An ad-hoc `$this->foo` in a Pest test is a static-analysis error, and the gate runs analysis before the suite.**
+  So the cost of that line is not a red test, it is a **full gate run** that never reaches the suite at all —
+  the most expensive way in this repository to learn something trivial. State in a test only what the file declares:
+  per-test state goes in a closure variable or a named helper, not on `$this`. This rule is beside the other two
+  because all three have the same shape: the suite's own rules are enforced by tools that run *before* the thing you
+  were trying to measure.
 
 - **Two collected test files may not share a basename.** Naming the gated lock test `PerTenantLockTest.php` beside
   the kernel's `PerTenantLockTest.php` was refused by `ToolchainGroupBindingTest`. The engine-side file is now
@@ -1660,3 +1712,138 @@ Everything else in the account matches the tree: `is_numeric($configured)` separ
 the second config read gone; the contract guard reading `tenant_databases.status` with its authority stated in the
 docblock; the `V − 1` inference in `assertContractStepsUnblocked()`; FX-3 declaring the observation point with no
 connection named; and the renamed `PerTenantLockEngineTest.php`.
+
+---
+
+## 15. Rulings after steps 11 to 13a, and the consequences on record
+
+Steps 11, 12 and 13a landed (`733dcca`, `d00ff55`, `8c9a5b1`, plus `91d0b2c` for `dev`'s memory). **Gate verified by
+the lead: exit 0, 720 passed, 11 skipped, 3682 assertions**, no sentinel, tree clean; +71 tests and +403 assertions
+against §14's figure, and the six new skips are six new declared `[gated]` engine cases. Nine slices exist, which is
+the layout §4 drew. Twenty-one mutations were run one at a time, each applied to the shipped file and restored in a
+`finally`, and each produced a red signature `dev` reports. Two findings came out of building it and both are ruled
+on here, because each is a place where the obvious implementation is the wrong one.
+
+### 15.1 The status gate forbids the order this plan implied — ruled: enter first, then mark, and the order is normative
+
+**`Tenancy::enter()` refuses any status but `active`, for both purposes** — step 4 of `enter()`, which the migration
+purpose deliberately does *not* waive (§13's exemption is the version gate and nothing else). So a runner that wrote
+`migrating` before entering the tenant would make that tenant **unenterable by its own run**: the mapping it just
+wrote is the mapping `enter()` then reads and refuses. The shipped order is therefore
+
+> **enter (on `active`) → write `migrating` → apply → restore `active` (or `failed`)**
+
+and the status write is inside the scope, after the identity check. **Nothing in this plan said either way, and that
+is the defect being corrected here**, because the order that reads as obviously safer — mark the tenant unservable
+*before* you touch it — is the one that cannot work. It is now normative for anything that enters a tenant and then
+changes its status: **the status write happens inside the scope, never before the entry that depends on it.**
+
+Two consequences worth stating so they are not rediscovered:
+
+- It is also **the only order at which AC-52's from-inside observation can see `migrating` at all.** The reading is
+  taken inside `up()`, which only runs inside the scope, so a design that marked first and entered second would have
+  had no observation point even if `enter()` had allowed it. The criterion and the gate agree; the plan's silence was
+  the only thing that did not.
+- The narrow window this leaves is real and accepted: between `enter()` and the `migrating` write, a request can
+  still be served. It is bounded by two statements on the master and closes as soon as the mapping is written and the
+  cache evicted (D-19). The alternative — a third status meaning "about to migrate" — buys a smaller window at the
+  cost of a second unservable state in every tenant's vocabulary, and FP-206's provisioning path is where such a
+  state would have to be designed, if ever. Recorded, not scheduled.
+
+### 15.2 AC-53's literal wording is unreachable in one process — ruled: reworded into two halves, and the in-process form is not allowed to stand in for it
+
+`dev` is right, and the distinction belongs here rather than in a hand-back. AC-53 says entering B's scope **for
+serving** is refused *during* the run. In one process that cannot be asserted: `enter()` is **re-entrant for the same
+tenant** (step 2 of `enter()`, which increments the depth and returns) and so returns **before** the status check the
+criterion is about. A test written to pass the criterion's words from inside the migration would be asserting the
+opposite of the criterion — the AC-49 shape exactly (§14.4), and the same trap.
+
+**What shipped instead is D-19's actual content:** the read the request path makes, through the caching decorator,
+answers `migrating` from inside the run and `active` at the new version afterwards — **with the mask control beside
+it**, a warm read after a status change written *around* the mapping writer still answering `active`. That control is
+the load-bearing half: without it the test passes on a cache that simply never updates, which is §7's family in
+miniature.
+
+**Ruled: the engine form does not close the gap, so AC-53 is reworded.** The obstruction is in-process re-entrancy of
+`Tenancy`, not the driver; MariaDB changes nothing about it. Closing it literally needs a **second process** making a
+serving entry while the first is mid-migration, which is the AC-49/AC-65 class — G-1 *plus* a second request-path
+process this task has no harness for. Paying for that harness to prove a property that decomposes into two cheaper
+and jointly stronger halves is the wrong trade.
+
+**The replacement, and it is strictly stronger than the in-process literal.** AC-53 becomes two criteria:
+
+- **(a) the cache tells the truth** — the mapping read the request path makes answers `migrating` from inside the run
+  and `active` at the new version after it, with the around-the-writer control. This is shipped and proven (step 11).
+- **(b) a `migrating` mapping is refused for serving** — a serving entry against a mapping whose status is
+  `migrating` throws `TenantDatabaseNotActive` naming the status, with the state-unchanged assertions AC-10 already
+  carries. This needs no run, no second process and no engine: it is a statement about `enter()`, provable where
+  `enter()`'s other status refusals already are.
+
+(a) and (b) compose to the production behaviour the criterion wanted — the request path reads `migrating` and
+`enter()` refuses it — and each half has an input that binds, which the literal form does not.
+
+**The tooth, and it is one dataset row.** `packages/kernel/tests/Feature/TenancyResolutionTest.php` asserts the
+non-active refusal over `suspended` and `provisioning` only; **`migrating` is absent from that dataset**, so half (b)
+is true of the code and asserted nowhere. [dev] adds the `'migrating' => ['tenant-migrating', 'migrating']` row with
+its fixture mapping, in whatever commit this task makes next (step 16's fixes if nothing else). Until then **AC-53
+stays NOT VERIFIED and `qa` records it with `ENGINE_HOLD` and G-1 named** as §11.6 requires — but the reason is now
+two reasons and the report should say so: the `[E]` marker, and the reworded half (b) that is not yet asserted.
+
+**To `ba`, through the lead:** reword AC-53 into (a) and (b) above; the dataset and the behaviour are unchanged, only
+the observation point moves from "during the run, in the same process" to the two places it is observable. Filed with
+§9's finding list, beside §14.1's AC-58 line and §13.6's `[E]` marker correction.
+
+### 15.3 The four declared deviations — all accepted, and why each is the better shape
+
+1. **`SchemaRepairRefused::mirrorAheadOfTenant()` — accepted, and the naming rule is clarified rather than bent.**
+   My constraint was that the refusal be named for its site; the codebase convention is `<Site>Refused`, and the site
+   here is the repair. `mirrorAheadOfTenant()` names the *condition* on a class that names the site, which satisfies
+   the constraint as intended — one throw site, in `RepairSchemaVersionHandler`. **The part worth keeping is the
+   order:** it writes the unservable status **before** it throws, so AC-55's "refused for serving until corrected" is
+   structural rather than dependent on a caller catching the exception. That is the same shape as §0's D-10 ruling
+   (refuse before the first write) and it is the default for every refusal that must also leave a mark.
+2. **`Support/TenantSchemaVersion` with fewer callers than that directory's rule asks for — accepted**, on the
+   argument the docblock makes: the alternative is not one caller, it is **two copies of D-14's "the tenant's own
+   table is the authority"**, and D-14 is a decision, not a detail. The caller *count* in that docblock is wrong and
+   §15.4 corrects it; the ruling does not depend on the number.
+3. **`error_class` stores the cause's class, not the wrapper's — accepted, and it is the stronger choice.** The
+   wrapper is on every failed row by construction, so a column holding it distinguishes nothing, and a column that
+   cannot discriminate is worse than absent: an operator filtering it believes they have filtered. The wrapper's text
+   survives in the message column, where it names the migration. The general rule, for the next bookkeeping column:
+   **a column exists to tell two rows apart; if it holds the same value for every row it describes, it is holding the
+   wrong value.**
+4. **The mapping mirror is written even on a lost claim — accepted, and the docblock is the right place for it.** The
+   database really did change, and hiding a real version behind a bookkeeping race is the worse failure: the mirror
+   is a statement about the database, the claim is a statement about who was allowed to speak. The ordering that
+   makes this safe is already shipped and already stated — mirror first, then the job — and it is what lets the
+   completion statement re-check the holder without risking a version nobody wrote down. The residue is a job row
+   that may be closed by another worker, which is a bookkeeping discrepancy a report can see, against a version
+   drift only `DetectSchemaDrift` could ever have found.
+
+### 15.4 What I judge wrong in the account
+
+One correction, and one qualification for `qa`.
+
+- **`Support/TenantSchemaVersion` has one direct caller in production code, not two.** `DetectSchemaDriftHandler` is
+  the only site that names it; `RepairSchemaVersionHandler` reaches it **through** `DetectSchemaDriftHandler`, and
+  `MigrateTenantHandler` does not use it at all — it computes the version itself in `versionFrom()`, from the list of
+  applied migrations the applier reports rather than from a read of the tenant's `migrations` table. So "two callers"
+  is a count of *features*, and the docblock should read "two features, one caller, and the second reaches it through
+  the first". **The second site is the thing worth noticing, not the number:** `versionFrom()` applies the same
+  "highest set version present" rule to a different input. That is **accepted** — the applier has just told the
+  handler what it applied, and re-reading the table to learn what the previous statement returned would be a second
+  answer to a question already answered — but it means D-14's rule has two implementations whose *inputs* differ, and
+  the docblock's claim of a single site is true only of reads of the table. [dev] corrects the docblock in the same
+  commit as §15.2's tooth; no code moves.
+- **The plan's defect this round is §15.1, and it is mine, not a deviation.** A missing line about ordering is a
+  silence of the plan that `dev` resolved correctly by building it. Recorded that way so `reviewer` reads it as a
+  plan correction rather than as an implementation choice that might be revisited.
+- **For `qa`, the same qualification §14.5 made about AC-48:** AC-53's evidence is the **mask control** beside the
+  eviction case, not the eviction case itself. A later reader who sees the warm read answering `migrating` and
+  deletes the "duplicate" around-the-writer read as redundant would remove the only assertion in the file that a
+  cache which never updates cannot pass. Quote the control in the report.
+
+Everything else in the account matches the tree: nine slices under `Schema/Features/`; the identity check first
+inside the migrating scope, before the status write and before the apply; `migrating` written only for a
+`requires_offline` plan; the ahead-mapping refusal with one throw site; `MigrationRunRefused::contractStepBlocked()`
+naming `tenant:migrate --to=<version − 1>`; and the two statement pins with the signatures `dev` reports.
