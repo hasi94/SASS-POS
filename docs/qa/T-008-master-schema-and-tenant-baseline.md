@@ -312,3 +312,16 @@ Run 3: FAIL (BUG-12 minor open) -> task still NOT VERIFIED.
 Defects: 12 found, 12 closed, 0 open. Engine criteria under G-1 are held: NOT VERIFIED, not PASS. Only 10 of 52 engine criteria have an engine test; clearing G-1 verifies 10, the other 42 need a matrix nobody has written. Step 13d deferred to FP-197, not covered. A green gate under the hold means nothing failed, not that engine criteria pass.
 
 Run 4: PASS (BUG-12 closed) -> task still NOT VERIFIED.
+
+## Round 5 (2026-10-15) - confirmation after review fixes (R-W1..R-W3, S-1..S-5)
+
+Command: `composer check` from modules/host, run by me. Result: 857 passed, 11 skipped, 4508 assertions, matches dev's report. Test step 128.6s (D-12 state: warm, margin ratio 7.00 vs 900s limit, 2026-10-15). Lint, stan, deptrac stages preceded it in the same run.
+
+1. R-W2 moved assertion: confirmed on the log, not deleted. New cases register `Log::listen`, render the exception, and assert exactly one line containing the tenant id and "schema version" (TenantSchemaBehind), and the config key (RequiredSchemaVersionNotConfigured). The body cases now assert the PUBLIC_MESSAGE is present and the id/key are absent.
+2. S-4: both bindings (`TenantDatabaseRepository`, `TenantMigrationTargetRepository`) call `MappingSource::isConfigStandIn`, which tests `EnvSecretResolver::LOCAL_ENVIRONMENTS` directly, so the list is shared, not copied. Allow-list, not a `!== production` test. Test covers both bindings in production, an unanticipated environment name, the permitted environments, and master left alone in production.
+3. Exception family: `MappingSourceNotPermitted` is not enumerated by any test; the R-W3 count test covers the other family. Not worth a test now (a single throw site, documented in the class). Note only.
+4. Dropped source-text scan: agreed. Four behavioural cases cover both bindings, so nothing is lost.
+
+Defects: none new. 15 found across QA and review, all closed.
+
+Run 5: PASS -> task still NOT VERIFIED. Engine criteria under G-1 are held: NOT VERIFIED, not PASS. Only 10 of 52 engine criteria have an engine test; the other 42 need a matrix nobody has written. Step 13d deferred to FP-197. A green gate under the hold means nothing failed.
