@@ -150,3 +150,52 @@ mutation it does **not** catch, and why that is correct.
   be found"* — is named as the standard this repository should keep.
 - **QA's verdict is the right shape and endorsed:** PASS for what could be verified, NOT VERIFIED as a task.
   Both halves true, for the stated reasons.
+
+---
+
+# Re-check round 2 — changed items only
+
+**2026-10-15 · Verdict: APPROVE** · scope `f044e22..HEAD`, 8 commits, 25 files. No Criticals, **no Warnings.**
+
+All three Warnings and all five Suggestions confirmed closed. The notes worth keeping:
+
+- **R-W1** — the two timestamps now read through **one** function, *"which is the shape that stops the rule
+  lapsing on one column again."* The test advances the clock 17 minutes before the second invocation, so the
+  equality is a real assertion rather than two identical stopped-clock strings, and it additionally asserts
+  the start is not after the finish rather than inferring it.
+- **R-W2** — the assertion **genuinely moved**: the detail is asserted present in the log *and* absent from
+  the body, so *"the leak cannot be re-closed by dropping the detail."*
+- **R-W3** — the family census enumerates by reflection with **a control proving the path-to-class mapping
+  resolves**, so a broken census cannot pass by finding nothing. The reviewer: *"that control is the part
+  that makes this worth having."*
+- **S-2** — *"wider than I asked. I had named two; the third is the one I missed."*
+- **S-4** — **the reviewer accepted `dev`'s correction of its own premise.** *"I was wrong: the `env://`-only
+  block lives in the scheme driver and the provider's own comment advertises that the registry will be
+  widened, so the first task adding another scheme would have removed it without opening the tenancy
+  bindings."* No remaining hole.
+
+**The three judgements, all upheld.** The new exception's missing tenant id is structural, not an oversight —
+the source is chosen once per process before any tenant exists, *"and inventing one would be worse"*.
+Dropping the drafted source-scan is *"a strictly better test suite, not a smaller one"*, because it would
+also have gone green on a provider that read the key and ignored the result. And on soften-versus-assert the
+reviewer agreed outright: a refusal *"would convert that harmless over-lock into a failed tenant — strictly
+worse — and would be unreachable code besides."*
+
+## Suggestions carried forward, explicitly not blocking
+
+- **S-6** a truncated docblock sentence in the new interface — fixed before hand-off rather than carried.
+- **S-7** the two renderers log a pre-formatted string where a context array would be greppable in a
+  structured sink. Deferred by the reviewer because the tests assert on message text. **Filed as FP-198.**
+
+## Done well
+
+> Every one of the eight changed items is matched by a test that would fail if the change were reverted, and
+> two of them exist specifically to stop a vacuous pass. That is the standard this task has been held to and
+> it held.
+
+> `dev` corrected my factual premise on S-4 with evidence rather than complying with a wrong instruction, and
+> corrected its own draft comment on S-1 when it overclaimed. Both are the behaviour I want from a developer
+> under review.
+
+**The remaining open item is outside the review's scope and unchanged:** G-1 is unmet under the engine hold,
+so the task stays **NOT VERIFIED** on the engine-dependent criteria regardless of this approval.
