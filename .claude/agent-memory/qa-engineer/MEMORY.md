@@ -6,3 +6,4 @@
 - [Assert the contract, not the symptom](feedback_assert-contract-not-symptom.md) — also covers symptom-as-precondition, and correcting a disproved belief everywhere it is stated.
 - [Gate split and shared state](project_gate-split-and-shared-state.md) — fast/full counts, proving coverage by name from git, the clone-vs-worktree line-ending proof, and the four files that fake a red.
 - [T-007 measurement and test traps](project_t007-measurement-and-test-traps.md) — mutation via prepended autoloader, old-tip runs, stan covers tests, toBe message trap, build() wedge.
+- [T-008 built but not wired](project_t008-built-but-not-wired.md) — classes unit-tested with no caller, status-vocabulary mismatch, PHPUnit env/$_SERVER hold trap, how to report a held [E] matrix.
