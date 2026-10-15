@@ -16,9 +16,20 @@ use Illuminate\Database\Connection;
  * "what a tenant's version is" would be two answers the day one of them
  * learned about a set with two directories.
  *
- * It is in `Support/` with two callers rather than the three that directory's
- * rule asks for, and the reason is that rule's own purpose: the alternative is
- * not one caller, it is two copies of D-14.
+ * It is in `Support/` with **two features and one caller** - the drift check
+ * calls it, and the repair reaches it through the drift check rather than
+ * directly - where that directory's rule asks for three. The reason is the
+ * rule's own purpose: the alternative is not one caller, it is two copies of
+ * D-14.
+ *
+ * **And there already is a second copy, on a different input**, which is the
+ * fact worth knowing before this class is moved or inlined:
+ * `MigrateTenantHandler::versionFrom()` answers the same question - the
+ * highest set version a list of applied migrations reaches - from a list the
+ * applier has already read inside the tenant scope, rather than by reading
+ * the table itself. The two must agree. If the rule here ever changes (a set
+ * with two directories, a version that is not a position), that method is the
+ * other place it is written down.
  *
  * A version is a **position in a set**, so the answer is the highest version
  * of any migration the tenant lists that the set knows. A row naming a

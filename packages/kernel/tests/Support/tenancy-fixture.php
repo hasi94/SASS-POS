@@ -143,6 +143,18 @@ function tenancyFixtureMapping(): array
             'credential_ref' => 'env://TENANT_A_APP_PASSWORD',
             'status' => 'suspended',
         ],
+        // AC-53 half (b): a tenant the runner is migrating right now. The
+        // request path must refuse it, and before this row that was true of
+        // the code and asserted nowhere (plan 15.2, D-49).
+        'tenant-migrating' => [
+            'driver' => 'sqlite',
+            'host' => 'db-fixture-a',
+            'port' => 3307,
+            'database' => tenancyFixtureDatabasePath('tenant-a'),
+            'username' => 'flx_ta_app',
+            'credential_ref' => 'env://TENANT_A_APP_PASSWORD',
+            'status' => 'migrating',
+        ],
         'tenant-provisioning' => [
             'driver' => 'sqlite',
             'host' => 'db-fixture-a',
