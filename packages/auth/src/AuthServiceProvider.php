@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Flexipos\Auth;
 
+use Flexipos\Auth\Keys\PrivateKeyResolver;
+use Flexipos\Auth\Keys\ReferencedPrivateKeyResolver;
+use Flexipos\Auth\Tokens\SigningKeyring;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Support\ServiceProvider;
 
@@ -16,9 +19,10 @@ use Illuminate\Support\ServiceProvider;
  * the host requires by name, and the host's provider list is the one place that
  * says which of them boot.
  *
- * Step 4 gives it its first binding: the clock. The rest of what it will own -
- * the signing keyring, the tenant-selection policy - and the route file it will
- * load arrive with the steps that create them.
+ * Step 4 gave it its first binding, the clock; step 5 adds the signing keyring
+ * and the resolver that turns a `private_key_ref` into key material. The
+ * tenant-selection policy and the route file arrive with the steps that create
+ * them.
  */
 final class AuthServiceProvider extends ServiceProvider
 {
@@ -44,6 +48,24 @@ final class AuthServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(RunnerClock::class);
+
+        /*
+         * Step 5. The private half of a signing key is never in the database
+         * and never in the repository (D-23), so `signing_keys.private_key_ref`
+         * is dereferenced by something outside the schema. Which store that is
+         * is a deployment decision, which is why the keyring takes the
+         * interface and the host binds the implementation.
+         */
+        $this->app->bind(PrivateKeyResolver::class, ReferencedPrivateKeyResolver::class);
+
+        /*
+         * A singleton because a keyring is a reader, not a state machine: one
+         * instance per process is cheaper and there is nothing in it to keep
+         * in step. It holds no cache - see the class docblock for why a cache
+         * keyed by (kid, status) cannot avoid the read it would exist to
+         * avoid - so the singleton cannot serve a stale key status either.
+         */
+        $this->app->singleton(SigningKeyring::class);
     }
 
     public function boot(): void
