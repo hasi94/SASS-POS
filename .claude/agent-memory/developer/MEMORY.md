@@ -21,4 +21,6 @@
 - [Exempt by property, not by name](feedback_exempt_by_property_not_by_name.md) — a red scan over correct code is narrowed by a type or a phase, never by an allow-list entry.
 - [A red phase needs a restore path](feedback_red_phase_needs_a_restore_path.md) — `cp && script` short-circuited and the only copy of an uncommitted step was the mutated file.
 - [Prove an authority by moving it](feedback_prove_an_authority_by_moving_it.md) — a test that agrees with the shipped value cannot tell a config read from a second literal.
+- [Absence is a third state](feedback_absence_is_a_third_state.md) — a default that folds "unset" into "no guard", and why the refusal goes at the consulting site, not at boot.
+- [The FX seam](project_fx_seam_and_fixture_migrations.md) — version = position in the set, never merge-sorted; and why an FX migration reads nothing but its own connection.
 - [The suite absorbs a changed default](project_suite_absorbs_a_changed_default.md) — a new shipped default broke 34 cases in another role's files; phpunit.xml is where it goes.
