@@ -40,6 +40,20 @@ The suite's connections are in-memory SQLite (`phpunit.xml`), and under
   code, and the granted/reachable case is the control beside it. The fake driver
   name must also be added to `tenancy.allowed_drivers` for that test.
 
+- **`ALTER TABLE ... ADD COLUMN ... STORED` is accepted only while the table is
+  empty.** Measured 2026-10-15 on SQLite 3.39.2 through Laravel 12's SQLite
+  grammar: empty table accepted, one row -> `cannot add a STORED column`, and
+  accepted again after a DELETE. It is a row-count check, not a static
+  restriction. `->storedAs()` and a unique index over the generated column both
+  work otherwise, including the case-variant duplicate refusal and the
+  `where <col> = ?` lookup. So an expand migration adding a generated column
+  passes on the fresh in-memory stand-in and fails for anyone who seeds the
+  table first.
+- **A packed `inet_pton` value round-trips through a Laravel `binary` column on
+  the stand-in**, both families, and `where ip = ?` on the packed value matches.
+  Only SQL `length()`/`typeof()` lie (1 and `text` for IPv4), because they stop
+  at the first NUL - assert on the PHP value after `inet_ntop`.
+
 **Why:** it decides what can be proven while the engine is on hold, which is
 most of T-008. A stand-in proof is never `[E]` evidence - those criteria stay
 NOT VERIFIED until G-1 - but "the tree applies, in order, with every key finding
