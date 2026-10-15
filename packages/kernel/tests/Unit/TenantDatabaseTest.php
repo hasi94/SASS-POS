@@ -20,6 +20,8 @@ function tenantDatabaseWithStatus(string $status): TenantDatabase
         username: 'flx_t000123_app',
         credentialRef: 'env://TENANT_000123_APP_PASSWORD',
         status: $status,
+        schemaVersion: 6,
+        credentialVersion: 3,
     );
 }
 
@@ -58,7 +60,26 @@ it('exposes every field the connection plumbing needs and nothing operational', 
         ->and($record->database)->toBe('flx_t_000123')
         ->and($record->username)->toBe('flx_t000123_app')
         ->and($record->credentialRef)->toBe('env://TENANT_000123_APP_PASSWORD')
-        ->and($record->status)->toBe('active');
+        ->and($record->status)->toBe('active')
+        ->and($record->schemaVersion)->toBe(6)
+        ->and($record->credentialVersion)->toBe(3);
+
+    // Both arrived with FP-205 (T-008 step 6) and both have defaults, so no
+    // call site had to change: a record built without them is a tenant with
+    // nothing applied yet and a credential that has never been rotated.
+    $withDefaults = new TenantDatabase(
+        tenantId: '01J0000000000000000000000A',
+        driver: 'mysql',
+        host: 'db-01',
+        port: 3306,
+        database: 'flx_t_000123',
+        username: 'flx_t000123_app',
+        credentialRef: 'env://TENANT_000123_APP_PASSWORD',
+        status: 'active',
+    );
+
+    expect($withDefaults->schemaVersion)->toBe(0)
+        ->and($withDefaults->credentialVersion)->toBe(1);
 
     $properties = array_map(
         static fn (ReflectionProperty $property): string => $property->getName(),
@@ -67,8 +88,15 @@ it('exposes every field the connection plumbing needs and nothing operational', 
 
     sort($properties);
 
+    // The list grows by exactly two, and this is a pin following a deliberate
+    // contract change rather than a weakening: the sibling case below forbids
+    // any password-shaped property name and still covers both new ones, which
+    // are integers and cannot hold a secret. There is still no migrate
+    // username and no migrate credential reference (AC-18) - the runner's own
+    // TenantMigrationTarget is the only type that carries those.
     expect($properties)->toBe([
-        'credentialRef', 'database', 'driver', 'host', 'port', 'status', 'tenantId', 'username',
+        'credentialRef', 'credentialVersion', 'database', 'driver', 'host', 'port',
+        'schemaVersion', 'status', 'tenantId', 'username',
     ]);
 });
 

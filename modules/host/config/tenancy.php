@@ -41,6 +41,61 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Where the mapping is read from
+    |--------------------------------------------------------------------------
+    |
+    | `master` is the shipped source (FP-205): one joined read of
+    | tenant_databases + database_servers on the master connection, behind a
+    | 300-second cache keyed by tenant id. `config` is the local stand-in that
+    | reads the `databases` key below and queries nothing - it is what T-003
+    | shipped, and the tenancy fixtures still use it so their proofs need no
+    | master schema.
+    |
+    | `ttl` is the cache window in seconds. The credential version travels as a
+    | value inside the entry rather than in the key, so a rotation cannot leave
+    | an entry behind that nothing will ever evict.
+    |
+    */
+
+    'mapping' => [
+        'source' => env('TENANCY_MAPPING_SOURCE', 'master'),
+        'ttl' => (int) env('TENANCY_MAPPING_TTL', 300),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | The tenant schema version this code requires
+    |--------------------------------------------------------------------------
+    |
+    | The floor the **serving** version gate compares a mapping's
+    | schema_version against: below it, a request for that tenant is refused
+    | with a named exception before any network connection is attempted, and
+    | the host renders it as HTTP 503 with Retry-After. Entering a tenant for
+    | the *migration* purpose is exempt from this gate and only from this gate -
+    | a tenant below the required version is the only kind the runner migrates.
+    |
+    | The same variable config/schema.php reads, and the catalogue is the
+    | authority for its value: see the note there, and .env.example, which
+    | ships the baseline's highest version. Zero means no version floor.
+    |
+    */
+
+    'required_schema_version' => (int) env('APP_REQUIRED_SCHEMA_VERSION', 0),
+
+    /*
+    |--------------------------------------------------------------------------
+    | How long a client should wait when a tenant is behind
+    |--------------------------------------------------------------------------
+    |
+    | The Retry-After header's value, in seconds, on the 503 a behind tenant
+    | gets. It is a hint for a client, not a promise about the migration.
+    |
+    */
+
+    'behind_retry_after' => (int) env('TENANCY_BEHIND_RETRY_AFTER', 30),
+
+    /*
+    |--------------------------------------------------------------------------
     | Local tenant-to-database mapping
     |--------------------------------------------------------------------------
     |

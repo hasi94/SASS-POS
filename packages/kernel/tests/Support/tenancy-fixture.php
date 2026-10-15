@@ -214,6 +214,11 @@ function tenancyBootFixture(): void
     tenancyWriteEnvironment('TENANT_A_APP_PASSWORD', tenancyFixturePassword());
     tenancyWriteEnvironment('TENANT_B_APP_PASSWORD', tenancyFixturePassword());
 
+    // The local stand-in source, named explicitly. Since FP-205 the shipped
+    // default is `master` - one joined read of the master schema - and this
+    // fixture is a configuration array with no schema behind it, so the source
+    // is part of the fixture rather than an assumption about the default.
+    config()->set('tenancy.mapping.source', 'config');
     config()->set('tenancy.databases', tenancyFixtureMapping());
 
     // The repository is a singleton built from config, so it has to be dropped

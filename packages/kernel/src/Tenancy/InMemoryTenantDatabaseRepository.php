@@ -36,6 +36,10 @@ final class InMemoryTenantDatabaseRepository implements TenantDatabaseRepository
      * A `password` key is not read, because the contract has nowhere to put one:
      * a mapping carries `credential_ref` and nothing else.
      *
+     * `schema_version` and `credential_version` are optional and default to the
+     * record's own defaults - 0 and 1 - so a fixture written before FP-205
+     * still produces a valid record.
+     *
      * @param  array<string, mixed>  $databases
      */
     public static function fromConfig(array $databases): self
@@ -54,6 +58,8 @@ final class InMemoryTenantDatabaseRepository implements TenantDatabaseRepository
                 username: (string) ($attributes['username'] ?? ''),
                 credentialRef: (string) ($attributes['credential_ref'] ?? ''),
                 status: (string) ($attributes['status'] ?? ''),
+                schemaVersion: (int) ($attributes['schema_version'] ?? 0),
+                credentialVersion: (int) ($attributes['credential_version'] ?? 1),
             );
         }
 

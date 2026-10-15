@@ -9,6 +9,7 @@ use Flexipos\Kernel\Tenancy\Secrets\EnvSecretResolver;
 use Flexipos\Kernel\Tenancy\Secrets\SchemeSecretResolver;
 use Flexipos\Kernel\Tenancy\Secrets\Secret;
 use Flexipos\Kernel\Tenancy\Secrets\SecretResolver;
+use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Foundation\Application;
@@ -89,10 +90,28 @@ final class TenancyServiceProvider extends ServiceProvider
         $this->app->singleton(
             TenantDatabaseRepository::class,
             static function (Application $app): TenantDatabaseRepository {
-                /** @var array<string, mixed> $databases */
-                $databases = (array) $app->make(ConfigRepository::class)->get('tenancy.databases', []);
+                $config = $app->make(ConfigRepository::class);
 
-                return InMemoryTenantDatabaseRepository::fromConfig($databases);
+                // The local stand-in: a configuration array and no query. It is
+                // what T-003 shipped and what T-003's and T-007's fixtures
+                // still use, so those proofs need no master schema.
+                if ((string) $config->get('tenancy.mapping.source', 'master') === 'config') {
+                    /** @var array<string, mixed> $databases */
+                    $databases = (array) $config->get('tenancy.databases', []);
+
+                    return InMemoryTenantDatabaseRepository::fromConfig($databases);
+                }
+
+                // The shipped source (FP-205): one joined read of the master
+                // schema, behind the 300-second window. Built here rather than
+                // bound separately because the decorator is not optional - a
+                // request that resolved the bare reader would read the master
+                // on every query that opens a tenant connection.
+                return new CachingTenantDatabaseRepository(
+                    $app->make(MasterTenantDatabaseRepository::class),
+                    $app->make(CacheFactory::class)->store(),
+                    (int) $config->get('tenancy.mapping.ttl', 300),
+                );
             }
         );
 

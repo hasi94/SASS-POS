@@ -62,6 +62,21 @@
         <env name="DB_MASTER_DATABASE" value=":memory:"/>
         <env name="TENANCY_ALLOWED_DRIVERS" value="mysql,mariadb,sqlite"/>
         <!--
+            The suite's mapping source is the local stand-in: a configuration
+            array, read by InMemoryTenantDatabaseRepository, with no master
+            schema behind it. The shipped default in config/tenancy.php is
+            `master` - one joined read of tenant_databases + database_servers -
+            and that default is asserted from the config file itself in
+            MasterTenantDatabaseRepositoryTest, which then selects `master`
+            explicitly and migrates the stand-in master to read from.
+
+            This is the same kind of decision as DB_MASTER_DRIVER above: a
+            tenancy proof that needs two tenants and a marker table should not
+            also need seventeen master migrations and a mapping row, and T-003's
+            and T-007's isolation proofs predate the master schema entirely.
+        -->
+        <env name="TENANCY_MAPPING_SOURCE" value="config"/>
+        <!--
             The engine the engine-group tests run against (T-008). These name an
             engine rather than a database: the suite's databases are created and
             dropped by Flexipos\Testing\Engine\EngineDatabase, under the
