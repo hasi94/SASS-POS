@@ -31,3 +31,4 @@
 - [SQLite fixture costs, and Pest properties](project_sqlite_fixture_costs_and_pest_properties.md) — fsync per bare statement, and why `$this->applier` in a Pest test fails stan.
 - [Derive a list, or it drifts](feedback_derive_a_list_or_it_drifts.md) — two sites, one literal; and why PHP const expressions force the derived side to be a static method.
 - [Reachability is a closure, not a grep](feedback_reachability_is_a_closure_not_a_grep.md) — 14 reds, zero defects: sibling-called, test-only, and actually dead are three different reds.
+- [An instruction must be runnable](feedback_an_instruction_must_be_runnable.md) — two shipped messages named a CLI invocation the command's own argument guard refused.
