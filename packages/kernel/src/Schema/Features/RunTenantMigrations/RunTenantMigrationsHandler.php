@@ -257,6 +257,26 @@ final class RunTenantMigrationsHandler
      * several workers may have executed the same run, and a tally kept in one
      * of them would describe its own share.
      *
+     * **A run with a job that has not finished is not finished** (plan
+     * section 19.2, step 13f). Until this step the status depended only on
+     * whether anything had failed, so a run could be written `completed` with
+     * `pending` and `running` jobs counted into its own row - a run whose
+     * state lies, reachable the moment a job is held by another worker under
+     * an unexpired lease, which is exactly the queued path. So the terminal
+     * status is withheld while `pending + running > 0`: the run keeps
+     * `running`, `finished_at` is not written, and the result carries the
+     * outstanding count with a non-zero exit code so a cron notices.
+     *
+     * The counters are written either way. They are a true count of the job
+     * rows whatever the run's status is, and the status report needs them to
+     * tell "running, N outstanding" from "running, awaiting its final
+     * counters".
+     *
+     * **Idempotent on a run that is already terminal.** `finished_at` is kept
+     * rather than restamped, so a second invocation - the one that writes the
+     * counters after a dispatched run drains - leaves the moment the work
+     * actually ended in place and exits 0.
+     *
      * @param  list<MigrateTenantResult>  $jobs
      */
     private function finish(string $runId, int $target, array $jobs): RunTenantMigrationsResult
@@ -270,20 +290,27 @@ final class RunTenantMigrationsHandler
             $total++;
         }
 
-        $status = ($counts['failed'] ?? 0) > 0
-            ? self::RUN_COMPLETED_WITH_FAILURES
-            : self::RUN_COMPLETED;
+        $outstanding = ($counts['pending'] ?? 0) + ($counts['running'] ?? 0);
+
+        $status = match (true) {
+            $outstanding > 0 => self::RUN_RUNNING,
+            ($counts['failed'] ?? 0) > 0 => self::RUN_COMPLETED_WITH_FAILURES,
+            default => self::RUN_COMPLETED,
+        };
 
         $now = $this->clock->timestamp();
 
-        $this->table('tenant_migration_runs')
-            ->where('id', $runId)
-            ->update(array_merge($counts, [
-                'status' => $status,
-                'total' => $total,
-                'finished_at' => $now,
-                'updated_at' => $now,
-            ]));
+        $update = array_merge($counts, [
+            'status' => $status,
+            'total' => $total,
+            'updated_at' => $now,
+        ]);
+
+        if ($outstanding === 0) {
+            $update['finished_at'] = $this->finishedAt($runId) ?? $now;
+        }
+
+        $this->table('tenant_migration_runs')->where('id', $runId)->update($update);
 
         return new RunTenantMigrationsResult(
             runId: $runId,
@@ -291,8 +318,25 @@ final class RunTenantMigrationsHandler
             status: $status,
             jobs: $jobs,
             counts: $counts,
+            outstanding: $outstanding,
             exitCode: $status === self::RUN_COMPLETED ? 0 : 1,
         );
+    }
+
+    /**
+     * When this run was finished before, if it was.
+     */
+    private function finishedAt(string $runId): ?string
+    {
+        $row = $this->table('tenant_migration_runs')->where('id', $runId)->first();
+
+        if ($row === null) {
+            return null;
+        }
+
+        $finishedAt = ((array) $row)['finished_at'] ?? null;
+
+        return is_string($finishedAt) && $finishedAt !== '' ? $finishedAt : null;
     }
 
     private function table(string $table): Builder

@@ -917,7 +917,7 @@ is neither outstanding work nor done, it blocks nothing, and the ruling that mov
       *Order: **free, as of §19.1**. The "after 13d" constraint existed only because 13d's per-kind census pinned
       exact public-method counts that this step moves by six; with 13d deferred there is no census to tune and 13e
       may be taken next. It still may share no commit with anything else, because its proof is the moved key.*
-- [ ] **Step 13f — a run's terminal state stops being a lie, and the report says which `running` it means.** [dev]
+- [x] **Step 13f — a run's terminal state stops being a lie, and the report says which `running` it means.** [dev]
       Ruled in **§19.2**. §17.2 attached two conditions to confirming the queued-run residual and assigned neither;
       `dev` is right that the second has no home in 13d, and I have measured that **the first is not implemented
       either** — `RunTenantMigrationsHandler::finish()` (line 262) counts `pending` and `running` jobs into the run

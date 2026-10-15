@@ -48,7 +48,13 @@ final class TenantMigrateCommand extends Command
         /** @var list<string> $tenants */
         $tenants = array_values(array_filter((array) $this->option('tenant')));
 
-        if ($tenants === [] && ! $this->option('all')) {
+        // A resumption names its work by naming the run, and it plans
+        // nothing, so the accident this refusal exists for - a bulk run
+        // started because an argument was forgotten - cannot happen with
+        // --run. Without this clause the instruction step 13f prints,
+        // `tenant:migrate --run=<id>`, would be refused by the very command
+        // that printed it; so would dispatch()'s own closing line.
+        if ($tenants === [] && ! $this->option('all') && $this->option('run') === null) {
             $this->components->error(
                 'Name the tenants with --tenant, or ask for every eligible tenant with --all.'
                 .' Nothing was planned.'
@@ -93,6 +99,22 @@ final class TenantMigrateCommand extends Command
                 $job->locked => 'not run: '.$job->errorMessage,
                 default => 'failed: '.$job->errorMessage,
             });
+        }
+
+        if ($result->outstanding > 0) {
+            // The run is not over, so it is not reported as having ended
+            // (plan section 19.2). The operator is told how many jobs are
+            // still out and the one invocation that writes the final
+            // counters once they are terminal.
+            $this->components->warn(sprintf(
+                'Run %s is still running: %d job(s) outstanding, so no final status was written.'
+                .' Run tenant:migrate --run=%s again once they are done.',
+                $result->runId,
+                $result->outstanding,
+                $result->runId
+            ));
+
+            return $result->exitCode;
         }
 
         $this->components->info(

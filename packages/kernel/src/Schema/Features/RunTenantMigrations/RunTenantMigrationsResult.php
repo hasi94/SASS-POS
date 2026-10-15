@@ -20,6 +20,12 @@ final readonly class RunTenantMigrationsResult
     /**
      * @param  list<MigrateTenantResult>  $jobs  in the order they were executed
      * @param  array<string, int>  $counts  job status => how many, after the run
+     * @param  int  $outstanding  jobs neither done, failed nor skipped when this
+     *                            invocation stopped. Non-zero means the run is
+     *                            **not** finished and its status is still
+     *                            `running` (plan section 19.2): one more
+     *                            `tenant:migrate --run=<id>` writes the final
+     *                            counters once they are terminal.
      */
     public function __construct(
         public string $runId,
@@ -27,6 +33,7 @@ final readonly class RunTenantMigrationsResult
         public string $status,
         public array $jobs,
         public array $counts,
+        public int $outstanding,
         public int $exitCode,
     ) {}
 

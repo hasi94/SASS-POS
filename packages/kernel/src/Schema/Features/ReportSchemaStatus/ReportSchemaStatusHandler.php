@@ -4,10 +4,15 @@ declare(strict_types=1);
 
 namespace Flexipos\Kernel\Schema\Features\ReportSchemaStatus;
 
+use Flexipos\Kernel\Schema\Features\MigrateTenant\MigrateTenantHandler;
+use Flexipos\Kernel\Schema\Features\RetryFailedJobs\RetryFailedJobsHandler;
+use Flexipos\Kernel\Schema\Features\RunTenantMigrations\RunTenantMigrationsHandler;
 use Flexipos\Kernel\Tenancy\TenantStatusPolicy;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
+use Illuminate\Database\Connection;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Database\Query\Expression;
 
 /**
  * The behind report (AC-57).
@@ -31,6 +36,15 @@ use Illuminate\Database\Query\Builder;
  * matches the database is `DetectSchemaDrift`'s question and the two are
  * deliberately not merged - a report that opened every tenant database to
  * check would be unrunnable on a platform of any size.
+ *
+ * **The runs section** (plan section 19.2, step 13f) is the second subject
+ * and the second query. `running` is the one run status that does not say
+ * what is happening: since step 13f a run stays `running` while any job is
+ * `pending` or `running`, and it also stays `running` after a dispatched run
+ * has drained and nobody has invoked the finishing pass yet. Those need
+ * opposite responses - wait, or run `tenant:migrate --run=<id>` - so the
+ * report counts each running run's jobs and says which of the two it is.
+ * Still master-only: both subjects live in the master schema.
  */
 final class ReportSchemaStatusHandler
 {
@@ -72,7 +86,71 @@ final class ReportSchemaStatusHandler
             byServer: $byServer,
             behind: $behind,
             oldestLaggard: $this->oldestOf($behind),
+            runs: $this->runs(),
         );
+    }
+
+    /**
+     * Every `running` run with its jobs counted by status, lowest id first.
+     *
+     * One statement, a left join from the runs: a run that is `running` with
+     * no job rows at all is still a run somebody has to deal with, and an
+     * inner join would hide it.
+     *
+     * `outstanding` is the pair of non-terminal statuses, counted here rather
+     * than by the caller so the report and `RunTenantMigrationsHandler` agree
+     * on what "not finished" means - that agreement is the whole point of the
+     * section.
+     *
+     * @return list<array{run_id: string, counts: array<string, int>, outstanding: int}>
+     */
+    private function runs(): array
+    {
+        $byRun = [];
+
+        $rows = $this->master()
+            ->table('tenant_migration_runs')
+            ->leftJoin(
+                'tenant_migration_jobs',
+                'tenant_migration_jobs.run_id',
+                '=',
+                'tenant_migration_runs.id'
+            )
+            ->where('tenant_migration_runs.status', RunTenantMigrationsHandler::RUN_RUNNING)
+            ->groupBy('tenant_migration_runs.id', 'tenant_migration_jobs.status')
+            ->orderBy('tenant_migration_runs.id')
+            ->get([
+                'tenant_migration_runs.id as run_id',
+                'tenant_migration_jobs.status as job_status',
+                new Expression('count(tenant_migration_jobs.id) as job_count'),
+            ]);
+
+        foreach ($rows as $row) {
+            $row = (array) $row;
+            $runId = (string) $row['run_id'];
+            $status = $row['job_status'];
+
+            $byRun[$runId] ??= [];
+
+            if (is_string($status) && $status !== '') {
+                $byRun[$runId][$status] = ((int) $row['job_count']) + ($byRun[$runId][$status] ?? 0);
+            }
+        }
+
+        $runs = [];
+
+        foreach ($byRun as $runId => $counts) {
+            ksort($counts);
+
+            $runs[] = [
+                'run_id' => $runId,
+                'counts' => $counts,
+                'outstanding' => ($counts[RetryFailedJobsHandler::JOB_PENDING] ?? 0)
+                    + ($counts[MigrateTenantHandler::JOB_RUNNING] ?? 0),
+            ];
+        }
+
+        return $runs;
     }
 
     /**
@@ -119,8 +197,15 @@ final class ReportSchemaStatusHandler
 
     private function table(): Builder
     {
-        return $this->database
-            ->connection((string) $this->config->get('tenancy.master_connection', 'master'))
-            ->table('tenant_databases');
+        return $this->master()->table('tenant_databases');
+    }
+
+    private function master(): Connection
+    {
+        /** @var Connection $connection */
+        $connection = $this->database
+            ->connection((string) $this->config->get('tenancy.master_connection', 'master'));
+
+        return $connection;
     }
 }
