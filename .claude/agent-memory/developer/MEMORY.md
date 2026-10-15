@@ -34,3 +34,5 @@
 - [An instruction must be runnable](feedback_an_instruction_must_be_runnable.md) — two shipped messages named a CLI invocation the command's own argument guard refused.
 - [An incidental block is not a block](feedback_incidental_block_is_not_a_block.md) — when an optional defence-in-depth item earns code, and when a bound is softened instead of enforced.
 - [A type-graph rule does not see a literal](feedback_type_graph_rule_does_not_see_a_literal.md) — deptrac reports symbol reuse, not a copied value; plus two layer-carving mechanics.
+- [Master table list is pinned three times](project_master_table_list_is_pinned_three_times.md) — a new master table edits four files, two counts are literals; and SQLite reports types without lengths.
+- [A control must redden the file the plan names](feedback_a_control_must_redden_the_file_the_plan_names.md) — the named test scanned fixtures only; plus env() handing a numeric config value in as a string.
