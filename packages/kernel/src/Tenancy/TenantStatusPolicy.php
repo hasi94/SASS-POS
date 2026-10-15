@@ -77,7 +77,13 @@ final class TenantStatusPolicy
      * The seam the moved-key proof uses, and the only way the migratable list
      * can differ from the shipped one. A production caller would be widening
      * the list inside a reviewed code change, which is what plan section 18.2
-     * records as the accepted residual.
+     * records as the accepted residual. The marker below puts that residual at
+     * the call site rather than only in the plan.
+     *
+     * @internal Tests and fixtures only. The shipped process takes its policy
+     * from the container, which binds {@see self::shipped()}; a production
+     * call to this method is the widening plan section 18.2 accepts only under
+     * review.
      *
      * @param  list<string>  $statuses
      */

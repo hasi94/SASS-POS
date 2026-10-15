@@ -102,6 +102,16 @@ final class ArtisanTenantMigrationApplier implements TenantMigrationApplier
         }
 
         if ($exit !== 0) {
+            // Console output, and nothing else from this frame. It is safe
+            // only because MigrationErrorText sweeps every `scheme://rest`
+            // token out of whatever reaches a master column, on top of the
+            // credential and its reference (AC-45) - not because the migrator
+            // is trusted to print nothing sensitive. The temptation here is to
+            // add the connection the file was applied to, so an operator can
+            // see which database failed: do not. A tenant connection carries a
+            // resolved password, the sweep is shaped for reference-like
+            // tokens, and the tenant is already on the job row. Anything added
+            // to this message has to survive that sweep on its own.
             throw TenantMigrationFailed::exitedNonZero($migration, $exit, $this->console->output());
         }
     }
