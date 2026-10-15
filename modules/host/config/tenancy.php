@@ -1,5 +1,21 @@
 <?php
 
+/*
+|--------------------------------------------------------------------------
+| The serving version floor, read once, before the array
+|--------------------------------------------------------------------------
+|
+| Read here rather than inline below because absence has to survive as
+| absence: `(int) env('APP_REQUIRED_SCHEMA_VERSION', 0)` folded "nobody chose
+| anything" into "no floor" and the serving gate then had no way to tell them
+| apart, which is risk R-14. An unset or empty variable yields **null** - a
+| misconfiguration the gate refuses to serve on - and only a value someone
+| actually wrote becomes a number, including an explicit 0.
+|
+*/
+
+$requiredSchemaVersion = env('APP_REQUIRED_SCHEMA_VERSION');
+
 return [
 
     /*
@@ -74,13 +90,29 @@ return [
     | the *migration* purpose is exempt from this gate and only from this gate -
     | a tenant below the required version is the only kind the runner migrates.
     |
-    | The same variable config/schema.php reads, and the catalogue is the
-    | authority for its value: see the note there, and .env.example, which
-    | ships the baseline's highest version. Zero means no version floor.
+    | **This key is the floor's only site.** config/schema.php used to read the
+    | same variable a second time, which is the shape decision D-14 rules
+    | against; anything needing "the highest version the shipped tree can
+    | produce" reads the catalogue instead, because that is a different fact
+    | from "the floor this deployment chose". .env.example names the value a
+    | deployment ships with, and a test pins it against the catalogue.
+    |
+    | Three states, not two (ruling 13.1):
+    |
+    | - **a number** - the floor, as AC-19 and AC-20 describe it;
+    | - **an explicit 0** - "no floor; tenant_databases.status is the only
+    |   guard", a choice someone wrote down, and served;
+    | - **absent** - nobody chose anything. That is a misconfiguration, and a
+    |   serving entry is refused with RequiredSchemaVersionNotConfigured and
+    |   rendered 503 *without* Retry-After, because waiting does not help. The
+    |   migrating purpose stays exempt: refusing it would disable
+    |   `php artisan tenant:migrate`, the one command that fixes the condition.
     |
     */
 
-    'required_schema_version' => (int) env('APP_REQUIRED_SCHEMA_VERSION', 0),
+    'required_schema_version' => is_numeric($requiredSchemaVersion)
+        ? (int) $requiredSchemaVersion
+        : null,
 
     /*
     |--------------------------------------------------------------------------

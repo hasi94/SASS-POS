@@ -105,6 +105,49 @@ function catalogueCommittedRows(): array
     );
 }
 
+/**
+ * The highest version the configured tenant tree can produce.
+ *
+ * Read through config('schema.tenant_migration_path') - the one authority for
+ * where the tree is - so pointing that key somewhere else moves this answer.
+ * That is what makes the AC-21 equality a comparison between two independent
+ * facts rather than between two literals that happen to agree.
+ */
+function catalogueHighestVersion(): int
+{
+    $catalogue = MigrationCatalogue::forTree(migrationTreeDirectory(MigrationTree::Tenant));
+
+    expect($catalogue)->not->toBeEmpty();
+
+    return max(array_map(static fn (MigrationCatalogue $entry): int => $entry->version, $catalogue));
+}
+
+/**
+ * A scratch tree of `$files` inert expand migrations, under storage/ so the
+ * committed tree is never touched, and returned base-path-relative - the form
+ * config('schema.tenant_migration_path') takes.
+ *
+ * Inert on purpose: nothing applies these, and a file that could create a table
+ * is a file that could be applied to something by accident.
+ */
+function catalogueScratchTree(string $name, int $files): string
+{
+    $relative = 'storage/app/'.$name;
+
+    File::deleteDirectory(base_path($relative));
+    File::ensureDirectoryExists(base_path($relative));
+
+    foreach (range(1, max(1, $files)) as $index) {
+        File::put(
+            base_path($relative.DIRECTORY_SEPARATOR.sprintf('%04d_scratch_version.php', $index)),
+            "<?php\n\n/*\n * @phase expand\n */\n\nuse Illuminate\\Database\\Migrations\\Migration;\n\n"
+            ."return new class extends Migration\n{\n    public function up(): void\n    {\n        //\n    }\n};\n"
+        );
+    }
+
+    return $relative;
+}
+
 /*
 |--------------------------------------------------------------------------
 | The shipped tree, published
@@ -174,14 +217,7 @@ it('exits non-zero when the committed fixture disagrees with the tree', function
 */
 
 it('ships a required schema version the catalogue can produce', function () {
-    $catalogue = MigrationCatalogue::forTree(migrationTreeDirectory(MigrationTree::Tenant));
-
-    expect($catalogue)->not->toBeEmpty();
-
-    $highest = max(array_column(array_map(
-        static fn (MigrationCatalogue $entry): array => $entry->toRow(),
-        $catalogue
-    ), 'version'));
+    $highest = catalogueHighestVersion();
 
     // The value a deployment ships with lives in .env.example, read here as
     // text rather than from config(): the suite's own environment does not set
@@ -196,18 +232,50 @@ it('ships a required schema version the catalogue can produce', function () {
         // the baseline's own highest version.
         ->and($shipped)->toBe($highest);
 
-    // The control AC-21 names: the same comparison with a constant one higher
-    // fails. A code that required a version nothing can produce would 503 every
-    // tenant in the installation.
+    // The control AC-21 names, kept because the criterion names it and marked
+    // for what it is: `highest + 1 > highest` is arithmetic. It would pass
+    // against an empty repository, so it is documentation and not the control
+    // (ruling 13.3). The control is the equality above, and the two cases below
+    // are what give it teeth.
     expect($highest + 1)->toBeGreaterThan($highest);
 
-    // And the configuration key reads that variable rather than carrying a
-    // number of its own, so the two cannot drift apart silently. Asserted over
-    // the config file's text: calling env() from a test is what breaks the
-    // moment the configuration is cached, which this repository's own cache
-    // guard exists to catch.
-    expect(File::get(base_path('config/schema.php')))->toContain("env('APP_REQUIRED_SCHEMA_VERSION'")
-        ->and(config('schema.required_version'))->toBeInt();
+    // Two agreeing literals prove nothing about which of them is authoritative,
+    // so the catalogue side is *moved*: with a tree one version higher the
+    // equality is false, and with a tree one version lower the shipped value is
+    // ahead of what the catalogue can produce. Both are read through
+    // config('schema.tenant_migration_path'), which is the production path, so
+    // this also says the catalogue is read from the configured tree rather than
+    // from a directory name the helper carries.
+    $higher = catalogueScratchTree('catalogue-floor-higher', $highest + 1);
+    $lower = catalogueScratchTree('catalogue-floor-lower', $highest - 1);
+
+    try {
+        config()->set('schema.tenant_migration_path', $higher);
+
+        expect(catalogueHighestVersion())->toBe($highest + 1)
+            ->and($shipped === catalogueHighestVersion())->toBeFalse();
+
+        config()->set('schema.tenant_migration_path', $lower);
+
+        expect(catalogueHighestVersion())->toBe($highest - 1)
+            ->and($shipped <= catalogueHighestVersion())->toBeFalse();
+    } finally {
+        config()->set('schema.tenant_migration_path', 'database/migrations-tenant');
+
+        File::deleteDirectory(base_path($higher));
+        File::deleteDirectory(base_path($lower));
+    }
+
+    // The variable has exactly one configuration site since step 7a: the floor
+    // is `tenancy.required_schema_version` and config/schema.php no longer
+    // reads the same variable a second time (ruling 13.1). Asserted over the
+    // files' text, because calling env() from a test is what breaks the moment
+    // the configuration is cached - which this repository's own cache guard
+    // exists to catch. config/schema.php still *names* the variable in a
+    // comment saying where the floor went; what it must not do is read it.
+    expect(File::get(base_path('config/tenancy.php')))->toContain("env('APP_REQUIRED_SCHEMA_VERSION')")
+        ->and(File::get(base_path('config/schema.php')))->not->toContain("env('APP_REQUIRED_SCHEMA_VERSION")
+        ->and(config()->has('schema.required_version'))->toBeFalse();
 });
 
 /*

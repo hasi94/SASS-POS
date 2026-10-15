@@ -153,10 +153,13 @@ it('serves a tenant exactly at the required version, with no warning', function 
     tenancy()->leave();
 });
 
-it('serves every tenant when no version floor is configured', function () {
-    // Zero is the shipped default until a deployment names
-    // APP_REQUIRED_SCHEMA_VERSION, and it is no floor at all rather than a
-    // floor of zero that a 0-version tenant happens to pass.
+it('serves every tenant when the floor is explicitly zero', function () {
+    // An explicit zero is no floor at all, rather than a floor of zero that a
+    // 0-version tenant happens to pass. Since step 7a that is a *recorded*
+    // opt-out and not a default: an absent APP_REQUIRED_SCHEMA_VERSION is a
+    // misconfiguration the gate refuses to serve on, which is
+    // TenancyVersionFloorStatesTest's subject. This case must not be read as
+    // covering it.
     versionGateMapping(required: 0, tenantAVersion: 0);
 
     $records = versionGateLog(function (): void {

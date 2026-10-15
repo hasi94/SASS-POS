@@ -1,5 +1,6 @@
 <?php
 
+use Flexipos\Kernel\Tenancy\Exceptions\RequiredSchemaVersionNotConfigured;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantDatabaseNotMapped;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantSchemaBehind;
 use Illuminate\Contracts\Debug\ExceptionHandler;
@@ -56,6 +57,39 @@ it('renders a behind tenant as 503 with Retry-After, for a browser and for an AP
     foreach ([$html, $json] as $response) {
         expect((string) $response->getContent())->toContain('01J0000000000000000000000A');
     }
+});
+
+it('renders an unconfigured floor as 503 without Retry-After, so it is not read as a running migration', function () {
+    // T-008 step 7a. Both states are 503 - neither is a client error and
+    // neither is a server fault - and the header is the whole difference: a
+    // behind tenant's Retry-After promises that waiting helps, which is false
+    // of a missing environment variable. A till that retried forever against
+    // one would be a second incident, so the two are distinguishable at the
+    // wire and not only in a log.
+    $unconfigured = RequiredSchemaVersionNotConfigured::forTenant('01J0000000000000000000000A');
+
+    $handler = app(ExceptionHandler::class);
+
+    foreach ([[], ['HTTP_ACCEPT' => 'application/json']] as $server) {
+        $response = $handler->render(Request::create('/pos/sale', 'GET', server: $server), $unconfigured);
+
+        expect($response->getStatusCode())->toBe(503)
+            ->and($response->headers->get('Retry-After'))->toBeNull()
+            // The message names the variable an operator has to set and the
+            // tenant that was refused, and carries no credential: the floor is
+            // consulted before the credential reference is dereferenced.
+            ->and((string) $response->getContent())->toContain('APP_REQUIRED_SCHEMA_VERSION')
+            ->and((string) $response->getContent())->toContain('01J0000000000000000000000A');
+    }
+
+    // The control, and it is the point of this case: the *behind* exception
+    // rendered through the same handler in the same process does carry the
+    // header. Without it, a handler that had simply stopped setting Retry-After
+    // at all would pass above.
+    expect($handler->render(
+        Request::create('/pos/sale', 'GET'),
+        TenantSchemaBehind::forTenant('01J0000000000000000000000A', 5, 6)
+    )->headers->get('Retry-After'))->toBe('30');
 });
 
 it('renders an ordinary tenancy refusal as 500, so the 503 is about the version gate', function () {

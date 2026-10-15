@@ -90,6 +90,54 @@ it('binds the master-backed reader behind the cache by default', function () {
     expect(app(TenantDatabaseRepository::class))->toBeInstanceOf(InMemoryTenantDatabaseRepository::class);
 });
 
+it('builds the master-backed reader from the shipped configuration itself, with no source named here', function () {
+    // T-008 step 7a, the tooth phpunit.xml's TENANCY_MAPPING_SOURCE override
+    // costs (ruling 13.4). The case above asserts two things - that the shipped
+    // file says `master`, and that `master` resolves to the decorator - joined
+    // by a literal this test wrote. So nothing in any run was proving that the
+    // *shipped* configuration builds the master reader: config/tenancy.php
+    // could have said `master` while the container never built it.
+    //
+    // Here the whole tenancy configuration is replaced by the file's own
+    // evaluation with the variable removed from all three places Laravel's Env
+    // repository reads - which is what a deployment has - and the container is
+    // then asked for the port with no source named at all.
+    $ambientConfig = config('tenancy');
+    $ambientSource = $_SERVER['TENANCY_MAPPING_SOURCE']
+        ?? $_ENV['TENANCY_MAPPING_SOURCE']
+        ?? (is_string($raw = getenv('TENANCY_MAPPING_SOURCE')) ? $raw : null);
+
+    unset($_ENV['TENANCY_MAPPING_SOURCE'], $_SERVER['TENANCY_MAPPING_SOURCE']);
+    putenv('TENANCY_MAPPING_SOURCE');
+
+    try {
+        config()->set('tenancy', require base_path('config/tenancy.php'));
+
+        app()->forgetInstance(TenantDatabaseRepository::class);
+
+        $repository = app(TenantDatabaseRepository::class);
+
+        expect($repository)->toBeInstanceOf(CachingTenantDatabaseRepository::class)
+            ->and($repository->inner())->toBeInstanceOf(MasterTenantDatabaseRepository::class)
+            // And the window the decorator was built with is the file's, not a
+            // default the binding fell back to.
+            ->and(config('tenancy.mapping.ttl'))->toBe(300);
+    } finally {
+        if (is_string($ambientSource)) {
+            $_ENV['TENANCY_MAPPING_SOURCE'] = $ambientSource;
+            $_SERVER['TENANCY_MAPPING_SOURCE'] = $ambientSource;
+            putenv('TENANCY_MAPPING_SOURCE='.$ambientSource);
+        }
+
+        config()->set('tenancy', $ambientConfig);
+        app()->forgetInstance(TenantDatabaseRepository::class);
+    }
+
+    // Restored: the suite's own source is back, so this case cannot leak the
+    // master binding into whatever runs next in this process.
+    expect(app(TenantDatabaseRepository::class))->toBeInstanceOf(InMemoryTenantDatabaseRepository::class);
+});
+
 /*
 |--------------------------------------------------------------------------
 | One joined read, mapped onto the record

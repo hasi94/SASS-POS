@@ -6,6 +6,7 @@ use Closure;
 use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
 use Flexipos\Kernel\Tenancy\Contracts\TenantMigrationTargetRepository;
 use Flexipos\Kernel\Tenancy\Exceptions\InvalidTenantIdentifier;
+use Flexipos\Kernel\Tenancy\Exceptions\RequiredSchemaVersionNotConfigured;
 use Flexipos\Kernel\Tenancy\Exceptions\TenancyException;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantAlreadyResolved;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantConnectionFailed;
@@ -270,13 +271,25 @@ final class Tenancy
      * recorded once per entry and not once per query: this method runs inside
      * enter(), and a re-entrant enter() for the same tenant returns before it.
      *
-     * A required version of zero is no floor at all, and nothing is warned
-     * about: that is the shipped default until a deployment names
-     * APP_REQUIRED_SCHEMA_VERSION.
+     * The floor itself has three states and absence is not zero (step 7a,
+     * ruling 13.1). An explicit zero is no floor at all and nothing is warned
+     * about - the recorded "tenant_databases.status is the only guard" opt-out.
+     * A floor nobody configured is a **misconfiguration**, and a serving entry
+     * is refused on it: before step 7a the two were the same fact, so a
+     * deployment that forgot APP_REQUIRED_SCHEMA_VERSION served a tenant at
+     * schema version 0. The refusal is here, where the floor is consulted,
+     * rather than at boot, because the migrating purpose never reaches this
+     * method and `php artisan tenant:migrate` is the remedy.
      */
     private function assertSchemaIsServable(string $identifier, TenantDatabase $database): void
     {
-        $required = (int) $this->config()->get('tenancy.required_schema_version', 0);
+        $configured = $this->config()->get('tenancy.required_schema_version');
+
+        if (! is_numeric($configured)) {
+            throw RequiredSchemaVersionNotConfigured::forTenant($identifier);
+        }
+
+        $required = (int) $configured;
 
         if ($required <= 0) {
             return;

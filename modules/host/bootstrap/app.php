@@ -1,5 +1,6 @@
 <?php
 
+use Flexipos\Kernel\Tenancy\Exceptions\RequiredSchemaVersionNotConfigured;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantSchemaBehind;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -42,5 +43,22 @@ return Application::configure(basePath: dirname(__DIR__))
             }
 
             return response($behind->getMessage(), 503, ['Retry-After' => $retryAfter]);
+        });
+
+        // A floor nobody configured is a misconfiguration, and it is 503
+        // **without** Retry-After (step 7a, ruling 13.1). The header above is a
+        // promise that waiting helps, which is true of a tenant the runner is
+        // about to migrate and false of a missing environment variable: a till
+        // that retried forever against one would be a second incident. Its
+        // absence is what makes the two states distinguishable at the wire and
+        // not only in a log.
+        $exceptions->render(function (RequiredSchemaVersionNotConfigured $unconfigured, Request $request) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => $unconfigured->getMessage(),
+                ], 503);
+            }
+
+            return response($unconfigured->getMessage(), 503);
         });
     })->create();

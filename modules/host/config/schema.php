@@ -42,24 +42,19 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | The schema version this code requires
+    | The serving version floor is not here
     |--------------------------------------------------------------------------
     |
-    | The catalogue's highest version is the only authority for what the shipped
-    | tree can produce, so this constant is **not** given a baseline number as a
-    | default here: that would be the catalogue's count written out a second
-    | time, and the two would disagree the first time a migration was added.
-    | `.env.example` names the value a deployment ships with, and a test asserts
-    | that it is not greater than the catalogue's highest version - a code that
-    | requires a version nothing can produce would refuse every tenant (AC-21).
-    |
-    | Zero means "no version floor configured": the serving gate refuses
-    | nothing, and `tenant_databases.status` is still the gate that stops a
-    | half-provisioned tenant being served.
+    | `required_version` used to live here and read APP_REQUIRED_SCHEMA_VERSION
+    | a second time. It is removed (step 7a, ruling 13.1): one variable read in
+    | two config files is the shape decision D-14 rules against, and nothing
+    | consumed this copy but a type assertion. The floor's one site is
+    | `tenancy.required_schema_version`, and anything here that needs "the
+    | highest version the shipped tree can produce" reads the **catalogue** -
+    | a different fact from "the floor this deployment chose", and the reason
+    | the floor is allowed to lag behind the tree (AC-21).
     |
     */
-
-    'required_version' => (int) env('APP_REQUIRED_SCHEMA_VERSION', 0),
 
     /*
     |--------------------------------------------------------------------------
