@@ -184,6 +184,20 @@ final readonly class MigrationSet
     }
 
     /**
+     * The file at one version, or null when the set does not reach it.
+     *
+     * A version **is** the position in {@see paths()}, so this is an index and
+     * not a search: anything that re-derived the file from the catalogue's
+     * `migration` name would be a second rule about what a version means, and
+     * the two could disagree the day two directories hold a file of the same
+     * name.
+     */
+    public function pathFor(int $version): ?string
+    {
+        return $this->paths()[$version - 1] ?? null;
+    }
+
+    /**
      * The version one named migration has in this set, or null when the set
      * does not hold it.
      *
