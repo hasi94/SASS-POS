@@ -3,6 +3,7 @@
 namespace Flexipos\Kernel\Tenancy;
 
 use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
+use Flexipos\Kernel\Tenancy\Contracts\TenantMigrationTargetRepository;
 use Flexipos\Kernel\Tenancy\Exceptions\TenancyException;
 use Flexipos\Kernel\Tenancy\Secrets\ConnectionPassword;
 use Flexipos\Kernel\Tenancy\Secrets\EnvSecretResolver;
@@ -112,6 +113,26 @@ final class TenancyServiceProvider extends ServiceProvider
                     $app->make(CacheFactory::class)->store(),
                     (int) $config->get('tenancy.mapping.ttl', 300),
                 );
+            }
+        );
+
+        // The runner's mapping source, selected by the same key as the serving
+        // one so a fixture gets a matching pair. It is a separate binding, not
+        // a second method on the serving repository: only one of the two may
+        // ever be reachable from a request (AC-18).
+        $this->app->singleton(
+            TenantMigrationTargetRepository::class,
+            static function (Application $app): TenantMigrationTargetRepository {
+                $config = $app->make(ConfigRepository::class);
+
+                if ((string) $config->get('tenancy.mapping.source', 'master') === 'config') {
+                    /** @var array<string, mixed> $targets */
+                    $targets = (array) $config->get('tenancy.migration_targets', []);
+
+                    return InMemoryTenantMigrationTargetRepository::fromConfig($targets);
+                }
+
+                return $app->make(MasterTenantMigrationTargetRepository::class);
             }
         );
 

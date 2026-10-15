@@ -4,6 +4,7 @@ namespace Flexipos\Kernel\Tenancy;
 
 use Closure;
 use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
+use Flexipos\Kernel\Tenancy\Contracts\TenantMigrationTargetRepository;
 use Flexipos\Kernel\Tenancy\Exceptions\InvalidTenantIdentifier;
 use Flexipos\Kernel\Tenancy\Exceptions\TenancyException;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantAlreadyResolved;
@@ -11,6 +12,7 @@ use Flexipos\Kernel\Tenancy\Exceptions\TenantConnectionFailed;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantConnectionMismatch;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantDatabaseNotActive;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantDatabaseNotMapped;
+use Flexipos\Kernel\Tenancy\Exceptions\TenantSchemaBehind;
 use Flexipos\Kernel\Tenancy\Secrets\ConnectionPassword;
 use Flexipos\Kernel\Tenancy\Secrets\Secret;
 use Flexipos\Kernel\Tenancy\Secrets\SecretResolver;
@@ -64,6 +66,7 @@ final class Tenancy
         private readonly TenantDatabaseRepository $repository,
         private readonly SecretResolver $secrets,
         private readonly TenantConnectionAuthority $authority,
+        private readonly TenantMigrationTargetRepository $migrationTargets,
     ) {}
 
     /**
@@ -75,9 +78,12 @@ final class Tenancy
      * @param  Closure(): TReturn  $callback
      * @return TReturn
      */
-    public function run(string $tenantId, Closure $callback): mixed
-    {
-        $this->enter($tenantId);
+    public function run(
+        string $tenantId,
+        Closure $callback,
+        TenantConnectionPurpose $purpose = TenantConnectionPurpose::Serving
+    ): mixed {
+        $this->enter($tenantId, $purpose);
 
         try {
             return $callback();
@@ -98,10 +104,13 @@ final class Tenancy
      * Resolve a tenant and configure the tenant connection for it.
      *
      * The order of the checks below is itself an acceptance criterion: validate
-     * the input, then read the mapping, then check the status, and only then
-     * touch any state or attempt a connection. Steps 1 to 6 mutate nothing, so
-     * every refusal leaves database.connections.tenant exactly as it was
-     * (AC-9/AC-10's "no partial overwrite").
+     * the input, then read the mapping, then check the status, then the schema
+     * version, and only then touch any state or attempt a connection. Steps 1
+     * to 7 mutate nothing, so every refusal leaves database.connections.tenant
+     * exactly as it was (AC-9/AC-10's "no partial overwrite").
+     *
+     * The purpose selects the mapping source and waives exactly one rule, the
+     * schema-version gate; see TenantConnectionPurpose.
      *
      * @throws InvalidTenantIdentifier the identifier is empty or whitespace (AC-11)
      * @throws TenantAlreadyResolved a different tenant is already resolved
@@ -109,9 +118,13 @@ final class Tenancy
      * @throws TenantDatabaseNotActive the mapping status forbids access (AC-10)
      * @throws TenantConnectionMismatch the mapping asks for a disallowed driver
      * @throws TenantConnectionFailed the database could not be opened (AC-12)
+     * @throws TenantSchemaBehind the mapping is below the required schema
+     *                            version and the purpose is serving (AC-19)
      */
-    public function enter(string $tenantId): void
-    {
+    public function enter(
+        string $tenantId,
+        TenantConnectionPurpose $purpose = TenantConnectionPurpose::Serving
+    ): void {
         // 1. Input validation, before the mapping source is touched at all.
         $identifier = trim($tenantId);
 
@@ -130,19 +143,34 @@ final class Tenancy
             throw TenantAlreadyResolved::forTenant($this->context->tenantId(), $identifier);
         }
 
-        // 3. The mapping.
-        $database = $this->repository->find($identifier);
+        // 3. The mapping, from the source the purpose selects. The serving
+        //    source cannot answer with a migrate credential reference - its
+        //    record has nowhere to put one - and the runner's source is reached
+        //    only from here, with the purpose in hand (AC-18).
+        $database = $this->mappingFor($identifier, $purpose);
 
         if (! $database instanceof TenantDatabase) {
             throw TenantDatabaseNotMapped::forTenant($identifier);
         }
 
-        // 4. The status gate (decision D-26: only `active` connects).
+        // 4. The status gate (decision D-26: only `active` connects). Not
+        //    waived by the migration purpose: a suspended or moving tenant is
+        //    not migrated either (AC-51).
         if (! $database->isActive()) {
             throw TenantDatabaseNotActive::forTenant($identifier, $database->status);
         }
 
-        // 5. The driver whitelist, so a mapping row cannot smuggle a driver the
+        // 5. The schema-version gate, between the status check and the
+        //    credential dereference, so a behind tenant costs no connection
+        //    (AC-19). Serving only: a tenant below the required version is the
+        //    only kind the runner migrates, so this is the one rule the
+        //    migration purpose waives - and the exemption is itself asserted,
+        //    by the runner entering a tenant at required - 1.
+        if ($purpose === TenantConnectionPurpose::Serving) {
+            $this->assertSchemaIsServable($identifier, $database);
+        }
+
+        // 6. The driver whitelist, so a mapping row cannot smuggle a driver the
         //    platform never intended to talk to into the process.
         $allowed = $this->allowedDrivers();
 
@@ -150,18 +178,18 @@ final class Tenancy
             throw TenantConnectionMismatch::forDisallowedDriver($identifier, $database->driver, $allowed);
         }
 
-        // 6. Dereference the credential. Never read from the mapping record:
+        // 7. Dereference the credential. Never read from the mapping record:
         //    the record has no password property to read (AC-8).
         $secret = $this->secrets->resolve($database->credentialRef);
 
-        // 7. Only now is any state touched. Tear down whatever was there first -
+        // 8. Only now is any state touched. Tear down whatever was there first -
         //    including a stanza or a cached connection left behind by a dropped
         //    container scope - then write the new one wholesale.
         $this->resetTenantConnection();
         $this->writeTenantConnection($database, $secret);
         $this->context->resolved($identifier, $database);
 
-        // 8. Connect eagerly, inside the try, so a driver-level failure is
+        // 9. Connect eagerly, inside the try, so a driver-level failure is
         //    caught here instead of surfacing lazily from somewhere whose trace
         //    carries the connector's $config argument.
         try {
@@ -205,6 +233,66 @@ final class Tenancy
 
         $this->resetTenantConnection();
         $this->context->forget();
+    }
+
+    /**
+     * The mapping for one tenant, from the source the purpose names.
+     *
+     * The migration purpose reads its own port and converts the target into a
+     * connection record carrying the *migrate* pair. That conversion is the one
+     * place the two namings meet, and it happens here - inside the choke point -
+     * so nothing outside this class can produce a record that connects as the
+     * migrate user.
+     */
+    private function mappingFor(string $identifier, TenantConnectionPurpose $purpose): ?TenantDatabase
+    {
+        if ($purpose === TenantConnectionPurpose::Migrating) {
+            $target = $this->migrationTargets->find($identifier);
+
+            return $target instanceof TenantMigrationTarget ? $target->asConnectionRecord() : null;
+        }
+
+        return $this->repository->find($identifier);
+    }
+
+    /**
+     * The serving schema-version gate (AC-19, AC-20).
+     *
+     * Three outcomes, and the middle one is the input that makes the comparison
+     * provable: **below** the required version is refused, **exactly at** it is
+     * served, and **above** it is served with one warning. A gate written `>`
+     * instead of `>=` is only visible at exactly the required version, which is
+     * why that input is mandatory in the test rather than optional.
+     *
+     * A tenant ahead of the code is a deployment mid-rollout - the migration
+     * ran and this instance has not been replaced yet - which is a state
+     * expand-and-contract exists to make safe, so it is served. The warning is
+     * recorded once per entry and not once per query: this method runs inside
+     * enter(), and a re-entrant enter() for the same tenant returns before it.
+     *
+     * A required version of zero is no floor at all, and nothing is warned
+     * about: that is the shipped default until a deployment names
+     * APP_REQUIRED_SCHEMA_VERSION.
+     */
+    private function assertSchemaIsServable(string $identifier, TenantDatabase $database): void
+    {
+        $required = (int) $this->config()->get('tenancy.required_schema_version', 0);
+
+        if ($required <= 0) {
+            return;
+        }
+
+        if ($database->schemaVersion < $required) {
+            throw TenantSchemaBehind::forTenant($identifier, $database->schemaVersion, $required);
+        }
+
+        if ($database->schemaVersion > $required) {
+            $this->logger()->warning('Serving a tenant whose schema is ahead of this code.', [
+                'tenant_id' => $identifier,
+                'schema_version' => $database->schemaVersion,
+                'required_schema_version' => $required,
+            ]);
+        }
     }
 
     /**

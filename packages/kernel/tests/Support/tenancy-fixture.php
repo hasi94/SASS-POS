@@ -213,6 +213,8 @@ function tenancyBootFixture(): void
 
     tenancyWriteEnvironment('TENANT_A_APP_PASSWORD', tenancyFixturePassword());
     tenancyWriteEnvironment('TENANT_B_APP_PASSWORD', tenancyFixturePassword());
+    tenancyWriteEnvironment('TENANT_A_MIGRATE_PASSWORD', tenancyFixturePassword());
+    tenancyWriteEnvironment('TENANT_B_MIGRATE_PASSWORD', tenancyFixturePassword());
 
     // The local stand-in source, named explicitly. Since FP-205 the shipped
     // default is `master` - one joined read of the master schema - and this
@@ -220,11 +222,49 @@ function tenancyBootFixture(): void
     // is part of the fixture rather than an assumption about the default.
     config()->set('tenancy.mapping.source', 'config');
     config()->set('tenancy.databases', tenancyFixtureMapping());
+    config()->set('tenancy.migration_targets', tenancyFixtureMigrationTargets());
 
     // The repository is a singleton built from config, so it has to be dropped
     // after the config changes.
     app()->forgetInstance(TenantDatabaseRepository::class);
     app()->forgetScopedInstances();
+}
+
+/**
+ * The runner's side of the fake mapping: the same two servable tenants, with
+ * the **migrate** credential pair instead of the app one.
+ *
+ * T-008 step 7. The username and the credential reference are deliberately
+ * different from tenancyFixtureMapping()'s, so "the migration scope connected
+ * as the migrate user" is a fact about the stanza rather than an assumption:
+ * a serving entry and a migrating entry for one tenant produce visibly
+ * different connection configuration, and only the migrating one can produce
+ * the migrate username.
+ *
+ * `schema_version` is 0 here, which is below any required version a test sets.
+ * That is the input AC-19's exemption needs: a tenant the serving gate refuses
+ * is the only kind the runner ever migrates.
+ *
+ * @return array<string, array<string, mixed>>
+ */
+function tenancyFixtureMigrationTargets(): array
+{
+    $targets = [];
+
+    foreach (['tenant-a' => 'TENANT_A', 'tenant-b' => 'TENANT_B'] as $tenant => $variable) {
+        $targets[$tenant] = [
+            'driver' => 'sqlite',
+            'host' => 'db-fixture-'.substr($tenant, -1),
+            'port' => 3307,
+            'database' => tenancyFixtureDatabasePath($tenant),
+            'migrate_username' => 'flx_'.str_replace('-', '_', $tenant).'_migrate',
+            'migrate_credential_ref' => 'env://'.$variable.'_MIGRATE_PASSWORD',
+            'status' => 'active',
+            'schema_version' => 0,
+        ];
+    }
+
+    return $targets;
 }
 
 /**
@@ -245,6 +285,8 @@ function tenancyForgetFixture(): void
 
     tenancyWriteEnvironment('TENANT_A_APP_PASSWORD', null);
     tenancyWriteEnvironment('TENANT_B_APP_PASSWORD', null);
+    tenancyWriteEnvironment('TENANT_A_MIGRATE_PASSWORD', null);
+    tenancyWriteEnvironment('TENANT_B_MIGRATE_PASSWORD', null);
 }
 
 /**
