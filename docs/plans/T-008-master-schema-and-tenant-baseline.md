@@ -255,8 +255,11 @@ and that is FP-202's own record, not this task's.
 - `packages/kernel/src/Tenancy/Tenancy.php` — **changed.** `enter()` takes a purpose, selects the repository from it,
   and inserts the schema-version gate between the existing status check (step 4) and the credential dereference
   (step 6) — before any network connection, as AC-19 requires. The gate applies to `Serving` only; see §9.
-- `packages/kernel/src/Tenancy/Exceptions/TenantSchemaBehind.php`, `TenantSchemaAhead.php` — **new**, named
-  exceptions carrying no credential.
+- `packages/kernel/src/Tenancy/Exceptions/TenantSchemaBehind.php` — **new**, a named exception carrying no credential.
+  **`TenantSchemaAhead.php` is struck from this step and moves to step 12** (§13.5): AC-20 serves an ahead tenant, so
+  step 7 has no site that throws it.
+  `RequiredSchemaVersionNotConfigured.php` — **new in step 7a** (§13.1): the absent-floor refusal, naming the
+  environment variable and nothing else.
 - `packages/kernel/src/Tenancy/TenancyServiceProvider.php` — **changed.** Binds the master-backed reader behind the
   cache decorator when `tenancy.mapping.source` is `master` (default), falling back to the in-memory one when it is
   `config` — so T-003's and T-007's tests keep their fixture path and AC-12's "shipped configuration, no test
@@ -417,7 +420,18 @@ guard is a rule about *our* names and nothing else. The prefix is a constant in 
   fixture machine-dependent.
 - `php artisan tenant:migrate [--tenant=|--all] [--to=] [--run= --retry-failed] [--concurrency=] [--per-server=]`
 - `php artisan tenant:schema-status` — the behind report (AC-57) and the drift report (AC-55).
-- `APP_REQUIRED_SCHEMA_VERSION` — the constant AC-19 and AC-21 turn on. Ships at the baseline's highest version.
+- `APP_REQUIRED_SCHEMA_VERSION` — the constant AC-19 and AC-21 turn on. `.env.example` ships it at the baseline's
+  highest version, and a test pins that equality against the catalogue (§9 finding 11). **Three states, not two**
+  (§13.1): a number is the serving floor; an explicit `0` is the documented "no floor, the status gate is the only
+  guard" opt-out; **absent is a misconfiguration and refuses to serve** — the serving purpose only, so the runner can
+  still migrate the tenant out of the condition. It is read in exactly one place, `tenancy.required_schema_version`.
+- **`schema:publish` refuses a published migration whose checksum moved, or that has left the tree.** Beyond AC-31's
+  out-of-order refusal, and forced by AC-32: the alternative is for `publish` to **update** a published row to stay
+  idempotent, which destroys the evidence AC-32 is about. The workflow consequence someone will meet (§13.4):
+  **editing an already-published tenant migration during development is refused until its `schema_versions` row is
+  gone.** That is correct for expand-and-contract — a released migration is immutable — and while no tenant exists the
+  escape is deliberate and visible: delete the row in the development master and republish. No `--force` and no
+  `--forget` flag is added; a flag here is a flag that will be used in production.
 - No migration ever rolls back; there is no `down()` (D-8).
 
 ---
@@ -514,7 +528,16 @@ elsewhere steps may be reordered or run together.
       **Three driver-guarded statements on SQLite, accepted and load-bearing** (§12.4): the ASCII collation, the
       JSON constraint and the second auto-increment column each skip on the stand-in and say so where they skip.
       Without them no later step could test anything at all while the hold is on, which is the whole gated period.
-- [ ] **Step 5 — `schema:publish` and the catalogue.** [dev] The `PublishCatalogue` slice, the committed fixture,
+- [x] **Step 5 — `schema:publish` and the catalogue.** [dev] **DONE**, commit `7b30da4`. The `PublishCatalogue` slice,
+      the committed fixture, LF-normalised checksums, the out-of-order refusal, and `config/schema.php` as the tree's
+      one authority — **proven by moving the key**, which is the part worth keeping: a test points
+      `schema.tenant_migration_path` at a scratch tree and asserts that both tree-discovery helpers *and* the publish
+      command follow it. A literal that happened to match the configured value would have passed any weaker assertion,
+      so this is the form every later "one authority" claim in this task must take.
+      Two refusals beyond AC-31 shipped with it and they are a recorded consequence, not scope creep: see §13.4.
+      AC-31 and AC-32's publish half stay **NOT VERIFIED** under the hold (§11.6).
+      The superseded instruction follows, unchanged, because its ordering argument still binds step 9:
+      The `PublishCatalogue` slice, the committed fixture,
       LF-normalised checksums, refusal of a file that sorts before a published one. Covers AC-31, AC-32's catalogue
       half, and AC-21 (the constant is not ahead of the catalogue). It reads the reserved prefix from
       `ReservedDatabaseName::PREFIX` and never repeats the literal (ruling 2.3).
@@ -535,15 +558,43 @@ elsewhere steps may be reordered or run together.
       permissively; the assertion goes red because the branch is absent. No engine.
       *Order load-bearing: before step 9 — the runner refuses to start without a verified catalogue, so planning
       cannot be tested before publishing exists.*
-- [ ] **Step 6 — the master-backed mapping reader and its cache.** [dev] `MasterTenantDatabaseRepository`,
-      `CachingTenantDatabaseRepository`, `TenantDatabase` gains two properties, `TenantDatabaseTest`'s list grows,
-      and the binding switches to the master source by default. Covers AC-12 to AC-17.
+- [x] **Step 6 — the master-backed mapping reader and its cache.** [dev] **DONE**, commit `5899008`.
+      `MasterTenantDatabaseRepository`, `CachingTenantDatabaseRepository`, `TenantDatabase` gains two properties,
+      `TenantDatabaseTest`'s list grows, and the shipped configuration default becomes the master source. Covers
+      AC-12 to AC-17; all six stay **NOT VERIFIED** under the hold (§11.6).
+      **The suite's mapping source is overridden to `config` in `phpunit.xml` and that override is accepted** — the
+      reason, the tooth it costs and the tooth it is replaced by are §13.4.
       *Order load-bearing: before step 7, which needs `schemaVersion` on the record, and before steps 9 to 12, which
       need a real mapping to plan from.*
-- [ ] **Step 7 — purpose-scoped entry and the serving version gate.** [dev] `TenantConnectionPurpose`,
-      `TenantMigrationTarget` and its repository, the gate between the status check and the credential dereference,
-      the 503 and `Retry-After` rendering, and the one-warning-per-entry path for a tenant ahead of the code. Covers
-      AC-18 to AC-21, and the serving halves of AC-53 and AC-55.
+- [x] **Step 7 — purpose-scoped entry and the serving version gate.** [dev] **DONE**, commit `23b3beb`.
+      `TenantConnectionPurpose`, `TenantMigrationTarget` and its repository, the gate between the status check and the
+      credential dereference, the 503 and `Retry-After` rendering, and the one-warning-per-entry path for a tenant
+      ahead of the code — with the three mandatory inputs (`required - 1`, exactly `required`, `required + 1`) and the
+      migrating purpose asserted exempt. Covers AC-18 to AC-21; AC-19 and AC-20 are recorded NOT VERIFIED only because
+      the spec marks them `[E]`, which §13.6 rules is the wrong marker.
+      **`TenantSchemaAhead` is deliberately not written here and moves to step 12** (§13.5): AC-20 serves an ahead
+      tenant with a warning, so step 7 has no site that throws it, and an exception nothing throws is dead code with a
+      misleading name.
+      **The version floor as shipped fails open and step 7a closes it** (§13.1).
+      **Gate after steps 5 to 7, reported by `dev`:** exit 0, **598 passed, 3 skipped, 2948 assertions** (+47 tests,
+      +243 assertions against the step-4 figure; skips unchanged at 3, because nothing added here needs a connection).
+- [ ] **Step 7a — the version floor fails closed when the variable is absent.** [dev] Ruled in §13.1. Four changes and
+      one test file: `config/tenancy.php`'s `required_schema_version` stops casting an absent variable to `0` and
+      yields **null** instead; `Tenancy::assertSchemaIsServable()` refuses a **serving** entry on null with a new named
+      exception (`RequiredSchemaVersionNotConfigured`, no credential, carrying the variable's name) while an explicit
+      `0` stays the documented "no floor" opt-out; `bootstrap/app.php` renders it 503 **without** `Retry-After`, so a
+      misconfiguration is distinguishable from a behind tenant at the wire; `phpunit.xml` sets the variable with its
+      reason beside it; and `config/schema.php`'s duplicate `required_version` key is **removed** (§13.1, last
+      paragraph). The migrating purpose stays exempt — that is what keeps `tenant:migrate` able to fix the condition.
+      **Red phase: omit the mechanism, on sqlite** (§11.5 row 5's shape). The input that makes the term bind is a
+      mapping at schema version **0** with the variable unset in all three places PHP keeps it: today that request is
+      served, which is the hole. Also assert that an explicit `APP_REQUIRED_SCHEMA_VERSION=0` is served (or the fix
+      becomes "the floor is mandatory", which is a different decision), and that the migrating purpose is unaffected
+      by either state.
+      Covers AC-19's absent-configuration case, which the criterion does not currently name — §9 finding 11 asks `ba`
+      to add it.
+      *Order: before step 11, because step 11 is the first code that enters a tenant for migration in anger and must
+      not inherit a floor whose absence is silent. It may run beside steps 8 to 10.*
 - [ ] **Step 8 — the migration-set seam and the FX fixtures.** [dev] `MigrationSet`, and FX-1 to FX-6 under the test
       fixtures. Without this the runner can only ever be tested against the one real baseline, which proves nothing
       about upgrades. Covers the seam AC-38 rides on.
@@ -655,6 +706,23 @@ the T-007 failure was a mutation that passed because at the chosen input the mut
 to be safe: it may not be capable of a destructive statement against a shared resource, and a safety check is never
 the thing that is weakened to make a test fail. The constraint, its four rules and the per-step ruling are in §11; they
 bind every step in §6 and every step added to this plan later.
+
+**And since 2026-10-15, one rule beside the mutation rule, because this is now the second instance.**
+
+> **When a mechanism's absence is masked by something else that refuses — a constraint, a key, a type, an earlier
+> gate — a red phase is not evidence until the assertion pins something only that mechanism produces.** Remove the
+> branch, run the test, and *read the failure*. If the message came from the engine, the framework or another guard
+> rather than from our code, the test is measuring the mask and will keep passing after the mechanism is deleted.
+> What to pin: the exception class **and** a fact only our branch knows — in step 5's case the name of the
+> *published* migration, which the primary key's own error cannot contain because it only knows the arriving row.
+
+The first instance was T-007's mutation that passed because the version floor absorbed it; the second is step 5's
+out-of-order refusal, where deleting the branch still produces
+`SQLSTATE[23000] … UNIQUE constraint failed` from `schema_versions.version`'s primary key, because renumbering always
+collides with the number already published (`dev`, measured 2026-10-15). The branch's value was never that it prevents
+the write — the key does that — it is that it refuses at **plan time** and names the migration the operator has to
+look at. Two instances in two tasks makes this a pattern of the codebase, not an anecdote: every absence-and-refusal
+criterion in §9's table is now expected to say which of the two it pins.
 
 ### Three things `dev` measured writing the containment checks, binding on the next repository-wide scan
 
@@ -774,6 +842,8 @@ a naive grep for `tenant_id` in a migration would match a comment that merely me
 | R-10 | MariaDB's `JSON` is a `LONGTEXT` alias, so "invalid JSON is refused" may not hold without an explicit check. | medium | three criteria quietly passing on the wrong artefact | Step 1 was to measure it and is now blocked (§11.4), so steps 3 and 4 write `CHECK (JSON_VALID(…))` **unconditionally** — the conservative branch costs a redundant check if the alias already carries one, and the measurement can remove it later. The criterion is asserted against a real insert either way, once the gate clears. |
 | R-11 | Engine tests connect with a bare PDO and get the server's non-strict `sql_mode` (MEASURED: no strict mode on this server). | medium | refusal criteria passing as truncations | Every engine test connects through the Laravel connector, whose stanza sets `strict`. Asserted once in step 1. |
 
+| R-14 | **The serving version gate fails open when `APP_REQUIRED_SCHEMA_VERSION` is unset.** As shipped at `23b3beb` both config keys default to `0`, zero means no floor, and a deployment that forgets the variable serves a tenant at schema version 0 with only `tenant_databases.status` in the way — against `docs/domain-core.md`'s rule that a half-migrated tenant never serves. | medium (it is one forgotten line in a deployment nobody reviews) | money taken on a half-migrated tenant, which is the harm the whole gate exists to prevent | Step 7a: absence becomes a named refusal on the serving purpose, an explicit `0` stays the recorded opt-out, and the refusal is rendered 503 without `Retry-After` so it cannot be read as "a migration is running". Verified by the mapping-at-0-with-the-variable-unset input, which is red today. Ruled in §13.1. |
+
 **Rollback.** Nothing in this task is irreversible *in the repository*: the branch is `ai/T-008-…`, no tenant database
 exists anywhere yet, and no migration here runs against anything but a reserved-prefix test database. The only
 irreversible act available is dropping someone else's database — which step 0 was supposed to make impossible and did
@@ -787,8 +857,8 @@ argument for pinning the outbox's own columns now (D-1).
 
 ## 9. Criteria that are not achievable as worded
 
-`ba` asked to hear these before QA rather than after. **Ten**, and the replacement for each. Findings 1 to 8 need a
-spec edit by `ba`; **findings 9 and 10 explicitly do not** — they are recorded here so `qa` reads a known, ruled
+`ba` asked to hear these before QA rather than after. **Twelve**, and the replacement for each. Findings 1 to 8 and
+11 to 12 need a spec edit by `ba`; **findings 9 and 10 explicitly do not** — they are recorded here so `qa` reads a known, ruled
 divergence rather than a defect. Findings 1 to 5 change nothing in this plan; 6 to 8 were found after the incident of
 §11 and findings 7 and 8 are already implemented in the plan's own terms (§11.6 and step 13), so the spec edit is a
 catch-up, not a decision.
@@ -868,6 +938,30 @@ catch-up, not a decision.
    therefore **strictly stronger than AC-35(a) as worded**, in the same way step 2's AC-37 half is, and like that one
    it is recorded rather than spec-edited: a test stricter than its criterion is safe when it is asserted both ways
    and written down; it is only dangerous when it is undeclared.
+
+11. **AC-21's named control is arithmetic, not a property of our code.** The criterion names "the comparison fails
+   when run with a constant one higher" as its control. That is `highest + 1 > highest`: it would pass against an
+   empty repository, and `dev` kept it only because the criterion names it (ruling §13.3).
+   **Replacement:** "the value `.env.example` ships for `APP_REQUIRED_SCHEMA_VERSION` **equals** the catalogue's
+   highest published version, and the assertion moves when either side moves — proven by pointing
+   `schema.catalogue_fixture` at a scratch catalogue whose highest version is one higher (red) and one lower (red),
+   which is available now that step 5 proved the configuration key movable. The arithmetic comparison may stay as
+   documentation and is not the control." Note the scope: equality binds **`.env.example`**, the value a deployment
+   starts from, and deliberately not every deployment — §13.1 explains why a live floor is allowed to lag the
+   catalogue during a rollout, which is the same reason the floor is not derived from the catalogue.
+12. **AC-19 and AC-20 are marked `[E]`, and their own content says they need no engine.** AC-19's requirement is that
+   the refusal happens *before any network connection is attempted*; a criterion whose subject is the absence of a
+   connection cannot have "connect to a real engine" as its means of verification. Both are fully provable on the
+   suite's stand-in — the inputs are three integers on a mapping record and the observables are a named exception, an
+   HTTP status, a header and one log line — and they **are** proven there today, at `23b3beb`.
+   **Replacement:** drop `[E]` from AC-19 and AC-20, so `qa` may record them PASS from the stand-in; an engine run
+   after G-1 is corroborating, not the proof. **Why this is worth a spec edit rather than a shrug:** recording a
+   safety gate that demonstrably holds as NOT VERIFIED spends the hold's credibility on the wrong criteria, and
+   `docs/domain-core.md`'s "a half-migrated tenant must never serve" is exactly the property a reader needs to be able
+   to see is enforced. AC-12 and AC-13 argue the same way but **keep** `[E]`: the joined read's correctness depends on
+   real column types and collations, which the stand-in does not have.
+   AC-19 also needs one case it does not currently name — what happens when `APP_REQUIRED_SCHEMA_VERSION` is
+   **absent**, as opposed to zero. §13.1 rules it; the spec should carry it as part of AC-19.
 
 **Not a spec change, but `ba` should know:** AC-1 lists `sessions` among the master system tables where
 `docs/database.md` §4.10 lists `personal_access_tokens`. AC-1 governs (D-18), and `qa`'s recount of finding 1 will
@@ -1159,3 +1253,146 @@ tree name instead of the database prefix. So step 5 adds the tripwire for the tw
 `MigrationTree::forPath()` over the configured directory must classify as `Tenant`, the directory must exist, and it
 must be **absent from the framework's auto-discovered migration paths** — AC-22's structural half stated once in
 configuration rather than believed at each call site.
+
+---
+
+## 13. Rulings after step 7, and the consequences on record
+
+Steps 5, 6 and 7 landed (`7b30da4`, `5899008`, `23b3beb`, plus `c8f2c6d` for `dev`'s memory); gate exit 0, 598 passed,
+3 skipped, 2948 assertions. Three rulings were asked for and all three are decided here. The first one is a safety
+hole in shipped code and takes precedence over everything else outstanding in this task.
+
+### 13.1 The version floor fails open when the variable is absent — ruled: fail closed on the serving purpose, keep an explicit zero as the opt-out
+
+**Verified directly, 2026-10-15.** `modules/host/config/tenancy.php` line 83 and `modules/host/config/schema.php`
+line 62 both read `(int) env('APP_REQUIRED_SCHEMA_VERSION', 0)`; `.env.example` line 73 ships `6`;
+`Tenancy::assertSchemaIsServable()` returns early on `$required <= 0`. So **with the variable unset there is no
+serving version gate at all**, and a tenant whose mapping says schema version 0 — a database that may hold nothing
+but `migrations` — is served. `tenant_databases.status` is then the only thing between a half-provisioned shop and a
+sale. That is a direct conflict with `docs/domain-core.md`'s rule that a half-migrated tenant must never serve, and it
+is reached by *omitting* a line rather than by writing a wrong one, which is the failure mode that actually happens.
+
+**`dev`'s reasoning for not hardcoding `6` as the default is upheld and is not the question.** Writing the number into
+the config default duplicates the catalogue's count and the two diverge the first time a migration is added; a test
+already pins the shipped value against the catalogue's highest version, so the number has one authority. The question
+is **what absence means**, and absence currently means "no gate".
+
+**Ruled: absence is a misconfiguration and refuses — on the serving purpose only.** The floor has three states:
+
+| State | Meaning | Behaviour |
+|---|---|---|
+| a number | the serving floor this deployment chose | AC-19/AC-20 as built |
+| explicit `0` | "no floor; `status` is the only guard" — a choice someone wrote down | served, unchanged |
+| **absent** | nobody chose anything | **refused for serving**, named exception, 503 **without** `Retry-After` |
+
+Step 7a implements it. Four properties of the ruling, each of which is why an alternative was rejected:
+
+- **It refuses at the gate, not at boot.** A boot-time refusal is louder, and it would also stop
+  `php artisan tenant:migrate` — the one command that fixes the condition — along with every queue worker and every
+  other module's console entry point. A safety gate that disables its own remedy is not fail-closed, it is
+  fail-stuck. The refusal therefore sits exactly where the floor is consulted, which is the serving purpose, and the
+  migrating purpose stays exempt for the same reason it is exempt from the floor itself (§9 finding 2).
+- **`0` keeps meaning "no floor".** Otherwise the fix silently converts a configuration key into a mandatory one and
+  removes a state a deployment may legitimately want (the first tenant-less installs, and FP-206's provisioning
+  window). The opt-out is asserted, so a later implementation that refuses `0` as well is red.
+- **The 503 carries no `Retry-After`.** A behind tenant's 503 promises that waiting helps; a misconfiguration's does
+  not, and a client that retries forever against a missing environment variable is a second incident. Distinguishable
+  at the wire, not only in the log.
+- **One key, not two.** `config/schema.php`'s `required_version` is the same variable read a second time and nothing
+  but `SchemaCataloguePublishTest`'s `toBeInt()` consumes it — the shape D-14 already ruled against, now reappearing
+  inside one task. It is **removed** in step 7a; `tenancy.required_schema_version` is the serving floor's only site,
+  and anything in steps 9 to 12 that needs "the highest version the tree can produce" reads the **catalogue**, which
+  is a different fact from "the floor this deployment chose".
+
+**Alternatives rejected, one line each:**
+
+- **Fail closed on boot.** Rejected above: it disables `tenant:migrate`, the remedy.
+- **Default the floor to the catalogue's highest version.** Rejected, and on domain grounds rather than because
+  config would read a file (which it would, and which `config:cache` would then freeze). A self-maintaining floor
+  makes every deployment of new migrations refuse every tenant not yet migrated — an outage for the whole duration of
+  the rollout — whereas expand-and-contract exists precisely so that code at version 7 serves tenants at 6. AC-21
+  requires the floor to be **not greater than** the catalogue, which already says the floor is allowed to lag. A floor
+  the catalogue sets is a floor nobody can stage.
+- **Keep `0` and record it as a decision.** Rejected. It is defence-in-depth minus one layer, documented in a file the
+  person deploying will not read, and the layer it drops is the one that enforces a rule `docs/domain-core.md` states
+  absolutely. A recorded decision is the right instrument for a trade-off; this is a default nobody chose.
+
+`ba` is asked for one spec line, not a rewrite: AC-19 should name the absent-configuration case (§9 finding 11's
+sibling, finding 12's last paragraph). The criterion's existing content is unchanged by this ruling.
+
+### 13.2 A refusal whose absence is absorbed by a primary key — ruled: the rule generalises, and it is in §7 now
+
+`dev` measured that deleting step 5's out-of-order branch does **not** produce a clean red: the insert is refused by
+`schema_versions.version`'s primary key, because a renumbered file always collides with the published number, and the
+test would have passed on `SQLSTATE[23000] … UNIQUE constraint failed`. `dev` pinned the exception class **and** the
+name of the *published* migration, which is a fact only the plan-time branch holds — the key's error can only know the
+row that arrived.
+
+**Ruled: correct, and it is now a standing rule of this task rather than a note on one step.** The wording is in §7
+beside the mutation rule, because this is the second instance of the shape (T-007's mutation absorbed by the version
+floor was the first) and two instances in two tasks is a property of the codebase. The operational form is three
+words: **read the failure.** A red phase that nobody read the message of is a red phase that may be measuring the
+engine. `reviewer` should treat an absence-and-refusal test that pins only an exception class as a finding when a
+constraint could have produced it.
+
+Worth stating once so it is not mistaken for a weakening: the branch is **not** redundant with the key. The key
+refuses at write time, inside a transaction, with a message naming a column; the branch refuses at **plan time**,
+before anything is written, naming the migration an operator has to look at. AC-31 is about the second one.
+
+### 13.3 AC-21's control is vacuous as worded — ruled: the equality assertion is the control, and it needs a moving catalogue
+
+`highest + 1 > highest` is arithmetic and would pass against an empty repository. `dev` kept it because the criterion
+names it and added the assertion with teeth — the shipped value **equals** the catalogue's highest version. **Ruled:
+the equality assertion is the control; the arithmetic stays as documentation only**, and `ba` is asked to reword AC-21
+(§9 finding 11). Rejected alternative: deleting the arithmetic from the test as well — harmless, and leaving it with
+"this is not the control" beside it is a better instruction to the next reader than its absence.
+
+**One tooth added, because the equality assertion has its own version of §13.2's problem:** two literals that agree
+prove nothing about which one is authoritative. The assertion is only independently proven if a side can move, so it
+is pointed at a scratch catalogue fixture whose highest version is one higher (red) and one lower (red) — the same
+move-the-key technique step 5 used for `schema.tenant_migration_path`, which is why this is affordable now and was
+not before. That belongs to step 7a's commit, with the floor change it is about.
+
+### 13.4 Two consequences recorded, not ruled
+
+- **`publish` refuses a published migration whose checksum moved or that has left the tree.** Accepted as part of
+  step 5 rather than scope creep: without them `publish` would have to *update* a published row to stay idempotent,
+  which destroys exactly the evidence AC-32 depends on. The workflow consequence is in §5 so someone meets it in the
+  plan instead of in a terminal: **editing an already-published tenant migration is refused until its
+  `schema_versions` row is gone**, the escape is to delete the row in the development master and republish, and no
+  `--force` or `--forget` flag is added. If FP-206 ever needs one, it is a decision with a canary, not a flag added
+  under time pressure.
+- **`phpunit.xml` sets the mapping source to the configuration stand-in, and that stands.** It was forced: with the
+  shipped `master` default, 34 cases in two `Qa*` files set the connection stanza directly with no master schema
+  behind them, and those files belong to `qa`. I am **not** directing `qa` to change them — their subject is tenant
+  isolation, not mapping resolution, and rewriting a proof to accommodate a default that arrived later is how a proof
+  loses its meaning. `dev`'s replacement for AC-12's "shipped configuration, no test override" is better than the
+  suite-wide default was: it asserts the default **from `config/tenancy.php` itself**, unsetting the variable in all
+  three places PHP keeps it (`putenv`, `$_ENV`, `$_SERVER`) and re-requiring the file. **`dev`'s finding that
+  phpunit's own `<env>` writes only two of the three is the load-bearing detail here** — it is why every later
+  tenancy test resolved the master reader, and it is a fact the next person to override an env-driven default in this
+  suite needs; it is in `dev`'s memory file and should stay there.
+  **One tooth to add in step 7a, because the override costs one:** with a suite-wide `config` default, no test
+  exercises the container actually binding the master-backed reader from the shipped configuration. One test must
+  restore the default and assert the resolved object is the caching decorator over `MasterTenantDatabaseRepository` —
+  otherwise `config/tenancy.php` can say `master` while nothing in any run ever builds it.
+
+### 13.5 `TenantSchemaAhead` moves to step 12 — confirmed
+
+`dev` declined to write it and is right. AC-20 **serves** an ahead tenant with one warning, which is what step 7
+implements, so step 7 has no site that throws such an exception; the refusal of an ahead tenant belongs to step 12's
+drift path (AC-55). An exception nothing throws is dead code whose name tells the next reader that serving an ahead
+tenant is refused — the opposite of the behaviour. §4's file list is amended: step 7 ships `TenantSchemaBehind` only.
+**Constraint on step 12:** whatever it writes is named for the site that throws it (a drift refusal), not for AC-20,
+and it is written in the same commit as that site.
+
+### 13.6 What I judge wrong in the step 5 to 7 account
+
+One thing, and it is a reporting defect rather than a code defect. **AC-19 and AC-20 are reported NOT VERIFIED, and
+they are in fact proven** — on the stand-in, at `23b3beb`, with the three mandatory inputs. They are reported that way
+because the spec marks them `[E]`, and that marker is wrong: AC-19's own requirement is that the refusal happens
+*before any network connection is attempted*, so an engine cannot be the means of verifying it. §9 finding 12 asks
+`ba` to drop `[E]` from both; until that lands, `qa` records them NOT VERIFIED **with this ruling cited**, so the
+report does not read as if the serving gate is unproven. Everything else in the account matches what I verified in the
+tree: the two config defaults, `.env.example`'s `6`, the early return on `$required <= 0`, the absence of
+`TenantSchemaAhead`, and `TENANCY_MAPPING_SOURCE=config` in `phpunit.xml`.
