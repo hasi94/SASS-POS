@@ -5,6 +5,7 @@
     "version": "0.1.0",
     "license": "proprietary",
     "require": {
+        "firebase/php-jwt": "^6.10",
         "php": "^8.2"
     },
     "autoload": {
