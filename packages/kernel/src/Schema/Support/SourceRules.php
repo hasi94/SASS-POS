@@ -164,7 +164,7 @@ final class SourceRules
 
         return array_merge(
             self::helperTouchesWhatItDidNotCreate($code),
-            self::matchesAgainst($code, self::FOREIGN_KEY_CALLS, 'AC-34'),
+            self::foreignKeyCreations($code),
             self::matchesAgainst($code, self::HELPER_CONNECTION_NAMES, 'AC-37'),
             self::qualifiedTableNames($code),
             self::rawStatementVerbsAreLiterals($code),
@@ -226,8 +226,8 @@ final class SourceRules
     ];
 
     /**
-     * The calls that really create a foreign key, shared by the migration
-     * pass and the helper pass so the two cannot drift apart.
+     * The calls that open a foreign key, shared by the migration pass and the
+     * helper pass so the two cannot drift apart.
      *
      * @var list<string>
      */
@@ -235,6 +235,47 @@ final class SourceRules
         '/->\s*foreign\s*\(/',
         '/->\s*constrained\s*\(/',
         '/\badd\s+(?:constraint\s+\S+\s+)?foreign\s+key\b/i',
+    ];
+
+    /**
+     * The spelling that creates a key without naming one of the calls above
+     * (BUG-5).
+     *
+     * Enumerated from the vendored API rather than from memory, as the
+     * standing rule for every rule in this class now requires:
+     * `ForeignIdColumnDefinition::references()` is
+     * `$this->blueprint->foreign($this->name, $indexName)->references($column)`,
+     * and `constrained()` is `references()->on()` - so
+     * `foreignUlid('updated_by')->references('id')->on('employees')` creates
+     * the constraint with neither `->foreign(` nor `->constrained(` anywhere in
+     * the text. That is **the spelling D-5's four deferred keys will most
+     * naturally take**, which made the rule blind in the one case the whole
+     * D-5 deferral rests on; `qa` measured it on 2026-10-15.
+     *
+     * The second pattern is the raw form, `references <table>(...)`, so a key
+     * written in SQL is seen too.
+     *
+     * @var list<string>
+     */
+    private const FOREIGN_KEY_REFERENCES = [
+        '/->\s*references\s*\(/',
+        '/\breferences\s+[`\'"]?\w+[`\'"]?\s*\(/i',
+    ];
+
+    /**
+     * One constraint, however long the chain that writes it.
+     *
+     * `->foreign('x')->references('id')->on('y')` is one key and not two, so
+     * the chain each opening call starts is removed before the `references`
+     * spelling above is looked for. Without this the rule would count a
+     * constraint twice, which is the kind of noise that gets a rule narrowed
+     * until it is blind again.
+     *
+     * @var list<string>
+     */
+    private const FOREIGN_KEY_CHAINS = [
+        '/->\s*(?:foreign|constrained)\s*\([^()]*\)(?:\s*->\s*\w+\s*\([^()]*\))*/',
+        '/\badd\s+(?:constraint\s+\S+\s+)?foreign\s+key\b[^;]*?references\s+[`\'"]?\w+[`\'"]?\s*\([^()]*\)/i',
     ];
 
     /**
@@ -598,12 +639,22 @@ final class SourceRules
      * AC-34: a foreign key onto an existing table is a contract step.
      *
      * Only `Schema::table()` blocks are read - they are what "alter an existing
-     * table" is in this framework - and only the two calls that really create a
-     * constraint (`->foreign()` and `->constrained()`) plus the raw statement
-     * form. `foreignId()` on its own declares a column and no key, so it is not
+     * table" is in this framework - and only the spellings that really create a
+     * constraint: `->foreign()`, `->constrained()`, `->references()` on a
+     * foreign-id column, and the raw statement form
+     * ({@see self::FOREIGN_KEY_CALLS}, {@see self::FOREIGN_KEY_REFERENCES}).
+     * `foreignId()` on its own declares a column and no key, so it is not
      * reported: a rule that fired on it would be red on half the shipped tree
      * and would be narrowed until it was blind. A table the same migration
      * created is not an existing table, for the reason AC-33 gives above.
+     *
+     * The raw `references <table>(...)` form is reported wherever it appears
+     * in an altering block, including the column-level spelling that some
+     * engines parse and ignore. The rule errs safe on purpose: a false report
+     * costs the author a contract step and an argument, and a missed one costs
+     * a key taken on a populated table that nobody reviewed. What a database
+     * actually ended up with is `information_schema`'s answer (AC-7), never
+     * this class's.
      *
      * @return list<array{rule: string, found: string}>
      */
@@ -612,8 +663,6 @@ final class SourceRules
         if ($phase === MigrationPhase::Contract) {
             return [];
         }
-
-        $patterns = self::FOREIGN_KEY_CALLS;
 
         $found = [];
         $body = self::upBody($code);
@@ -624,12 +673,46 @@ final class SourceRules
                 continue;
             }
 
-            foreach (self::matchesAgainst($block['body'], $patterns, 'AC-34') as $violation) {
+            foreach (self::foreignKeyCreations($block['body']) as $violation) {
                 $found[] = [
                     'rule' => $violation['rule'],
                     'found' => $block['table'].': '.$violation['found'],
                 ];
             }
+        }
+
+        // A raw `alter table ... add foreign key` belongs to no block, and an
+        // ALTER is an existing table by definition, so no table name can
+        // exempt it - the same argument AC-35(c) makes for a declaration
+        // outside every block.
+        foreach (self::foreignKeyCreations(self::withoutBlocks($body)) as $violation) {
+            $found[] = $violation;
+        }
+
+        return $found;
+    }
+
+    /**
+     * Every foreign key the given code creates, in any of its spellings.
+     *
+     * The opening calls are counted first, then the chain each one starts is
+     * removed and the remainder is read for the `references` spelling - so one
+     * constraint is one violation however it is written.
+     *
+     * @return list<array{rule: string, found: string}>
+     */
+    private static function foreignKeyCreations(string $code, string $rule = 'AC-34'): array
+    {
+        $found = self::matchesAgainst($code, self::FOREIGN_KEY_CALLS, $rule);
+
+        $remainder = $code;
+
+        foreach (self::FOREIGN_KEY_CHAINS as $chain) {
+            $remainder = (string) preg_replace($chain, ' ', $remainder);
+        }
+
+        foreach (self::matchesAgainst($remainder, self::FOREIGN_KEY_REFERENCES, $rule) as $violation) {
+            $found[] = $violation;
         }
 
         return $found;
@@ -686,6 +769,13 @@ final class SourceRules
      * which is exactly the column type the rule exists to keep out of a business
      * table - the design's `[SOFT]` tag is `DATETIME(3)`.
      *
+     * **The last pattern is the raw-SQL spelling** (BUG-6): `qa`
+     * measured that `add column seen_at timestamp null` passed a rule written
+     * in terms of `->timestamp(`. They match the word as a *column type* - a
+     * name in front of it and a type position behind it - rather than as a
+     * bare word, because `timestamp` is also a method name on this project's
+     * own clock and a bare-word rule would report every call to it.
+     *
      * @return list<array{rule: string, found: string}>
      */
     private static function noTimestampColumn(string $code): array
@@ -694,6 +784,7 @@ final class SourceRules
             '/->\s*timestamps?(?:Tz)?\s*\(/',
             '/->\s*nullableTimestamps\s*\(/',
             '/->\s*softDeletes(?:Tz)?\s*\(/',
+            '/[`\'"]?\w+[`\'"]?\s+timestamp(?:\s*\(\s*\d+\s*\))?\s*(?:[,);\'"`]|$|null\b|not\s+null\b|default\b|comment\b)/im',
         ];
 
         $found = [];
@@ -830,10 +921,17 @@ final class SourceRules
      * explain in its own docblock why there is no such column: the reason for an
      * absent column belongs in the file that does not create it, and a naive
      * grep over raw text would report that sentence as a violation of the rule
-     * it states. Any quoted `tenant_id` left in a tenant migration's code is a
+     * it states. Any `tenant_id` left in a tenant migration's code is a
      * violation whichever call it is passed to - a column, an index, a raw
      * statement or an inserted row - and the tenant tree has no legitimate use
      * for one.
+     *
+     * **The match is the bare word in stripped code, not the quoted literal**
+     * (BUG-6): `qa` measured that
+     * `DB::statement('alter table settings add column tenant_id char(26)')`
+     * passed the quoted-literal form, because inside that statement the name
+     * is not quoted at all. Comments and docblocks are already gone by the
+     * time this runs, which is what the quoting was standing in for.
      *
      * @return list<array{rule: string, found: string}>
      */
@@ -843,7 +941,7 @@ final class SourceRules
             return [];
         }
 
-        return self::matchesAgainst($code, ['/[\'"]tenant_id[\'"]/'], 'AC-24');
+        return self::matchesAgainst($code, ['/\btenant_id\b/'], 'AC-24');
     }
 
     /**

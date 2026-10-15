@@ -163,6 +163,42 @@ it('reports a foreign key added to an existing table outside a contract step', f
         ->toBe([]);
 });
 
+it('reports a foreign key added through references() alone, and counts one key once', function () {
+    // AC-34's evasion shape (BUG-5). ForeignIdColumnDefinition::references()
+    // calls Blueprint::foreign() itself, so this creates the constraint with
+    // neither `->foreign(` nor `->constrained(` in the text - and it is the
+    // spelling D-5's four deferred keys will be written in.
+    //
+    // The second half of the expectation is what keeps the rule usable: the
+    // chain `->foreign()->references()->on()` is one key and is reported once,
+    // not once per link, because a rule that multiplies its own reports is a
+    // rule somebody narrows.
+    expect(migrationRuleIds(SourceRules::inspect(
+        migrationRuleFixture('expand_step_adds_foreign_key_through_references'),
+        MigrationTree::Tenant
+    )))->toBe(['AC-34'])
+        ->and(migrationRuleIds(SourceRules::inspect(
+            migrationRuleFixture('expand_step_adds_foreign_key'),
+            MigrationTree::Tenant
+        )))->toBe(['AC-34']);
+});
+
+it('reports the raw-SQL spelling of a tenant_id column, a timestamp column and a foreign key', function () {
+    // AC-24, AC-35(c) and AC-34's evasion shapes (BUG-6). The same columns the
+    // builder fixtures declare, written as raw statements: the quoted literal
+    // the tenant_id rule looked for and the `->timestamp(` call the timestamp
+    // rule looked for are both absent, and the engine cannot tell the two
+    // files apart.
+    $source = migrationRuleFixture('raw_sql_evasion_shapes');
+
+    expect(migrationRuleIds(SourceRules::inspect($source, MigrationTree::Tenant)))
+        ->toBe(['AC-24', 'AC-34', 'AC-35(c)'])
+        // In the master tree a tenant_id column is the design, so the same
+        // file loses exactly that one report and keeps the other two.
+        ->and(migrationRuleIds(SourceRules::inspect($source, MigrationTree::Master)))
+        ->toBe(['AC-34', 'AC-35(c)']);
+});
+
 it('reports a decimal column with no precision', function () {
     // AC-35(a).
     expect(migrationRuleIds(SourceRules::inspect(migrationRuleFixture('decimal_without_precision'), MigrationTree::Tenant)))
