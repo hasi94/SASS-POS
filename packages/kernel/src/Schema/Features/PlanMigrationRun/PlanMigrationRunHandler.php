@@ -9,6 +9,7 @@ use Flexipos\Kernel\Schema\Support\MigrationCatalogue;
 use Flexipos\Kernel\Schema\Support\MigrationPhase;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Flexipos\Kernel\Tenancy\TenantConnectionPurpose;
+use Flexipos\Kernel\Tenancy\TenantStatusPolicy;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Database\Query\Builder;
@@ -67,31 +68,19 @@ use Illuminate\Support\Str;
  * `Tenancy::enter()` gates serving on. One status, one authority; a runner that
  * selected on `tenants.status` could plan a run for a database the request path
  * refuses to open.
+ *
+ * **Which statuses those are is not this handler's to say** (plan section 18,
+ * step 13e). Accepted, named-only and bulk are read at run time from the
+ * injected {@see TenantStatusPolicy}, the same object the door asks, so a test
+ * that hands this handler a policy over a different list moves both sides at
+ * once - and a literal copy of the list written here, in any spelling, is red
+ * the moment the list moves. The handler keeps exactly one status of its own,
+ * {@see self::BLOCKING_EXEMPT_STATUS}, which answers the opposite question
+ * with the opposite default (plan section 16.2) and must not migrate into the
+ * policy.
  */
 final class PlanMigrationRunHandler
 {
-    /**
-     * The statuses a run naming one tenant accepts (D-11, D-52).
-     *
-     * **Derived, never restated.** It is the migrating scope entry's own list,
-     * read from the one place it lives. A copied list is one edit away from
-     * BUG-1 - a planner that accepts a status the door then refuses, which
-     * writes a job row that can only fail (plan 16.1).
-     *
-     * @var list<string>
-     */
-    public const NAMED_ACCEPTED = TenantConnectionPurpose::MIGRATING_STATUSES;
-
-    /**
-     * The statuses only a run that *names* a tenant accepts (D-11).
-     *
-     * This is the subtraction, and it is the one list this handler owns: which
-     * of the enterable statuses a bulk run declines to pick up on its own.
-     *
-     * @var list<string>
-     */
-    public const NAMED_ONLY_STATUSES = ['provisioning', 'failed'];
-
     /**
      * The one status a contract step does **not** wait for (AC-58, D-46).
      *
@@ -103,26 +92,11 @@ final class PlanMigrationRunHandler
      */
     public const BLOCKING_EXEMPT_STATUS = 'provisioning';
 
-    /**
-     * The statuses a bulk run touches (D-11): the accepted list minus the
-     * named-only ones.
-     *
-     * A method rather than a constant because PHP has no `array_diff` in a
-     * constant expression, and the derivation is the point: `BULK_STATUSES`
-     * written out as a literal is the second copy this fix exists to remove.
-     * `ReportSchemaStatusHandler` reads this rather than repeating it.
-     *
-     * @return list<string>
-     */
-    public static function bulkStatuses(): array
-    {
-        return array_values(array_diff(self::NAMED_ACCEPTED, self::NAMED_ONLY_STATUSES));
-    }
-
     public function __construct(
         private readonly DatabaseManager $database,
         private readonly ConfigRepository $config,
         private readonly RunnerClock $clock,
+        private readonly TenantStatusPolicy $statusPolicy,
     ) {}
 
     /**
@@ -217,7 +191,7 @@ final class PlanMigrationRunHandler
         $selected = [];
 
         foreach ($byTenant as $row) {
-            if (! in_array((string) $row['status'], self::bulkStatuses(), true)) {
+            if (! in_array((string) $row['status'], $this->statusPolicy->bulk(), true)) {
                 continue;
             }
 
@@ -241,7 +215,7 @@ final class PlanMigrationRunHandler
      */
     private function selectNamed(array $tenantIds, array $byTenant, int $target): array
     {
-        $accepted = self::NAMED_ACCEPTED;
+        $accepted = $this->statusPolicy->accepted(TenantConnectionPurpose::Migrating);
 
         foreach ($tenantIds as $tenantId) {
             if (! array_key_exists($tenantId, $byTenant)) {
@@ -379,7 +353,7 @@ final class PlanMigrationRunHandler
      * `provisioning` - a database that holds nothing yet - and an unrecognised
      * status **blocks**.
      *
-     * Reusing `bulkStatuses()` here was BUG-7: it let a contract step drop a
+     * Reusing the policy's bulk list here was BUG-7: it let a contract step drop a
      * column while six statuses looked away. The two sets must stay separate
      * rules; a test asserts they differ, because "these two lists look the
      * same, let us unify them" is precisely how this returns.

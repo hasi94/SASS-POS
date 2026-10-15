@@ -867,7 +867,7 @@ is neither outstanding work nor done, it blocks nothing, and the ruling that mov
       (it is reachability, not arity) while the behavioural cases go red — exactly the division `dev` already
       measured and reported on its own test. Both mutations are written into the test file as the record of what it
       does and does not see.
-- [ ] **Step 13e — the migratable-status authority becomes movable, and the source scan is deleted. [FIX] BUG-11.**
+- [x] **Step 13e — the migratable-status authority becomes movable, and the source scan is deleted. [FIX] BUG-11.**
       [dev] Ruled in **§18**. `qa` evaded 13b's source scan with a second literal copy in double quotes and all
       eleven relevant tests stayed green. The scan is **not patched**; the proof is replaced by the one step 5 set —
       move the key and watch the dependent follow — which no spelling can evade. Six changes:

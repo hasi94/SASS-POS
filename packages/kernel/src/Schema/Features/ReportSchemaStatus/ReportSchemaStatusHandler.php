@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Flexipos\Kernel\Schema\Features\ReportSchemaStatus;
 
-use Flexipos\Kernel\Schema\Features\PlanMigrationRun\PlanMigrationRunHandler;
+use Flexipos\Kernel\Tenancy\TenantStatusPolicy;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Database\Query\Builder;
@@ -14,7 +14,7 @@ use Illuminate\Database\Query\Builder;
  *
  * **Who is counted is the criterion, not a filter.** Only `active` and
  * `read_only` tenants appear - the same two statuses a bulk run touches - and
- * the list is read from `PlanMigrationRunHandler::bulkStatuses()` rather than
+ * the list is read from the injected `TenantStatusPolicy` rather than
  * repeated here, so a report that says "three tenants are behind" is counting
  * the tenants a run would actually reach. An `archived` tenant at an ancient
  * version is not behind; it is gone, and a report that listed it would send
@@ -37,6 +37,7 @@ final class ReportSchemaStatusHandler
     public function __construct(
         private readonly DatabaseManager $database,
         private readonly ConfigRepository $config,
+        private readonly TenantStatusPolicy $statusPolicy,
     ) {}
 
     public function handle(ReportSchemaStatus $query): SchemaStatusReport
@@ -85,7 +86,7 @@ final class ReportSchemaStatusHandler
 
         $query = $this->table()
             ->select(['tenant_id', 'server_id', 'schema_version'])
-            ->whereIn('status', PlanMigrationRunHandler::bulkStatuses())
+            ->whereIn('status', $this->statusPolicy->bulk())
             ->orderBy('schema_version')
             ->orderBy('tenant_id');
 

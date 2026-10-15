@@ -49,10 +49,14 @@ enum TenantConnectionPurpose: string
     /**
      * The statuses a migrating entry accepts (D-11, D-51).
      *
-     * **This array is the single authority for "which statuses may be
-     * migrated".** `PlanMigrationRunHandler` derives its accepted sets from it
-     * rather than restating them, because two lists that must agree will not
-     * stay agreed - that disagreement was BUG-1.
+     * **This array is the shipped data behind "which statuses may be
+     * migrated"; the authority that answers the question is
+     * {@see TenantStatusPolicy}**, which this constant is the default of. Every
+     * reader - the door and the planner - asks the policy rather than
+     * restating the list, because two lists that must agree will not stay
+     * agreed, and that disagreement was BUG-1. The question moved off this
+     * enum because an enum constant cannot be rebound, so no test could move
+     * the value and watch the readers follow (plan section 18).
      *
      * It is an **allow list, deny by default**: `suspended`, `moving`,
      * `restoring`, `archived`, `migrating` and every unrecognised value are
@@ -64,25 +68,4 @@ enum TenantConnectionPurpose: string
      * @var list<string>
      */
     public const MIGRATING_STATUSES = ['active', 'read_only', 'provisioning', 'failed'];
-
-    /**
-     * The statuses a scope entry for this purpose accepts.
-     *
-     * @return list<string>
-     */
-    public function acceptedStatuses(): array
-    {
-        return match ($this) {
-            self::Serving => self::SERVING_STATUSES,
-            self::Migrating => self::MIGRATING_STATUSES,
-        };
-    }
-
-    /**
-     * Deny by default: true only for a status this purpose names.
-     */
-    public function permits(string $status): bool
-    {
-        return in_array($status, $this->acceptedStatuses(), true);
-    }
 }

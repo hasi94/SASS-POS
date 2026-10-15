@@ -79,6 +79,16 @@ final class TenancyServiceProvider extends ServiceProvider
         // verifiable.
         $this->app->scoped(TenantConnectionAuthority::class);
 
+        // The migratable-status authority (plan section 18, step 13e). A
+        // singleton because it is immutable shipped data, and bound to
+        // shipped() rather than to a constructor the container could autowire
+        // - the constructor is private, and a binding is the one place a
+        // reviewer looks to see which list the process runs on. There is no
+        // configuration key behind this and there must never be one: the
+        // reconciliation in plan section 18.2 depends on the production value
+        // being a compile-time constant.
+        $this->app->singleton(TenantStatusPolicy::class, static fn (): TenantStatusPolicy => TenantStatusPolicy::shipped());
+
         $this->app->singleton(SecretResolver::class, static function (Application $app): SecretResolver {
             // env:// only in T-003 (decision D-31). Every other scheme
             // docs/database.md section 4.4 lists is refused by

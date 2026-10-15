@@ -3,6 +3,8 @@
 use Flexipos\Kernel\Schema\Exceptions\MigrationRunRefused;
 use Flexipos\Kernel\Schema\Features\PlanMigrationRun\PlanMigrationRun;
 use Flexipos\Kernel\Schema\Features\PlanMigrationRun\PlanMigrationRunHandler;
+use Flexipos\Kernel\Tenancy\TenantConnectionPurpose;
+use Flexipos\Kernel\Tenancy\TenantStatusPolicy;
 use Tests\TestCase;
 
 /*
@@ -116,8 +118,10 @@ it('keeps the blocking set and the selection set as two different rules', functi
 
     $suspended = blockingFixture('suspended');
 
-    expect(PlanMigrationRunHandler::bulkStatuses())->not->toContain('suspended')
-        ->and(PlanMigrationRunHandler::NAMED_ACCEPTED)->not->toContain('suspended');
+    $policy = app(TenantStatusPolicy::class);
+
+    expect($policy->bulk())->not->toContain('suspended')
+        ->and($policy->accepted(TenantConnectionPurpose::Migrating))->not->toContain('suspended');
 
     // Not selected: a bulk run at a version it is below plans nothing for it.
     $result = app(PlanMigrationRunHandler::class)->handle(new PlanMigrationRun(set: runFixtureSet(), targetVersion: 6));
