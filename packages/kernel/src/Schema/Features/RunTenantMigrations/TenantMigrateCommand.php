@@ -37,6 +37,7 @@ final class TenantMigrateCommand extends Command
         {--run= : Resume this run instead of planning a new one}
         {--retry-failed : With --run, make that run\'s failed jobs claimable again}
         {--concurrency=1 : Recorded on the run row; one process still executes serially}
+        {--queue : Dispatch one queue job per tenant instead of migrating in this process}
         {--per-server= : Override how many tenants on one server may run at once}
         {--worker= : The worker identifier recorded on each claim}';
 
@@ -73,6 +74,10 @@ final class TenantMigrateCommand extends Command
         );
 
         try {
+            if ($this->option('queue')) {
+                return $this->dispatchToWorkers($handler, $command, $config);
+            }
+
             $result = $handler->handle($command);
         } catch (MigrationRunRefused|RunnerLoopRefused $refused) {
             $this->components->error($refused->getMessage());
@@ -95,5 +100,40 @@ final class TenantMigrateCommand extends Command
         );
 
         return $result->exitCode;
+    }
+
+    /**
+     * `--queue`: plan the run and hand its jobs to the workers (AC-41).
+     *
+     * This is the one place the queue name is read, from the host's
+     * `config('schema.queue')`, and handed to the kernel - the same rule the
+     * tree directory follows.
+     *
+     * The exit code is 0 for a dispatched run and says nothing about whether
+     * the migrations succeed: nothing has been migrated yet when this returns.
+     * The closing line names the invocation that writes the run's final
+     * counters once the queue has drained, because a queue worker cannot know
+     * it ran the last job (see the handler's dispatch()).
+     */
+    private function dispatchToWorkers(
+        RunTenantMigrationsHandler $handler,
+        RunTenantMigrations $command,
+        ConfigRepository $config,
+    ): int {
+        $dispatched = $handler->dispatch($command, (string) $config->get('schema.queue', 'migrations'));
+
+        $this->components->info(sprintf(
+            '%d job(s) dispatched on the [%s] queue at target version %d.',
+            count($dispatched->jobIds),
+            $dispatched->queue,
+            $dispatched->targetVersion
+        ));
+
+        $this->components->info(sprintf(
+            'Nothing has been migrated yet. Run tenant:migrate --run=%s once the queue has drained.',
+            $dispatched->runId
+        ));
+
+        return self::SUCCESS;
     }
 }

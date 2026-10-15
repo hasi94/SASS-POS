@@ -12,12 +12,14 @@ use Flexipos\Kernel\Schema\Features\ClaimMigrationJob\ClaimMigrationJob;
 use Flexipos\Kernel\Schema\Features\ClaimMigrationJob\ClaimMigrationJobHandler;
 use Flexipos\Kernel\Schema\Features\MigrateTenant\MigrateTenant;
 use Flexipos\Kernel\Schema\Features\MigrateTenant\MigrateTenantHandler;
+use Flexipos\Kernel\Schema\Features\MigrateTenant\MigrateTenantQueueJob;
 use Flexipos\Kernel\Schema\Features\MigrateTenant\MigrateTenantResult;
 use Flexipos\Kernel\Schema\Features\PlanMigrationRun\PlanMigrationRun;
 use Flexipos\Kernel\Schema\Features\PlanMigrationRun\PlanMigrationRunHandler;
 use Flexipos\Kernel\Schema\Features\RetryFailedJobs\RetryFailedJobs;
 use Flexipos\Kernel\Schema\Features\RetryFailedJobs\RetryFailedJobsHandler;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
+use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Database\Query\Builder;
@@ -70,7 +72,68 @@ final class RunTenantMigrationsHandler
         private readonly ClaimMigrationJobHandler $claimer,
         private readonly MigrateTenantHandler $migrator,
         private readonly RetryFailedJobsHandler $retrier,
+        private readonly Dispatcher $bus,
     ) {}
+
+    /**
+     * Plan (or resume) a run and hand each of its jobs to the queue, instead
+     * of executing them in this process (AC-41).
+     *
+     * One job row, one queue job, on the queue the caller names - the kernel
+     * is told the queue rather than reading `config('schema.queue')`, which is
+     * the host's key, for the same reason it is told the tree directory. What
+     * the payload may carry is `MigrateTenantQueueJob`'s business and is
+     * asserted there: identifiers and a set, never a credential.
+     *
+     * **Only `pending` jobs are dispatched.** A `running` job is held by a
+     * worker whose lease has not expired, and a second queue job for it would
+     * be a second migration against the same tenant; expired leases are the
+     * claim's business, and the worker that picks this job up claims it the
+     * same way an in-process run does.
+     *
+     * **What this does not do, said plainly rather than left to be found.**
+     * The run's final counters and status are written by whatever process
+     * drains the last job, and a queue worker executing one job has no
+     * vantage point from which to know it was the last - the same argument
+     * that put `finish()` in the loop below. So a dispatched run stays
+     * `running` until `tenant:migrate --run=<id>` is invoked once the queue
+     * has drained: that resumes, claims nothing, and writes the counters. A
+     * run watcher that does it without being asked is FP-203's.
+     *
+     * @return DispatchedRun the run and the job ids handed to the queue
+     */
+    public function dispatch(RunTenantMigrations $command, string $queue): DispatchedRun
+    {
+        [$runId, $target] = $this->runFor($command);
+
+        $this->markRunning($runId);
+
+        $dispatched = [];
+
+        $rows = $this->table('tenant_migration_jobs')
+            ->where('run_id', $runId)
+            ->where('status', RetryFailedJobsHandler::JOB_PENDING)
+            ->orderBy('id')
+            ->get();
+
+        foreach ($rows as $row) {
+            $job = (array) $row;
+            $jobId = (string) $job['id'];
+
+            $this->bus->dispatch(MigrateTenantQueueJob::forJob(
+                runId: $runId,
+                jobId: $jobId,
+                tenantId: (string) $job['tenant_id'],
+                workerId: $command->workerId,
+                set: $command->set,
+                queue: $queue,
+            ));
+
+            $dispatched[] = $jobId;
+        }
+
+        return new DispatchedRun($runId, $target, $queue, $dispatched);
+    }
 
     /**
      * @throws MigrationRunRefused from planning, before anything is written
