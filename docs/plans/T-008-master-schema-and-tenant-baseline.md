@@ -438,7 +438,7 @@ guard is a rule about *our* names and nothing else. The prefix is a constant in 
 
 ## 6. Implementation steps
 
-Seventeen steps, against T-007's nine. Owner in brackets. **Where the order is load-bearing it says so and why** —
+Eighteen steps (seventeen plus step 13a, split out on 2026-10-15), against T-007's nine. Owner in brackets. **Where the order is load-bearing it says so and why** —
 elsewhere steps may be reordered or run together.
 
 - [x] **Step 0 — the allow-list name guard, proven red, with a positive control beside it.** [dev] **DONE**, commit
@@ -578,7 +578,17 @@ elsewhere steps may be reordered or run together.
       **The version floor as shipped fails open and step 7a closes it** (§13.1).
       **Gate after steps 5 to 7, reported by `dev`:** exit 0, **598 passed, 3 skipped, 2948 assertions** (+47 tests,
       +243 assertions against the step-4 figure; skips unchanged at 3, because nothing added here needs a connection).
-- [ ] **Step 7a — the version floor fails closed when the variable is absent.** [dev] Ruled in §13.1. Four changes and
+- [x] **Step 7a — the version floor fails closed when the variable is absent.** [dev] **DONE**, commit `cf685e2`.
+      The three states as ruled, `RequiredSchemaVersionNotConfigured`, the 503 without `Retry-After`, the duplicate
+      `config/schema.php` key removed, and both §13.3's and §13.4's teeth landed with it: AC-21's equality proven by a
+      scratch catalogue moved one version each way, and one test that resolves the mapping reader **from the shipped
+      configuration** and asserts it is the caching decorator over `MasterTenantDatabaseRepository`.
+      **Verified by the lead:** absence and explicit zero are separated by `is_numeric($configured)`, so "nobody chose"
+      and "somebody chose no floor" can no longer collapse into each other, and the second read of the variable is gone.
+      Red phase on sqlite: the absent-floor case failed with "Exception … not thrown" — the request being served *is*
+      the hole — and the config case with "Failed asserting that 0 is null".
+      The instruction follows, unchanged, because §13.1's four properties still bind anything that touches the floor:
+      Ruled in §13.1. Four changes and
       one test file: `config/tenancy.php`'s `required_schema_version` stops casting an absent variable to `0` and
       yields **null** instead; `Tenancy::assertSchemaIsServable()` refuses a **serving** entry on null with a new named
       exception (`RequiredSchemaVersionNotConfigured`, no credential, carrying the variable's name) while an explicit
@@ -595,18 +605,52 @@ elsewhere steps may be reordered or run together.
       to add it.
       *Order: before step 11, because step 11 is the first code that enters a tenant for migration in anger and must
       not inherit a floor whose absence is silent. It may run beside steps 8 to 10.*
-- [ ] **Step 8 — the migration-set seam and the FX fixtures.** [dev] `MigrationSet`, and FX-1 to FX-6 under the test
-      fixtures. Without this the runner can only ever be tested against the one real baseline, which proves nothing
-      about upgrades. Covers the seam AC-38 rides on.
+- [x] **Step 8 — the migration-set seam and the FX fixtures.** [dev] **DONE**, commit `0afd6a6`. `MigrationSet`,
+      FX-1 to FX-6, and `ThreeTenantFixture`'s mapping half (its engine half waits behind G-1 and the inverted test
+      asserts `build()` and `drop()` both throw `EngineOnHold`).
+      **The seam's load-bearing property, stated by `dev` and accepted:** a version is a **position** in the set,
+      numbered from one across the whole set in the order the directories were named and in file-name order inside
+      each — deliberately **not** merged-sorted, because a fixture named `0001_fx1_…` sorted against the baseline
+      would renumber the six versions every tenant already carries. The mutation is stated and measured: adding a
+      cross-set sort to `paths()` turns two cases red with the ordering diff as the message. A missing or repeated
+      directory refuses; an **empty** one does not, because an empty directory and a missing one say different things
+      about whether anybody meant it.
+      **No FX file names another connection**, so FX-3 and FX-1 declare *when* a reading is taken and the test
+      installs the probe that takes it — see §14.2, which rules on that split.
+      Covers the seam AC-38 rides on. No `[E]` criterion is verified here.
       *Order load-bearing: before steps 9 to 12.*
-- [ ] **Step 9 — the `PlanMigrationRun` slice.** [dev] One run row, one job row per selected tenant, all `pending`,
+- [x] **Step 9 — the `PlanMigrationRun` slice.** [dev] **DONE**, commit `88c04ce`. Every refusal is decided before
+      the first insert — catalogue, then the selection read, then the destructive refusal, then the contract guard,
+      then the two writes — so "no tenant was altered" and "zero job rows" are properties of the handler's order and
+      not of a rollback. FX-4 (contract, not destructive) is planned: the control that catches a refusal keyed on the
+      phase. D-11's two status sets are separate halves because AC-40 wants a bulk run to pass an `archived` tenant
+      silently while AC-51 wants a named run to say why. `RunnerClock` landed here, early, because the run row needs a
+      `now()` a test can move. The connection instrument asserts the queried connection list is exactly `[master]`.
+      **AC-58 is implemented as a reading and §14.1 confirms it**; the status authority is `tenant_databases.status`
+      and §14.3 confirms that too. **The destructive refusal's red phase is the family's third instance (§7)**: the
+      first attempt stayed green because the contract guard refused the same run with the same exception class, and
+      the fix was the input — the tenant at version 7, where that guard has nothing to say.
+      The instruction follows, unchanged:
+      One run row, one job row per selected tenant, all `pending`,
       written before any tenant database is touched; selection by status and version; ordering by `size_bytes`; the
       contract-step guard; the destructive refusal; the catalogue refusal. Covers AC-39, AC-40, AC-51, AC-58, AC-59
       and AC-32's refusal half.
       **Red phase: omit the mechanism; no engine, no tenant connection** (§11.5). The destructive refusal is proven red
       by asserting zero job rows and zero connections against a handler that lacks the branch — **never** by letting
       FX-5 run to see what happens.
-- [ ] **Step 10 — `ClaimMigrationJob` and the per-tenant lock.** [dev] The single-statement claim with
+- [x] **Step 10 — `ClaimMigrationJob` and the per-tenant lock.** [dev] **DONE**, commit `6663377`, for the claim,
+      the clock-driven expiry, the per-server cap and `PerTenantLock`. Covers AC-41, AC-47, AC-48, AC-50 and AC-46's
+      attempt cap on the stand-in; AC-49 and AC-65 are **NOT VERIFIED** behind G-1 and correctly so — see §14.4.
+      **This step produced §7's fourth mask instance and the statement pin that answers it**: the candidate read
+      duplicates the claim's terms, so the seven behavioural cases were evidence about the pair, and the executed
+      `UPDATE`'s `WHERE` is now asserted from the query log. Any later statement that re-checks what its own read
+      already filtered is held to the same proof.
+      **Two pieces of step 10's nominal scope move to step 11**, because neither has an input that binds until the
+      execution path exists: the **`RetryFailedJobs` slice** (AC-46's retry-selection half — a retry that selects jobs
+      nothing then executes cannot be told from one that selects the wrong jobs) and **AC-42** (two jobs for two
+      tenants in one worker process, which needs two executions). They are listed in step 11 and not lost here.
+      The instruction follows, unchanged:
+      The single-statement claim with
       `attempts < :max`, claim expiry through the injectable clock, the per-server cap as one statement over a derived
       table (MariaDB 10.4 refuses a subquery on the table being updated unless it is wrapped), `GET_LOCK(name, 0)` on
       the tenant connection, and the queue payload with no secret in it. Covers AC-41, AC-42 and AC-46 to AC-50.
@@ -619,6 +663,15 @@ elsewhere steps may be reordered or run together.
       set `migrating` for a `requires_offline` plan only, and `failed` after an offline failure (D-12); evict the
       cached mapping in the same step as every status or version change (D-19); sanitise every stored error. Covers
       AC-43, AC-44, AC-45, AC-52, AC-53, AC-60, and AC-38 end to end.
+      **Moved here from step 10** (see there for why): the **`RetryFailedJobs` slice** (AC-46's retry-selection half)
+      and **AC-42**, the two-tenants-one-worker case — `dev` may ship either as a separate commit inside this step.
+      **Two constraints from §7's fourth instance, and they bind this step specifically.** (i) `MigrateTenant` and
+      `RetryFailedJobs` both have the read-then-write shape: wherever a statement re-checks terms its own feeding read
+      already filtered on — the job status, the attempt count, the claim expiry — the statement's `WHERE` is pinned
+      from the query log in the same commit, because no behavioural case in one process can separate the two sites.
+      (ii) AC-52's observation through `FixtureMigrationLog` carries a positive control in the same test file: a run
+      that *proceeds* and records a non-zero reading. Without it, "the fixture saw nothing" and "the fixture never
+      ran" are the same observable, which is this family's shape in miniature (§14.2).
       **`[gated]`, and the only genuinely destructive step in the task** (§11.5). Everything provable without the
       engine — status transitions, the mirror write, the cleared error, eviction, error sanitising — is red on sqlite
       against a fake migrator. The engine half is red by **omitting the apply call**, and every database it touches was
@@ -630,7 +683,18 @@ elsewhere steps may be reordered or run together.
       **Red phase: omit the mechanism** (§11.5). Nothing here issues a destructive statement; the observables are a row
       count in the tenant's own `migrations` table and a column in `tenant_databases`. `[gated]` only for the reads
       that need the three-tenant fixture.
-- [ ] **Step 13 — layout and hygiene checks.** [dev] `VerticalSliceLayoutTest` (every slice has a handler and a
+- [x] **Step 13 — layout and hygiene checks (the three the lead scoped).** [dev] **DONE**, commits `5e2e708`
+      (checks (a) and (b)) and `18f03dd` (`VerticalSliceLayoutTest`, no FX migration under either shipped tree, and
+      `sessions` carries no foreign key to `users`). **Checks (c), (d) and (e) are not done and are step 13a** — the
+      step is ticked for the scope it was given, and the remainder is a step of its own so it cannot be read as
+      shipped. Three properties worth keeping from `dev`'s report: the layout rule has four fixture slices as controls
+      (one complete, one missing each part); the FX scan matches **two ways**, by LF-normalised checksum (survives a
+      rename) and by the FX naming convention (survives an edit), because a copy is renamed more often than it is
+      rewritten; and the `sessions` check reads the **applied** schema rather than the migration source, because a key
+      can arrive by a later `ALTER`, with `tenant_databases` as the control proving the same reader does find keys in
+      the same database.
+      The instruction follows, unchanged, because 13a inherits its controls and its wording:
+      `VerticalSliceLayoutTest` (every slice has a handler and a
       mirrored test folder — the first executable form of `docs/patterns.md` §3); no FX migration under the shipped
       tenant tree; no database creation or dropping outside `EngineDatabase`; `sessions` carries no foreign key to
       `users` (finding 6). Covers AC-37's remainder and the hygiene non-functional requirements.
@@ -668,13 +732,21 @@ elsewhere steps may be reordered or run together.
       the type, and this project has twice been bitten by a claim that was true when it was written. The docblocks
       stay as explanation; the scan becomes the authority. Scanning helper sources has its own failure mode — a scan
       over a *set of files* is only as good as the set — which is exactly why (d) ships with (c) and not after it.
-      **Shipped state (commit `5e2e708`), so this step stays unticked:** check (a) and check (b) exist in
-      `modules/host/tests/Feature/DestructiveStatementContainmentTest.php`. Still to do here:
-      `VerticalSliceLayoutTest`, "no FX migration under the shipped tenant tree", the `sessions`-carries-no-
-      foreign-key check from §9 finding 6, checks (c) and (d) above, and **(e) AC-35(a) tightened to require both of
-      `decimal()`'s arguments** (§9 finding 10, ruling §12.3) — a three-line change in
-      `SourceRules::decimalStatesPrecision()` plus one fixture, collected here rather than reopening the ticked step 2
-      so that all three post-step-4 rule changes land in one commit with one `qa` pass over them.
+- [ ] **Step 13a — the three rule changes step 13 did not carry.** [dev] Checks **(c)** the `Schema/Support/`
+      statement scan and **(d)** the migration-import rule, both as worded in step 13 above and with its controls,
+      plus **(e) AC-35(a) tightened to require both of `decimal()`'s arguments** (§9 finding 10, ruling §12.3) — a
+      three-line change in `SourceRules::decimalStatesPrecision()` plus one fixture. All three land in **one commit**
+      with one `qa` pass over them, rather than reopening the ticked step 2, because they are the post-step-4 changes
+      to one file's rules.
+      **§14.2 scopes (d) and the scope is part of the check, not an exemption:** (d) is applied to the files under
+      the **two shipped trees** (`database/migrations` and `database/migrations-tenant`, both read from
+      `config('schema.*')`, never from a literal), and fixture migrations under `tests/Fixtures/` are **out of its
+      subject** — which is why FX-3 may import `FixtureMigrationLog`. An exemption list would rot (§7); a scope rule
+      stated once does not. The tooth that keeps a scope rule honest: the check asserts the set of files it scanned
+      is **non-empty and equal to the two configured trees' contents**, so a scope that silently becomes empty is red
+      rather than green.
+      Red is proven on planted fixtures first, because the real `Support/` directory and both shipped trees are
+      silent today (the R-4 shape).
 - [ ] **Step 14 — gate wiring and headroom.** [dev] `engine:clean` (report-only, §11.2 rule 4) first in `check`
       — **already true since step 0 and re-confirmed by `dev` on 2026-10-14; this half of the step needs no work**;
       toolchain registry coverage (`DestructiveStatementContainmentTest` spawns no child process, so it stays in
@@ -707,22 +779,65 @@ to be safe: it may not be capable of a destructive statement against a shared re
 the thing that is weakened to make a test fail. The constraint, its four rules and the per-step ruling are in §11; they
 bind every step in §6 and every step added to this plan later.
 
-**And since 2026-10-15, one rule beside the mutation rule, because this is now the second instance.**
+**And since 2026-10-15, one rule beside the mutation rule. It now has four instances, and the fourth is a different
+shape from the first three.**
 
-> **When a mechanism's absence is masked by something else that refuses — a constraint, a key, a type, an earlier
-> gate — a red phase is not evidence until the assertion pins something only that mechanism produces.** Remove the
-> branch, run the test, and *read the failure*. If the message came from the engine, the framework or another guard
-> rather than from our code, the test is measuring the mask and will keep passing after the mechanism is deleted.
-> What to pin: the exception class **and** a fact only our branch knows — in step 5's case the name of the
-> *published* migration, which the primary key's own error cannot contain because it only knows the arriving row.
+> **When a mechanism's absence is masked by something else that produces the same observable — a constraint, a key,
+> a type, an earlier gate, or a duplicate of the mechanism's own terms in the read that feeds it — a red phase is not
+> evidence until the assertion pins something only that mechanism produces.** Remove the branch, run the test, and
+> *read the failure*. If the message came from the engine, the framework or another guard rather than from our code,
+> the test is measuring the mask and will keep passing after the mechanism is deleted. Two remedies, and they are not
+> interchangeable: **pin something only this mechanism produces** (the exception class **and** a fact only our branch
+> knows), or **change the input until only this mechanism can fire**. Which one applies is decided by what the mask
+> is — see the four instances below.
 
-The first instance was T-007's mutation that passed because the version floor absorbed it; the second is step 5's
-out-of-order refusal, where deleting the branch still produces
-`SQLSTATE[23000] … UNIQUE constraint failed` from `schema_versions.version`'s primary key, because renumbering always
-collides with the number already published (`dev`, measured 2026-10-15). The branch's value was never that it prevents
-the write — the key does that — it is that it refuses at **plan time** and names the migration the operator has to
-look at. Two instances in two tasks makes this a pattern of the codebase, not an anecdote: every absence-and-refusal
-criterion in §9's table is now expected to say which of the two it pins.
+**The four instances, because two in two tasks was a pattern and four in one task is the shape of this codebase.**
+
+1. **An earlier gate absorbs it.** T-007's mutation passed because the version floor refused first. Remedy: an input
+   below the earlier gate's threshold — *change the input*.
+2. **A key or constraint absorbs it.** Step 5's out-of-order refusal: deleting the branch still produces
+   `SQLSTATE[23000] … UNIQUE constraint failed` from `schema_versions.version`'s primary key, because renumbering
+   always collides with the number already published (`dev`, measured 2026-10-15). Remedy: *pin* the exception class
+   **and** the name of the *published* migration — a fact the key's own error cannot contain, because it only knows
+   the arriving row. The branch is not redundant with the key: the key refuses at write time naming a column, the
+   branch refuses at plan time naming the migration an operator must look at.
+3. **Another guard refuses the same run with the same exception class.** Step 9, measured 2026-10-15: with the
+   destructive branch deleted, the FX-5 case stayed green, because FX-5 is *also* a contract step and the contract
+   guard (AC-58) refused the same run throwing `MigrationRunRefused` — "zero job rows" and "it threw
+   `MigrationRunRefused`" both stayed true, and only the message pin saw the difference. **The fix was the input, not
+   the assertion:** the tenant was moved to version 7, where the contract guard has nothing to say, and the deleted
+   branch then writes a plan — the red the step needed. Worth separating from instance 2: when the mask is a sibling
+   guard of the same class, pinning harder is a weaker fix than removing the sibling's reason to fire, because the
+   message is the only thing left distinguishing them and a reworded message re-masks it.
+4. **Your own pre-filter carries the same terms — and this is the most dangerous, because nothing about it looks
+   like a guard.** Step 10, measured 2026-10-15: `attempts < :max` and the status terms were removed from the
+   production `WHERE` of the granting `UPDATE` and **all seven behavioural cases stayed green**, because the
+   candidate read that feeds the claim re-checks the same terms. In one process the pre-filter never offers a row the
+   update would wrongly grant, so every behavioural case in that file was evidence about **the pair**, while AC-48 is
+   a claim about **the statement**. Remedy: *pin the statement itself* — `dev` captures the executed SQL from the
+   query log and asserts the `WHERE` contains each term. Under the update-only mutation that one case is red and the
+   six behavioural ones green, which is the correct signature of an update-only mutation; with both sites mutated all
+   seven are red.
+   **The warning, and it binds the steps that are left:** a read-then-write pair — a query that selects candidates
+   followed by a statement that re-checks them — is the normal shape of this runner, not an accident of step 10, and
+   **`MigrateTenant` (step 11) and `RetryFailedJobs` have exactly it**. Wherever a statement's terms are duplicated in
+   the read that feeds it, no behavioural test in one process can distinguish the two sites: **pin the statement**,
+   by the query log or an equivalent, in the same commit as the statement.
+
+Every absence-and-refusal criterion in §9's table is now expected to say which of the four it pins, and
+`reviewer` should treat a behavioural-only proof of a re-checking statement as a finding, not a style note.
+
+### Two suite rules `dev` paid for, binding on every new test file in this repository
+
+Added 2026-10-15 from steps 10 and 13. Both cost a gate run to discover and neither is discoverable by reading.
+
+- **Two collected test files may not share a basename.** Naming the gated lock test `PerTenantLockTest.php` beside
+  the kernel's `PerTenantLockTest.php` was refused by `ToolchainGroupBindingTest`. The engine-side file is now
+  `PerTenantLockEngineTest.php`; the convention for this task is that a gated engine mirror of a unit test takes the
+  `…EngineTest.php` suffix, so the collision cannot recur by accident.
+- **`*/` inside a file-header block comment is a parse error**, so a glob-shaped path (`packages/*/tests`) cannot go
+  in a banner. Use a line comment, or name the path without the glob. This matters because every file in this task is
+  expected to carry its reason in a header, and the reasons are full of paths.
 
 ### Three things `dev` measured writing the containment checks, binding on the next repository-wide scan
 
@@ -962,6 +1077,15 @@ catch-up, not a decision.
    real column types and collations, which the stand-in does not have.
    AC-19 also needs one case it does not currently name — what happens when `APP_REQUIRED_SCHEMA_VERSION` is
    **absent**, as opposed to zero. §13.1 rules it; the spec should carry it as part of AC-19.
+13. **AC-58 names a dependency the catalogue cannot express.** "A contract step that depends on an expand version"
+   reads as if the dependency were declared; no tag and no field carries it (§14.1). **Replacement:** AC-58 should
+   say the dependency is *the version immediately before the contract step, until a declared dependency exists in the
+   catalogue*. Behaviour and dataset unchanged — this stops the criterion implying a field, and stops the next reader
+   treating the shipped inference as a bug.
+14. **D-11's status list spans two tables' vocabularies.** The runner must select on one column and it selects on
+   `tenant_databases.status`, the column serving is gated on (§14.3). **Replacement:** `ba` records the authority in
+   D-11 and states what the values belonging to `tenants.status` were meant to mean there. This is a decision-file
+   correction, not a criterion change; nothing in the behaviour moves.
 
 **Not a spec change, but `ba` should know:** AC-1 lists `sessions` among the master system tables where
 `docs/database.md` §4.10 lists `personal_access_tokens`. AC-1 governs (D-18), and `qa`'s recount of finding 1 will
@@ -1396,3 +1520,143 @@ because the spec marks them `[E]`, and that marker is wrong: AC-19's own require
 report does not read as if the serving gate is unproven. Everything else in the account matches what I verified in the
 tree: the two config defaults, `.env.example`'s `6`, the early return on `$required <= 0`, the absence of
 `TenantSchemaAhead`, and `TENANCY_MAPPING_SOURCE=config` in `phpunit.xml`.
+
+---
+
+## 14. Rulings after steps 7a to 13, and the consequences on record
+
+Steps 7a, 8, 9, 10 and 13's scoped three landed (`cf685e2`, `0afd6a6`, `88c04ce`, `6663377`, `18f03dd`, plus
+`671993e` for `dev`'s memory). **Gate verified by the lead: exit 0, 649 passed, 5 skipped, 3279 assertions**, no
+sentinel, tree clean. The largest consequence of this round is not a ruling: §7's mask family gained a **fourth
+shape** and it is recorded there, with the warning it carries for `MigrateTenant` and `RetryFailedJobs`. Two rulings
+were asked for; both are decided here.
+
+### 14.1 AC-58 has no derivable dependency — ruled: the V − 1 reading stands for T-008, and the tag is specified but not built
+
+The catalogue carries version, migration, phase, checksum, `is_destructive` and `requires_offline`, and **nothing
+declares which expand version a contract step depends on**. AC-58 is worded as if the dependency were a known fact.
+`dev` implemented the strictest computable reading: *a contract step at version V is refused while any tenant a bulk
+run would touch is below V − 1*, blockers named, the blocking set read fresh from the master rather than from the
+run's selection, `provisioning` not blocking.
+
+**Ruled: the reading is confirmed for T-008, as a reading, and it is to stay labelled as one in the handler
+docblock.** Three reasons, and the third is why this is not simply deferred:
+
+1. **A tag built now would have no input that binds.** Every catalogue this task can produce has an *adjacent*
+   dependency: the shipped baseline is six expands and no contract step, and the only contract fixtures, FX-4 and
+   FX-5, depend on the expand immediately before them. A declared dependency that always equals V − 1 is
+   indistinguishable from V − 1, so §7 would grade it *covered by reading* — a mechanism with no binding input, which
+   is the thing this plan exists to refuse.
+2. **The reading errs in the safe direction.** It refuses more runs, never fewer, and it names the blockers, so a
+   false refusal is self-diagnosing in a way a false permission never is.
+3. **It is wrong only for a non-adjacent dependency**, which is a real case that will arrive — and arriving is the
+   tag's trigger, stated below so the next person does not re-derive it.
+
+**The known false refusal, and its remedy is operational rather than code.** A single run that would apply several
+expands *and then* the contract is refused, even though every tenant would pass through those expands inside that
+same run. `dev` believes that is right for expand-and-contract and I agree: the discipline is that the expand reaches
+the whole fleet and is *allowed to settle* before the contract reaches any tenant, and a run that collapses both into
+one pass defeats the reason the two phases exist. The remedy already ships: `tenant:migrate --to=<the expand
+version>` first, then the run that includes the contract step. **One tooth, cheap, and it lands with step 13a's
+commit:** `MigrationRunRefused::contractStepBlocked()` names the blockers and the version they must reach but not the
+command that gets them there — it should name `--to=<version − 1>` as the next action, so the operator meets the
+remedy where they meet the refusal.
+
+**The tag, specified so nobody re-invents it badly.** An optional `@depends-on-version N` in the migration's header
+comment, read by `MigrationCatalogue` beside `@phase` and `@requires-offline`, **defaulting to V − 1 when absent**;
+one `depends_on_version` column on `schema_versions` (an expand); the guard reads it instead of V − 1. Control: a
+fixture whose declared dependency is *not* adjacent, which is red if the tag is parsed and ignored. **Trigger:** the
+first contract step whose dependency is more than one version back. This is deliberately a backlog row and not this
+task's work, against §0's own rule that a ruling specifying a replacement is work — §0's rule is for replacements
+that can be *proven* when they are written, and this one cannot be until an input for it exists.
+
+**To `ba`, one line, no rewrite:** AC-58 should say how the dependency is known — "the version immediately before the
+contract step, until a declared dependency exists in the catalogue" — so the criterion stops implying a field there
+is no field for. The dataset and the behaviour are unchanged. Filed with §9's finding list.
+
+Both of `dev`'s sub-decisions are confirmed with it: the blocking set is the **fleet**, not the run's selection (a
+tenant left out of a named run still blocks, because a contract step is a statement about every database that will
+ever run it), and `provisioning` does not block (the criterion says so, and a tenant that has never served cannot be
+mid-upgrade).
+
+### 14.2 The FX observation — ruled: no exemption for FX files; the connection instrument is AC-39's proof, and `observe()` stands where the reading *is* the criterion
+
+Nothing shipped depends on this; it is ruled now so step 11 does not have to ask.
+
+1. **AC-39's proof is the connection instrument** — the queried connection list is exactly `[master]` and no tenant
+   connection is built — and not a fixture's `up()` counting job rows. The instrument is stronger, and for a reason
+   that belongs to §7's family: when the handler refuses at **plan time** the fixture's `up()` never runs, so the log
+   is empty, and *"the fixture saw zero job rows"* is then indistinguishable from *"the fixture never ran"*. An
+   observation whose absence is also its pass is not evidence. `dev`'s choice is upheld, and the general form of it
+   goes to the next person: **where `FixtureMigrationLog::observe()` is used at all, the same test file carries the
+   positive control — a run that proceeds and records a non-zero reading.**
+2. **AC-52 keeps the criterion's literal wording, because there the reading is the criterion.** "The mapping status
+   is `migrating` *during* the migration" has no observation point outside `up()`; a reading taken afterwards cannot
+   tell a correct implementation from one that never set the status. That is step 11's engine-side work. FX-3 already
+   declares *when* the reading is taken and the test installs the probe that takes it, because the status lives in
+   the master and a migration naming that connection would violate AC-37 — and could not then be a control for
+   AC-37, which is the second reason the split is right.
+3. **No exemption for FX files from the statement rules.** `dev` argues against one and I agree; an exemption list is
+   how a containment check rots (§7), and the first entry is always for a file that "obviously" does not mean it.
+   What FX-3's import of `FixtureMigrationLog` needs is not an exemption but a **scope**: check (d)'s subject is the
+   files under the two *shipped* trees, read from configuration, and fixture migrations are outside its subject —
+   with the scan asserting its own scanned set is non-empty and equal to those trees, so the scope cannot quietly
+   become nothing. That is written into step 13a. Every rule whose subject FX files *are* still applies to them:
+   AC-33/34/35/37 (FX-6 is AC-33's own control), the no-FX-under-a-shipped-tree scan, and the drop-containment check,
+   which has no scope rule at all and scans the whole branch.
+4. **The consequence, stated rather than hidden:** `FixtureMigrationLog` is a helper that check (c) does not scan. It
+   is bounded — it runs only inside reserved-prefix fixture databases, it issues no database-level drop (and the
+   unscoped containment check would see one), and its production-shaped power is reading. The day it grows a
+   statement, either it moves under scanned territory or (c)'s scope moves to it; it does not get an exemption.
+
+### 14.3 The runner's status authority — confirmed: `tenant_databases.status`
+
+**Confirmed, and the docblock is the right place for it.** The runner selects on the same column `Tenancy::enter()`
+gates serving on, so the runner cannot plan a run against a database the request path considers unservable, nor skip
+one it would serve. One status, one authority. The division is also the right one on meaning: `tenants.status` is a
+fact about the commercial tenant — subscription, lifecycle, the thing an invoice is about — while
+`tenant_databases.status` is a fact about the database a run would touch, and a runner acts on databases.
+
+D-11's list spanning both tables' vocabularies is a defect in the decision's wording rather than an open choice:
+**`ba` is asked to record in D-11 that the authority is `tenant_databases.status`**, and to say what the values that
+belong to `tenants.status` were meant to mean there. Reversible cheaply — the selection is two private methods and
+one pair of constants.
+
+One thing deliberately **not** added: the two statuses can disagree (`tenants.archived` over an `active` database),
+and the natural home for noticing that is a report, not a selector. `DetectSchemaDrift` is about versions, so this is
+out of T-008's scope and is recorded here as a backlog candidate rather than smuggled into step 12.
+
+### 14.4 `PerTenantLock` and the two-process criteria — confirmed
+
+**Refusing on a driver with no advisory lock is correct** and is the same fail-closed shape as the floor, the
+destructive refusal and the engine hold: a guard that cannot do its job says so, and never reports a lock it does not
+hold. The named exception is what makes the stand-in's inability visible instead of comfortable.
+
+**`dev`'s statement that AC-49 and AC-65 cannot be tested in one process is correct and is the load-bearing part.**
+`GET_LOCK` is re-entrant within a session, so a single-process test of "the second holder is refused" would be green
+on an implementation that never locks at all, and a test written to pass in one process would be asserting the
+*opposite* of the criterion. §7's grade table already requires a second connection for AC-49. They stay **NOT
+VERIFIED** behind G-1, `qa` records them with G-1 named and never as PASS, and no one is to make them green by
+weakening what they assert.
+
+### 14.5 What I judge wrong in the account
+
+Two things, and one of them is mine.
+
+- **"Tick all five" against "step 13 stays legible as partial" cannot both be done to one bullet.** Step 13 is now
+  ticked for the three checks it was scoped to and the remaining (c), (d) and (e) are **step 13a**, an unticked step
+  of their own. Nothing is ticked that is not on disk, and nothing outstanding is hidden inside a ticked bullet.
+- **Step 10's bullet claimed AC-42 and AC-46 and the account did not mention either.** Neither is shipped: the
+  `RetryFailedJobs` slice does not exist, and AC-42 (two jobs for two tenants in one worker process) has no site yet.
+  What shipped covers AC-41, AC-47, AC-48, AC-50 and AC-46's attempt cap. Ticking step 10 as worded would have
+  retired two criteria silently — the plan's wording was the fault, not `dev`'s work — so both move to step 11, where
+  the execution path gives each an input that binds. This is the only correction I have to the account.
+- **One qualification `qa` must carry, not a defect:** AC-48's grade of *independently proven* now rests on the
+  **statement pin**, not on the seven behavioural cases, and the QA report should quote the pin rather than the case
+  count. A later reader who sees seven green behavioural cases and deletes the "odd" SQL-shaped assertion as
+  duplication would remove the only evidence in the file.
+
+Everything else in the account matches the tree: `is_numeric($configured)` separating absence from explicit zero and
+the second config read gone; the contract guard reading `tenant_databases.status` with its authority stated in the
+docblock; the `V − 1` inference in `assertContractStepsUnblocked()`; FX-3 declaring the observation point with no
+connection named; and the renamed `PerTenantLockEngineTest.php`.
