@@ -438,7 +438,8 @@ guard is a rule about *our* names and nothing else. The prefix is a constant in 
 
 ## 6. Implementation steps
 
-Eighteen steps (seventeen plus step 13a, split out on 2026-10-15), against T-007's nine. Owner in brackets. **Where the order is load-bearing it says so and why** —
+Nineteen steps (seventeen plus step 13a, split out on 2026-10-15, plus step 13e, added after QA run 2 under §18),
+against T-007's nine. Owner in brackets. **Where the order is load-bearing it says so and why** —
 elsewhere steps may be reordered or run together.
 
 - [x] **Step 0 — the allow-list name guard, proven red, with a positive control beside it.** [dev] **DONE**, commit
@@ -851,6 +852,56 @@ elsewhere steps may be reordered or run together.
       (it is reachability, not arity) while the behavioural cases go red — exactly the division `dev` already
       measured and reported on its own test. Both mutations are written into the test file as the record of what it
       does and does not see.
+- [ ] **Step 13e — the migratable-status authority becomes movable, and the source scan is deleted. [FIX] BUG-11.**
+      [dev] Ruled in **§18**. `qa` evaded 13b's source scan with a second literal copy in double quotes and all
+      eleven relevant tests stayed green. The scan is **not patched**; the proof is replaced by the one step 5 set —
+      move the key and watch the dependent follow — which no spelling can evade. Six changes:
+      1. **New** `packages/kernel/src/Tenancy/TenantStatusPolicy.php`, `final`, private constructor, two factories:
+         `shipped()` (the default, built from `TenantConnectionPurpose::MIGRATING_STATUSES`) and
+         `withMigratableStatuses(list<string>)` (the scratch list a test moves the key with). It answers
+         `accepted(TenantConnectionPurpose): list<string>`, `permits(TenantConnectionPurpose, string): bool`,
+         `namedOnly(): list<string>` and `bulk(): list<string>` (accepted for `Migrating` minus `namedOnly()`).
+         **The serving half is not injectable**: `accepted(Serving)` returns `TenantConnectionPurpose::SERVING_STATUSES`
+         and no constructor argument can reach it. It reads no configuration and no environment variable, ever (§18.2).
+      2. `TenantConnectionPurpose` **loses** `acceptedStatuses()` and `permits()` and keeps the two constants as the
+         shipped data. One object answers the question; an enum that also answered it would be the second reader the
+         moved key cannot move.
+      3. `Tenancy` takes `TenantStatusPolicy` as a seventh constructor dependency; step 4 of `enter()` calls
+         `$this->statusPolicy->permits($purpose, $database->status)` and throws the same `TenantDatabaseNotActive`
+         with the status named. Nothing else about the door changes.
+      4. `PlanMigrationRunHandler` takes it too. `NAMED_ACCEPTED`, `NAMED_ONLY_STATUSES` and `bulkStatuses()` are
+         **removed** from the handler — accepted, named-only and bulk are read from the policy at run time.
+         `BLOCKING_EXEMPT_STATUS` **stays on the handler**, deliberately: 13c's set answers the opposite question with
+         the opposite default and must not migrate into the policy (§16.2).
+      5. `ReportSchemaStatusHandler` injects the policy and stops reaching across the slice boundary into the
+         planner's static method.
+      6. `TenancyServiceProvider` binds `TenantStatusPolicy` as a singleton to `shipped()`. No configuration key, no
+         environment variable, no `config/` entry — if one appears later, §18.2's reconciliation is void.
+      **Proof, and it is the whole point of the step.** The scan test
+      (`PlannedStatusAuthorityTest`'s "writes no accepted status of its own anywhere in the planner source") is
+      **deleted, not patched**, and these replace it:
+      - **Move the key.** With a policy holding the shipped four plus one scratch status, the planner's named-run
+        accepted set equals the policy's by exact equality, the planner plans a tenant in the scratch status, and the
+        door permits it. With a policy holding the shipped four **minus** `read_only`, the planner refuses a
+        `read_only` tenant and the door refuses it. Either input reddens any literal copy whatever its spelling,
+        concatenation or quote style — which is `qa`'s Mutant A, closed by construction rather than by pattern.
+      - **The serving list does not move with it.** A scratch policy naming `suspended` as migratable is asserted to
+        leave `accepted(Serving)` at exactly `[active]` and `permits(Serving, 'suspended')` false. This is the tooth
+        that pays for injectability and it is non-negotiable.
+      - **The shipped container resolves the default** (step 7a's precedent): resolving `TenantStatusPolicy` from
+        the shipped configuration yields `accepted(Migrating) === TenantConnectionPurpose::MIGRATING_STATUSES` by
+        exact equality, so a widening binding in any provider is red.
+      - `qa`'s `QaPlannedStatusReachabilityTest` is unchanged and still the behavioural half. The dataset-driven
+        cases keep reading their dataset from the authority, which is now the resolved policy.
+      **Red first, on sqlite, no engine:** write the moved-key test against the branch as it stands today and it
+      cannot even be constructed — the enum constant cannot be rebound, which is exactly BUG-11's root. The recorded
+      red is therefore `qa`'s Mutant A re-run against the finished step: reintroduce a double-quoted literal copy in
+      the planner and the moved-key case goes red with the two lists in the message. That mutation is written into
+      the test file.
+      Covers AC-40, AC-46, AC-51 — the same criteria 13b covers, now with a proof that is not a spelling.
+      *Order: after 13d, because 13d's per-kind census pins exact counts of public methods and this step adds four
+      and removes two; running it first would make `dev` tune the census twice. It may share nothing with 13d's
+      commit.*
 - [ ] **Step 14a — the engine matrix: the 42 criteria with no engine test.** [dev, graded by `qa`] §16.3 item 1.
       `qa` measured that 10 of the 52 `[E]` criteria have an engine test and 42 have none. This step writes them,
       grouped `engine`, against `ThreeTenantFixture`, reusing `QaSchemaSignatureInstrumentTest`'s instrument (it takes
@@ -1091,6 +1142,23 @@ Collapse whitespace **and** strip markdown emphasis before asserting a phrase is
 parsed structure rather than a raw grep wherever one exists (`information_schema` for shape, a tokenised read for
 source). On this project a bold marker has already defeated a literal search, after a line wrap had defeated one, and
 a naive grep for `tenant_id` in a migration would match a comment that merely mentions the rule.
+
+### A standing rule for textual searches as proofs (added 2026-10-15, BUG-11's lesson)
+
+Three times now a textual search has been evaded and patched: a line wrap, a markdown emphasis marker, and now a
+quote style. **Each patch was to the spelling the last attacker happened to use, which is the definition of a defence
+that is one attacker behind.** The rule from here:
+
+1. **A textual search is never the tooth of a single-authority claim where the key can be moved instead.** The proof
+   of "one authority, read everywhere" is to substitute the authority's value and assert every dependent follows.
+   That proof is indifferent to spelling, concatenation, encoding and quoting, because it never reads the source.
+2. **If the key cannot be moved, that is a design finding, not a licence to scan.** Make it movable, and if making it
+   movable is genuinely wrong, say so in the plan and grade the criterion **corroborating**, never independently
+   proven.
+3. **A textual search that survives is declared as corroborating in its own docblock, with the evasion it is known
+   not to see.** It may be added to; it is never counted as the proof.
+4. When a moved-key proof lands, the scan it replaces is **deleted**. Keeping both reads as two teeth and is one:
+   the scan's whole residual is a copy that agrees today, which is precisely what moving the key catches.
 
 ---
 
@@ -2003,6 +2071,10 @@ so there is one list and the other site reads it:
   — `NAMED_ACCEPTED` is that list, `BULK_STATUSES` is it minus `NAMED_ONLY_STATUSES`. A derived list cannot drift; a
   copied one is one edit away from BUG-1 again. `ReportSchemaStatusHandler`, which already reads `BULK_STATUSES`
   rather than repeating it, is the convention this follows.
+- **Superseded in part by §18 after QA run 2:** the structural tooth below shipped as exact equality *plus a source
+  scan*, and `qa` evaded the scan with a double-quoted literal copy. Step 13e replaces both with a moved key — the
+  authority becomes a resolvable policy object and the equality is asserted against a scratch list. The paragraph
+  stands as written for the *behavioural* half, which is unchanged.
 - The tooth is the shape step 5 used, and it is in step 13b: exact equality between the planner's accepted set and
   the purpose's, **plus** `qa`'s behavioural reachability test — every status the planner accepts is actually
   migrated. Equality alone passes on two lists that are equal and both wrong; the behavioural test alone passes on
@@ -2198,3 +2270,123 @@ Deptrac say otherwise, believe the tools over this paragraph.
 - **One framing I would sharpen:** the account calls 13d's problem a scope question. It is a **kind** question that
   looked like a scope question because `Support/` is one directory, and that is why widening the scope would not
   have fixed it. The directory stays as it is; the classes now say what they are.
+
+---
+
+## 18. Rulings after QA run 2 — BUG-11, and the two principles that looked opposed
+
+### 18.1 BUG-11 — ruled: remove the need for the scan, do not patch it
+
+`qa` replaced the planner's reference to the authority with a second literal copy written in double quotes and
+**all eleven relevant tests stayed green**, because the scan searches for the statuses in single quotes.
+Concatenation would do the same, and so would a heredoc, an escape sequence, `implode`, or a constant defined two
+lines higher. The suggested fix — quote-agnostic matching plus a check for any array literal holding two or more of
+the statuses — closes those four and not the fifth.
+
+**Ruled: step 13e makes the authority movable and deletes the scan.** The reasoning is not aesthetic. A textual
+search is an attempt to prove a negative about *text*, and the set of texts that mean the same thing is unbounded;
+every patch to it is a patch to one member of that set. A moved-key proof asserts a positive about *behaviour* —
+change the authority's value, and every dependent's answer changes with it — and it is indifferent to how the
+dependent is written, because it never looks at how the dependent is written. `qa`'s own Mutant B is the proof that
+this is the right axis: adding a status to the authority already reddens three tests, i.e. **movement is what
+catches the copy, and the scan only ever caught the spellings someone thought of.** Step 13e makes that movement
+available to a test instead of waiting for it to happen in production.
+
+This is the third textual patch on this project and the first one refused. That is the ruling's main content: the
+standing rule now in §7 binds the next twenty of these, so the question does not have to be relitigated per scan.
+
+### 18.2 The two principles reconciled: configurable in production, substitutable in a test
+
+The lead frames this as §13's "prove it by moving the key" against §11.3's "a guard that reads configuration is a
+guard an environment variable can widen", and says they point opposite ways. **They do not, and the reason is that
+they are about two different properties that the word "injectable" hides:**
+
+- §11.3 is about **where the production value comes from**. Its demand is that nothing outside a reviewed code change
+  can alter the guard — no environment variable, no configuration key, no deployment-time string. That is a demand
+  about the *channel*.
+- §13 and step 5 are about **how many places read the value**. The demand is that the value be substitutable *in a
+  test*, so that a dependent holding a copy can be exposed. That is a demand about the *arity of readers*.
+
+A value can satisfy both at once, and `TenantStatusPolicy` is the shape that does: its production value is a
+compile-time constant in code, reachable by no configuration key and no environment variable, while a test can hand
+the dependent a different policy object directly. **Configuration is widenable by an operator; a constructor
+argument is widenable only by an author, under review.** The reserved prefix stayed a constant because the proposal
+there was a configuration key — a genuine channel. Nobody proposed a channel here.
+
+Three guard-rails keep the reconciliation honest, and all three are in step 13e as assertions rather than as
+intentions:
+
+1. **The serving half is structurally un-widenable.** `accepted(Serving)` reads the enum constant; no constructor
+   argument reaches it. The security-critical list — the one that decides whether a request is served — is therefore
+   not injectable at all, and a test proves that a scratch policy naming `suspended` as migratable leaves serving at
+   exactly one status. Only the *migrating* list moves, and widening that lets an operator-invoked command touch a
+   tenant in an odd state; it cannot serve traffic.
+2. **No configuration channel exists.** The policy takes a list, not a configuration repository. If a later row adds
+   a configuration key for the migratable statuses, this reconciliation is void and §11.3 governs again — written
+   here so that change cannot be made quietly.
+3. **The shipped container is asserted to resolve the default**, exactly as step 7a asserted that the shipped mapping
+   reader is the caching decorator. A widening binding in any provider is red.
+
+The residual, stated rather than discovered: a production caller of `withMigratableStatuses()` would widen the list
+inside a code change. That is a reviewed edit, not an environment variable, so it is outside what §11.3 promises —
+and step 13d's per-kind census is the instrument where a new production caller shows up as a changed count. I do not
+ask for more than that.
+
+### 18.3 Why the policy object rather than the three cheaper alternatives
+
+- **Patch the scan (BUG-11 as filed).** Rejected: §18.1. Cheap, and one spelling behind.
+- **A one-line indirection in the planner, with the enum still the authority.** Rejected: an enum constant cannot be
+  rebound (`dev` measured it; it is BUG-11's root), so the key still cannot move and the proof is still a scan.
+- **Swap a container binding for a wider service while the test runs.** Rejected for the same reason §2 rejected a
+  swapped mapping-repository binding for the runner: mutated bindings are invisible state. A constructor argument on
+  a `final` class with a private constructor is visible in the signature.
+- **Put the list in `config/schema.php`.** Rejected under §11.3 — that is the channel the rule is about.
+
+### 18.4 To `ba`, two lines, through the lead
+
+1. **D-11 and D-23** name `TenantConnectionPurpose::acceptedStatuses()` as the single place the migratable statuses
+   live (§16.1's note (2) asked for that wording). After step 13e the authority is `TenantStatusPolicy`, resolved
+   from the container, with the enum constant as its shipped default. The *rule* is unchanged — one authority, deny
+   by default, serving accepts exactly one status — only the name of the thing that holds it. Please update the
+   decision text so the next implementer does not re-add the enum method as a second reader.
+2. **No acceptance criterion changes.** AC-40, AC-46, AC-51 and AC-52 describe behaviour, and the behaviour is
+   identical before and after; what changes is which proof is admissible for them. I checked AC-18 and AC-60 in
+   particular: the policy touches neither the migrate mapping type nor the single connection-construction path.
+
+### 18.5 Two PHP limits, on record as accepted deviations
+
+Both were declared by `dev` in 13b and both are accepted, with one of them dissolving in 13e:
+
+- **`array_diff` is not a constant expression**, so the bulk set shipped as a static method rather than a constant.
+  Correct as judged — the only constant available was the literal the ruling forbids. In 13e the derivation moves
+  into the policy's constructor and the deviation disappears, which is a small sign the shape is right.
+- **An enum's constants cannot be rebound.** This is not merely a deviation; it is BUG-11's root cause and the whole
+  argument for 13e. Recorded here so that "put it back on the enum, it reads better" meets the reason.
+
+### 18.6 Splitting 13b and 13c into two commits is the standard, not diligence
+
+`dev` split two steps that §13c explicitly permitted to share a commit, built the intermediate state, and ran the
+full suite on it, so neither commit is an untested intermediate. **That is the expected standard for every remaining
+step in this task, and it is written here as a requirement rather than praised as initiative:** where a plan bullet
+says two steps may share a commit, it means the plan will not object, not that the intermediate may be unverified.
+A commit whose suite was never run is a commit a bisect cannot use, and this branch's whole method is that a later
+reader can find out which change caused which red.
+
+### 18.7 What I judge wrong in the account
+
+- **The central framing.** The two principles do not point opposite ways; they constrain different properties
+  (§18.2). The account's tension is real as stated but dissolves once "injectable" is split into "configurable in
+  production" and "substitutable in a test". This is the one correction that changes the answer rather than the
+  wording — had the tension been real, the cheap patch would have been defensible.
+- **The grade.** `qa` grades BUG-11 minor because Mutant B shows that movement catches a copy, and for *this
+  instance* that is right. But the grade attaches to the instance and not to the method, and the method — a textual
+  search standing as the tooth of a single-authority claim — is now three-for-three in being evaded. The instance is
+  minor; the pattern is major, and §7's new standing rule is where I put that grade so it is not re-argued per scan.
+- **"`dev` named the hole and `qa` walked through it" is the account's best line and it understates what it
+  describes.** `dev` recorded the residual precisely enough that `qa` could construct the evasion from the
+  description alone. A residual written that well is the mechanism working, and it is the reason this cost one QA
+  round rather than a production incident. It belongs in the release note.
+- **Nothing else in the account is wrong.** The movement from two FAILs to NOT VERIFIED is the correct movement and
+  I endorse the reading; `qa` was right not to claim lint as a second check it could not isolate; step 13d is
+  correctly recorded as not built; and "clearing G-1 verifies 10 of 52" is unchanged and still the number that
+  matters most about this branch.
