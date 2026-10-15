@@ -300,3 +300,15 @@ New file `packages/kernel/tests/Schema/Features/RunTenantMigrations/QaPrintedIns
 `packages/kernel/tests/Schema/Features/RunTenantMigrations/QaPrintedInstructionRoundTripTest.php`: 13 cases, 12 green, 1 red by design (BUG-12). Must not be skipped or weakened.
 
 Run 3: FAIL (BUG-12 minor open) -> task still NOT VERIFIED.
+
+## Round 4 (2026-10-15) - confirmation of BUG-12
+- Tip `c77a4af`. Lead's gate: exit 0, 845 passed, 11 skipped, 4444 assertions. I did not re-run the full gate; I ran the two affected files.
+- Clean: `PlanMigrationRunHandlerTest` + `QaPrintedInstructionRoundTripTest` = 25 passed, 214 assertions (my round-trip case green, untouched).
+- Mutant (message reverted to `tenant:migrate --to=N`, restored afterwards, tree clean): 2 failed, 23 passed - the handler assertion and my round-trip case both redden.
+- `MigrationRunRefused.php:78` now prints `tenant:migrate --all --to=<N-1>`; handler test line 373 asserts it. `--all` is correct: the guard clears only when every tenant carries the expand.
+- BUG-12 CLOSED. No MySQL connection made; ENGINE_HOLD untouched.
+
+### Final verdict: PASS for the work verified; task as a whole NOT VERIFIED
+Defects: 12 found, 12 closed, 0 open. Engine criteria under G-1 are held: NOT VERIFIED, not PASS. Only 10 of 52 engine criteria have an engine test; clearing G-1 verifies 10, the other 42 need a matrix nobody has written. Step 13d deferred to FP-197, not covered. A green gate under the hold means nothing failed, not that engine criteria pass.
+
+Run 4: PASS (BUG-12 closed) -> task still NOT VERIFIED.
