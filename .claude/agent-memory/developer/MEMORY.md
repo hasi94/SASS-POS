@@ -26,3 +26,6 @@
 - [The suite absorbs a changed default](project_suite_absorbs_a_changed_default.md) — a new shipped default broke 34 cases in another role's files; phpunit.xml is where it goes.
 - [A pre-filter masks the statement](feedback_a_prefilter_masks_the_statement.md) — deleting both terms from the granting UPDATE left seven behavioural cases green; assert the executed SQL.
 - [Suite rules for new test files](project_suite_rules_for_new_test_files.md) — unique basenames across every collected directory, and no `*/` inside a file-header block comment.
+- [A statement pin needs an input](feedback_statement_pin_needs_an_input.md) — the query-log pin is half the evidence; find what has to happen between the read and the write.
+- [Name an exception for its throw site](feedback_name_an_exception_for_its_throw_site.md) — a criterion-named refusal gets written where the criterion is read, and is thrown nowhere.
+- [SQLite fixture costs, and Pest properties](project_sqlite_fixture_costs_and_pest_properties.md) — fsync per bare statement, and why `$this->applier` in a Pest test fails stan.
