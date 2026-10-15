@@ -202,7 +202,7 @@ Defined once so that criteria can use the terms.
 - **AC-18**: Given a tenant resolved for a request, When its `TenantDatabase` is inspected, Then it carries no
   migrate username and no migrate credential reference. The migrate credential is reachable only through the
   runner's own mapping type, which does carry them. **Control:** the runner's mapping type passes the opposite check.
-- **AC-19 [E]**: Given a mapping whose `schema_version` is below `APP_REQUIRED_SCHEMA_VERSION`, When a tenant scope is
+- **AC-19**: Given a mapping whose `schema_version` is below `APP_REQUIRED_SCHEMA_VERSION`, When a tenant scope is
   entered for it **for the serving purpose** (a request), Then it is refused with a named exception **before any network connection is attempted** (assert no
   connection was opened), the host's exception handling renders it as HTTP 503 with a `Retry-After` header, the
   message contains no credential, and entering a *different* tenant at the required version in the same process then
@@ -211,12 +211,32 @@ Defined once so that criteria can use the terms.
   required version is the only kind the runner ever migrates; the test has the runner enter a tenant at the required
   version minus one and succeed. The exemption covers the version gate **only**: status rules (AC-51) still apply to
   the runner, and no other refusal in this spec is waived by purpose. (D-23)
-- **AC-20 [E]**: Given a mapping whose `schema_version` is **above** the required one, When a scope is entered for the
+  **The floor has three states, not two (D-41).** (a) *A number* above zero is the floor, as above. (b) *An explicit
+  `0`* is a recorded opt-out meaning "no floor; `tenant_databases.status` is the only guard": the tenant **is served**,
+  and a test asserts it is served (so an implementation that later refuses `0` is red). (c) *The variable absent*
+  (not set at all, as distinct from `0`) is a misconfiguration: for the serving purpose the scope entry is refused
+  with a named exception, **before any network connection is attempted**, rendered as HTTP **503 with no
+  `Retry-After` header** (a behind tenant's 503 carries one; this one must not, so the two are distinguishable at the
+  wire), and the message contains no credential. The migration purpose is **exempt** from the absent-variable refusal
+  (the runner is the remedy), and the application **boots** and console commands such as `tenant:migrate` run with the
+  variable absent: the refusal sits at the version gate, not at boot. Absent and `0` must be tested separately; a test
+  that sets neither and expects either outcome without asserting which is not a test of this clause.
+  **Verification: no real engine is needed** (D-40): the inputs are integers on a mapping record and the observables
+  are a named exception, a status, a header and a log line, all provable on the SQLite stand-in.
+- **AC-20**: Given a mapping whose `schema_version` is **above** the required one, When a scope is entered for the
   serving purpose, Then
   it is accepted and exactly one warning is recorded for that entry, not one per query.
 - **AC-21**: Given the shipped tenant migration tree, When the highest version in the catalogue is compared with
   `APP_REQUIRED_SCHEMA_VERSION`, Then the constant is not greater (a code that requires a version nothing can
-  produce would 503 every tenant). **Control:** the comparison fails when run with a constant one higher.
+  produce would 503 every tenant). **Control (D-42, replaces "the comparison fails with a constant one higher",
+  which is `highest + 1 > highest` and true of arithmetic whatever was built):** the value `.env.example` ships for
+  `APP_REQUIRED_SCHEMA_VERSION` **equals** the catalogue's highest published version. The equality is proven to move
+  with either side by pointing the catalogue fixture key (`schema.catalogue_fixture`) at a scratch catalogue whose
+  highest version is **one higher (red)** and another **one lower (red)**; two agreeing literals would otherwise
+  mask each other. The old arithmetic comparison may stay in the test **labelled as documentation, not evidence**.
+  **Scope:** the equality binds **`.env.example`** only, not every deployment: a live floor may legitimately lag the
+  catalogue while tenants are migrated (expand-and-contract), which is why the criterion says "not greater" and the
+  floor is never derived from the catalogue.
 
 ### C. The tenant baseline (FP-204)
 
