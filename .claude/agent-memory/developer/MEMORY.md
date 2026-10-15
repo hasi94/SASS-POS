@@ -24,3 +24,5 @@
 - [Absence is a third state](feedback_absence_is_a_third_state.md) — a default that folds "unset" into "no guard", and why the refusal goes at the consulting site, not at boot.
 - [The FX seam](project_fx_seam_and_fixture_migrations.md) — version = position in the set, never merge-sorted; and why an FX migration reads nothing but its own connection.
 - [The suite absorbs a changed default](project_suite_absorbs_a_changed_default.md) — a new shipped default broke 34 cases in another role's files; phpunit.xml is where it goes.
+- [A pre-filter masks the statement](feedback_a_prefilter_masks_the_statement.md) — deleting both terms from the granting UPDATE left seven behavioural cases green; assert the executed SQL.
+- [Suite rules for new test files](project_suite_rules_for_new_test_files.md) — unique basenames across every collected directory, and no `*/` inside a file-header block comment.
