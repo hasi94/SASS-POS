@@ -7,6 +7,7 @@ namespace Flexipos\Kernel\Schema\Features\MigrateTenant;
 use Flexipos\Kernel\Schema\Exceptions\TenantIdentityMismatch;
 use Flexipos\Kernel\Schema\Exceptions\TenantMigrationFailed;
 use Flexipos\Kernel\Schema\Support\MigrationSet;
+use Flexipos\Kernel\Schema\Support\PerTenantLock;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Flexipos\Kernel\Tenancy\CachingTenantDatabaseRepository;
 use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
@@ -72,6 +73,12 @@ final class MigrateTenantHandler
     public const JOB_FAILED = 'failed';
 
     /**
+     * The status a job ends in when the tenant's lock was held by somebody
+     * else (AC-49). Counted by the run, and not a failure.
+     */
+    public const JOB_SKIPPED = 'skipped';
+
+    /**
      * The mapping statuses this handler moves a tenant between (D-12).
      */
     public const TENANT_ACTIVE = 'active';
@@ -121,11 +128,12 @@ final class MigrateTenantHandler
         $applied = [];
         $present = [];
         $failure = null;
+        $locked = false;
 
         try {
             [$applied, $present] = $this->tenancy->run(
                 $tenantId,
-                function () use ($command, $target, $tenantId, $offline): array {
+                function () use ($command, $target, $tenantId, $offline, &$locked): array {
                     $connection = $this->tenantConnectionName();
 
                     // AC-56, and it is **first inside the scope** on purpose:
@@ -135,14 +143,28 @@ final class MigrateTenantHandler
                     // applied.
                     $this->assertIdentity($tenantId, $connection);
 
-                    if ($offline) {
-                        $this->writeMapping($tenantId, ['status' => self::TENANT_MIGRATING]);
+                    // AC-49, and it is before the status write for the same
+                    // reason: a tenant somebody else is migrating must be left
+                    // exactly as it was. The lock is never waited for - see
+                    // takeLock().
+                    if (! $this->takeLock($connection, $tenantId)) {
+                        $locked = true;
+
+                        return [[], []];
                     }
 
-                    return [
-                        $this->applier->apply($connection, $command->set, $target),
-                        $this->applier->appliedMigrations($connection),
-                    ];
+                    try {
+                        if ($offline) {
+                            $this->writeMapping($tenantId, ['status' => self::TENANT_MIGRATING]);
+                        }
+
+                        return [
+                            $this->applier->apply($connection, $command->set, $target),
+                            $this->applier->appliedMigrations($connection),
+                        ];
+                    } finally {
+                        $this->releaseLock($connection, $tenantId);
+                    }
                 },
                 TenantConnectionPurpose::Migrating
             );
@@ -153,9 +175,116 @@ final class MigrateTenantHandler
         $duration = (int) round((hrtime(true) - $startedAt) / 1_000_000);
         $version = $this->versionFrom($command->set, $present, (int) $mapping['schema_version']);
 
+        if ($locked && ! $failure instanceof Throwable) {
+            return $this->recordLocked($command, $job, $mapping, $duration);
+        }
+
         return $failure instanceof Throwable
             ? $this->recordFailure($command, $job, $mapping, $offline, $duration, $failure, $needles)
             : $this->recordSuccess($command, $job, $mapping, $offline, $duration, $version, $applied);
+    }
+
+    /**
+     * Take the per-tenant advisory lock, or report that somebody else holds
+     * it (AC-49).
+     *
+     * **Never waits**: `PerTenantLock` asks with a zero timeout, because a
+     * run that blocked on one busy tenant would stall every tenant behind it.
+     * A refused lock is not a failure - the tenant is left untouched and
+     * reported as not run, and the next run picks it up.
+     *
+     * **A driver with no advisory lock is not asked.** `GET_LOCK` exists on
+     * MySQL and MariaDB and `PerTenantLock` throws on anything else rather
+     * than reporting a lock it does not hold. The platform allows a tenant
+     * connection on those two engines only (`tenancy.allowed_drivers`), so
+     * the skip is the suite's SQLite stand-in and nothing a deployment can
+     * reach - and it is a decision about the driver's **capability**, not a
+     * list of names to keep up to date. Say plainly what that costs: on such
+     * a driver two runners are not kept out of one tenant by anything, and
+     * AC-49 and AC-65 stay NOT VERIFIED until two real sessions can be run
+     * against the engine (G-1).
+     */
+    private function takeLock(string $connection, string $tenantId): bool
+    {
+        $handle = $this->database->connection($connection);
+
+        if (! in_array($handle->getDriverName(), PerTenantLock::SUPPORTED_DRIVERS, true)) {
+            return true;
+        }
+
+        return PerTenantLock::acquire($handle, $tenantId);
+    }
+
+    /**
+     * Give the lock back, in a `finally` so a failed migration releases it
+     * too.
+     *
+     * Closing the connection would release it anyway - that is what makes a
+     * dead worker harmless - but the scope this runs in is left by
+     * `Tenancy::leave()` and a process that migrates several tenants should
+     * not hold one tenant's lock until it exits.
+     */
+    private function releaseLock(string $connection, string $tenantId): void
+    {
+        $handle = $this->database->connection($connection);
+
+        if (! in_array($handle->getDriverName(), PerTenantLock::SUPPORTED_DRIVERS, true)) {
+            return;
+        }
+
+        PerTenantLock::release($handle, $tenantId);
+    }
+
+    /**
+     * The locked path (AC-49): nothing in the tenant's database changed, the
+     * job is left for the next run, and the run carries on.
+     *
+     * `skipped` and not `failed`: a tenant another worker is already
+     * migrating is not an error, and a run that ended
+     * `completed_with_failures` because of one would have an operator
+     * investigating a healthy platform. It is not `pending` either - that
+     * would make this run's own claim loop pick the job up again
+     * immediately.
+     *
+     * No mapping write at all, so the status, the version and
+     * `last_migration_error` are exactly what the other worker is managing.
+     *
+     * @param  array<string, mixed>  $job
+     * @param  array<string, mixed>  $mapping
+     */
+    private function recordLocked(
+        MigrateTenant $command,
+        array $job,
+        array $mapping,
+        int $duration,
+    ): MigrateTenantResult {
+        $message = sprintf(
+            'Tenant [%s] was not run: another session holds the migration lock [%s].',
+            (string) $job['tenant_id'],
+            PerTenantLock::nameFor((string) $job['tenant_id'])
+        );
+
+        $retained = $this->completeJob($command, [
+            'status' => self::JOB_SKIPPED,
+            'finished_at' => $this->clock->timestamp(),
+            'duration_ms' => $duration,
+            'error_class' => null,
+            'error_message' => $message,
+            'error_migration' => null,
+        ]);
+
+        return new MigrateTenantResult(
+            jobId: $command->jobId,
+            tenantId: (string) $job['tenant_id'],
+            databaseName: (string) $mapping['database_name'],
+            succeeded: false,
+            schemaVersion: (int) $mapping['schema_version'],
+            applied: [],
+            durationMs: $duration,
+            claimRetained: $retained,
+            errorMessage: $message,
+            locked: true,
+        );
     }
 
     /**

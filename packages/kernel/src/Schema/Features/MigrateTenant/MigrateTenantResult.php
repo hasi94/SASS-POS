@@ -35,5 +35,11 @@ final readonly class MigrateTenantResult
         public ?string $errorClass = null,
         public ?string $errorMessage = null,
         public ?string $errorMigration = null,
+        /**
+         * The tenant was not run because another session held its migration
+         * lock (AC-49). Not a failure: nothing in that database changed and
+         * the job is left for the next run.
+         */
+        public bool $locked = false,
     ) {}
 }

@@ -81,10 +81,13 @@ final class TenantMigrateCommand extends Command
         }
 
         foreach ($result->jobs as $job) {
-            $this->components->twoColumnDetail(
-                $job->tenantId,
-                $job->succeeded ? 'done at version '.$job->schemaVersion : 'failed: '.$job->errorMessage
-            );
+            $this->components->twoColumnDetail($job->tenantId, match (true) {
+                $job->succeeded => 'done at version '.$job->schemaVersion,
+                // AC-49: a locked tenant is reported as not run, which is
+                // neither a success nor a failure, and the run carries on.
+                $job->locked => 'not run: '.$job->errorMessage,
+                default => 'failed: '.$job->errorMessage,
+            });
         }
 
         $this->components->info(
