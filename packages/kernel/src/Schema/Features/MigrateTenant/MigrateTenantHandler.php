@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flexipos\Kernel\Schema\Features\MigrateTenant;
 
+use Flexipos\Kernel\Schema\Exceptions\TenantIdentityMismatch;
 use Flexipos\Kernel\Schema\Exceptions\TenantMigrationFailed;
 use Flexipos\Kernel\Schema\Support\MigrationSet;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
@@ -125,11 +126,18 @@ final class MigrateTenantHandler
             [$applied, $present] = $this->tenancy->run(
                 $tenantId,
                 function () use ($command, $target, $tenantId, $offline): array {
+                    $connection = $this->tenantConnectionName();
+
+                    // AC-56, and it is **first inside the scope** on purpose:
+                    // a database that says it belongs to somebody else must be
+                    // left exactly as it was, so the identity is checked
+                    // before the status is touched and long before anything is
+                    // applied.
+                    $this->assertIdentity($tenantId, $connection);
+
                     if ($offline) {
                         $this->writeMapping($tenantId, ['status' => self::TENANT_MIGRATING]);
                     }
-
-                    $connection = $this->tenantConnectionName();
 
                     return [
                         $this->applier->apply($connection, $command->set, $target),
@@ -148,6 +156,31 @@ final class MigrateTenantHandler
         return $failure instanceof Throwable
             ? $this->recordFailure($command, $job, $mapping, $offline, $duration, $failure, $needles)
             : $this->recordSuccess($command, $job, $mapping, $offline, $duration, $version, $applied);
+    }
+
+    /**
+     * The database this scope opened must not claim to be another tenant
+     * (AC-56).
+     *
+     * Absent says nothing and proceeds: `schema_meta` is created empty by the
+     * baseline and T-008 never writes it, so for every tenant this task can
+     * produce the no-row path is the shipped path (D-28). Only a row naming
+     * somebody else refuses.
+     *
+     * @throws TenantIdentityMismatch before the status write and before the
+     *                                apply, so nothing in that database
+     *                                changed
+     */
+    private function assertIdentity(string $tenantId, string $connection): void
+    {
+        $handle = $this->database->connection($connection);
+        $claimed = SchemaMetaIdentity::of($handle);
+
+        if ($claimed === null || $claimed === $tenantId) {
+            return;
+        }
+
+        throw TenantIdentityMismatch::between($tenantId, $claimed, (string) $handle->getDatabaseName());
     }
 
     /**

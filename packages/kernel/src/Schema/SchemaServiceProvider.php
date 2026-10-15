@@ -7,6 +7,7 @@ namespace Flexipos\Kernel\Schema;
 use Flexipos\Kernel\Schema\Features\MigrateTenant\ArtisanTenantMigrationApplier;
 use Flexipos\Kernel\Schema\Features\MigrateTenant\TenantMigrationApplier;
 use Flexipos\Kernel\Schema\Features\PublishCatalogue\PublishCatalogueCommand;
+use Flexipos\Kernel\Schema\Features\ReportSchemaStatus\SchemaStatusCommand;
 use Flexipos\Kernel\Schema\Features\RunTenantMigrations\TenantMigrateCommand;
 use Illuminate\Support\ServiceProvider;
 
@@ -35,6 +36,7 @@ final class SchemaServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([
                 PublishCatalogueCommand::class,
+                SchemaStatusCommand::class,
                 TenantMigrateCommand::class,
             ]);
         }

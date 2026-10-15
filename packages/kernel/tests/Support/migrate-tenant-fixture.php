@@ -406,3 +406,86 @@ function migrateFixtureRunRow(string $runId): array
 {
     return (array) DB::connection('master')->table('tenant_migration_runs')->where('id', $runId)->first();
 }
+
+/**
+ * Write a tenant's own `migrations` table, with the first `$upTo` migrations
+ * of the shipped baseline in it.
+ *
+ * T-008 step 12. The tenant's own table is the **authority** on where it is
+ * (D-14), so a drift or repair case has to be able to set it independently of
+ * the mapping - that disagreement is the whole input. Built with a bare PDO
+ * on purpose: going through the connection manager would be the machinery
+ * under test writing its own input.
+ */
+function migrateFixtureApplyLog(string $stem, int $upTo): void
+{
+    $pdo = new PDO('sqlite:'.migrateFixtureDatabasePath($stem));
+
+    // One transaction, because SQLite commits - and fsyncs - every bare
+    // statement on its own. MEASURED on this machine: eight autocommitted
+    // statements per tenant cost about 0.9 s, which is the difference between
+    // this slice's tests costing one second and costing nine.
+    $pdo->beginTransaction();
+
+    $pdo->exec('create table if not exists migrations (id integer primary key autoincrement, migration varchar(255) not null, batch integer not null)');
+    $pdo->exec('delete from migrations');
+
+    foreach (runFixtureSet()->catalogue() as $entry) {
+        if ($entry->version > $upTo) {
+            break;
+        }
+
+        $pdo->exec('insert into migrations (migration, batch) values ('.$pdo->quote($entry->migration).', 1)');
+    }
+
+    $pdo->commit();
+}
+
+/**
+ * Every migration one tenant's own table lists, read the way a reviewer would.
+ *
+ * Returned as `migration => batch`, because AC-46 asks for row counts **and**
+ * batch numbers: a re-applied migration appears under a second batch, and a
+ * count alone would miss a tenant whose table was rewritten rather than
+ * appended to.
+ *
+ * @return array<string, int>
+ */
+function migrateFixtureApplyLogOf(string $stem): array
+{
+    $pdo = new PDO('sqlite:'.migrateFixtureDatabasePath($stem));
+
+    $rows = $pdo->query('select migration, batch from migrations order by id');
+
+    $log = [];
+
+    foreach ($rows === false ? [] : $rows->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $log[(string) $row['migration']] = (int) $row['batch'];
+    }
+
+    return $log;
+}
+
+/**
+ * Plant (or clear) the `schema_meta` identity row of one tenant database.
+ *
+ * AC-56's input, and the criterion says so: T-008 writes nothing into
+ * `schema_meta`, so the only way a mismatch exists at all is a test that
+ * plants one. Null clears the row and leaves the table, which is the third
+ * state - a database that does not say who it is, and the shipped one.
+ */
+function migrateFixtureSchemaMeta(string $stem, ?string $tenantId): void
+{
+    $pdo = new PDO('sqlite:'.migrateFixtureDatabasePath($stem));
+
+    $pdo->beginTransaction();
+
+    $pdo->exec('create table if not exists schema_meta (key varchar(60) primary key, value varchar(255))');
+    $pdo->exec('delete from schema_meta');
+
+    if ($tenantId !== null) {
+        $pdo->exec('insert into schema_meta (key, value) values (\'tenant_id\', '.$pdo->quote($tenantId).')');
+    }
+
+    $pdo->commit();
+}

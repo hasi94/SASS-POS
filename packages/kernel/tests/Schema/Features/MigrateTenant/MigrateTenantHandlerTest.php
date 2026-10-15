@@ -1,5 +1,6 @@
 <?php
 
+use Flexipos\Kernel\Schema\Exceptions\TenantIdentityMismatch;
 use Flexipos\Kernel\Schema\Exceptions\TenantMigrationFailed;
 use Flexipos\Kernel\Schema\Features\MigrateTenant\MigrateTenant;
 use Flexipos\Kernel\Schema\Features\MigrateTenant\MigrateTenantHandler;
@@ -401,4 +402,66 @@ it('truncates after redacting, never before', function () {
 
     expect(strlen($sanitised))->toBe(MigrationErrorText::MAX_LENGTH)
         ->and($sanitised)->not->toContain(migrateFixturePassword());
+});
+
+/*
+|--------------------------------------------------------------------------
+| AC-56 - the database says it belongs to somebody else
+|--------------------------------------------------------------------------
+|
+| Added in step 12, where the plan puts the interlock refusal. Three states,
+| and the third is the shipped one: a matching row proceeds, a mismatching row
+| refuses, and **no row at all** proceeds - which is every tenant this task
+| can produce, because the baseline creates `schema_meta` empty and T-008
+| never writes it (D-28).
+|
+| The mismatch is planted by the test, because nothing in the product writes
+| that row. That is the criterion's own construction, not a shortcut.
+|
+*/
+
+it('refuses a tenant whose schema_meta row names a different tenant, and alters nothing', function () {
+    $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'));
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), 6);
+
+    migrateFixtureSchemaMeta('tenant-a', 'SOMEBODY-ELSES-TENANT-ID00');
+
+    $result = migrateAs($job, 'worker-one');
+
+    expect($result->succeeded)->toBeFalse()
+        ->and((string) $result->errorClass)->toBe(TenantIdentityMismatch::class)
+        ->and((string) $result->errorMessage)->toContain('SOMEBODY-ELSES-TENANT-ID00');
+
+    // Nothing was applied, and the status was never moved - the check runs
+    // first inside the scope, before the offline status write and before the
+    // apply.
+    expect(migrateFixtureApplier()->calls)->toBe([])
+        ->and((int) migrateFixtureMappingRow($tenant)['schema_version'])->toBe(0)
+        ->and((string) migrateFixtureMappingRow($tenant)['status'])->toBe('active')
+        // Recorded, which is the other half of the criterion.
+        ->and((string) migrateFixtureMappingRow($tenant)['last_migration_error'])->toContain('Nothing was applied');
+});
+
+it('proceeds when the schema_meta row names this tenant', function () {
+    // The control that stops the refusal above from passing against a check
+    // that refuses whenever the table exists.
+    $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'));
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), 6);
+
+    migrateFixtureSchemaMeta('tenant-a', $tenant);
+
+    expect(migrateAs($job, 'worker-one')->succeeded)->toBeTrue()
+        ->and((int) migrateFixtureMappingRow($tenant)['schema_version'])->toBe(6);
+});
+
+it('proceeds when the database does not say who it is', function () {
+    // The shipped path, and the second control: the table exists and holds no
+    // identity row, which is what the baseline leaves behind. A check that
+    // refused on absence would refuse every tenant on the platform.
+    $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'));
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), 6);
+
+    migrateFixtureSchemaMeta('tenant-a', null);
+
+    expect(migrateAs($job, 'worker-one')->succeeded)->toBeTrue();
 });
