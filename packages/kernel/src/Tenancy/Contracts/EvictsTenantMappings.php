@@ -4,7 +4,7 @@ namespace Flexipos\Kernel\Tenancy\Contracts;
 
 /**
  * A mapping source that holds a copy and can be told to drop one tenant's
- * (S-2).
+ * copy (S-2).
  *
  * **Why a capability and not a class check.** Every write of a tenant's
  * status or schema version is followed by an eviction (D-19), and the three
