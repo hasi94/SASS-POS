@@ -53,10 +53,19 @@ final class MigrationRunRefused extends RuntimeException
      * with step 13a). The known false refusal of the V - 1 reading is a single
      * run that would apply several expands *and then* the contract: that run
      * is refused even though every tenant would pass through those expands
-     * inside it, and the remedy is operational - `--to=<version - 1>` first,
-     * then the run that includes the contract step. An operator meets that
-     * remedy where they meet the refusal rather than in a document, because
-     * the refusal is the only thing they are certain to read.
+     * inside it, and the remedy is operational - `--all --to=<version - 1>`
+     * first, then the run that includes the contract step. An operator meets
+     * that remedy where they meet the refusal rather than in a document,
+     * because the refusal is the only thing they are certain to read.
+     *
+     * **`--all` is part of the remedy, not decoration.** The command refuses
+     * an invocation that names neither `--tenant` nor `--all` before it plans
+     * anything, so `--to=<version - 1>` alone - what this message printed
+     * until T-008 BUG-12 - was an instruction the printing application would
+     * not run. It is `--all` rather than the blocking tenants because the
+     * guard clears only when *every* tenant carries the expand: a run naming
+     * just the names listed above leaves the next contract run refused by any
+     * tenant that fell behind in between.
      *
      * @param  list<string>  $blockingTenants
      */
@@ -66,7 +75,7 @@ final class MigrationRunRefused extends RuntimeException
             'The contract migration ['.$migration.'] (version '.$version.') cannot be planned while'
             .' these tenants are below version '.($version - 1).': '.implode(', ', $blockingTenants)
             .'. Expand and contract requires every tenant to carry the expand step before the'
-            .' contract step is applied to any of them. Run `tenant:migrate --to='.($version - 1).'`'
+            .' contract step is applied to any of them. Run `tenant:migrate --all --to='.($version - 1).'`'
             .' first, then this run. Nothing was planned.'
         );
     }
