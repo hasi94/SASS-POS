@@ -288,7 +288,8 @@ Defined once so that criteria can use the terms.
   rule is committed **before the first real (shipped) migration** on the branch, so that the later foreign keys to
   `branches` and `employees` (D-5) are forced into a contract step; `qa` or `reviewer` confirms the commit order (D-32).
 - **AC-35**: Given the shipped master and tenant migrations, When their source is read, Then (a) no `decimal` call
-  lacks a precision argument; (b) no column uses the native `enum` type (enumerations are `VARCHAR(30)` with
+  lacks an explicit precision **and** an explicit scale (both arguments required; a defaulted scale turns a thousandth
+  into zero, D-38); (b) no column uses the native `enum` type (enumerations are `VARCHAR(30)` with
   application enums, section 3.2); (c) no `timestamp` column is declared, except in the eight Laravel system tables
   named in AC-1; (d) no migration file names a charset, a collation or a storage-engine literal, with **exactly one exemption**: the
   single shared identifier-column helper, which may name only `ascii` and `ascii_bin` (AC-2 and AC-36 require ULID
@@ -541,6 +542,31 @@ These make the cost of the work legible without a schedule. None contains a dura
 - **Performance.** No numeric target. The gate's cost is recorded, not bounded (AC-67). `composer.json`'s process
   timeout headroom from T-007 must still be adequate for the larger gate; the existing T-007 headroom check is the
   instrument and this task does not change its ratio.
+
+## Findings for `qa` and `reviewer`
+
+Read these before recounting or before "fixing" a criterion to match code. Figures marked (brief) are the lead's and
+`dev`'s measurements, not re-run by `ba`.
+
+1. **Which document governs the master table list (D-27, D-37).** AC-1 governs. `docs/database.md` section 4.10 lists
+   `personal_access_tokens`; AC-1 lists `sessions`. The divergence is **intentional**, not a defect in either the
+   migrations or the spec: D-18 keeps the stock `sessions` table and nothing in this task issues API tokens. A recount
+   in step 15 against section 4.10 will differ by that one name; judge against AC-1.
+2. **Task scope versus design total.** The design's master is 39 application plus 8 system tables (`ba`'s reading
+   count, D-2). **This task builds 17 application tables**; the other 22 are deferred to the rows that use them. A
+   recount against the design's 39 is a shortfall only by that deferral, and is not a defect. Judge against AC-1's 17.
+3. **Shipped counts (brief, commit `38e9537`).** 17 application tables (`users` rewritten in place plus sixteen new
+   files); 7 of AC-1's 8 system tables have a migration file; the eighth, `migrations`, is created by the framework
+   itself, so its absence from the tree is by design. `sessions` exists and `personal_access_tokens` does not. The
+   stand-in (SQLite) holds 25 tables, asserted by exact equality. That is 17 + 7 + the framework's `migrations` = 25, so
+   the 25 includes `migrations` and the "7 of 8" counts migration files only. `ba` has not seen the test or the tree;
+   `qa` should confirm that arithmetic once, not assume it.
+4. **AC-6 stands as worded (`architect` ruling, 2026-10-15).** The detector exempts by column **type** read from the
+   schema, never by name. The criterion's governing clause is "no column can hold a credential value"; its name list is
+   illustration. A flag, a counter or a moment cannot hold a password, so a type rule is faithful to the clause and
+   differs only from the example. Do not reword AC-6 to describe the implementation, and do not report the type-based
+   rule as a divergence.
+5. **AC-35(a) is stated at the stricter level (D-38).** Both precision and scale are required. See D-38.
 
 ## Open questions
 
