@@ -801,6 +801,14 @@ elsewhere steps may be reordered or run together.
       equality and `BULK_STATUSES ⊂` it, and a second **moves the key** — a scratch purpose-policy list with one status
       added makes a planned-and-then-refused case impossible to construct, i.e. the reachability test is red only if
       the two lists are read from two places.
+      **The refused-lock path interacts with the restore rule and is stated here, once, because this is the step that
+      owns "which status is written back"** (`dev`, fix round 1, confirmed against `MigrateTenantHandler`): a tenant
+      whose per-tenant lock is held elsewhere ends its job `skipped` — a status the run already counts — writes **no
+      mapping at all**, never calls the migrator, and the run carries on. It needs no restore *because the lock is
+      taken before the `migrating` write* (§15.1's order), so there is nothing to restore; that ordering is the
+      precondition of this paragraph and a later edit that moves the lock after the status write turns "no restore
+      needed" into a silent status leak. One test asserts the pair together: a skipped job leaves
+      `tenant_databases.status` at the entry status **and** `schema_version` untouched.
       Covers AC-40, AC-46, AC-51, AC-52's retry path. *Order: before step 14a; it changes what an engine test of the
       execution path would assert.*
 - [ ] **Step 13c — the contract-step blocking set is the fleet. [FIX] BUG-7.** [dev] Ruled in **§16.2**: the
@@ -817,12 +825,17 @@ elsewhere steps may be reordered or run together.
       Covers AC-58. *Order: independent of 13b, may share its commit.*
 - [ ] **Step 13d — a mechanism nothing calls is not shipped: the reachability check.** [dev] §16.3 item 2, and `qa`
       is right that §7 is where it belongs. `VerticalSliceLayoutTest` proves a slice has its parts; the sibling it
-      needs proves something **calls** them. One new static check, in the same stripped-code reader `SourceRules`
-      already uses: **every public method of every class under `packages/kernel/src/Schema/Support/` is named as a
-      call in at least one production file outside `Support/`**. Controls both ways: a planted fixture Support class
-      with an uncalled public method is **reported**; the same name in prose and in a test file is **not** (a test
-      calling it is exactly the evidence this check refuses to accept). The scan asserts its own scanned set is
-      non-empty, as 13a's scope rule requires.
+      needs proves something **calls** them.
+      **The wording in this bullet's first draft — "named as a call in at least one production file outside
+      `Support/`" — is withdrawn: `dev` measured it red on 27 public methods of which 3 are defects, and §17.1
+      replaces it.** Build the check as §17.1 specifies: each `Support/` class declares **one consumer kind**
+      (`Mechanism`, `SchemaVocabulary`, `RuleEvaluator`), the kind names the caller set the check searches, the
+      default when nothing is declared is `Mechanism` (the strictest), there is **no per-method exemption anywhere**,
+      and the per-kind census is pinned as exact counts so that reclassifying a method to silence it is itself red.
+      Controls both ways: a planted fixture Support class with an uncalled public method is **reported**; the same
+      name in prose and, for a `Mechanism`, in a test file is **not**. The scan asserts its own scanned set is
+      non-empty **per kind**, as 13a's scope rule requires, and the call detection runs over `SourceRules::codeOnly()`
+      with the evasion set §17.1 enumerates (BUG-5's standing rule applies to this rule too).
       Two known reds it must produce on day one, and they are [FIX] BUG-3 and [FIX] BUG-4's real content:
       `PerTenantLock::acquire()` has no caller (so `MigrateTenantHandler` takes the lock and reports a locked tenant as
       not run), and the credential-rotation retry **does not exist** in `src/Tenancy` (AC-16: evict, re-read, retry
@@ -830,6 +843,14 @@ elsewhere steps may be reordered or run together.
       this step. Covers AC-49's wiring half and AC-16's wiring half; neither becomes PASS by being wired — AC-49 and
       AC-65 stay NOT VERIFIED behind G-1 (§14.4) and AC-16's behavioural half needs an authentication failure the
       stand-in cannot produce.
+      **Changed by fix round 1, and it changes how this step proves itself.** BUG-3's lock wiring (`9305dcf`) and
+      BUG-4's evict-re-read-retry (`c43c219`) are on the branch, so the two day-one reds **no longer exist**: a check
+      written now is green the moment it is written, which is the state §7 warns about. Its proof is therefore a
+      **mutation, stated and run**: delete `MigrateTenantHandler`'s `PerTenantLock::acquire()` call and the check goes
+      red naming that method; delete the second scope-opening call in the rotation retry and the check stays green
+      (it is reachability, not arity) while the behavioural cases go red — exactly the division `dev` already
+      measured and reported on its own test. Both mutations are written into the test file as the record of what it
+      does and does not see.
 - [ ] **Step 14a — the engine matrix: the 42 criteria with no engine test.** [dev, graded by `qa`] §16.3 item 1.
       `qa` measured that 10 of the 52 `[E]` criteria have an engine test and 42 have none. This step writes them,
       grouped `engine`, against `ThreeTenantFixture`, reusing `QaSchemaSignatureInstrumentTest`'s instrument (it takes
@@ -997,7 +1018,7 @@ Graded as this project requires: **independently proven** when a mutation of our
 | Resumability and drift | AC-43, AC-46, AC-54, AC-55 | **independently proven** | The observable is the tenant's own `migrations` table row count and batch numbers; re-applying moves it. |
 | Engine parity | AC-62 | **corroborating, and partial** | Only one engine is in scope (owner, 2026-10-08). The signature reduction is built and run, so the *instrument* is proven on MariaDB; the comparison it exists for cannot run. See §9. |
 | Gate hygiene and calibration | AC-64, AC-66, AC-67 | **covered by reading plus command output** | They are measurements of the branch, not behaviours of it. |
-| Reachability of a mechanism | AC-16, AC-49, AC-65's lock half | **covered by structure only, until step 13d** | Added 2026-10-15 after QA run 1. `PerTenantLock` has a unit test, an engine test and a layout check, and **no caller**; the rotation retry has a decision, a plan line and **no code**. Both pass every structure check in the branch. A layout check proves a slice has its parts; only a **reachability** check proves anything calls them, and a mechanism nothing calls is a mechanism that does not ship. The grade of any criterion whose mechanism has no production caller is **not** "independently proven" however good the unit test is. |
+| Reachability of a mechanism | AC-16, AC-49, AC-65's lock half | **covered by structure only, until step 13d** | Added 2026-10-15 after QA run 1. `PerTenantLock` has a unit test, an engine test and a layout check, and **no caller**; the rotation retry has a decision, a plan line and **no code**. Both pass every structure check in the branch. A layout check proves a slice has its parts; only a **reachability** check proves anything calls them, and a mechanism nothing calls is a mechanism that does not ship. The grade of any criterion whose mechanism has no production caller is **not** "independently proven" however good the unit test is. **Updated 2026-10-15 (§17.1):** the check's own grade is **independently proven only by mutation** — both of BUG-3's and BUG-4's day-one reds are now fixed, so a check written today is green on arrival and its evidence is deleting a known call site, not observing a red. Its failure mode is tuning, and the census counts are what make tuning visible. |
 | The `schema_meta` interlock | AC-56 | **corroborating** | T-008 never writes the row, so the mismatch case is constructed entirely by the fixture. Nothing we can mutate in production code makes a real mismatch appear; the refusal is proven, the interlock in service is FP-206's. |
 
 ### Unit tests
@@ -1857,8 +1878,8 @@ and jointly stronger halves is the wrong trade.
 - **(a) the cache tells the truth** — the mapping read the request path makes answers `migrating` from inside the run
   and `active` at the new version after it, with the around-the-writer control. This is shipped and proven (step 11).
 - **(b) a `migrating` mapping is refused for serving** — a serving entry against a mapping whose status is
-  `migrating` throws `TenantDatabaseNotActive` naming the status, with the state-unchanged assertions AC-10 already
-  carries. This needs no run, no second process and no engine: it is a statement about `enter()`, provable where
+  `migrating` throws `TenantDatabaseNotActive` naming the status, with the state-unchanged assertions **T-007's** AC-10 defined (this
+  spec's AC-10 is the audit-log JSON criterion, and the plan said the wrong one twice; corrected 2026-10-15). This needs no run, no second process and no engine: it is a statement about `enter()`, provable where
   `enter()`'s other status refusals already are.
 
 (a) and (b) compose to the production behaviour the criterion wanted — the request path reads `migrating` and
@@ -2000,7 +2021,7 @@ failure side is unchanged: D-12's `failed` on an offline failure, and an ordinar
 **To `ba`, three lines, through the lead.** (1) **D-23** must record the second waiver and its limit, because it
 currently says the opposite in terms. (2) **D-11** should say that its four statuses are *also* the set the
 migrating entry accepts, and name `TenantConnectionPurpose::acceptedStatuses()` as the one place they live.
-(3) **AC-10/AC-51** should say that the non-`active` refusal is the *serving* rule, and **AC-52** should carry the
+(3) **AC-51** (and T-007's AC-10, not this spec's) should say that the non-`active` refusal is the *serving* rule, and **AC-52** should carry the
 restore-the-entry-status rule with the `failed` → `active` exception, or the next implementer will put the literal
 back. Dataset and behaviour otherwise unchanged; nothing here changes what the request path does.
 
@@ -2062,3 +2083,118 @@ Little, and nothing load-bearing.
 - **The master recount, the statement-pin mutation and the assertion-shape guard catching `qa`'s own draft are
   confirmed and correct.** 25 live tables = 17 + 8, our files create 24, the design's 39 means 17 built by
   deferral: **not a shortfall**, and that now has two independent counts behind it.
+
+---
+
+## 17. Rulings after fix round 1 — the reachability scope, and two residuals
+
+### 17.1 Step 13d cannot be built as worded — ruled: classify by the consumer kind the class declares, and count the kinds
+
+**The measurement is the ruling's subject, not its context.** `dev` measured the check as §13d worded it: **red on 27
+public methods, of which 3 are defects** — eight false positives per true one. A check at that ratio has exactly one
+future: it is narrowed until it is green, the narrowing is done per method by whoever is holding it at the time, and
+what remains proves nothing and costs a run every gate. `dev` was right to route the scope back rather than build it
+and narrow it on day one, which §7 forbids in terms.
+
+**The error in my wording was assuming one answer for all of `Support/`, which holds three different kinds of thing.**
+Widening "production" to include the migration tree fixes six of the 24 and leaves eighteen — still far above the
+tuning threshold — because the remainder is `SourceRules`, and a static rule's consumer genuinely *is* the suite. So
+the axis is not the directory tree. It is **what kind of thing the class is**, declared by the class:
+
+| Kind | What it is | Caller set the check searches | The obligation |
+|---|---|---|---|
+| `Mechanism` | a thing the system **calls** at run time | `packages/kernel/src/**` and `modules/host/app/**`, outside `Support/` | at least one call. **A test caller is not evidence** — this is the withdrawn wording, kept exactly, for the kind it was right about. |
+| `SchemaVocabulary` | a thing **migrations are written in** | the `Mechanism` set ∪ `modules/host/database/migrations/**` ∪ `…/migrations-tenant/**` | at least one call **from a shipped migration**. A fixture migration under `tests/` does **not** count, so this is *stricter* than the withdrawn wording, not a widening: a helper used only by FX fixtures is still reported. |
+| `RuleEvaluator` | a thing the system **is**: a static rule whose consumer is the suite | the test tree | at least one **red control** — the method must appear in the rule→fixture map **keyed by method name**, i.e. there exists a fixture on which it returns a finding. "Some test calls it" is still refused; what counts is that the rule has been seen to *fire*. |
+
+Six rules stop this being a loophole:
+
+1. **The kind is declared on the class**, once, beside the class name (a constant or a marker interface — `dev`'s
+   choice), never per method. **Undeclared means `Mechanism`**, the strictest: deny-by-default, the same direction as
+   13b's allow-list.
+2. **No per-method exemption exists anywhere.** No ignore array, no annotation, no `@reachability-ignore`. The only
+   move a future author has is changing a whole class's kind, which is one line next to the class name and reads in
+   review as a *claim about the design* ("this class's consumer is the suite") rather than as a list entry nobody
+   reads.
+3. **The census is pinned, and this is the tooth against the 27-to-3 failure mode.** The check's own test asserts the
+   **exact** number of classes in each kind and the **exact** number of public methods checked in each kind. Moving a
+   mechanism into `RuleEvaluator` to silence it turns the census red in the same commit, so the escape hatch is
+   itself counted. Every other property of this check can be argued; this one is why it is worth having.
+4. **Each kind's scanned set must be non-empty** (13a's scope rule, applied per kind, not to the scan as a whole — a
+   scan that is non-empty overall while one kind matched zero classes is the same vacuous pass in a smaller box).
+5. **Detection runs over `SourceRules::codeOnly()`** and carries an evasion set enumerated from PHP's callable
+   syntaxes rather than from memory — `C::m(`, `->m(`, `[C::class, 'm']`, `'C::m'`, `C::m(...)` — because BUG-5's
+   standing rule (§7) binds this rule as much as the migration rules. A method reachable **only** through a dynamic
+   string is **reported**, deliberately: that is a design we do not want, not a spelling we missed.
+6. **Today's classification is the day-one census**: `Mechanism` — `MigrationSet`, `MigrationCatalogue`,
+   `PerTenantLock`, `RunnerClock`, `TenantSchemaVersion`. `SchemaVocabulary` — `IdentifierColumn`, `JsonValidity`,
+   `MigrationPhase`, `MigrationTree`. `RuleEvaluator` — `SourceRules`. `dev` re-derives the counts from the tree; if
+   they differ from this list, **the tree wins and the plan is corrected**, because this list was read, not run.
+
+**Alternative rejected: a declared list of classes that must be reachable.** Honest, as the lead says, and weak in
+the one case the check exists for — the day somebody adds a mechanism and forgets the list, the check says nothing.
+A list is a record of what we already know; the kind model is a rule about everything in the directory.
+
+**The general form, for every later task:** a reachability check must name its caller universe **per kind of thing**,
+and its exemptions must be **counted**. A check whose exemptions are not counted will be tuned to green, and the
+tuning will look like maintenance.
+
+### 17.2 Residual 1 — a queued run stays `running` until the finishing command is invoked: CONFIRMED
+
+`dev`'s argument is the right one and it is the same argument that keeps the finish step in the loop: a worker
+executing one job cannot know it executed the last one, and a worker that assumed it could would close a run while
+another job was still in flight. Printing the instruction with the run id, and saying so in the docblock, is the
+correct shape for T-008. Deferring the watcher that would close it automatically to a later backlog row is confirmed
+— the lead files the row; it is not a line inside this plan.
+
+Two conditions, because "a residual" must not become "a run whose state lies":
+
+- **The finishing command refuses to finalise a run that still has a non-terminal job, and names it**, and is
+  idempotent on a run already finished. Otherwise the manual step is a way to write a false terminal state by hand.
+- **`tenant:schema-status` must distinguish "running, every job terminal" from "running, work outstanding".** A
+  human reading the report is the only watcher this task ships, so the report has to carry the distinction the
+  watcher would have acted on. If that is not already true it is one line in `ReportSchemaStatus` and it rides in
+  13d's or 14a's commit.
+
+### 17.3 Residual 2 — `TenantConnectionFailed` is no longer `final`: ACCEPTED, with four conditions
+
+Subclass rather than sibling is the right call for the stated reason — every existing `catch` keeps working, so the
+change cannot silently widen what escapes a handler — and un-finalising deserves the line `dev` asked for. Accepted
+with four conditions, all cheap:
+
+1. The **base class's docblock records why it is not final** and names the single permitted subclass. An un-final
+   class with no note is an invitation.
+2. The subclass carries **no credential-shaped state**, and T-007's property-name test (the one that forbids a
+   password-shaped property name) is extended to cover it. A credential-rejection exception is precisely the class
+   where a helpful author adds the rejected username.
+3. One test asserts `catch (TenantConnectionFailed)` **catches the subclass** — the property the whole decision rests
+   on, currently true by construction and nowhere asserted.
+4. A **third** subclass needs a plan ruling. Two is a design; a family is a hierarchy nobody chose.
+
+The `final public` constructor for late static binding is correct and needs no further argument; if PHPStan or
+Deptrac say otherwise, believe the tools over this paragraph.
+
+### 17.4 Two things from the round that become standing rules
+
+- **Exactly-N-attempts is a property of shape, not of a counter.** `dev`'s rotation retry is two calls to one
+  scope-opening method rather than a loop with a bound, so "exactly two attempts, no more" cannot drift by someone
+  changing a constant. That is the preferred form in this repository for any bounded-retry requirement, and where a
+  loop is genuinely needed the bound gets its own mutation test.
+- **A wiring check that stays green when the behaviour is deleted is as weak as it declares itself to be — and
+  saying so about your own test is the grade §7 asks for.** `dev` mutated its own work twice and reported that
+  `qa`'s wiring check survived the deletion that reddened the behavioural cases. That division is now written into
+  13d as the way the reachability check proves itself (reachability, not arity), and the general rule is: when a
+  mutation leaves one of your tests green, say which one and why, in the test file.
+
+### 17.5 What I judge wrong in the account
+
+- **The stale criterion reference is mine and it was relayed twice.** §15.2's half (b) said "the state-unchanged
+  assertions AC-10 already carries" and §16.1's note to `ba` said "AC-10/AC-51"; both are **T-007's** AC-10. This
+  spec's AC-10 is the audit-log JSON criterion, as `ba` already recorded in the spec. Both lines are corrected in
+  this file today. The lead relayed my own error back to me, which is what a relay does.
+- **Nothing else in the account is wrong.** The BUG-2 reading — a constant closes the class of path a forced
+  declaration only narrows — is the stronger option and I endorse it as shipped; that clearing the hold is now a
+  commit by the owner is the correct cost, and G-1's conditions in §11.4 are unchanged by it.
+- **One framing I would sharpen:** the account calls 13d's problem a scope question. It is a **kind** question that
+  looked like a scope question because `Support/` is one directory, and that is why widening the scope would not
+  have fixed it. The directory stays as it is; the classes now say what they are.
