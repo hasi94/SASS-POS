@@ -25,6 +25,14 @@ files:
   server collide on the index rather than testing anything. Use `auth-0`,
   `auth-1` when a case needs one tenant per status.
 
+- **A negated `toContain()`/`toHaveKey()`/`toHaveProperty()`/`toThrow()` with a
+  second argument is refused by the suite itself.**
+  `QaAssertionShapeGuardTest` scans every collected test file and fails the
+  gate, because such an assertion passes when *either* argument fails to
+  match. A per-column leak scan has to collect offenders with
+  `str_contains()` and assert `toBe([])`. Cost: one full gate run (~128 s) to
+  discover, after lint, stan and deptrac had all passed.
+
 **Why:** the first two cost a whole gate run (~82 s) to discover, and the first one is
 invisible until the full suite collects.
 

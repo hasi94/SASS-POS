@@ -36,3 +36,4 @@
 - [A type-graph rule does not see a literal](feedback_type_graph_rule_does_not_see_a_literal.md) — deptrac reports symbol reuse, not a copied value; plus two layer-carving mechanics.
 - [Master table list is pinned three times](project_master_table_list_is_pinned_three_times.md) — a new master table edits four files, two counts are literals; and SQLite reports types without lengths.
 - [A control must redden the file the plan names](feedback_a_control_must_redden_the_file_the_plan_names.md) — the named test scanned fixtures only; plus env() handing a numeric config value in as a string.
+- [JWT and OpenSSL seams](project_jwt_and_openssl_seams.md) — the static time seam, decode's blindness to `kid`, the ES256 boundary, and the openssl.cnf that works here.
