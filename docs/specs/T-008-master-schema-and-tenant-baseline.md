@@ -404,8 +404,8 @@ can never satisfy it.
   it governed (a); it does not. In both invocations each excluded or refused tenant's database is unchanged and no job
   row is written for it.
   **The two lists and the gate (D-52, plan 16.1).** The named run's accepted statuses are exactly the statuses the
-  **migrating scope entry** accepts, and both read one list, `TenantConnectionPurpose::acceptedStatuses()` for
-  `Migrating`; the bulk list is that list minus `provisioning` and `failed`. So (c) **every status the planner
+  **migrating scope entry** accepts, and both read one list, held by `TenantStatusPolicy` (D-56; its shipped default is the
+  enum constant on `TenantConnectionPurpose`); the bulk list is that list minus `provisioning` and `failed`. So (c) **every status the planner
   accepts is actually migrated**: for `active`, `read_only`, `provisioning` and `failed`, a planned job reaches `done`
   and is never refused at scope entry (the reachability case, with `active` as its control). And (d) the
   non-`active` refusal is the **serving** rule: a **serving** entry on `read_only`, `provisioning`, `failed` and every
@@ -678,6 +678,13 @@ Read these before recounting or before "fixing" a criterion to match code. Figur
    differs only from the example. Do not reword AC-6 to describe the implementation, and do not report the type-based
    rule as a divergence.
 5. **AC-35(a) is stated at the stricter level (D-38).** Both precision and scale are required. See D-38.
+6. **Grading a source-scanning criterion (D-56, plan 18).** Where a criterion here is proven by a textual scan of
+   source (for example AC-35 and AC-61), a scan that is evaded is graded on two levels: **the instance** (this
+   evasion, in this scan) by its own consequence, and **the method** by its record. Textual scans on this project have
+   now been evaded three times (a line wrap, a markdown emphasis marker, a quote style), each patch having covered
+   only the spelling the last attacker used, so **the pattern is major even where the instance is minor**. `qa`
+   should grade accordingly, and should prefer a behavioural proof (change the authority's value and watch the
+   dependents follow) over a patched scan wherever one can be built.
 
 ## Open questions
 
