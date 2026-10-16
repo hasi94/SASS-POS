@@ -39,3 +39,5 @@
 - [JWT and OpenSSL seams](project_jwt_and_openssl_seams.md) — the static time seam, decode's blindness to `kid`, the ES256 boundary, and the openssl.cnf that works here.
 - [Observe during the write, not after](feedback_observe_during_the_write_not_after.md) — the decorated-throw control stayed green under the very transaction it forbade; the probe must run inside the statement.
 - [Hasher seam and assertion reds](project_hasher_seam_and_assertion_reds.md) — bind doubles under the contract, not the facade; Pest scalar datasets fail stan; run an assertion twice to prove it bites.
+- [An ordering mutation needs a refusable input](feedback_ordering_mutation_needs_a_refusable_input.md) — moving a guard later stays green against a fixture that succeeds.
+- [Logger and query-log probes](project_logger_and_query_log_probes.md) — the two reusable probes, and the singleton that empties the log one silently.
