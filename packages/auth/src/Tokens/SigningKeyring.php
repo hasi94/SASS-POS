@@ -10,6 +10,7 @@ use Flexipos\Auth\Keys\PrivateKeyResolver;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Database\Query\Builder;
+use Psr\Log\LoggerInterface;
 
 /**
  * `signing_keys`, read: which key signs, and which key may verify.
@@ -71,10 +72,34 @@ final class SigningKeyring
      */
     public const ALGORITHM = KeyPairGenerator::ALGORITHM;
 
+    /**
+     * What the application log is told when nothing can sign.
+     *
+     * A constant because a test asserts the entry is there, and an assertion
+     * against a literal spelled twice is an assertion that goes green on the
+     * day somebody rewords the message.
+     */
+    public const LOG_MESSAGE = 'No signing key is active; authentication cannot issue tokens.';
+
     public function __construct(
         private readonly DatabaseManager $database,
         private readonly ConfigRepository $config,
         private readonly PrivateKeyResolver $privateKeys,
+        /**
+         * **The only trace T-009 leaves of an operational signing failure**
+         * (D-37, step 10's ruling). `login_history` is deliberately silent -
+         * nothing about the credentials was judged, so there is no row to
+         * write (D-36) - and `security_events.type` is a closed enum with no
+         * operational value, so there is no event either. That leaves the
+         * application log, and the log entry is written **here**, at the one
+         * place the condition is detected, rather than in each of the three
+         * slices that would otherwise each have to remember.
+         *
+         * FP-201 carries the readiness check and the operator alert this is
+         * not. What this is, is the single trace, asserted rather than
+         * assumed.
+         */
+        private readonly LoggerInterface $log,
     ) {}
 
     /**
@@ -96,6 +121,11 @@ final class SigningKeyring
             ->first(['kid', 'algorithm', 'private_key_ref']);
 
         if ($row === null) {
+            // Error level, because the deployment cannot authenticate anybody
+            // until an operator acts. No credential and no token is in scope
+            // here, so there is nothing this entry could leak (AC-26).
+            $this->log->error(self::LOG_MESSAGE);
+
             throw NoActiveSigningKey::forSigning();
         }
 
@@ -106,6 +136,10 @@ final class SigningKeyring
         $algorithm = (string) $row['algorithm'];
 
         if ($algorithm !== self::ALGORITHM) {
+            // The same operational class of failure as no key at all: a key
+            // the code will not sign with is a key that cannot sign.
+            $this->log->error(self::LOG_MESSAGE, ['kid' => $kid, 'declared_algorithm' => $algorithm]);
+
             throw NoActiveSigningKey::wrongAlgorithm($kid, $algorithm, self::ALGORITHM);
         }
 

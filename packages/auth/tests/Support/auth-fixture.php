@@ -1,6 +1,7 @@
 <?php
 
 use Flexipos\Auth\Features\Login\LoginHandler;
+use Flexipos\Auth\Features\SelectTenant\SelectTenantHandler;
 use Flexipos\Auth\Keys\KeyPairGenerator;
 use Flexipos\Auth\Tokens\SigningKeyring;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
@@ -9,6 +10,9 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Psr\Log\AbstractLogger;
+use Psr\Log\LoggerInterface;
+use Psr\Log\LogLevel;
 
 /*
  * T-009 step 5: the signing keys and the clock the token tests run against.
@@ -373,4 +377,169 @@ final class AuthFixtureCountingHasher implements Hasher
     {
         return $this->inner->needsRehash($hashedValue, $options);
     }
+}
+
+/*
+|--------------------------------------------------------------------------
+| T-009 step 10: selecting a tenant, and watching what a selection touches
+|--------------------------------------------------------------------------
+|
+| Three instruments arrive here rather than in one test file, because step 11
+| needs all three: the handler built by the container, a logger that records
+| what it was told, and a master query log that can be read back.
+*/
+
+/**
+ * The selection handler, built by the container so that every binding under
+ * test - the clock, the keyring, the tenant-selection policy - is the shipped
+ * one unless a test has deliberately replaced it.
+ */
+function authFixtureSelectTenantHandler(): SelectTenantHandler
+{
+    return app(SelectTenantHandler::class);
+}
+
+/**
+ * Replace the application logger with one that keeps every entry, and hand it
+ * back.
+ *
+ * **Why a recorder and not a spy.** Two different assertions are made against
+ * the application log on this task and only one of them is about a call
+ * happening: that an operational signing failure is recorded at error level
+ * (D-37 - the single trace T-009 leaves), and that no password and no token
+ * appears anywhere in what was logged (AC-26). The second is an assertion
+ * about *content*, and a mock that verifies a call cannot answer it. So the
+ * entries are kept and scanned.
+ *
+ * `LoggerInterface::class` is an alias of `log` in Laravel's container, so one
+ * instance registration replaces what a constructor injection receives and
+ * what the `Log` facade resolves - the same alias hazard the counting hasher
+ * above documents for `Hasher::class`.
+ */
+function authFixtureRecordingLogger(): AuthFixtureRecordingLogger
+{
+    $logger = new AuthFixtureRecordingLogger;
+
+    app()->instance(LoggerInterface::class, $logger);
+
+    return $logger;
+}
+
+/**
+ * A logger that keeps what it was told, so a test can assert both that an
+ * entry is there and that nothing forbidden is in it.
+ *
+ * It extends `AbstractLogger`, which turns the eight level methods into calls
+ * on `log()`, so there is one place the record is made and no level can be
+ * recorded differently from the others by accident.
+ */
+final class AuthFixtureRecordingLogger extends AbstractLogger
+{
+    /**
+     * Every entry, in order.
+     *
+     * @var list<array{level: string, message: string, context: array<array-key, mixed>}>
+     */
+    public array $records = [];
+
+    /**
+     * @param  mixed  $level
+     * @param  string|Stringable  $message
+     * @param  array<array-key, mixed>  $context
+     */
+    public function log($level, $message, array $context = []): void
+    {
+        $this->records[] = [
+            'level' => (string) $level,
+            'message' => (string) $message,
+            'context' => $context,
+        ];
+    }
+
+    /**
+     * The messages recorded at one level.
+     *
+     * @return list<string>
+     */
+    public function messagesAt(string $level): array
+    {
+        return array_values(array_map(
+            static fn (array $record): string => $record['message'],
+            array_filter($this->records, static fn (array $record): bool => $record['level'] === $level)
+        ));
+    }
+
+    /**
+     * Everything that was logged, flattened to one string - message and
+     * context both, because a context value is as much a sink as a message
+     * (AC-26).
+     */
+    public function haystack(): string
+    {
+        return implode("\n", array_map(
+            static fn (array $record): string => $record['level'].' '.$record['message'].' '.json_encode($record['context']),
+            $this->records
+        ));
+    }
+
+    /**
+     * Whether a sentinel appears anywhere in what was logged.
+     *
+     * The scan AC-26 needs, and the thing its positive control exercises: a
+     * deliberately polluted entry must be reported as found, or an absence
+     * proves only that the scan is blind.
+     */
+    public function contains(string $sentinel): bool
+    {
+        return str_contains($this->haystack(), $sentinel);
+    }
+}
+
+/**
+ * Run $work with the master query log on, and hand back every statement it
+ * issued.
+ *
+ * AC-52's instrument. The log is cleared first and disabled afterwards, so
+ * one test's statements cannot be read by the next, and the return value is
+ * the raw `query` strings because that is what "no access to
+ * `tenant_databases`" is a statement about.
+ *
+ * **It proves nothing on its own**: a log that recorded nothing satisfies
+ * "contains no `tenant_databases`" perfectly. Every use owes a liveness
+ * control - a statement the log *must* contain - which is why this helper
+ * returns the statements rather than answering a question about them.
+ *
+ * @template TReturn
+ *
+ * @param  callable(): TReturn  $work
+ * @return array{0: TReturn, 1: list<string>}
+ */
+function authFixtureWithMasterQueryLog(callable $work): array
+{
+    $connection = DB::connection('master');
+
+    $connection->flushQueryLog();
+    $connection->enableQueryLog();
+
+    try {
+        $result = $work();
+    } finally {
+        $statements = array_map(
+            static fn (array $entry): string => (string) $entry['query'],
+            $connection->getQueryLog()
+        );
+
+        $connection->disableQueryLog();
+        $connection->flushQueryLog();
+    }
+
+    return [$result, array_values($statements)];
+}
+
+/**
+ * The level an operational failure must be logged at (D-37).
+ */
+function authFixtureErrorLevel(): string
+{
+    return LogLevel::ERROR;
 }
