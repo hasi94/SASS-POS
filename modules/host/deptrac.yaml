@@ -95,12 +95,21 @@ deptrac:
     # them.
     #
     # Package_Auth is granted Package_Kernel and deliberately NOT this
-    # layer. That omission is the instrument for AC-47: it replaces a
-    # textual search of the authentication sources for a tenant-database
-    # status list, which T-008 showed can be evaded by writing the same
-    # literal in double quotes. The collector here is the type graph, so a
-    # second copy is reported however it is spelled, and no exemption
-    # exists to silence it.
+    # layer. That omission is the instrument for AC-47's *symbol* half, and
+    # the wording matters: it proves that authentication holds no **type
+    # reference** - a `use`, a type hint, a `::class`, a catch type - to one
+    # of these three, however it is imported, aliased or re-exported, with
+    # no exemption available. It must never be described as proving that
+    # authentication holds no **copy of the status list**. Measured twice
+    # (plan section 9): the collector is `classLike`, the resolved type
+    # graph, and it does not read class names out of string literals - the
+    # FQCN in double quotes, in single quotes, as a [FQCN, 'method']
+    # callable and as `new $className` all produce zero violations, as does
+    # a class holding ['active', 'read_only'] with an in_array() over it.
+    # Value copying, which is exactly what T-008's scan existed to catch, is
+    # invisible here and is carried behaviourally instead: step 13's
+    # TenantDatabaseNotActive plus a never-called handler spy, and step 6's
+    # moved-value proof for TenantSelectionPolicy.
     - name: Package_Kernel_TenancyStatus
       collectors:
         - type: classLike

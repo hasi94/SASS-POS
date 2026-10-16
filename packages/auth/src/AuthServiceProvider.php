@@ -6,6 +6,7 @@ namespace Flexipos\Auth;
 
 use Flexipos\Auth\Keys\PrivateKeyResolver;
 use Flexipos\Auth\Keys\ReferencedPrivateKeyResolver;
+use Flexipos\Auth\Tenancy\TenantSelectionPolicy;
 use Flexipos\Auth\Tokens\SigningKeyring;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Support\ServiceProvider;
@@ -20,9 +21,9 @@ use Illuminate\Support\ServiceProvider;
  * says which of them boot.
  *
  * Step 4 gave it its first binding, the clock; step 5 adds the signing keyring
- * and the resolver that turns a `private_key_ref` into key material. The
- * tenant-selection policy and the route file arrive with the steps that create
- * them.
+ * and the resolver that turns a `private_key_ref` into key material; step 6
+ * adds the tenant-selection policy. The route file arrives with the step that
+ * creates it.
  */
 final class AuthServiceProvider extends ServiceProvider
 {
@@ -66,6 +67,25 @@ final class AuthServiceProvider extends ServiceProvider
          * avoid - so the singleton cannot serve a stale key status either.
          */
         $this->app->singleton(SigningKeyring::class);
+
+        /*
+         * Step 6. The single authority for `tenants.status` (plan section 1).
+         *
+         * The binding is what makes the moved-value proof possible, and it is
+         * the reason every later handler takes the policy as a constructor
+         * argument instead of calling `TenantSelectionPolicy::shipped()`
+         * itself: a dependent that built its own policy could not be handed a
+         * different one, and "the list is read from one place" would be back
+         * to being a claim about source text (AC-12, AC-47).
+         *
+         * A singleton over `shipped()`, the same shape TenancyServiceProvider
+         * binds TenantStatusPolicy in: the shipped value is a compile-time
+         * constant, and the object is a reader with nothing to keep in step.
+         */
+        $this->app->singleton(
+            TenantSelectionPolicy::class,
+            static fn (): TenantSelectionPolicy => TenantSelectionPolicy::shipped()
+        );
     }
 
     public function boot(): void
