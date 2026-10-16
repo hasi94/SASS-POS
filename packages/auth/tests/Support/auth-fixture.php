@@ -419,7 +419,7 @@ function authFixtureSelectTenantHandler(): SelectTenantHandler
  * drops the alias it is given before binding - so registering under
  * `LoggerInterface::class` alone replaces what a constructor injection
  * receives and leaves `Log::`, `logger()` and `app('log')` resolving the real
- * `LogManager` (FP-302/BUG-1: the comment here used to claim the facade was
+ * `LogManager` (BUG-1: the comment here used to claim the facade was
  * covered, and it was not). Binding `log` as well covers all four routes, and
  * `AuthFixtureRecordingLoggerTest` fails if any of them stops landing here.
  *

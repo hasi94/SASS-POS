@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flexipos\Auth\Features\RecordLoginAttempt;
 
+use Flexipos\Auth\Support\EmailAddress;
 use InvalidArgumentException;
 
 /**
@@ -25,8 +26,11 @@ use InvalidArgumentException;
  * exists for. An unrecognised reason is refused for the same purpose - a typo
  * in a reason is a refusal test that silently asserts nothing.
  *
- * **`email` is stored trimmed and as submitted** (AC-23), in the display form
- * the person typed. It is evidence of what was typed, not a lookup key; the
+ * **`email` is stored trimmed and as submitted when it is address-shaped**
+ * (AC-23), in the display form the person typed, and as the fixed marker
+ * {@see EmailAddress::NOT_AN_EMAIL} when it is not (D-38: a password typed
+ * into the email field is not evidence worth keeping in clear text). It is
+ * evidence of what was typed, not a lookup key; the
  * lookup key is `users.email_lower`, which arrives with `Login`. The 191
  * character cap is the input validation's (AC-9) and the column's, and this
  * command does not truncate: a longer value never passes validation, so
@@ -107,17 +111,29 @@ final class RecordLoginAttempt
     public const EVENT_TYPES = [self::EVENT_LOCKOUT, self::EVENT_TOKEN_REUSE];
 
     /**
+     * The address the attempt was made under **as it will be recorded**, or
+     * null when this command records **no attempt at all** - see
+     * {@see self::securityEvent()}. The two are the same field on purpose: a
+     * reader asking "was a credential judged here" gets one answer, from
+     * {@see self::recordsAttempt()}, rather than two that can disagree.
+     *
+     * **It is the recorded form and not the submitted one** (D-38): a value
+     * that is not address-shaped becomes {@see EmailAddress::NOT_AN_EMAIL}.
+     * The conversion is here, in the one private constructor all three makers
+     * funnel through, so no caller and no future fourth maker can write the
+     * raw text; and it is *here* rather than in the handler because this is
+     * the command that says what the row will contain. Nothing else in the
+     * system reads this field: the lookup, `user_id`, `failure_reason`,
+     * lockout counting and the response are all decided before a command
+     * exists, which is what keeps D-38 a change to one stored column.
+     */
+    public readonly ?string $email;
+
+    /**
      * @param  array<string, mixed>|null  $securityEventDetail
      */
     private function __construct(
-        /**
-         * The address the attempt was made under, or null when this command
-         * records **no attempt at all** - see {@see self::securityEvent()}.
-         * The two are the same field on purpose: a reader asking "was a
-         * credential judged here" gets one answer, from
-         * {@see self::recordsAttempt()}, rather than two that can disagree.
-         */
-        public readonly ?string $email,
+        ?string $email,
         public readonly bool $success,
         public readonly ?string $failureReason,
         public readonly ?string $userId,
@@ -150,6 +166,10 @@ final class RecordLoginAttempt
         if ($securityEventType !== null && ! in_array($securityEventType, self::EVENT_TYPES, true)) {
             throw new InvalidArgumentException(sprintf('unknown security event type [%s]', $securityEventType));
         }
+
+        // After the refusals, so that "nothing was submitted" is still a
+        // caller's mistake rather than a row reading `(not an email)`.
+        $this->email = $email === null ? null : EmailAddress::fromSubmitted($email)->forHistory();
     }
 
     /**

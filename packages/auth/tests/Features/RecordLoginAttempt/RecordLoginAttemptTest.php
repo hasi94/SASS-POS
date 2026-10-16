@@ -3,6 +3,7 @@
 use Flexipos\Auth\Features\IssueTokenPair\IssueTokenPairHandler;
 use Flexipos\Auth\Features\RecordLoginAttempt\RecordLoginAttempt;
 use Flexipos\Auth\Features\RecordLoginAttempt\RecordLoginAttemptHandler;
+use Flexipos\Auth\Support\EmailAddress;
 use Flexipos\Auth\Support\IpAddress;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -169,6 +170,77 @@ it('stores the address trimmed and in the case it was submitted', function () {
     ));
 
     expect(attemptRow()['email'])->toBe('Owner@Example.com');
+});
+
+/*
+|--------------------------------------------------------------------------
+| AC-23 (4)-(6), D-38: what reaches the column when what was typed is not an
+| address
+|--------------------------------------------------------------------------
+|
+| QA found that a password typed into the email field was stored in clear
+| text in a table with no pruning (D-17), because AC-23 said "as submitted"
+| and the code did exactly that. D-38 stores the trimmed value only when it is
+| address-shaped and the fixed marker otherwise. The matrix below is AC-23's
+| own list, asserted on the stored column rather than on the shape predicate,
+| because the column is what the criterion is about.
+*/
+
+it('stores the submitted value when it is address-shaped, and the marker when it is not', function (string $submitted, string $stored) {
+    attemptHandler()->handle(RecordLoginAttempt::failed(
+        email: $submitted,
+        failureReason: RecordLoginAttempt::REASON_UNKNOWN_USER,
+    ));
+
+    expect(attemptRow()['email'])->toBe($stored);
+})->with([
+    'an address is untouched' => ['user@example.com', 'user@example.com'],
+    'surrounding whitespace goes' => ['  user@example.com  ', 'user@example.com'],
+    // The case that decides the rule's upper bound: a typo'd domain is the
+    // signal an investigation reads, so it survives byte for byte. A rule
+    // that checked the domain exists would discard exactly the evidence
+    // `login_history` is kept for.
+    'a typo domain survives byte for byte' => ['user@exmaple.con', 'user@exmaple.con'],
+    'a password' => ['hunter2', EmailAddress::NOT_AN_EMAIL],
+    'a passphrase with spaces' => ['correct horse battery staple', EmailAddress::NOT_AN_EMAIL],
+    'two at signs' => ['a@b@c.com', EmailAddress::NOT_AN_EMAIL],
+    'no dot in the domain' => ['user@localhost', EmailAddress::NOT_AN_EMAIL],
+    'nothing before the at sign' => ['@example.com', EmailAddress::NOT_AN_EMAIL],
+    'nothing after the at sign' => ['user@', EmailAddress::NOT_AN_EMAIL],
+    'a dot at the edge of the domain' => ['user@.example.com', EmailAddress::NOT_AN_EMAIL],
+]);
+
+it('changes the stored column and nothing else about the attempt', function () {
+    // AC-23 (5). The marker is not a refusal: the row is still written, the
+    // lookup's verdict still reaches `user_id` and `failure_reason`, and
+    // there is exactly one row - so a password in the email field still
+    // counts toward a lockout and still answers with D-12's identical 401.
+    attemptHandler()->handle(RecordLoginAttempt::failed(
+        email: 'hunter2',
+        failureReason: RecordLoginAttempt::REASON_UNKNOWN_USER,
+        ip: '203.0.113.7',
+        userAgent: 'POS/1.0',
+    ));
+
+    $row = attemptRow();
+
+    expect($row['email'])->toBe(EmailAddress::NOT_AN_EMAIL)
+        ->and($row['failure_reason'])->toBe(RecordLoginAttempt::REASON_UNKNOWN_USER)
+        ->and($row['user_id'])->toBeNull()
+        ->and((bool) $row['success'])->toBeFalse()
+        ->and($row['user_agent'])->toBe('POS/1.0')
+        ->and(IpAddress::unpack($row['ip']))->toBe('203.0.113.7');
+});
+
+it('keeps the marker inside the width of the column it is written to', function () {
+    // A fixed string nobody measures is what passes review and fails on a
+    // column constraint. The bound is read from the one place the width is
+    // configured rather than written here a second time, so a narrower
+    // `users.email` moves this assertion with it.
+    $limit = (int) config('authentication.limits.email');
+
+    expect($limit)->toBeGreaterThan(0)
+        ->and(mb_strlen(EmailAddress::NOT_AN_EMAIL))->toBeLessThanOrEqual($limit);
 });
 
 it('refuses a command whose two halves disagree, so the cause column stays readable', function () {

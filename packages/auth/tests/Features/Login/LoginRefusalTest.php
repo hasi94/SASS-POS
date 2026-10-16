@@ -5,6 +5,7 @@ use Flexipos\Auth\Features\Login\Login;
 use Flexipos\Auth\Features\Login\LoginHandler;
 use Flexipos\Auth\Features\Login\LoginResult;
 use Flexipos\Auth\Features\RecordLoginAttempt\RecordLoginAttempt;
+use Flexipos\Auth\Support\EmailAddress;
 use Flexipos\Auth\Support\GenericRefusal;
 use Flexipos\Auth\Support\IpAddress;
 use Illuminate\Support\Facades\DB;
@@ -149,6 +150,54 @@ it('builds its body from nothing, so no cause can reach it', function () {
         ->and((new ReflectionMethod(GenericRefusal::class, 'body'))->getNumberOfParameters())->toBe(0)
         ->and(GenericRefusal::json())->toBe(GenericRefusal::json())
         ->and(GenericRefusal::STATUS)->toBe(401);
+});
+
+it('keeps a password typed into the email field out of login_history, and refuses it like any other address', function () {
+    // AC-23 (4)-(6) and AC-26's scope (D-38), end to end: the stored column
+    // is the only thing that changes. The recorder is installed first,
+    // because a logger bound after the keyring singleton is handed to nobody.
+    $log = authFixtureRecordingLogger();
+
+    authFixtureUser('owner@example.com');
+
+    $refused = refusalAttempt('  hunter2-in-the-wrong-box  ');
+
+    expect($refused)->toBeInstanceOf(CredentialRefused::class)
+        // The response is the ordinary one: the marker is a storage rule, not
+        // a new refusal a client could detect.
+        ->and(refusalFingerprint($refused))
+        ->toBe(refusalFingerprint(refusalAttempt('nobody@example.com', 'not-the-password')));
+
+    $rows = authFixtureRows('login_history');
+
+    expect($rows)->toHaveCount(2)
+        ->and($rows[0]['email'])->toBe(EmailAddress::NOT_AN_EMAIL)
+        ->and($rows[0]['failure_reason'])->toBe('unknown_user')
+        ->and($rows[0]['user_id'])->toBeNull();
+
+    // The scan AC-23 (6) asks for, over the three sinks. The sentinel is the
+    // value that was typed, trimmed or not. `ip` is packed binary, so the
+    // encoder is told to substitute what it cannot read rather than throw;
+    // the sentinel is ASCII and no substitution can hide it.
+    $haystack = json_encode($rows, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE)
+        .$log->haystack()
+        .$refused->getMessage();
+
+    expect($haystack)->not->toContain('hunter2-in-the-wrong-box')
+        // The scan is live: the marker that replaced it is in the same
+        // haystack, so an absence above is not an absence of everything.
+        ->and($haystack)->toContain(EmailAddress::NOT_AN_EMAIL);
+});
+
+it('stores an address-shaped password, which is the residual D-38 accepts', function () {
+    // Not a defect and not a gap in the harness above: no shape rule can
+    // separate `P@ss.word1` from an address, and AC-26 states this case
+    // rather than leaving a reader to assume it is covered. The assertion
+    // exists so that the day someone decides to close it, a test says what
+    // the behaviour was.
+    refusalAttempt('P@ss.word1');
+
+    expect(authFixtureRows('login_history')[0]['email'])->toBe('P@ss.word1');
 });
 
 /*
