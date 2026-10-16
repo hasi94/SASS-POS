@@ -41,6 +41,20 @@ use Throwable;
  */
 final class AccessTokenRefused extends RuntimeException
 {
+    /**
+     * The one reason the HTTP surface distinguishes, and therefore the one
+     * reason that is a named value rather than a literal (step 12).
+     *
+     * AC-42 and AC-46 both answer **403** to a token of the wrong type and
+     * 401 to everything else, because the caller holds a token this system
+     * issued and the remedy is to exchange it, not to authenticate again.
+     * That is the only branch the middleware takes on a reason, so it is the
+     * only reason the middleware may name - and it names this constant, so
+     * that the word exists once. Every other reason reaches the client as
+     * the same generic refusal and is told apart only in a log.
+     */
+    public const REASON_WRONG_TOKEN_TYPE = 'token_type';
+
     private function __construct(private readonly string $reason, ?Throwable $previous = null)
     {
         parent::__construct(sprintf('the access token was refused (%s)', $reason), 0, $previous);
@@ -78,7 +92,7 @@ final class AccessTokenRefused extends RuntimeException
 
     public static function wrongTokenType(): self
     {
-        return new self('token_type');
+        return new self(self::REASON_WRONG_TOKEN_TYPE);
     }
 
     public static function claimSet(): self

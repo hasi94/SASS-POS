@@ -22,8 +22,8 @@ use Illuminate\Support\ServiceProvider;
  *
  * Step 4 gave it its first binding, the clock; step 5 adds the signing keyring
  * and the resolver that turns a `private_key_ref` into key material; step 6
- * adds the tenant-selection policy. The route file arrives with the step that
- * creates it.
+ * adds the tenant-selection policy. Step 12 mounts the route file, which is
+ * the only thing this provider boots.
  */
 final class AuthServiceProvider extends ServiceProvider
 {
@@ -88,8 +88,20 @@ final class AuthServiceProvider extends ServiceProvider
         );
     }
 
+    /**
+     * Mount the four endpoints (step 12).
+     *
+     * `loadRoutesFrom()` rather than a `withRouting()` entry in the host's
+     * bootstrap, for the same reason DemoServiceProvider does it: the file
+     * that declares the routes and the provider that decides they exist stay
+     * together, and a host that did not register this provider gets no
+     * authentication endpoints at all rather than endpoints pointing at a
+     * provider that never booted. The helper is also route-cache aware - it
+     * skips the file when the application's routes are cached, which is what
+     * keeps `route:cache` working.
+     */
     public function boot(): void
     {
-        //
+        $this->loadRoutesFrom(__DIR__.'/../routes/api.php');
     }
 }
