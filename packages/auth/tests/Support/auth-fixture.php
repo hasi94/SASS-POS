@@ -281,9 +281,9 @@ function authFixtureLoginHandler(): LoginHandler
  * hashing with the real Argon2id driver - which is what AC-8 needs, since the
  * digests it counts checks against have to be real ones.
  */
-function authFixtureCountingHasher(): AuthFixtureCountingHasher
+function authFixtureCountingHasher(?string $blindTo = null): AuthFixtureCountingHasher
 {
-    $counting = new AuthFixtureCountingHasher(app(Hasher::class));
+    $counting = new AuthFixtureCountingHasher(app(Hasher::class), $blindTo);
 
     app()->instance(Hasher::class, $counting);
 
@@ -303,6 +303,15 @@ function authFixtureCountingHasher(): AuthFixtureCountingHasher
  *
  * It delegates rather than answering, because a double that returned a fixed
  * answer would also be deciding the test's outcome.
+ *
+ * **$blindTo is AC-8's negative control, and it is a property of the double
+ * rather than a mutation of the handler.** The spec requires that "a double
+ * that counts zero for the unknown case" turn the criterion red. Handed the
+ * dummy digest, this one records every check except that one, so the parity
+ * assertion sees zero work on the unknown-address path - which is precisely
+ * what a handler that skipped the dummy verification would produce. The
+ * control is therefore run against the shipped handler, with nothing in
+ * packages/auth/src altered to produce it.
  */
 final class AuthFixtureCountingHasher implements Hasher
 {
@@ -313,7 +322,11 @@ final class AuthFixtureCountingHasher implements Hasher
      */
     public array $checked = [];
 
-    public function __construct(private readonly Hasher $inner) {}
+    /**
+     * \@param  string|null  $blindTo  a digest this double refuses to count
+     *                              - AC-8's negative control (step 9)
+     */
+    public function __construct(private readonly Hasher $inner, private readonly ?string $blindTo = null) {}
 
     public function count(): int
     {
@@ -345,7 +358,9 @@ final class AuthFixtureCountingHasher implements Hasher
      */
     public function check(#[SensitiveParameter] $value, $hashedValue, array $options = []): bool
     {
-        $this->checked[] = (string) $hashedValue;
+        if ($this->blindTo === null || (string) $hashedValue !== $this->blindTo) {
+            $this->checked[] = (string) $hashedValue;
+        }
 
         return $this->inner->check($value, $hashedValue, $options);
     }

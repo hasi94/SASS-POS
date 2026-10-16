@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flexipos\Auth\Features\Login;
 
+use Carbon\CarbonImmutable;
 use Flexipos\Auth\Exceptions\CredentialRefused;
 use Flexipos\Auth\Exceptions\InvalidLoginInput;
 use Flexipos\Auth\Exceptions\NoActiveSigningKey;
@@ -73,6 +74,47 @@ use Illuminate\Database\DatabaseManager;
  */
 final class LoginHandler
 {
+    /**
+     * The digest an address that matches nobody is checked against (AC-8).
+     *
+     * **Why there is one at all.** Without it, an unknown address returns
+     * after one indexed `SELECT` and a known one returns after an Argon2id
+     * verification, and the difference - measured on this machine at **207
+     * milliseconds** for the shipped work factors - tells an attacker which
+     * addresses have accounts. That is an enumeration oracle, and no amount
+     * of making the *response* identical (D-12) closes it. So the work is
+     * done either way: exactly one `check()` call on both paths, against
+     * identical parameters.
+     *
+     * **Why it is a real Argon2id digest and not a placeholder.**
+     * `hashing.verify` is `true`, which makes Laravel's Argon2id driver
+     * refuse - with a `RuntimeException` - any digest that was not produced
+     * by Argon2id. A sentinel such as `'x'` would therefore turn the
+     * unknown-address path into a 500 instead of a refusal, and it would do
+     * so only in production, where the path is not exercised by a test
+     * fixture. This value was produced by
+     * `password_hash(bin2hex(random_bytes(32)), PASSWORD_ARGON2ID,
+     * ['memory_cost' => 65536, 'time_cost' => 4, 'threads' => 1])` - the
+     * shipped work factors, so the two paths cost the same in production -
+     * and the random plaintext was discarded at the moment it was generated
+     * and written down nowhere. **This is not a secret and not key
+     * material**: it is a digest of 64 hex characters nobody knows, it
+     * authenticates nothing, and no password can be submitted that verifies
+     * against it.
+     *
+     * **Fixed, not generated per process.** AC-8 says "a fixed dummy hash".
+     * A digest generated at boot would cost a hash per process and could, in
+     * principle, differ in parameters from the stored ones; a constant
+     * cannot drift, and a test can name it to prove the check happened
+     * against this and nothing else.
+     *
+     * The test suite lowers the Argon factors (`phpunit.xml`) while this
+     * constant keeps the shipped ones, so each unknown-address case in the
+     * suite pays the full ~200 ms. That is a deliberate cost: the point of
+     * the constant is that it is what production uses.
+     */
+    public const DUMMY_PASSWORD_HASH = '$argon2id$v=19$m=65536,t=4,p=1$dDRaUDV0UkNKVURvblFKUg$D3XAt5OZ587Tunu6dk6duQZoVUpOOUpX2sUuvyA0XGM';
+
     public function __construct(
         private readonly DatabaseManager $database,
         private readonly ConfigRepository $config,
@@ -113,6 +155,11 @@ final class LoginHandler
         $user = $this->findUser($credentials);
 
         if ($user === null) {
+            // AC-8. The work is done whether or not there is an account to do
+            // it against, and the result is discarded because the outcome was
+            // decided by the lookup. This call is the criterion.
+            $this->hasher->check($credentials->password, self::DUMMY_PASSWORD_HASH);
+
             $this->refuse($command, $credentials, RecordLoginAttempt::REASON_UNKNOWN_USER);
         }
 
@@ -120,11 +167,119 @@ final class LoginHandler
             $this->refuse($command, $credentials, RecordLoginAttempt::REASON_NOT_ACTIVE, (string) $user->id);
         }
 
+        if ($this->isLocked($user)) {
+            // AC-18: a live lock is reported and never extended. Nothing is
+            // written to the account here, which is why "`locked_until` is
+            // unchanged and `failed_attempts` stays 0" needs no code to be
+            // true.
+            $this->refuse($command, $credentials, RecordLoginAttempt::REASON_LOCKED, (string) $user->id);
+        }
+
         if (! $this->hasher->check($credentials->password, (string) $user->password_hash)) {
-            $this->refuse($command, $credentials, RecordLoginAttempt::REASON_BAD_PASSWORD, (string) $user->id);
+            $this->countFailure($command, $credentials, (string) $user->id);
         }
 
         return $this->admit($command, $credentials, $user);
+    }
+
+    /**
+     * Is this account inside a live lock? (AC-19.)
+     *
+     * The comparison is `>`, deliberately and visibly: at exactly
+     * `locked_until` the lock has run out, so the boundary instant is
+     * **accepted**. AC-19 requires both sides to be exercised - refused at
+     * T minus a second, accepted at exactly T - because a `>` written where
+     * a `>=` was meant is invisible everywhere except at T.
+     *
+     * An expired lock is simply not a lock: it is left in the column as the
+     * record of what happened, and `failed_attempts` - which the lock itself
+     * reset to 0 (D-5) - is what the next run of failures counts from
+     * (AC-20).
+     */
+    private function isLocked(object $user): bool
+    {
+        if ($user->locked_until === null) {
+            return false;
+        }
+
+        return CarbonImmutable::parse((string) $user->locked_until)->greaterThan($this->clock->now());
+    }
+
+    /**
+     * A wrong password: count it, and lock the account if that was the last
+     * one allowed (AC-16, AC-17, AC-20).
+     *
+     * **The increment is one `UPDATE ... SET failed_attempts =
+     * failed_attempts + 1` and never a read-modify-write.** Reading the
+     * column into PHP, adding one and writing the result back loses
+     * increments the moment two attempts overlap, which is exactly the
+     * guessing pattern the lockout exists to stop: N simultaneous wrong
+     * passwords would count as one. The engine does the arithmetic, so the
+     * statement is atomic wherever it runs. **AC-22 is marked [ENGINE] and
+     * is graded by reading this statement**, not by a test - one SQLite
+     * connection cannot produce the concurrency the criterion is about, and
+     * a green test over a sequential run would be evidence of nothing while
+     * looking like evidence of something.
+     *
+     * The count is then read back - a read *after* the write, which is not
+     * the same thing as a read-modify-write: the value compared against the
+     * threshold is the one the engine produced, and nothing is written back
+     * from it except the lock.
+     *
+     *
+     * @throws CredentialRefused
+     */
+    private function countFailure(Login $command, LoginCredentials $credentials, string $userId): never
+    {
+        $now = $this->clock->now();
+        $connection = $this->master();
+
+        $connection->table('users')->where('id', $userId)->update([
+            'failed_attempts' => $connection->raw('failed_attempts + 1'),
+            'updated_at' => $now->format(RunnerClock::PRECISION),
+        ]);
+
+        $attempts = (int) $connection->table('users')->where('id', $userId)->value('failed_attempts');
+        $threshold = (int) $this->config->get('authentication.lockout.threshold');
+
+        if ($attempts < $threshold) {
+            $this->refuse($command, $credentials, RecordLoginAttempt::REASON_BAD_PASSWORD, $userId);
+        }
+
+        $minutes = (int) $this->config->get('authentication.lockout.minutes');
+        $lockedUntil = $now->addMinutes($minutes)->format(RunnerClock::PRECISION);
+
+        // D-5: the counter resets as the lock is taken, so the lock is a
+        // fixed window rather than something a further attempt can extend,
+        // and the run that follows its expiry starts from zero (AC-20).
+        // `users.status` is untouched: a lock is a timer, not a state
+        // (AC-17).
+        $connection->table('users')->where('id', $userId)->update([
+            'failed_attempts' => 0,
+            'locked_until' => $lockedUntil,
+            'updated_at' => $now->format(RunnerClock::PRECISION),
+        ]);
+
+        // The attempt that locked the account is still a `bad_password`
+        // attempt, and the lockout is the notable thing that happened
+        // alongside it: AC-25 requires both rows, and they are one command so
+        // that neither can be written without the other.
+        $this->attempts->handle(RecordLoginAttempt::failed(
+            email: $credentials->email->submitted,
+            failureReason: RecordLoginAttempt::REASON_BAD_PASSWORD,
+            userId: $userId,
+            ip: $command->ip,
+            userAgent: $command->userAgent,
+            deviceId: $command->deviceId,
+            securityEventType: RecordLoginAttempt::EVENT_LOCKOUT,
+            securityEventDetail: [
+                'threshold' => $threshold,
+                'minutes' => $minutes,
+                'locked_until' => $lockedUntil,
+            ],
+        ));
+
+        throw CredentialRefused::refused();
     }
 
     /**
