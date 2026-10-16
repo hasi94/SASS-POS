@@ -77,27 +77,47 @@ final class RecordLoginAttempt
     ];
 
     /**
-     * A lockout, the one security event T-009 raises alongside an attempt
-     * (AC-17, AC-25).
-     *
-     * `token_reuse` (AC-34) is raised by the refresh slice in step 11 and
-     * arrives with it. It belongs in this slice too - this is the only writer
-     * of `security_events` - but it is not added before there is a caller to
-     * exercise it: an untested second entry point beside the one that matters
-     * is the liability the `file:` key scheme was refused for.
+     * A lockout, raised alongside the attempt that caused it (AC-17, AC-25).
      */
     public const EVENT_LOCKOUT = 'lockout';
 
     /**
+     * A refresh token presented a second time (AC-34).
+     *
+     * **It arrives with the slice that has a reuse to record**, which is why
+     * it was deliberately absent until step 11: an untested second event type
+     * beside the one that matters is the liability the `file:` key scheme was
+     * refused for.
+     *
+     * **Unlike a lockout it stands alone, and that is why this command grew a
+     * second shape.** A lockout happens *during* an attempt to sign in, so
+     * there is an attempt to record it beside. A replayed refresh token is
+     * not an attempt to authenticate with a credential at all - nothing was
+     * typed, nothing was judged about a person - and `login_history` means
+     * "a credential was judged" (D-36). Writing a row for it would need a
+     * `failure_reason` the closed set cannot express and would put a
+     * fictional login into the table investigations are run from. So it is
+     * recorded as what it is: an event, through {@see self::securityEvent()}.
+     */
+    public const EVENT_TOKEN_REUSE = 'token_reuse';
+
+    /**
      * @var list<string>
      */
-    public const EVENT_TYPES = [self::EVENT_LOCKOUT];
+    public const EVENT_TYPES = [self::EVENT_LOCKOUT, self::EVENT_TOKEN_REUSE];
 
     /**
      * @param  array<string, mixed>|null  $securityEventDetail
      */
     private function __construct(
-        public readonly string $email,
+        /**
+         * The address the attempt was made under, or null when this command
+         * records **no attempt at all** - see {@see self::securityEvent()}.
+         * The two are the same field on purpose: a reader asking "was a
+         * credential judged here" gets one answer, from
+         * {@see self::recordsAttempt()}, rather than two that can disagree.
+         */
+        public readonly ?string $email,
         public readonly bool $success,
         public readonly ?string $failureReason,
         public readonly ?string $userId,
@@ -108,21 +128,40 @@ final class RecordLoginAttempt
         public readonly ?string $securityEventType,
         public readonly ?array $securityEventDetail,
     ) {
-        if (trim($email) === '') {
+        if ($email !== null && trim($email) === '') {
             throw new InvalidArgumentException('an attempt records the address that was submitted');
+        }
+
+        if ($email === null && $securityEventType === null) {
+            // An event-only command with no event records nothing at all, and
+            // a handler asked to write nothing is a caller that has made a
+            // mistake somewhere earlier.
+            throw new InvalidArgumentException('a command that records no attempt must record an event');
         }
 
         if ($success && $failureReason !== null) {
             throw new InvalidArgumentException('a successful attempt has no failure reason');
         }
 
-        if (! $success && ! in_array($failureReason, self::REASONS, true)) {
+        if ($email !== null && ! $success && ! in_array($failureReason, self::REASONS, true)) {
             throw new InvalidArgumentException(sprintf('unknown failure reason [%s]', (string) $failureReason));
         }
 
         if ($securityEventType !== null && ! in_array($securityEventType, self::EVENT_TYPES, true)) {
             throw new InvalidArgumentException(sprintf('unknown security event type [%s]', $securityEventType));
         }
+    }
+
+    /**
+     * Whether this command records a login attempt, or only an event.
+     *
+     * The handler's one branch, and the honest expression of D-36:
+     * `login_history` says a credential was judged, and a replayed refresh
+     * token judged none.
+     */
+    public function recordsAttempt(): bool
+    {
+        return $this->email !== null;
     }
 
     /**
@@ -180,6 +219,48 @@ final class RecordLoginAttempt
             deviceId: $deviceId,
             securityEventType: $securityEventType,
             securityEventDetail: $securityEventDetail,
+        );
+    }
+
+    /**
+     * A security event with no login attempt beside it (AC-34).
+     *
+     * **The third shape, and the one that keeps `login_history` honest.** A
+     * replayed refresh token is a notable thing that happened to a session,
+     * not a credential that was judged: nobody typed anything, no account was
+     * looked up by address, and the closed reason set has no word for it
+     * (D-36). A row here would be a login that never happened, in the table
+     * used to investigate guessing. So the attempt half is omitted and the
+     * event half is written on its own.
+     *
+     * It is still **this** slice, and deliberately so: `security_events` has
+     * one writer, and the plan's reason stands - an event written from a
+     * second place is an event whose shape will disagree with itself.
+     *
+     * `detail` is the one free-form column in the system. **No token, no
+     * token hash and no credential may go into it** (AC-26); what T-009
+     * writes is a family identifier and a count.
+     *
+     * @param  array<string, mixed>|null  $detail
+     */
+    public static function securityEvent(
+        string $type,
+        ?string $userId = null,
+        ?string $tenantId = null,
+        ?string $ip = null,
+        ?array $detail = null,
+    ): self {
+        return new self(
+            email: null,
+            success: false,
+            failureReason: null,
+            userId: $userId,
+            tenantId: $tenantId,
+            ip: $ip,
+            userAgent: null,
+            deviceId: null,
+            securityEventType: $type,
+            securityEventDetail: $detail,
         );
     }
 }

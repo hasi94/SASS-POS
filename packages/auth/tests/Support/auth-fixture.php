@@ -1,6 +1,8 @@
 <?php
 
 use Flexipos\Auth\Features\Login\LoginHandler;
+use Flexipos\Auth\Features\Logout\LogoutHandler;
+use Flexipos\Auth\Features\RefreshToken\RefreshTokenHandler;
 use Flexipos\Auth\Features\SelectTenant\SelectTenantHandler;
 use Flexipos\Auth\Keys\KeyPairGenerator;
 use Flexipos\Auth\Tokens\SigningKeyring;
@@ -542,4 +544,68 @@ function authFixtureWithMasterQueryLog(callable $work): array
 function authFixtureErrorLevel(): string
 {
     return LogLevel::ERROR;
+}
+
+/*
+|--------------------------------------------------------------------------
+| T-009 step 11: rotating a session, and ending one
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * The refresh handler, built by the container so every binding under test is
+ * the shipped one unless a test has deliberately replaced it.
+ */
+function authFixtureRefreshHandler(): RefreshTokenHandler
+{
+    return app(RefreshTokenHandler::class);
+}
+
+/**
+ * The logout handler, built the same way.
+ */
+function authFixtureLogoutHandler(): LogoutHandler
+{
+    return app(LogoutHandler::class);
+}
+
+/**
+ * Every `refresh_tokens` row of one family, oldest first.
+ *
+ * Ordered by `created_at` and then by `id`, because a rotation inside a
+ * stopped clock writes rows that share an instant and a test comparing a
+ * chain needs a total order.
+ *
+ * @return list<array<string, mixed>>
+ */
+function authFixtureFamilyRows(string $familyId): array
+{
+    return array_map(
+        static fn (object $row): array => (array) $row,
+        DB::connection('master')
+            ->table('refresh_tokens')
+            ->where('family_id', $familyId)
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->get()
+            ->all()
+    );
+}
+
+/**
+ * The stored row a presented refresh token hashes to, as an array, or null.
+ *
+ * The lookup is on the hash and never on the value, which is also the thing
+ * AC-32 is about: there is no column holding the plaintext to look it up by.
+ *
+ * @return array<string, mixed>|null
+ */
+function authFixtureRefreshRow(string $plaintext): ?array
+{
+    $row = DB::connection('master')
+        ->table('refresh_tokens')
+        ->where('token_hash', hash('sha256', $plaintext))
+        ->first();
+
+    return $row === null ? null : (array) $row;
 }

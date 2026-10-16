@@ -64,18 +64,13 @@ final class RecordLoginAttemptHandler
         $now = $this->clock->timestamp();
         $ip = IpAddress::pack($command->ip);
 
-        $this->master()->table('login_history')->insert([
-            'user_id' => $command->userId,
-            'tenant_id' => $command->tenantId,
-            'email' => $command->email,
-            'principal_type' => self::PRINCIPAL_TYPE,
-            'success' => $command->success,
-            'failure_reason' => $command->failureReason,
-            'ip' => $ip,
-            'user_agent' => $command->userAgent,
-            'device_id' => $command->deviceId,
-            'created_at' => $now,
-        ]);
+        // The one branch: a command that records no attempt writes no
+        // `login_history` row. A replayed refresh token is an event and not
+        // a credential judgement (D-36), and the table means the second
+        // thing.
+        if ($command->recordsAttempt()) {
+            $this->insertAttempt($command, $now, $ip);
+        }
 
         if ($command->securityEventType === null) {
             return;
@@ -93,6 +88,22 @@ final class RecordLoginAttemptHandler
                 ? null
                 : json_encode($command->securityEventDetail, JSON_THROW_ON_ERROR),
             'ip' => $ip,
+            'created_at' => $now,
+        ]);
+    }
+
+    private function insertAttempt(RecordLoginAttempt $command, string $now, ?string $ip): void
+    {
+        $this->master()->table('login_history')->insert([
+            'user_id' => $command->userId,
+            'tenant_id' => $command->tenantId,
+            'email' => $command->email,
+            'principal_type' => self::PRINCIPAL_TYPE,
+            'success' => $command->success,
+            'failure_reason' => $command->failureReason,
+            'ip' => $ip,
+            'user_agent' => $command->userAgent,
+            'device_id' => $command->deviceId,
             'created_at' => $now,
         ]);
     }
