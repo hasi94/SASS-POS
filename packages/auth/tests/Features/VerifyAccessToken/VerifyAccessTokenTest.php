@@ -111,6 +111,15 @@ function verifyNow(): int
     return app(RunnerClock::class)->now()->getTimestamp();
 }
 
+/**
+ * One JOSE segment - a header or a claim set - as unpadded base64url.
+ *
+ * The docblock is step 5b's: packages/auth/tests entered PHPStan's paths
+ * there, and this helper's bare `array` was the one error the whole
+ * directory produced.
+ *
+ * @param  array<string, mixed>  $value
+ */
 function verifySegment(array $value): string
 {
     return rtrim(strtr(base64_encode((string) json_encode($value)), '+/', '-_'), '=');

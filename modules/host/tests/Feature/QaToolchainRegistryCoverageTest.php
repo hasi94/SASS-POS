@@ -18,6 +18,19 @@ use Symfony\Component\Yaml\Yaml;
  * These tests turn that manual discipline into an enforced invariant: however
  * the lists are maintained, by hand or by a glob, every package on disk must be
  * covered by all three.
+ *
+ * T-009 step 5b widened the first two checks from `src` to `src` **and**
+ * `tests`. They had only ever looked at `src`, so a package whose test
+ * directory was in neither registry was invisible to the guard whose own
+ * header, above, says it exists so that nothing goes unnoticed when a list is
+ * not updated - it could not notice half of one, and packages/auth/tests was
+ * exactly that case for the length of T-009's first five steps. Both new
+ * checks are guarded by is_dir(), the way qaPhpunitGaps() already is, so a
+ * package shipping no tests is not failed for having none. The reason test
+ * code must be in both registries is written out in each configuration file:
+ * phpstan.neon.dist says a test file is as capable of a level 6 mistake as a
+ * source file, and deptrac.yaml says test code is boundary-checked because a
+ * layer is matched by namespace and not by directory.
  */
 
 /*
@@ -133,6 +146,12 @@ function qaPhpstanGaps(array $packages, string $label): array
         if (! in_array(realpath($directory.DIRECTORY_SEPARATOR.'src'), $paths, true)) {
             $gaps[] = "{$label}/{$name}/src is not in phpstan.neon.dist paths";
         }
+
+        $tests = $directory.DIRECTORY_SEPARATOR.'tests';
+
+        if (is_dir($tests) && ! in_array(realpath($tests), $paths, true)) {
+            $gaps[] = "{$label}/{$name}/tests is not in phpstan.neon.dist paths";
+        }
     }
 
     return $gaps;
@@ -212,6 +231,12 @@ function qaDeptracGaps(array $packages, string $label): array
     foreach ($packages as $name => $directory) {
         if (! in_array(realpath($directory.DIRECTORY_SEPARATOR.'src'), $deptrac['paths'], true)) {
             $gaps[] = "{$label}/{$name}/src is not in deptrac.yaml paths";
+        }
+
+        $tests = $directory.DIRECTORY_SEPARATOR.'tests';
+
+        if (is_dir($tests) && ! in_array(realpath($tests), $deptrac['paths'], true)) {
+            $gaps[] = "{$label}/{$name}/tests is not in deptrac.yaml paths";
         }
 
         $probe = qaProbeClassFor($directory);
@@ -329,9 +354,13 @@ it('does not skip a legitimately named module just because its name contains the
     // And, because nobody has registered it anywhere, every one of the three
     // checks this file makes reports it. A guard that silently passed here is
     // the BUG-5 mitigation failing open.
-    expect(qaPhpstanGaps($probe, 'modules'))->toBe(["modules/{$name}/src is not in phpstan.neon.dist paths"])
+    expect(qaPhpstanGaps($probe, 'modules'))->toBe([
+        "modules/{$name}/src is not in phpstan.neon.dist paths",
+        "modules/{$name}/tests is not in phpstan.neon.dist paths",
+    ])
         ->and(qaDeptracGaps($probe, 'modules'))->toBe([
             "modules/{$name}/src is not in deptrac.yaml paths",
+            "modules/{$name}/tests is not in deptrac.yaml paths",
             'no deptrac.yaml layer collects Flexipos\Module\DataFixtures\QaProbe',
         ])
         ->and(qaPhpunitGaps($probe))->toBe([]);

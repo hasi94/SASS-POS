@@ -34,6 +34,10 @@ parameters:
         - ../demo/tests
         # packages/*
         - ../../packages/auth/src
+        # The auth package's tests (T-009 step 5b). They were in neither
+        # registry, which QaToolchainRegistryCoverageTest could not see
+        # while it checked src only.
+        - ../../packages/auth/tests
         - ../../packages/contracts/src
         - ../../packages/eventbus/src
         # Str::studly('http-client') === 'HttpClient'; the directory stays kebab-case.

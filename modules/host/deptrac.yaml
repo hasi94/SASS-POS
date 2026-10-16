@@ -21,6 +21,10 @@ deptrac:
     - ../demo/src
     - ../demo/tests
     - ../../packages/auth/src
+    # The auth package's tests (T-009 step 5b), for the reason stated
+    # above: a layer is matched by namespace and not by directory, and
+    # these were in neither registry.
+    - ../../packages/auth/tests
     - ../../packages/contracts/src
     - ../../packages/eventbus/src
     # Str::studly('http-client') === 'HttpClient'; the directory stays kebab-case.
