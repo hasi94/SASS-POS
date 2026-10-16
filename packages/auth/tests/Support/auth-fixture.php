@@ -10,6 +10,7 @@ use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Psr\Log\AbstractLogger;
@@ -413,16 +414,29 @@ function authFixtureSelectTenantHandler(): SelectTenantHandler
  * about *content*, and a mock that verifies a call cannot answer it. So the
  * entries are kept and scanned.
  *
- * `LoggerInterface::class` is an alias of `log` in Laravel's container, so one
- * instance registration replaces what a constructor injection receives and
- * what the `Log` facade resolves - the same alias hazard the counting hasher
- * above documents for `Hasher::class`.
+ * **Two registrations, because one does not cover the facade.**
+ * `LoggerInterface::class` is an *alias of* `log`, and `Container::instance()`
+ * drops the alias it is given before binding - so registering under
+ * `LoggerInterface::class` alone replaces what a constructor injection
+ * receives and leaves `Log::`, `logger()` and `app('log')` resolving the real
+ * `LogManager` (FP-302/BUG-1: the comment here used to claim the facade was
+ * covered, and it was not). Binding `log` as well covers all four routes, and
+ * `AuthFixtureRecordingLoggerTest` fails if any of them stops landing here.
+ *
+ * **Install it before anything that logs.** The `Log` facade caches its
+ * resolved instance for the test, and `SigningKeyring` is a singleton holding
+ * whatever logger it was built with - a recorder bound late is handed to
+ * nobody and reports an empty log, which looks exactly like a failure that was
+ * never logged.
  */
 function authFixtureRecordingLogger(): AuthFixtureRecordingLogger
 {
     $logger = new AuthFixtureRecordingLogger;
 
     app()->instance(LoggerInterface::class, $logger);
+    app()->instance('log', $logger);
+
+    Facade::clearResolvedInstance('log');
 
     return $logger;
 }
@@ -456,6 +470,27 @@ final class AuthFixtureRecordingLogger extends AbstractLogger
             'message' => (string) $message,
             'context' => $context,
         ];
+    }
+
+    /**
+     * The two `LogManager` entry points that are reached through the `log`
+     * binding rather than through `LoggerInterface`.
+     *
+     * Binding this recorder under `log` also puts it where
+     * `LogManager::class` resolves, and the framework's deprecation handler
+     * resolves exactly that and calls `channel()`. Answering with the
+     * recorder itself keeps every route recording instead of fatalling on an
+     * undefined method; the entries still arrive through the one `log()`
+     * below, so a channel cannot be recorded differently from the default.
+     */
+    public function channel(?string $channel = null): self
+    {
+        return $this;
+    }
+
+    public function driver(?string $driver = null): self
+    {
+        return $this;
     }
 
     /**
