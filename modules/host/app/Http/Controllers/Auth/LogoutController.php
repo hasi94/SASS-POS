@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\AuthRequestContext;
 use Flexipos\Auth\Features\Logout\Logout;
 use Flexipos\Auth\Features\Logout\LogoutHandler;
 use Illuminate\Http\JsonResponse;
@@ -19,6 +20,9 @@ use Illuminate\Http\Request;
  * is no refusal to render here and therefore no `catch`: the handler has no
  * refusal to throw.
  *
+ *
+ * **Every submitted value is read with {@see AuthRequestContext::body()},
+ * never with `$request->input()`**, which merges the query string: R-1.
  * **It resolves no signing key, and no middleware guards it.** Both are
  * deliberate and they are the same decision. Signing out mints nothing, so a
  * key is not needed - and a deployment whose every key has been retired must
@@ -33,7 +37,9 @@ final class LogoutController extends Controller
 
     public function __invoke(Request $request): JsonResponse
     {
-        $result = $this->logout->handle(new Logout($request->input('refresh_token')));
+        $token = AuthRequestContext::body($request, 'refresh_token');
+
+        $result = $this->logout->handle(new Logout($token));
 
         return new JsonResponse($result->toResponse(), 200);
     }

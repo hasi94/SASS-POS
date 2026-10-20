@@ -31,6 +31,9 @@ use Illuminate\Http\Request;
  * a tenant token, an expired platform token, no token - are answered before
  * this class is constructed. It never sees them.
  *
+ *
+ * **Every submitted value is read with {@see AuthRequestContext::body()},
+ * never with `$request->input()`**, which merges the query string: R-1.
  * As in {@see LoginController}, the transport validation here is a second
  * copy of the slice's and the slice's is the one that must stay.
  */
@@ -41,7 +44,7 @@ final class SelectTenantController extends Controller
     public function __invoke(Request $request): JsonResponse
     {
         $context = AuthRequestContext::from($request);
-        $code = $request->input('code');
+        $code = AuthRequestContext::body($request, 'code');
 
         try {
             // AC-41, before the handler.

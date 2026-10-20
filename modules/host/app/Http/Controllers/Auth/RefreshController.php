@@ -35,6 +35,9 @@ use Illuminate\Http\Request;
  * controller renders that one body. The 422 shape belongs to login and
  * selection, where the submission is a form and not a secret.
  *
+ *
+ * **Every submitted value is read with {@see AuthRequestContext::body()},
+ * never with `$request->input()`**, which merges the query string: R-1.
  * The tenant re-check of AC-37 refuses with AC-40's two bodies and, by D-24,
  * does **not** consume the token; nothing here needs to know that, which is
  * the point of it being the slice's rule.
@@ -49,7 +52,7 @@ final class RefreshController extends Controller
 
         try {
             $result = $this->refresh->handle(new RefreshToken(
-                token: $request->input('refresh_token'),
+                token: AuthRequestContext::body($request, 'refresh_token'),
                 ip: $context->ip,
                 userAgent: $context->userAgent,
                 deviceId: $context->deviceId,

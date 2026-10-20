@@ -24,6 +24,11 @@ use Illuminate\Http\Request;
  * worth more truncated than absent, and the slice is not the place for it: a
  * non-HTTP caller passes what it means to store.
  *
+ * **It is also where the four endpoints read a submitted value from.**
+ * {@see self::body()} exists because `$request->input()` merges the query
+ * string, and a credential read through it would be written to the web
+ * server's access log; the reasoning is on that method.
+ *
  * Nothing here is ever read for tenancy (AC-45). The tenant a request runs
  * under comes from its token's `tenant` claim and from nowhere else; these
  * three are evidence about the caller, and `RequireTenantToken` does not
@@ -47,6 +52,39 @@ final class AuthRequestContext
      * `login_history.device_id`.
      */
     public const DEVICE_ID_LIMIT = 100;
+
+    /**
+     * One value of the request **body**, and never of the query string.
+     *
+     * **`$request->input()` is not a body read and must not be used for a
+     * credential.** Its implementation is `data_get($this->getInputSource()
+     * ->all() + $this->query->all(), ...)`, so the URL's parameters are
+     * merged in as a fallback: a `POST /api/v1/auth/login?password=hunter2`
+     * with an empty body authenticates. The spec's NFR is absolute -
+     * **tokens never travel in URLs** - and a query string is the one place
+     * a credential cannot be recalled from: nginx writes the request URI to
+     * `access.log` by default (`docs/deployment-vps.md`), nothing here
+     * prunes that file, and browser history, proxy logs and `Referer` carry
+     * it too. R-1.
+     *
+     * `$request->post()` is not sufficient either, because a JSON request
+     * never populates the `request` bag. So the source is chosen the way the
+     * framework chooses it for a body - the decoded JSON for a JSON request,
+     * the POST bag otherwise - with the query bag simply absent. The
+     * framework's own `getInputSource()` would do this, but it is
+     * `protected` and also falls back to the query bag for a GET; these four
+     * endpoints are POST-only and a credential read must never see the URL
+     * whatever the verb.
+     *
+     * An absent key is `null`. Every caller already refuses null as a
+     * missing credential, so there is no new branch anywhere.
+     */
+    public static function body(Request $request, string $key): mixed
+    {
+        $source = $request->isJson() ? $request->json() : $request->request;
+
+        return data_get($source->all(), $key);
+    }
 
     private function __construct(
         public readonly ?string $ip,

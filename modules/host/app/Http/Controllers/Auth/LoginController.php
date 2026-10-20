@@ -36,6 +36,9 @@ use Illuminate\Http\Request;
  * input the same way; removing either one leaves the endpoint's behaviour
  * unchanged, and it is the slice's that must never be the one removed.
  *
+ *
+ * **Every submitted value is read with {@see AuthRequestContext::body()},
+ * never with `$request->input()`**, which merges the query string: R-1.
  * **No catch for anything else.** An unexpected throw is a 500 with a logged
  * trace, which is what an unexpected throw should be. The three caught here
  * are the three the handler documents.
@@ -50,8 +53,8 @@ final class LoginController extends Controller
     public function __invoke(Request $request): JsonResponse
     {
         $context = AuthRequestContext::from($request);
-        $email = $request->input('email');
-        $password = $request->input('password');
+        $email = AuthRequestContext::body($request, 'email');
+        $password = AuthRequestContext::body($request, 'password');
 
         try {
             // AC-9, before the handler: a request that cannot be read is not
