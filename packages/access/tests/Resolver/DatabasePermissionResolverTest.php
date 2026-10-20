@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flexipos\Access\Tests\Resolver;
 
+use Flexipos\Access\Resolver\DatabasePermissionResolver;
 use Flexipos\Access\Support\EmployeeStatus;
 use Flexipos\Access\Tests\Support\AccessSeed;
 use Flexipos\Access\Tests\Support\AccessTenantFixture;
@@ -355,4 +356,51 @@ it('reads the acting set from the one authority, and follows it when it moves (A
     EmployeeStatus::withActingStatuses([EmployeeStatus::SUSPENDED]);
 
     expect(resolver()->decide($ids['onLeave'], RESOLVER_SCOPED_KEY, $ids['branchB'])->allowed)->toBeTrue();
+});
+
+it('answers holdsEverywhere and decide alike wherever both are defined (Ruling 10)', function () {
+    $ids = resolverWorld();
+
+    // **The control the ruling asks for, and the reason it exists.**
+    // `holdsEverywhere()` and `decide()` share two contribution readers
+    // and `covers()` today - but "they share a helper" is a fact about
+    // this morning's code, not a property. If they fork, each slice
+    // stays right on its own and AC-36 and AC-39 quietly come to
+    // disagree about the same row, which nobody would learn from either.
+    //
+    // Only a NON-branch-scoped key can be compared: for a branch-scoped
+    // one `decide($id, $key, null)` answers `branch_required` by design
+    // (Ruling 8), which is the whole reason the second method exists.
+    $employees = array_diff_key($ids, array_flip(['branchB', 'branchY', 'scopedRole', 'companyRole']));
+
+    /** @var DatabasePermissionResolver $resolver */
+    $resolver = resolver();
+
+    $answers = [];
+
+    foreach ($employees as $name => $employeeId) {
+        $everywhere = $resolver->holdsEverywhere($employeeId, RESOLVER_COMPANY_KEY);
+        $decided = $resolver->decide($employeeId, RESOLVER_COMPANY_KEY, null)->allowed;
+
+        expect($everywhere)->toBe($decided, "[{$name}] is answered differently by the two methods");
+
+        $answers[$name] = $everywhere;
+    }
+
+    // Non-vacuous in both directions: an agreement test over a fixture
+    // where every answer is false is satisfied by two methods that both
+    // return false always. `companyViaNull` holds the key everywhere and
+    // the other eleven do not, so the loop above compared both answers.
+    expect($answers)->not->toBe([])
+        ->and(array_values(array_unique($answers)))->toEqualCanonicalizing([true, false])
+        ->and($answers['companyViaNull'])->toBeTrue();
+
+    // And across an explicit deny, which is the arm a forked `covers()`
+    // would get wrong first: a deny that one method reads as covering
+    // the null scope and the other does not.
+    AccessSeed::personal($ids['companyViaNull'], RESOLVER_COMPANY_KEY, false);
+
+    expect($resolver->holdsEverywhere($ids['companyViaNull'], RESOLVER_COMPANY_KEY))
+        ->toBe($resolver->decide($ids['companyViaNull'], RESOLVER_COMPANY_KEY, null)->allowed)
+        ->and($resolver->holdsEverywhere($ids['companyViaNull'], RESOLVER_COMPANY_KEY))->toBeFalse();
 });

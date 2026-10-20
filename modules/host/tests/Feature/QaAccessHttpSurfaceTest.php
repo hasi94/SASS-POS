@@ -8,10 +8,12 @@ use Flexipos\Access\Registry\PermissionRegistry;
 use Flexipos\Access\Support\AccessLogWriter;
 use Flexipos\Access\Tests\Support\AccessSeed;
 use Flexipos\Access\Tests\Support\AccessTenantFixture;
+use Flexipos\Access\Tests\Support\FixturePermissionProvider;
 use Flexipos\Auth\Features\IssueTokenPair\IssueTokenPair;
 use Flexipos\Auth\Features\IssueTokenPair\IssueTokenPairHandler;
 use Flexipos\Auth\Tokens\TokenClaims;
 use Flexipos\Contracts\Access\EmployeeClaims;
+use Flexipos\Contracts\Access\PermissionDeclaration;
 use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
 use Flexipos\Kernel\Tenancy\Contracts\TenantMigrationTargetRepository;
 use Illuminate\Routing\Route as RoutingRoute;
@@ -182,7 +184,43 @@ function assertEveryTenantRouteIsDeclared(): void
         // explanation would be silently asserted as a value.
         expect(in_array($declaration, $registered, true))
             ->toBeTrue("[{$row['route']}] declares [{$declaration}], which no provider registers. {$domain}");
+
+        // **No route may declare a branch-scoped key, and this is the
+        // stronger of the two available failures.** The guard asks the
+        // resolver at a null scope, because no route carries a branch:
+        // branches, terminals and the transport that would bring one
+        // are FP-209's. A branch-scoped key declared on a route is
+        // therefore answered `branch_required` and the route refuses
+        // every request - fail-closed, correct, and discovered after
+        // deployment by whoever is holding the till. Refusing it here
+        // moves the failure to the commit that adds the route.
+        expect(accessBranchScopedKeys())
+            ->not->toContain($declaration);
     }
+}
+
+/**
+ * The registered keys that are branch-scoped.
+ *
+ * Read from the registry, so the day FP-209 makes a key branch-scoped
+ * this list grows by itself and the assertion above starts biting the
+ * routes that declare it.
+ *
+ * @return list<string>
+ */
+function accessBranchScopedKeys(): array
+{
+    $keys = [];
+
+    foreach (app(PermissionRegistry::class)->declarations() as $declaration) {
+        if ($declaration->isBranchScoped) {
+            $keys[] = $declaration->key;
+        }
+    }
+
+    sort($keys);
+
+    return $keys;
 }
 
 /**
@@ -627,4 +665,27 @@ it('stamps the audit row with the address of the request that caused it (AC-70)'
     // tell the shipped resolver from a hard-coded null.
     expect($rows)->toHaveCount(1)
         ->and(AccessLogWriter::unpackIp((string) $rows[0]['ip']))->toBe('127.0.0.1');
+});
+
+it('reports a tenant route declaring a branch-scoped key (AC-63, mutation control d)', function () {
+    // The liveness half of the branch-scoped rule. Every shipped key is
+    // company-wide (D-13), so the assertion in the sweep is vacuous
+    // today and would stay green against a sweep that never looked. A
+    // scratch declaration plus a scratch route naming it is the first
+    // branch-scoped route this application can have, and it must be
+    // reported.
+    FixturePermissionProvider::declaring(
+        app(),
+        new PermissionDeclaration('fixture.at_branch', 'fixture', 'Fixture', 'A branch-scoped key.', true)
+    );
+
+    expect(accessBranchScopedKeys())->toBe(['fixture.at_branch']);
+
+    Route::middleware([
+        'api',
+        RequireTenantToken::class,
+        RequireTenantPermission::class.':fixture.at_branch',
+    ])->post('/t10/at-branch', fn () => response()->json([]));
+
+    expect(fn () => assertEveryTenantRouteIsDeclared())->toThrow(ExpectationFailedException::class);
 });

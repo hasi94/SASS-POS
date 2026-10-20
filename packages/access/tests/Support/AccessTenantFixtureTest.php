@@ -183,7 +183,11 @@ it('records that a tenant entered without the fixture helper enforces nothing', 
     // rather than described, so that the day the stanza or the driver
     // changes, this case fails and the helper's docblock stops being true
     // quietly.
-    tenancy()->enter('tenant-a');
+    // Through the fixture's named lax door rather than `tenancy()->enter()`
+    // directly: step 24's sweep forbids the latter in this task's tests,
+    // and this case is the one place the laxness is the subject rather
+    // than an accident.
+    AccessTenantFixture::enterWithoutEnforcement('tenant-a');
 
     $connection = DB::connection(AccessTenantFixture::connectionName());
     $role = str_pad('ROLE-LAX', 26, '0');

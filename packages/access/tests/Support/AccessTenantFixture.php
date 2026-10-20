@@ -147,6 +147,26 @@ final class AccessTenantFixture
     }
 
     /**
+     * Enter a fixture tenant the way the rest of the application does -
+     * with foreign keys unenforced.
+     *
+     * **One named door for the gap, with exactly one caller.** Step 24's
+     * sweep asserts that no test in this task calls `tenancy()->enter()`
+     * itself, because a tenant entered that way ignores every
+     * `REFERENCES` clause in the tree and a test asserting a key on such
+     * a connection proves nothing. The one case that must use it is the
+     * case that *measures* the gap - if the stanza is fixed, or the
+     * driver changes, that case has to go red rather than the gap
+     * closing silently. Giving it a name makes it a visible exception
+     * instead of an allow-list entry in the sweep, and makes a second
+     * caller something a reviewer sees.
+     */
+    public static function enterWithoutEnforcement(string $tenant = 'tenant-a'): void
+    {
+        tenancy()->enter($tenant);
+    }
+
+    /**
      * Copy a tenant's migrated template to an arbitrary path.
      *
      * **For a database that is deliberately not a tenant's**, which is the
