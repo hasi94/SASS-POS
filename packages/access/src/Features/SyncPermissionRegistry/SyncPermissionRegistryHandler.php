@@ -7,10 +7,9 @@ namespace Flexipos\Access\Features\SyncPermissionRegistry;
 use Flexipos\Access\Registry\PermissionRegistry;
 use Flexipos\Access\Support\PermVersion;
 use Flexipos\Access\Support\SystemRole;
+use Flexipos\Access\Support\TenantConnection;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
-use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Database\Connection;
-use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\Str;
 
 /**
@@ -57,8 +56,7 @@ final class SyncPermissionRegistryHandler
 {
     public function __construct(
         private readonly PermissionRegistry $registry,
-        private readonly DatabaseManager $database,
-        private readonly ConfigRepository $config,
+        private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
     ) {}
 
@@ -69,7 +67,7 @@ final class SyncPermissionRegistryHandler
         // that never opened a transaction cannot have written a thing.
         $declared = $this->registry->declarations();
 
-        return $this->tenant()->transaction(function (Connection $connection) use ($declared): SyncPermissionRegistryResult {
+        return $this->tenant->get()->transaction(function (Connection $connection) use ($declared): SyncPermissionRegistryResult {
             /** @var array<string, object{key: string, module: string, group: string, description: string, is_branch_scoped: int|bool}> $stored */
             $stored = [];
 
@@ -231,17 +229,5 @@ final class SyncPermissionRegistryHandler
         }
 
         return $keys;
-    }
-
-    /**
-     * The tenant connection, named from configuration rather than written as
-     * `tenant`: the stanza's name has one authority and this is not it.
-     */
-    private function tenant(): Connection
-    {
-        /** @var Connection $connection */
-        $connection = $this->database->connection((string) $this->config->get('tenancy.connection', 'tenant'));
-
-        return $connection;
     }
 }

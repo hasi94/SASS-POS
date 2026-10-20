@@ -147,6 +147,32 @@ final class AccessTenantFixture
     }
 
     /**
+     * Copy a tenant's migrated template to an arbitrary path.
+     *
+     * **For a database that is deliberately not a tenant's**, which is the
+     * only thing it is for. `TenantConnectionAuthorityTest` has to point
+     * `tenancy.connection` at a stanza that is nobody's tenant and watch the
+     * writes land there; such a database still has to hold the shipped tree,
+     * and applying the tree again would cost the twelve seconds the template
+     * exists to avoid. The caller owns the file it names and deletes it.
+     *
+     * T-009 AC-52 is untouched: a template is not mapped to any tenant and
+     * no test reaches a *tenant's* data through a connection it built. That
+     * is the same line {@see self::TEMPLATE_CONNECTION} already draws.
+     */
+    public static function copyTemplateTo(string $tenant, string $path): void
+    {
+        $templates = self::templates();
+
+        if (! isset($templates[$tenant])) {
+            throw new RuntimeException("There is no fixture template for [{$tenant}].");
+        }
+
+        File::delete($path);
+        File::copy($templates[$tenant], $path);
+    }
+
+    /**
      * Leave whichever tenant is resolved, then enter this one.
      *
      * **A separate method, and `enter()` is deliberately not made tolerant.**

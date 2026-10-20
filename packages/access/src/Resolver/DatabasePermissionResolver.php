@@ -5,12 +5,11 @@ declare(strict_types=1);
 namespace Flexipos\Access\Resolver;
 
 use Flexipos\Access\Support\EmployeeStatus;
+use Flexipos\Access\Support\TenantConnection;
 use Flexipos\Contracts\Access\AccessDecision;
 use Flexipos\Contracts\Access\PermissionResolver;
 use Flexipos\Contracts\Access\RefusalReason;
-use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Database\Connection;
-use Illuminate\Database\DatabaseManager;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -56,15 +55,14 @@ use Psr\Log\LoggerInterface;
 final class DatabasePermissionResolver implements PermissionResolver
 {
     public function __construct(
-        private readonly DatabaseManager $database,
-        private readonly ConfigRepository $config,
+        private readonly TenantConnection $tenant,
         private readonly EmployeeStatus $statuses,
         private readonly LoggerInterface $logger,
     ) {}
 
     public function decide(string $employeeId, string $permissionKey, ?string $branchId): AccessDecision
     {
-        $connection = $this->tenant();
+        $connection = $this->tenant->get();
 
         $permission = $connection->table('permissions')->where('key', $permissionKey)->first();
 
@@ -214,17 +212,5 @@ final class DatabasePermissionResolver implements PermissionResolver
         }
 
         return $scopes;
-    }
-
-    /**
-     * The tenant connection, named from configuration rather than written as
-     * `tenant`: the stanza's name has one authority and this is not it.
-     */
-    private function tenant(): Connection
-    {
-        /** @var Connection $connection */
-        $connection = $this->database->connection((string) $this->config->get('tenancy.connection', 'tenant'));
-
-        return $connection;
     }
 }
