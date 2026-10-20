@@ -7,11 +7,15 @@ metadata:
 
 Before strengthening an instrument, ask whether its **list of places** is complete.
 A harness that scans four sinks and mutates well inside all four still proves
-nothing about a fifth.
+nothing about a credential that never reached any of them.
 
 **Why:** T-009 review R-1. The AC-26 sentinel harness enumerated `login_history`,
-`security_events`, the application log and exception messages, and QA added a
-fifth. Every one is inside the application. All four auth controllers read
+`security_events`, the application log and exception messages. QA owns that list and its
+taxonomy: a **sink** is a place the application *writes* and the harness scans
+afterwards; HTTP responses are an adjacent check; the request URL is neither - it
+is an **ingress channel a credential arrives by**, outside the application, pinned
+behaviourally per endpoint and never scanned. Calling it "a fifth sink" was
+rejected, and rightly: no scan of written places could see it. All four auth controllers read
 credentials with `$request->input($key)`, which is
 `data_get($this->getInputSource()->all() + $this->query->all(), ...)` - the query
 bag is merged as a fallback - so a password in the URL authenticated and was
@@ -21,7 +25,7 @@ that task were all "the instrument does not discriminate"; this was a seventh an
 different shape, and no amount of mutation testing inside the set reveals it.
 
 **How to apply:** when a criterion is about absence ("no secret is logged", "no
-tenant leaks"), write down the sinks *outside* the application too - URLs and
+tenant leaks"), write down the ingress channels and out-of-application destinations too - URLs and
 access logs, `Referer`, browser history, cache keys, exception reporters, queue
 payloads, metric labels. Pin those by behaviour at the boundary (the endpoint
 refuses the URL-only credential, with the body-only control in the same test),

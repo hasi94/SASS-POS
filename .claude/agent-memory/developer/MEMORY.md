@@ -45,3 +45,4 @@
 - [Logger and query-log probes](project_logger_and_query_log_probes.md) — the two reusable probes, and the singleton that empties the log one silently.
 - [Enumerate the sinks, not the scans](feedback_enumerate_the_sinks_not_the_scans.md) — `input()` reads the query string; the request URL was in nobody's list of four sinks.
 - [Say what a fix does not fix](feedback_say_what_a_fix_does_not_fix.md) — the conditional-UPDATE lockout changes structure, not sequential behaviour; bound the claim.
+- [Record the gap, do not assert zero](feedback_record_the_gap_dont_assert_zero.md) — a widened check ships with a named self-liquidating list; and Deptrac cannot see a global-namespace tree.
