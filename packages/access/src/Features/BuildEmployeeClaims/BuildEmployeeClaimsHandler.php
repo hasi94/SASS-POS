@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Access\Features\BuildEmployeeClaims;
 
 use Flexipos\Access\Exceptions\AccessRefused;
+use Flexipos\Access\Support\EmployeeBranches;
 use Flexipos\Access\Support\EmployeeStatus;
 use Flexipos\Access\Support\PermHash;
 use Flexipos\Access\Support\ScopeKey;
@@ -97,54 +98,11 @@ final class BuildEmployeeClaimsHandler implements EmployeeClaimSource
 
         return new EmployeeClaims(
             employee: $command->employeeId,
-            branchIds: $this->branchIds($command->employeeId),
-            allBranches: $this->holdsSomethingEverywhere($contributions),
+            branchIds: EmployeeBranches::of($connection, $command->employeeId),
+            allBranches: ScopeKey::anyAllowsEveryBranch($contributions),
             permVersion: $permVersion,
             permHash: PermHash::compute($permVersion, $contributions),
         );
-    }
-
-    /**
-     * The branches this employee is explicitly attached to, distinct and
-     * sorted ascending - the order {@see EmployeeClaims} requires, so the
-     * claim is a set and not a history of attachment.
-     *
-     * @return list<string>
-     */
-    private function branchIds(string $employeeId): array
-    {
-        $ids = $this->tenant->get()->table('employee_branches')
-            ->where('employee_id', $employeeId)
-            ->orderBy('branch_id')
-            ->pluck('branch_id')
-            ->map(static fn (mixed $id): string => (string) $id)
-            ->unique()
-            ->values()
-            ->all();
-
-        /** @var list<string> $ids */
-        return $ids;
-    }
-
-    /**
-     * Does any contribution allow something at the null scope (AC-57)?
-     *
-     * A deny at the null scope does not count: it is a contribution and it
-     * is at that scope, so a check that looked only at the scope would read
-     * "denied everywhere" as "allowed everywhere" - which is the inversion
-     * the criterion names explicitly.
-     *
-     * @param  list<array{bool, string, string}>  $contributions
-     */
-    private function holdsSomethingEverywhere(array $contributions): bool
-    {
-        foreach ($contributions as [$allowed, , $scope]) {
-            if ($allowed && $scope === ScopeKey::ALL_BRANCHES) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**

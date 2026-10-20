@@ -435,8 +435,20 @@ it('refuses every guarded route for an employee holding every other key, and log
         $examined[] = $row['route'].' -> '.$declaration;
     }
 
+    // Every tenant route that declares a KEY, which from step 23 is no
+    // longer every tenant route: AC-60's "my permissions" declares
+    // `authenticated_only` and has no key to be refused for. The count
+    // is derived from the same sweep rather than written here, so a
+    // twentieth guarded route is covered on the day it is added and a
+    // second `authenticated_only` route cannot quietly reduce it.
+    $guarded = array_values(array_filter(
+        accessTenantRouteDeclarations(),
+        static fn (array $row): bool => $row['declarations'] !== [RequireTenantPermission::AUTHENTICATED_ONLY]
+    ));
+
     expect($examined)->not->toBe([], 'guarded routes exercised: '.implode(' / ', $examined))
-        ->and(count($examined))->toBe(count(accessTenantRouteDeclarations()));
+        ->and(count($examined))->toBe(count($guarded))
+        ->and(count($guarded))->toBeLessThan(count(accessTenantRouteDeclarations()));
 });
 
 it('lets the same routes through for an employee holding only their own key (AC-64, the other half)', function () {

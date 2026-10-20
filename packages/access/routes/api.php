@@ -10,6 +10,7 @@ use App\Http\Controllers\Access\DeleteEmployeeController;
 use App\Http\Controllers\Access\DeleteRoleController;
 use App\Http\Controllers\Access\DetachBranchController;
 use App\Http\Controllers\Access\GetEmployeeController;
+use App\Http\Controllers\Access\GetMyPermissionsController;
 use App\Http\Controllers\Access\GetRoleController;
 use App\Http\Controllers\Access\ListEmployeesController;
 use App\Http\Controllers\Access\ListRolesController;
@@ -44,10 +45,9 @@ use Illuminate\Support\Facades\Route;
  * **Each route declares exactly one key.** AC-63 fails a route with none, a
  * route naming a key the registry does not hold, and a route with two. The
  * alternative marker `RequireTenantPermission::AUTHENTICATED_ONLY` means "a
- * valid tenant token is the whole requirement"; no route here uses it, and
- * the sweep prints the ones that do so a reviewer sees which routes skip the
- * check. AC-60's "my permissions" is the one route expected to carry it, and
- * it arrives with step 23.
+ * valid tenant token is the whole requirement", and AC-60's "my permissions"
+ * is the one route here that carries it. The sweep prints every route that
+ * does, so a reviewer sees which routes skip the check and can count them.
  *
  * **The keys are the constants, never the strings.** `AccessPermissions` is
  * where this package's six keys are declared and synced into the tenant's
@@ -69,6 +69,15 @@ use Illuminate\Support\Facades\Route;
 Route::middleware(['api', RequireTenantToken::class])
     ->prefix('api/v1/access')
     ->group(function (): void {
+        // The caller's own access (AC-60). The one route in this task
+        // that declares `authenticated_only` rather than a key: there is
+        // no subject but the caller, so there is nothing to be permitted
+        // to see. The sweep prints it, which is how a reviewer sees that
+        // exactly one route skips the permission check and which one.
+        Route::get('/me/permissions', GetMyPermissionsController::class)
+            ->middleware(RequireTenantPermission::class.':'.RequireTenantPermission::AUTHENTICATED_ONLY)
+            ->name('access.me.permissions');
+
         // Section C - roles.
         Route::get('/roles', ListRolesController::class)
             ->middleware(RequireTenantPermission::class.':'.AccessPermissions::ROLES_VIEW)

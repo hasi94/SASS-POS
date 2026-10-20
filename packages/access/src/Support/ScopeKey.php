@@ -34,4 +34,29 @@ final class ScopeKey
     {
         return $branchId ?? self::ALL_BRANCHES;
     }
+
+    /**
+     * Does any of these contributions *allow* something at every branch
+     * (AC-57's `all_branches`)?
+     *
+     * **One home, because two readers answer it and one inversion is
+     * catastrophic.** The claim builder mints the flag and "my
+     * permissions" reports it live; both have to agree, and the way to
+     * get it wrong is the same in both - reading the scope and not the
+     * `allowed` flag, which turns "denied everywhere" into "allowed
+     * everywhere". It is here because the marker is here: the question
+     * is about this class's value.
+     *
+     * @param  list<array{bool, string, string}>  $contributions  allowed, key, scope
+     */
+    public static function anyAllowsEveryBranch(array $contributions): bool
+    {
+        foreach ($contributions as [$allowed, , $scope]) {
+            if ($allowed && $scope === self::ALL_BRANCHES) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 }

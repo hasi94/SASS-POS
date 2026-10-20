@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Responses;
 
+use Flexipos\Access\Features\GetMyPermissions\MyPermissionsView;
 use Flexipos\Access\Support\EmployeeView;
 use Flexipos\Access\Support\RoleView;
 
@@ -75,5 +76,31 @@ final class AccessViews
     public static function employees(array $employees): array
     {
         return array_map(static fn (EmployeeView $employee): array => self::employee($employee), $employees);
+    }
+
+    /**
+     * The caller's own access (AC-60).
+     *
+     * **The wire names are the token's**, so a client comparing what it
+     * holds with what is current compares two values spelled the same
+     * way. `perm_version` and `perm_hash` are `null` together for a
+     * caller whose token names no employee - not zero and not an empty
+     * string, either of which compares equal to something.
+     *
+     * This is the one place `perm_version` is rendered, and AC-65 is not
+     * in tension with it: the criterion forbids another employee's, and
+     * there is no subject in this request but the caller.
+     *
+     * @return array<string, mixed>
+     */
+    public static function myPermissions(MyPermissionsView $view): array
+    {
+        return [
+            'perm_version' => $view->permVersion,
+            'perm_hash' => $view->permHash,
+            'branch_ids' => $view->branchIds,
+            'all_branches' => $view->allBranches,
+            'permissions' => $view->contributions,
+        ];
     }
 }
