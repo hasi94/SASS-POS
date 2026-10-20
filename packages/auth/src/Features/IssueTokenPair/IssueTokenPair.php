@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Auth\Features\IssueTokenPair;
 
 use Flexipos\Auth\Tokens\TokenClaims;
+use Flexipos\Contracts\Access\EmployeeClaims;
 use InvalidArgumentException;
 
 /**
@@ -31,7 +32,19 @@ final class IssueTokenPair
         public readonly string $tokenType,
         public readonly string $userId,
         public readonly ?string $tenantId = null,
-        public readonly ?string $employeeId = null,
+        /**
+         * The five employee-derived claims, or none at all (AC-58).
+         *
+         * **A value object and deliberately not an employee id.** T-009
+         * passed `?string $employeeId` and T-010 would have had to pass
+         * five more parameters beside it, at which point "all or none"
+         * becomes a rule each caller remembers. Here the only way to put
+         * an `employee` claim into a token is to hand over a whole
+         * {@see EmployeeClaims}, which cannot be built half-formed - so a
+         * token with `employee` and no `perm_version` is unreachable from
+         * this command rather than merely not minted.
+         */
+        public readonly ?EmployeeClaims $employeeClaims = null,
         public readonly ?string $familyId = null,
         public readonly ?string $ip = null,
         public readonly ?string $userAgent = null,

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Flexipos\Access\Tests\Support;
 
+use Flexipos\Access\Support\PermHash;
+use Flexipos\Contracts\Access\EmployeeClaims;
 use Illuminate\Database\Connection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -216,6 +218,37 @@ final class AccessSeed
     public static function permVersion(string $employeeId): int
     {
         return (int) self::connection()->table('employees')->where('id', $employeeId)->value('perm_version');
+    }
+
+    /**
+     * A token's employee claims for a seeded employee, version-accurate.
+     *
+     * **For tests whose subject is something other than the claims.** From
+     * step 21 the middleware refuses a token whose `perm_version` is not
+     * the stored one, so every HTTP fixture needs a token that is fresh at
+     * the moment it is minted; reading the version here is how it stays
+     * fresh after a handler has bumped it.
+     *
+     * **It is deliberately not a second implementation of
+     * `BuildEmployeeClaims`.** `perm_version` and `perm_hash` are read
+     * from the database through the shipped helper, so they cannot drift.
+     * `branch_ids` and `all_branches` are the empty shape, because no
+     * middleware and no guard reads them - what they *mean* is AC-57's
+     * subject and is proved against the real builder, not here. A test
+     * asserting anything about those two claims must build them through
+     * the claim source.
+     */
+    public static function tokenClaims(string $employeeId): EmployeeClaims
+    {
+        $version = self::permVersion($employeeId);
+
+        return new EmployeeClaims(
+            employee: $employeeId,
+            branchIds: [],
+            allBranches: false,
+            permVersion: $version,
+            permHash: PermHash::forEmployee(self::connection(), $employeeId, $version),
+        );
     }
 
     /**

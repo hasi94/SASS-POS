@@ -1,11 +1,14 @@
 <?php
 
 use App\Http\Responses\AuthRefusals;
+use Flexipos\Access\Tests\Support\AccessTenantFixture;
 use Flexipos\Auth\Exceptions\NoTenantAccess;
 use Flexipos\Auth\Features\Login\LoginHandler;
 use Flexipos\Auth\Features\RecordLoginAttempt\RecordLoginAttempt;
 use Flexipos\Auth\Support\GenericRefusal;
 use Flexipos\Auth\Tokens\SigningKeyring;
+use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
+use Flexipos\Kernel\Tenancy\Contracts\TenantMigrationTargetRepository;
 use Illuminate\Support\Facades\DB;
 
 use function Pest\Laravel\postJson;
@@ -33,6 +36,7 @@ use function Pest\Laravel\withServerVariables;
 */
 
 require_once __DIR__.'/../../../../packages/auth/tests/Support/auth-fixture.php';
+require_once __DIR__.'/../../../../packages/kernel/tests/Support/tenancy-fixture.php';
 
 const QA_SURFACE_CLOCK = '2026-10-16 13:00:00.000';
 
@@ -213,6 +217,39 @@ it('maps every exception type the package defines to a non-500 response, and see
             ->and($response->getStatusCode())->not->toBe(500);
     };
 
+    // T-010 AC-61's type, driven through the real slice rather than
+    // through a bound double: the shop has a migrated tenant database and
+    // the membership names an employee that database does not hold, which
+    // is one of D-6's four causes. A double would have proved the catch
+    // block exists and nothing about the path that reaches it.
+    //
+    // **It runs FIRST of the tenant-endpoint rows, and that is the same
+    // hazard the 500 control above names.** The router caches a route's
+    // controller instance after its first use, and that instance holds
+    // the handler it was built with - which holds a `Tenancy` built from
+    // whatever `tenancy.databases` said at the time. Mapped after the
+    // endpoint had been used once, this shop is invisible to it, and the
+    // request answers 500 with `TenantDatabaseNotMapped` (measured).
+    AccessTenantFixture::boot();
+
+    $employeeShop = authFixtureTenant('shop-employee');
+
+    authFixtureMembership($employeeShop, $userId, ['employee_id' => '01JBZZZZZZZZZZZZZZZZZZZZZZ']);
+
+    $record = tenancyFixtureMapping()['tenant-a'];
+    $record['schema_version'] = AccessTenantFixture::topVersion();
+
+    config()->set('tenancy.databases', [$employeeShop => $record, 'tenant-a' => $record]);
+    config()->set('tenancy.required_schema_version', AccessTenantFixture::topVersion());
+
+    app()->forgetInstance(TenantDatabaseRepository::class);
+    app()->forgetInstance(TenantMigrationTargetRepository::class);
+    app()->forgetScopedInstances();
+
+    $drive('EmployeeUnavailable', '/api/v1/auth/tenant', ['code' => 'shop-employee'], $bearer, 403);
+
+    AccessTenantFixture::forget();
+
     $drive('CredentialRefused', '/api/v1/auth/login', ['email' => 'owner@example.com', 'password' => 'wrong'], [], 401);
     $drive('CredentialRefused', '/api/v1/auth/refresh', ['refresh_token' => 'never-issued'], [], 401);
     $drive('InvalidLoginInput', '/api/v1/auth/login', [], [], 422);
@@ -250,6 +287,7 @@ it('maps every exception type the package defines to a non-500 response, and see
     sort($driven);
 
     expect(count($defined))->toBeGreaterThanOrEqual(7)
+        ->and($observed['EmployeeUnavailable'])->toBe(['/api/v1/auth/tenant -> 403'])
         ->and($driven)->toBe($defined, 'an exception class exists that this matrix never drove through an endpoint');
 });
 

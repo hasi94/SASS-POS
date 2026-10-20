@@ -44,14 +44,19 @@ final class AccessRefusals
      *
      * @param  callable(): mixed  $operation
      */
-    public static function expect(RefusalReason $reason, callable $operation): AccessRefused
+    public static function expect(RefusalReason $reason, callable $operation, ?string $context = null): AccessRefused
     {
         $refused = self::capture($operation);
+
+        // `$context` names which input produced this call, for the cases
+        // that run the same assertion over a table of causes: without it
+        // a failure says only that one of five was wrong.
+        $where = $context === null ? '' : " [{$context}]";
 
         Assert::assertSame(
             $reason,
             $refused->reason,
-            "Expected [{$reason->value}] and got [{$refused->reason->value}]: {$refused->getMessage()}"
+            "Expected [{$reason->value}] and got [{$refused->reason->value}]{$where}: {$refused->getMessage()}"
         );
 
         return $refused;

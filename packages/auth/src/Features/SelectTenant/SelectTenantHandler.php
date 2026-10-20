@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flexipos\Auth\Features\SelectTenant;
 
+use Flexipos\Auth\Exceptions\EmployeeUnavailable;
 use Flexipos\Auth\Exceptions\InvalidTenantCode;
 use Flexipos\Auth\Exceptions\NoActiveSigningKey;
 use Flexipos\Auth\Exceptions\NoTenantAccess;
@@ -14,9 +15,11 @@ use Flexipos\Auth\Features\RecordLoginAttempt\RecordLoginAttempt;
 use Flexipos\Auth\Features\RecordLoginAttempt\RecordLoginAttemptHandler;
 use Flexipos\Auth\Support\IpAddress;
 use Flexipos\Auth\Tenancy\MembershipStatus;
+use Flexipos\Auth\Tenancy\TenantEmployeeClaims;
 use Flexipos\Auth\Tenancy\TenantSelectionPolicy;
 use Flexipos\Auth\Tokens\SigningKeyring;
 use Flexipos\Auth\Tokens\TokenClaims;
+use Flexipos\Contracts\Access\EmployeeClaims;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Database\Connection;
@@ -43,7 +46,7 @@ use Illuminate\Database\DatabaseManager;
  *  2. *The signing key second*, before the tenant is read and before any
  *     membership is judged. For `Login` the reason was AC-31's three
  *     absences; here the reason is sharper. **This slice can only record an
- *     attempt with one of `RecordLoginAttempt`'s six reasons, and an
+ *     attempt with one of `RecordLoginAttempt`'s declared reasons, and an
  *     operational failure is none of them.** If the membership were judged
  *     first and signing failed afterwards, AC-40 would owe a refusal row the
  *     reason set cannot express - and because `RecordLoginAttempt` refuses an
@@ -98,6 +101,13 @@ final class SelectTenantHandler
         private readonly TenantSelectionPolicy $tenantSelection,
         private readonly RecordLoginAttemptHandler $attempts,
         private readonly IssueTokenPairHandler $tokens,
+        /**
+         * Enter the shop and ask it for the employee's claims (T-010 D-2,
+         * D-6), shared with the refresh slice so the two cannot disagree
+         * about when the tenant is left. `packages/auth` gains no boundary
+         * edge: the contract it reaches through is one it already had.
+         */
+        private readonly TenantEmployeeClaims $employeeClaims,
     ) {}
 
     /**
@@ -135,7 +145,67 @@ final class SelectTenantHandler
             $this->refuseNotServable($command, $email, $tenantId, (string) $tenant->status);
         }
 
-        return $this->admit($command, $email, $code, $tenantId, $membership);
+        return $this->admit(
+            $command,
+            $email,
+            $code,
+            $tenantId,
+            $membership,
+            $this->claimsFor($command, $email, $tenantId, $membership),
+        );
+    }
+
+    /**
+     * The five employee-derived claims, or null for a membership that names
+     * no employee (AC-56 to AC-59, D-6).
+     *
+     * **This is the one place T-009's D-9 is superseded, and only for a
+     * membership that names an employee.** Selection used to open no tenant
+     * database at all; it must now, because the claims are *in* that
+     * database and a token carrying a stale or invented version is worse
+     * than a slower selection. For a null `employee_id` nothing changes -
+     * no `enter()`, no mapping read, the placeholder stanza untouched -
+     * which is AC-58 and is why the check is on the membership and not on
+     * a flag.
+     *
+     * **The serving gate is `enter()`'s and is deliberately not caught.**
+     * A mapping that is not active, or a database below the schema floor,
+     * raises the kernel's own refusal and it travels. T-009's
+     * `RequireTenantToken` makes the same choice in the same words: a
+     * tenant that cannot be served is a deployment problem, and swallowing
+     * it into a 401 or a 403 would make it look like a credential one. The
+     * substance AC-59 asks for holds either way - no token is issued, no
+     * refresh row is written, and the identical request succeeds once the
+     * tenant is servable.
+     *
+     * **`leave()` in a `finally`**, for the reason the middleware gives: a
+     * tenant left resolved would be handed to whatever this worker does
+     * next.
+     *
+     * @throws EmployeeUnavailable for any of D-6's four causes (AC-61)
+     */
+    private function claimsFor(
+        SelectTenant $command,
+        string $email,
+        string $tenantId,
+        object $membership
+    ): ?EmployeeClaims {
+        try {
+            return $this->employeeClaims->forMembership(
+                $tenantId,
+                $membership->employee_id === null ? null : (string) $membership->employee_id,
+                $command->userId,
+            );
+        } catch (EmployeeUnavailable $refusal) {
+            // The history row is written here rather than inside the
+            // shared helper because the two callers record different
+            // things about themselves: this one has a `SelectTenant`
+            // command, the refresh slice has a stored row. AC-61 wants
+            // the row and D-15 wants `tenant_id` on it.
+            $this->record($command, $email, RecordLoginAttempt::REASON_EMPLOYEE_UNAVAILABLE, $tenantId);
+
+            throw $refusal;
+        }
     }
 
     /**
@@ -288,7 +358,8 @@ final class SelectTenantHandler
         string $email,
         TenantCodeInput $code,
         string $tenantId,
-        object $membership
+        object $membership,
+        ?EmployeeClaims $employeeClaims
     ): SelectTenantResult {
         $now = $this->clock->timestamp();
 
@@ -301,9 +372,10 @@ final class SelectTenantHandler
             tokenType: TokenClaims::TYPE_TENANT,
             userId: $command->userId,
             tenantId: $tenantId,
-            // AC-39: a membership with a null `employee_id` yields a token
-            // with **no** `employee` claim, never one carrying a null.
-            employeeId: $membership->employee_id === null ? null : (string) $membership->employee_id,
+            // T-009 AC-39 and T-010 AC-58: a membership with a null
+            // `employee_id` yields a token with **none** of the five
+            // employee-derived claims, never one carrying nulls.
+            employeeClaims: $employeeClaims,
             ip: IpAddress::pack($command->ip),
             userAgent: $command->userAgent,
         ));

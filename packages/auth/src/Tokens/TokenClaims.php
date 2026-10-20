@@ -4,22 +4,28 @@ declare(strict_types=1);
 
 namespace Flexipos\Auth\Tokens;
 
+use Flexipos\Contracts\Access\EmployeeClaims;
 use InvalidArgumentException;
 
 /**
- * The exact claim sets of D-10 and AC-28, as two named shapes, so that
- * "exactly" is a value and not a literal repeated in three handlers.
+ * The exact claim sets of D-10, AC-28 and T-010's AC-56, as three named
+ * shapes, so that "exactly" is a value and not a literal repeated in three
+ * handlers.
  *
- * **The set is the short one (D-10), and that is a refusal rather than an
- * omission.** No `branch_ids`, no `employee` object beyond the
- * `tenant_users.employee_id` passthrough, no `perm_hash` and no
- * `perm_version`: all of those come from the tenant's `employees` and `roles`
- * tables, which do not exist until FP-208. A claim we cannot populate is a
- * claim we must not mint, because FP-208 would then have to change a claim's
- * *meaning* rather than add one, and every token issued in the window would
- * be wrong. `docs/database.md` section 5 and `docs/architecture.md` section 5
- * still print the longer set; FP-200 tracks the annotation and the spec
- * governs.
+ * **T-009 minted the short tenant set and said why; T-010 is the task that
+ * removed the reason.** The five employee-derived claims - `employee`,
+ * `branch_ids`, `all_branches`, `perm_version`, `perm_hash` - were withheld
+ * because they come from the tenant's `employees` and `roles` tables, which
+ * did not exist. They do now, so the third shape mints them, and the
+ * withholding did what it was for: a claim nobody could populate was never
+ * minted with a *meaning* that later had to change.
+ *
+ * **There are three shapes and not two-and-a-half.** A tenant token either
+ * carries all five or none of them, never some (AC-58). The type that makes
+ * that true is {@see EmployeeClaims}, which cannot be built half-formed, and
+ * the consequence here is that a token carrying `employee` without
+ * `perm_version` is not merely unminted - it is **refused at verification**,
+ * because its claim names match neither legal set.
  *
  * **`jti` is a correlation id, not a revocation handle.** Nothing stores it
  * and nothing checks it on verification, so it must not be read as implying
@@ -64,9 +70,34 @@ final class TokenClaims
      *
      * @return array<string, mixed>
      */
-    public static function tenant(string $userId, string $tenantId, ?string $employeeId, string $jti, int $issuedAt, int $ttlMinutes): array
+    public static function tenant(string $userId, string $tenantId, string $jti, int $issuedAt, int $ttlMinutes): array
     {
-        return self::build(self::TYPE_TENANT, $userId, $tenantId, $employeeId, $jti, $issuedAt, $ttlMinutes);
+        return self::build(self::TYPE_TENANT, $userId, $tenantId, null, $jti, $issuedAt, $ttlMinutes);
+    }
+
+    /**
+     * The tenant access token of a membership that names an employee: the
+     * short tenant set plus D-2's five, which is AC-56's set exactly.
+     *
+     * **A third named shape rather than five more parameters.** "Exactly"
+     * has to stay a value: {@see self::allowedNames()} builds its specimen
+     * through the same private builder, so the set a token carries and the
+     * set a verifier admits are the same list computed once. Five
+     * parameters on {@see self::tenant()} would make all-or-none a rule
+     * each caller remembers, which is the rule {@see EmployeeClaims}
+     * exists to keep instead.
+     *
+     * @return array<string, mixed>
+     */
+    public static function tenantWithEmployee(
+        string $userId,
+        string $tenantId,
+        EmployeeClaims $employee,
+        string $jti,
+        int $issuedAt,
+        int $ttlMinutes
+    ): array {
+        return self::build(self::TYPE_TENANT, $userId, $tenantId, $employee, $jti, $issuedAt, $ttlMinutes);
     }
 
     /**
@@ -80,7 +111,7 @@ final class TokenClaims
             $tokenType,
             'specimen',
             'specimen',
-            $withEmployee ? 'specimen' : null,
+            $withEmployee ? self::specimenEmployee() : null,
             'specimen',
             0,
             0
@@ -126,7 +157,22 @@ final class TokenClaims
     }
 
     /**
-     * The one builder both shapes and the allowed-name set come from.
+     * A claim set of the right shape and of no significance.
+     *
+     * Only {@see self::allowedNames()} uses it, and only its **keys** are
+     * read. The values are the narrowest ones {@see EmployeeClaims} will
+     * accept, so the specimen cannot be mistaken for a real employee if it
+     * ever escapes: an id of `specimen`, no branches, no rights, version
+     * zero and a hash of sixty-four zeroes, which is not the hash of
+     * anything.
+     */
+    private static function specimenEmployee(): EmployeeClaims
+    {
+        return new EmployeeClaims('specimen', [], false, 0, str_repeat('0', EmployeeClaims::HASH_LENGTH));
+    }
+
+    /**
+     * The one builder all three shapes and the allowed-name set come from.
      *
      * @return array<string, mixed>
      */
@@ -134,7 +180,7 @@ final class TokenClaims
         string $tokenType,
         string $userId,
         ?string $tenantId,
-        ?string $employeeId,
+        ?EmployeeClaims $employee,
         string $jti,
         int $issuedAt,
         int $ttlMinutes
@@ -158,8 +204,11 @@ final class TokenClaims
 
             $claims['tenant'] = $tenantId;
 
-            if ($employeeId !== null) {
-                $claims['employee'] = $employeeId;
+            if ($employee !== null) {
+                // All five or none (AC-58), and the type is what keeps
+                // that rule: there is no way to reach this line with some
+                // of them.
+                $claims = array_merge($claims, $employee->toClaims());
             }
         }
 

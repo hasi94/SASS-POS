@@ -6,6 +6,7 @@ namespace Flexipos\Auth\Features\RefreshToken;
 
 use Carbon\CarbonImmutable;
 use Flexipos\Auth\Exceptions\CredentialRefused;
+use Flexipos\Auth\Exceptions\EmployeeUnavailable;
 use Flexipos\Auth\Exceptions\NoActiveSigningKey;
 use Flexipos\Auth\Exceptions\NoTenantAccess;
 use Flexipos\Auth\Exceptions\TenantNotServable;
@@ -16,10 +17,12 @@ use Flexipos\Auth\Features\RecordLoginAttempt\RecordLoginAttemptHandler;
 use Flexipos\Auth\Support\IpAddress;
 use Flexipos\Auth\Support\UserStatus;
 use Flexipos\Auth\Tenancy\MembershipStatus;
+use Flexipos\Auth\Tenancy\TenantEmployeeClaims;
 use Flexipos\Auth\Tenancy\TenantSelectionPolicy;
 use Flexipos\Auth\Tokens\RefreshTokenValue;
 use Flexipos\Auth\Tokens\SigningKeyring;
 use Flexipos\Auth\Tokens\TokenClaims;
+use Flexipos\Contracts\Access\EmployeeClaims;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Database\Connection;
@@ -92,6 +95,12 @@ final class RefreshTokenHandler
         private readonly TenantSelectionPolicy $tenantSelection,
         private readonly RecordLoginAttemptHandler $attempts,
         private readonly IssueTokenPairHandler $tokens,
+        /**
+         * The employee claims, re-read from the tenant database on every
+         * tenant refresh (T-010 AC-62). Shared with the selection slice so
+         * the two cannot disagree about entering and leaving the shop.
+         */
+        private readonly TenantEmployeeClaims $employeeClaims,
     ) {}
 
     /**
@@ -134,11 +143,13 @@ final class RefreshTokenHandler
             throw CredentialRefused::refused();
         }
 
-        $membership = $row->tenant_id === null
+        // Before `rotate()`, which is what consumes the presented row: a
+        // refusal from here must leave the token usable (D-24, AC-62).
+        $employeeClaims = $row->tenant_id === null
             ? null
             : $this->recheckTenant($command, $row, (string) $user->email);
 
-        return $this->rotate($command, $row, $membership);
+        return $this->rotate($command, $row, $employeeClaims);
     }
 
     /**
@@ -245,14 +256,26 @@ final class RefreshTokenHandler
      * shop that is suspended for a week is not a reason to sign its staff
      * out of their session; a replayed token is.
      *
-     * The membership row is returned because the token that follows needs
-     * its `employee_id`, and re-reading it would be a second answer to the
-     * same question.
+     * **The employee claims are re-read here, never copied from the old
+     * token** (AC-62). The presented value is a refresh token and carries
+     * no claims at all; the access token it replaces is not read by this
+     * slice and could not be trusted if it were. So `perm_version`,
+     * `perm_hash`, `branch_ids` and `all_branches` are whatever the tenant
+     * database says now, which is the whole point of refreshing - and it
+     * is why a refresh is the cure a 401 `permissions_changed` asks for.
+     *
+     * **A refusal here still consumes nothing.** This runs before
+     * {@see self::rotate()}, so an employee who has become non-acting is
+     * refused with their refresh token untouched: reinstating them makes
+     * the same token work. A token that was never valid also has a null
+     * `used_at`, which is why AC-62's control is that the *same* token
+     * succeeds afterwards.
      *
      * @throws NoTenantAccess
      * @throws TenantNotServable
+     * @throws EmployeeUnavailable
      */
-    private function recheckTenant(RefreshToken $command, object $row, string $email): object
+    private function recheckTenant(RefreshToken $command, object $row, string $email): ?EmployeeClaims
     {
         $tenantId = (string) $row->tenant_id;
 
@@ -281,7 +304,17 @@ final class RefreshTokenHandler
             throw TenantNotServable::withStatus((string) $tenant->status);
         }
 
-        return $membership;
+        try {
+            return $this->employeeClaims->forMembership(
+                $tenantId,
+                $membership->employee_id === null ? null : (string) $membership->employee_id,
+                (string) $row->principal_id,
+            );
+        } catch (EmployeeUnavailable $refusal) {
+            $this->record($command, $email, $row, RecordLoginAttempt::REASON_EMPLOYEE_UNAVAILABLE);
+
+            throw $refusal;
+        }
     }
 
     private function record(RefreshToken $command, string $email, object $row, string $reason): void
@@ -312,7 +345,7 @@ final class RefreshTokenHandler
      * caller sent (AC-38), because there is nothing a caller could have
      * sent.
      */
-    private function rotate(RefreshToken $command, object $row, ?object $membership): RefreshTokenResult
+    private function rotate(RefreshToken $command, object $row, ?EmployeeClaims $employeeClaims): RefreshTokenResult
     {
         $now = $this->clock->timestamp();
 
@@ -332,9 +365,7 @@ final class RefreshTokenHandler
             tokenType: $tenantId === null ? TokenClaims::TYPE_PLATFORM : TokenClaims::TYPE_TENANT,
             userId: (string) $row->principal_id,
             tenantId: $tenantId,
-            employeeId: $membership === null || $membership->employee_id === null
-                ? null
-                : (string) $membership->employee_id,
+            employeeClaims: $employeeClaims,
             familyId: (string) $row->family_id,
             ip: IpAddress::pack($command->ip),
             userAgent: $command->userAgent,

@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Middleware\RequirePlatformToken;
 use App\Http\Requests\AuthRequestContext;
 use App\Http\Responses\AuthRefusals;
+use Flexipos\Auth\Exceptions\EmployeeUnavailable;
 use Flexipos\Auth\Exceptions\InvalidTenantCode;
 use Flexipos\Auth\Exceptions\NoActiveSigningKey;
 use Flexipos\Auth\Exceptions\NoTenantAccess;
@@ -67,6 +68,10 @@ final class SelectTenantController extends Controller
         } catch (TenantNotServable $refusal) {
             // AC-40(b): the caller's own shop, and the reason is theirs.
             return AuthRefusals::tenantNotServable($refusal);
+        } catch (EmployeeUnavailable) {
+            // T-010 AC-61. One body for D-6's four causes; the cause is in
+            // the application log and in `login_history.failure_reason`.
+            return AuthRefusals::employeeUnavailable();
         } catch (NoActiveSigningKey) {
             return AuthRefusals::signingUnavailable();
         }

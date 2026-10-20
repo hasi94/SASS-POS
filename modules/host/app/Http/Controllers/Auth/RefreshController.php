@@ -9,6 +9,7 @@ use App\Http\Middleware\RequirePlatformToken;
 use App\Http\Requests\AuthRequestContext;
 use App\Http\Responses\AuthRefusals;
 use Flexipos\Auth\Exceptions\CredentialRefused;
+use Flexipos\Auth\Exceptions\EmployeeUnavailable;
 use Flexipos\Auth\Exceptions\NoActiveSigningKey;
 use Flexipos\Auth\Exceptions\NoTenantAccess;
 use Flexipos\Auth\Exceptions\TenantNotServable;
@@ -63,6 +64,10 @@ final class RefreshController extends Controller
             return AuthRefusals::noAccess();
         } catch (TenantNotServable $refusal) {
             return AuthRefusals::tenantNotServable($refusal);
+        } catch (EmployeeUnavailable) {
+            // T-010 AC-61. One body for D-6's four causes; the cause is in
+            // the application log and in `login_history.failure_reason`.
+            return AuthRefusals::employeeUnavailable();
         } catch (NoActiveSigningKey) {
             return AuthRefusals::signingUnavailable();
         }

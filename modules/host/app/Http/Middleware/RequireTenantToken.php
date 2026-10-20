@@ -4,19 +4,22 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
+use App\Http\Responses\AccessRefusals;
 use App\Http\Responses\AuthRefusals;
 use Closure;
 use Flexipos\Auth\Exceptions\AccessTokenRefused;
 use Flexipos\Auth\Features\VerifyAccessToken\VerifyAccessToken;
 use Flexipos\Auth\Features\VerifyAccessToken\VerifyAccessTokenHandler;
 use Flexipos\Auth\Tokens\TokenClaims;
+use Flexipos\Contracts\Access\EmployeeStalenessCheck;
 use Flexipos\Kernel\Tenancy\Tenancy;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * A tenant access token, verified, and the tenant it names entered - in one
- * class (AC-45, AC-46, AC-47).
+ * A tenant access token, verified, the tenant it names entered, and the
+ * employee claims checked for staleness - in one class (T-009 AC-45 to
+ * AC-47, T-010 AC-66 to AC-68).
  *
  * **One class is the design, not a convenience.** D-9 lets tenant selection
  * skip the mapping probe entirely: it never asks whether the shop's database
@@ -68,6 +71,7 @@ final class RequireTenantToken
     public function __construct(
         private readonly VerifyAccessTokenHandler $verifier,
         private readonly Tenancy $tenancy,
+        private readonly EmployeeStalenessCheck $staleness,
     ) {}
 
     /**
@@ -104,9 +108,49 @@ final class RequireTenantToken
         $this->tenancy->enter($tenantId);
 
         try {
+            if ($this->isStale($claims)) {
+                return AccessRefusals::permissionsChanged();
+            }
+
             return $next($request);
         } finally {
             $this->tenancy->leave();
         }
+    }
+
+    /**
+     * D-7's staleness check, inside this class and after `enter()`.
+     *
+     * **Inside, not beside** (plan section 1). A route must not be able to
+     * be authenticated without also being gated, and the tenant connection
+     * this question needs is opened by this class and by nothing else. A
+     * second middleware would be a second thing a route file could forget.
+     *
+     * **Both claims or no check, and that is a composition rather than a
+     * hole.** The five employee-derived claims are minted together or not
+     * at all (AC-58), and the verifier above refuses a tenant token whose
+     * claim names are not *exactly* one of the two legal sets - with the
+     * five, or without any of them. So a token carrying `employee` and no
+     * `perm_version` never reaches this method: it is refused as
+     * `claim_set` one step earlier. The guard below is therefore reading
+     * the two legal shapes apart, not defaulting an absent input to
+     * "permit".
+     *
+     * A token with **no** `employee` claim performs no check at all
+     * (AC-66): there is no employee whose rights could have changed, and
+     * every guarded route refuses such a token `not_permitted` anyway.
+     *
+     * @param  array<string, mixed>  $claims
+     */
+    private function isStale(array $claims): bool
+    {
+        $employeeId = $claims['employee'] ?? null;
+        $claimed = $claims['perm_version'] ?? null;
+
+        if (! is_string($employeeId) || $employeeId === '' || ! is_int($claimed)) {
+            return false;
+        }
+
+        return $this->staleness->isStale($employeeId, $claimed);
     }
 }

@@ -10,6 +10,7 @@ use Flexipos\Auth\Keys\KeyPairGenerator;
 use Flexipos\Auth\Tokens\RefreshTokenValue;
 use Flexipos\Auth\Tokens\SigningKeyring;
 use Flexipos\Auth\Tokens\TokenClaims;
+use Flexipos\Contracts\Access\EmployeeClaims;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -176,12 +177,19 @@ it('mints a tenant token naming the tenant id, with the employee claim only when
         tokenType: TokenClaims::TYPE_TENANT,
         userId: '01HUSER0000000000000000001',
         tenantId: '01HTENANT00000000000000001',
-        employeeId: '01HEMPLOYEE0000000000000001',
+        // T-010 AC-56: the employee claim arrives as the whole of D-2's
+        // five, through a type that cannot be built half-formed, so there
+        // is no way to ask this command for `employee` alone.
+        employeeClaims: new EmployeeClaims('01HEMPLOYEE0000000000000001', [], false, 4, str_repeat('a', 64)),
     ));
 
     expect(TokenClaims::namesOf($without->claims))->toBe(['exp', 'iat', 'jti', 'sub', 'tenant', 'token_type'])
         ->and($without->claims['tenant'])->toBe('01HTENANT00000000000000001')
         ->and($with->claims['employee'])->toBe('01HEMPLOYEE0000000000000001')
+        ->and($with->claims['perm_version'])->toBe(4)
+        ->and($with->claims['perm_hash'])->toBe(str_repeat('a', 64))
+        ->and($with->claims['branch_ids'])->toBe([])
+        ->and($with->claims['all_branches'])->toBeFalse()
         ->and(TokenClaims::isExactly($with->claims, TokenClaims::TYPE_TENANT))->toBeTrue();
 });
 

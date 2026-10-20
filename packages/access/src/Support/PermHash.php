@@ -104,6 +104,23 @@ final class PermHash
      */
     public static function forEmployee(Connection $connection, string $employeeId, int $permVersion): string
     {
+        return self::compute($permVersion, self::contributionsFor($connection, $employeeId));
+    }
+
+    /**
+     * One employee's contributions, as the hash's own notion of them.
+     *
+     * **Extracted so that "a contribution" has one definition.** AC-57's
+     * `all_branches` claim is *"the employee holds an allowing
+     * contribution at the null scope"* - the same word, and if the claim
+     * builder answered it from its own pair of queries the two would be
+     * one fact with two homes, free to disagree about a soft-deleted role
+     * or about which tables contribute. They read the same list.
+     *
+     * @return list<array{bool, string, string}> allowed, key, scope
+     */
+    public static function contributionsFor(Connection $connection, string $employeeId): array
+    {
         $contributions = [];
 
         $roleDerived = $connection->table('employee_roles')
@@ -125,6 +142,6 @@ final class PermHash
             $contributions[] = [(bool) $row->allowed, (string) $row->permission_key, ScopeKey::of($row->branch_id)];
         }
 
-        return self::compute($permVersion, $contributions);
+        return $contributions;
     }
 }

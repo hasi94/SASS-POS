@@ -48,6 +48,25 @@ final class AccessRefusals
     }
 
     /**
+     * The 401 a stale tenant token gets (D-7, AC-66).
+     *
+     * **401 and not 403, and the line is what the caller should do next.**
+     * A 403 says "you may not do this"; here the caller may well be
+     * entitled to do it and is holding a credential that no longer
+     * describes them. The remedy is to refresh - which is what a 401 asks a
+     * client for - and every client already has that path for an expired
+     * token. A 403 would send a correct caller to an administrator.
+     *
+     * It is also the one refusal in this class that is **not** a decision
+     * about grants, which is why it writes no `access_log` row: a stale
+     * credential is not a denial (AC-66, AC-69).
+     */
+    public static function permissionsChanged(): JsonResponse
+    {
+        return new JsonResponse(['error' => RefusalReason::PermissionsChanged->value], 401);
+    }
+
+    /**
      * A refusal a handler threw, rendered with its own reason.
      */
     public static function refused(AccessRefused $refused): JsonResponse

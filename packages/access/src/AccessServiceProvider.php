@@ -4,13 +4,17 @@ declare(strict_types=1);
 
 namespace Flexipos\Access;
 
+use Flexipos\Access\Features\BuildEmployeeClaims\BuildEmployeeClaimsHandler;
 use Flexipos\Access\Registry\AccessPermissions;
 use Flexipos\Access\Registry\PermissionRegistry;
+use Flexipos\Access\Resolver\DatabaseEmployeeStalenessCheck;
 use Flexipos\Access\Resolver\DatabasePermissionResolver;
 use Flexipos\Access\Support\ClientIp;
 use Flexipos\Access\Support\EmployeeStatus;
 use Flexipos\Access\Support\PinPolicy;
 use Flexipos\Contracts\Access\DeclaresPermissions;
+use Flexipos\Contracts\Access\EmployeeClaimSource;
+use Flexipos\Contracts\Access\EmployeeStalenessCheck;
 use Flexipos\Contracts\Access\PermissionDeclaration;
 use Flexipos\Contracts\Access\PermissionResolver;
 use Illuminate\Support\ServiceProvider;
@@ -70,6 +74,18 @@ final class AccessServiceProvider extends ServiceProvider implements DeclaresPer
         // real resolver exists and refuses correctly - never to a stub that
         // allows, not even for a minute (the plan's red-first rule).
         $this->app->singleton(PermissionResolver::class, DatabasePermissionResolver::class);
+
+        // Step 22. What `packages/auth` calls at mint (D-2, D-6). Bound
+        // to the real builder, which refuses rather than minting empty
+        // rights, so this binding has no permissive state either.
+        $this->app->singleton(EmployeeClaimSource::class, BuildEmployeeClaimsHandler::class);
+
+        // Step 21. The per-request staleness question (D-7, AC-66). Bound
+        // beside the resolver and for the same reason: it is a reader, it
+        // answers from the tenant database, and it refuses by answering
+        // `true` - a stale token is refused, never admitted, so there is
+        // no permissive state this binding could be in.
+        $this->app->singleton(EmployeeStalenessCheck::class, DatabaseEmployeeStalenessCheck::class);
 
         // Step 17. The PIN rules as one object, over the configured digit
         // bounds (AC-47, D-16). A singleton for `EmployeeStatus`'s reason -

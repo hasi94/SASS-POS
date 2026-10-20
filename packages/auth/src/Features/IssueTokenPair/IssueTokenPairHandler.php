@@ -58,14 +58,7 @@ final class IssueTokenPairHandler
         $jti = (string) Str::ulid();
 
         $claims = $command->tokenType === TokenClaims::TYPE_TENANT
-            ? TokenClaims::tenant(
-                $command->userId,
-                (string) $command->tenantId,
-                $command->employeeId,
-                $jti,
-                $now->getTimestamp(),
-                $this->accessTtlMinutes()
-            )
+            ? $this->tenantClaims($command, $jti, $now->getTimestamp())
             : TokenClaims::platform(
                 $command->userId,
                 $jti,
@@ -108,6 +101,30 @@ final class IssueTokenPairHandler
             refreshTokenId: $refreshTokenId,
             familyId: $familyId,
             expiresAt: $expiresAt,
+        );
+    }
+
+    /**
+     * One of the two tenant shapes, chosen by whether the membership named
+     * an employee (AC-56, AC-58).
+     *
+     * @return array<string, mixed>
+     */
+    private function tenantClaims(IssueTokenPair $command, string $jti, int $issuedAt): array
+    {
+        $tenantId = (string) $command->tenantId;
+
+        if ($command->employeeClaims === null) {
+            return TokenClaims::tenant($command->userId, $tenantId, $jti, $issuedAt, $this->accessTtlMinutes());
+        }
+
+        return TokenClaims::tenantWithEmployee(
+            $command->userId,
+            $tenantId,
+            $command->employeeClaims,
+            $jti,
+            $issuedAt,
+            $this->accessTtlMinutes()
         );
     }
 

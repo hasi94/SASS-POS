@@ -64,10 +64,25 @@ final class RecordLoginAttempt
     public const REASON_TENANT_NOT_SERVABLE = 'tenant_not_servable';
 
     /**
+     * T-010 AC-61: the membership names an employee the tenant database
+     * cannot serve.
+     *
+     * **Its own reason and not folded into `no_access`.** The two are
+     * indistinguishable to the caller by design, and `login_history` is
+     * exactly where they must be distinguishable: `no_access` is a person
+     * asking for a shop that is not theirs, and this is a shop whose own
+     * staff record is wrong. An operator looking for the second in a table
+     * full of the first would never find it.
+     */
+    public const REASON_EMPLOYEE_UNAVAILABLE = 'employee_unavailable';
+
+    /**
      * Every reason a row may carry.
      *
-     * Derived from the six constants above rather than restated, so a seventh
-     * reason is added in one place.
+     * Derived from the constants above rather than restated, so the next
+     * reason is added in one place. **The count is this list** (FP-181):
+     * T-009 shipped six and T-010 added the seventh, and a sentence here
+     * naming a number is the thing that goes stale.
      *
      * @var list<string>
      */
@@ -78,6 +93,7 @@ final class RecordLoginAttempt
         self::REASON_NOT_ACTIVE,
         self::REASON_NO_ACCESS,
         self::REASON_TENANT_NOT_SERVABLE,
+        self::REASON_EMPLOYEE_UNAVAILABLE,
     ];
 
     /**

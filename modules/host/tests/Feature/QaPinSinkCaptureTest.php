@@ -12,6 +12,7 @@ use Flexipos\Access\Tests\Support\AccessTenantFixture;
 use Flexipos\Auth\Features\IssueTokenPair\IssueTokenPair;
 use Flexipos\Auth\Features\IssueTokenPair\IssueTokenPairHandler;
 use Flexipos\Auth\Tokens\TokenClaims;
+use Flexipos\Contracts\Access\EmployeeClaims;
 use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
 use Flexipos\Kernel\Tenancy\Contracts\TenantMigrationTargetRepository;
 use Illuminate\Support\Facades\DB;
@@ -289,7 +290,7 @@ function qaPinToken(string $userId, string $tenantId, string $employeeId): strin
         tokenType: TokenClaims::TYPE_TENANT,
         userId: $userId,
         tenantId: $tenantId,
-        employeeId: $employeeId,
+        employeeClaims: qaPinInTenant(static fn (): EmployeeClaims => AccessSeed::tokenClaims($employeeId)),
     ))->accessToken;
 }
 

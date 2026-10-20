@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Responses;
 
+use Flexipos\Auth\Exceptions\EmployeeUnavailable;
 use Flexipos\Auth\Exceptions\NoTenantAccess;
 use Flexipos\Auth\Exceptions\TenantNotServable;
 use Flexipos\Auth\Support\GenericRefusal;
@@ -102,6 +103,19 @@ final class AuthRefusals
     public static function tenantNotServable(TenantNotServable $refusal): JsonResponse
     {
         return new JsonResponse($refusal->body(), TenantNotServable::STATUS);
+    }
+
+    /**
+     * T-010 AC-61: the membership names an employee the shop cannot serve.
+     *
+     * A third "you are known and the answer is still no", beside
+     * `no_access` and `tenant_not_servable`. One body for D-6's four
+     * causes; the cause is in the application log and in
+     * `login_history.failure_reason`, never here.
+     */
+    public static function employeeUnavailable(): JsonResponse
+    {
+        return new JsonResponse(EmployeeUnavailable::refused()->body(), EmployeeUnavailable::STATUS);
     }
 
     /**

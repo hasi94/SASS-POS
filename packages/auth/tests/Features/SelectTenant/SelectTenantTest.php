@@ -167,26 +167,31 @@ it('issues a tenant token for the resolved tenant, stamps the membership and rec
         ->and($refresh[0]['revoked_at'])->toBeNull();
 });
 
-it('omits the employee claim when the membership has no employee, and carries it when it does', function () {
-    // AC-39's own positive control: the two halves are one test, because
-    // "no `employee` claim" is an absence and the presence is what proves
-    // the claim can appear at all.
+it('omits all five employee claims when the membership has no employee', function () {
+    // **Narrowed by T-010 under AC-59, which sanctions exactly this edit.**
+    // T-009 asserted both halves here - no `employee` claim without a
+    // membership employee, the claim present with one - because the claim
+    // was a passthrough of `tenant_users.employee_id` and needed no tenant
+    // database. It is now five claims read out of the shop's own database
+    // (AC-56), so the positive half needs a migrated tenant, and the
+    // fixture that provides one lives in `packages/access/tests`, which
+    // `packages/auth` may not reference: Package_Auth -> Package_Access is
+    // the edge AC-11's instrument exists to keep absent.
+    //
+    // So the positive half **moved** rather than being dropped, and it is
+    // stronger where it landed - it asserts the whole claim set against a
+    // real employee: `modules/host/tests/Feature/QaTenantSelectionClaimsTest`.
+    // What stays here is the half this slice can still prove on its own,
+    // and it is the half T-009's D-18 cares about.
     [$userId] = selectFixture();
 
-    expect(array_key_exists('employee', selectClaimsOf(
-        authFixtureSelectTenantHandler()->handle(selectCommand($userId))->accessToken
-    )))->toBeFalse();
+    $claims = selectClaimsOf(authFixtureSelectTenantHandler()->handle(selectCommand($userId))->accessToken);
 
-    $otherUser = authFixtureUser('manager@example.com');
-    $tenantId = authFixtureTenant('shop-b');
-    authFixtureMembership($tenantId, $otherUser, ['employee_id' => '01JBEMPLOYEE0000000000000A']);
+    foreach (['employee', 'branch_ids', 'all_branches', 'perm_version', 'perm_hash'] as $claim) {
+        expect(array_key_exists($claim, $claims))->toBeFalse("[{$claim}] must be absent for a membership with no employee");
+    }
 
-    $claims = selectClaimsOf(
-        authFixtureSelectTenantHandler()->handle(selectCommand($otherUser, 'shop-b'))->accessToken
-    );
-
-    expect($claims['employee'])->toBe('01JBEMPLOYEE0000000000000A')
-        ->and(TokenClaims::namesOf($claims))->toBe(['employee', 'exp', 'iat', 'jti', 'sub', 'tenant', 'token_type']);
+    expect(TokenClaims::namesOf($claims))->toBe(['exp', 'iat', 'jti', 'sub', 'tenant', 'token_type']);
 });
 
 /*
@@ -196,6 +201,19 @@ it('omits the employee claim when the membership has no employee, and carries it
 */
 
 it('reads the master only, never tenant_databases, and leaves the tenant stanza a placeholder', function () {
+    // **Narrowed by T-010 under AC-59 - to the null-employee case, which
+    // is the fixture this case already used.** T-009's D-9 said selection
+    // opens no tenant database at all; that is still true for a membership
+    // naming no employee, and `selectFixture()` builds exactly one of
+    // those. For a membership that *does* name an employee it is no longer
+    // true and must not be: the five claims are in the shop's database and
+    // a token carrying invented ones would be worse than a slower
+    // selection. The superseding case is in
+    // `modules/host/tests/Feature/QaTenantSelectionClaimsTest`, which
+    // asserts the other side of the same line - that selection for an
+    // employee-bearing membership does enter, through the existing
+    // `Tenancy::enter()` and never through a connection this task builds
+    // (T-009 AC-52 still holds).
     [$userId] = selectFixture();
 
     $before = config('database.connections.tenant');

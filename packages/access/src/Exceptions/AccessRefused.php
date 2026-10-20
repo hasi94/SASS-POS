@@ -9,6 +9,7 @@ use Flexipos\Access\Support\Escalation;
 use Flexipos\Access\Support\LastOwner;
 use Flexipos\Access\Support\RoleLookup;
 use Flexipos\Access\Support\SelfChange;
+use Flexipos\Contracts\Access\AccessRefusal;
 use Flexipos\Contracts\Access\PermissionDeclaration;
 use Flexipos\Contracts\Access\RefusalReason;
 use RuntimeException;
@@ -33,7 +34,7 @@ use RuntimeException;
  * reason with no thrower yet has no constructor here, so the list below is
  * always the set of refusals this package can actually produce.
  */
-final class AccessRefused extends RuntimeException
+final class AccessRefused extends RuntimeException implements AccessRefusal
 {
     private function __construct(
         public readonly RefusalReason $reason,
@@ -51,9 +52,37 @@ final class AccessRefused extends RuntimeException
      * {@see PermissionDeclaration} refuses them at
      * construction, so such a key cannot exist as a value.
      */
+    /**
+     * Which refusal this is, for a caller across the package boundary.
+     *
+     * The property is what this package reads; the method is what
+     * {@see AccessRefusal} publishes, because an interface cannot require
+     * a property before PHP 8.4. Both return the same field, so there is
+     * one value with two ways in, not two values.
+     */
+    public function reason(): RefusalReason
+    {
+        return $this->reason;
+    }
+
     public static function validation(string $message): self
     {
         return new self(RefusalReason::Validation, $message);
+    }
+
+    /**
+     * The employee the credential names cannot be served (D-6, AC-61).
+     *
+     * One reason for all four of D-6's causes - no row, soft-deleted, a
+     * status that cannot act, and a `user_id` that is null or somebody
+     * else's - because a caller who learns *which* learns something about
+     * a shop's staff that they have not proved they may know. The cause is
+     * in the application log at warning level, where an operator can read
+     * it and a caller cannot.
+     */
+    public static function employeeUnavailable(string $message): self
+    {
+        return new self(RefusalReason::EmployeeUnavailable, $message);
     }
 
     /**
