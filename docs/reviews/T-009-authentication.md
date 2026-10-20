@@ -276,3 +276,77 @@ Fix **R-1** (four controllers plus one accessor, the QA test, and its mutant). O
 item and its pinning test will be checked. W-1 to W-4 do not block, but **W-1 and W-3 are small enough
 to take in the same pass**, and **W-2 should be resolved before anyone cites the toolchain guard as
 covering test directories.**
+
+---
+
+# Re-check round 2 — changed items only
+
+**2026-10-20 · Verdict: APPROVE** · scope `9a43b49..HEAD`, **8 commits, 24 files, +1015/−51**, measured by
+the reviewer. **Gate run by the reviewer:** `11 skipped, 1157 passed (6911 assertions)`, 260.21 s,
+exit 0, `ratio=3.45` — matching the reported figure exactly.
+
+No Critical items. Three Warnings, all on the **new** W-2 guard and the new ingress-pin extractor; none
+blocks and none is a regression against round 1.
+
+**R-1 closed, and the reviewer accepted its own fix being refused:** *"dropping the GET fallback is
+strictly better than what I specified — I was asking for a body accessor that still reads the URL on a
+GET, which is the hole, not a tolerable edge."* It grepped the whole HTTP layer for `->input(`,
+`->query(`, `->all()` and `->bearerToken()` and confirmed **there is no second ingress path left**.
+
+**It adopted QA's taxonomy correction against its own round-1 framing:** *"'Fifth sink' was my framing
+in round 1 and it was wrong in a way that mattered — it would have sent the fix into the sentinel
+harness, where it could not have worked."*
+
+**W-1 closed as a correctly labelled partial fix.** `QaLockDecisionReadsTest` is judged the better of
+the two instruments, because "no read of `users` after the first write" is a property of the right
+shape where "no `select` naming `failed_attempts`" was keyed on a string a mutant can avoid. The
+MySQL changed-rows note is confirmed correct and not a finding: the predicate is `>= 5`, so the row
+always changes and the two counts coincide.
+
+**W-3 and BUG-2 closed.** On W-3: *"the code was a gap, the comment was a false premise, and the comment
+was the worse of the two."*
+
+**W-2 — the guard now states something true, and the scope call was right.** Measurements verified
+independently: kernel **0 of 58**, auth **0 of 18**, demo **0 of 1**. *"Landing the honesty half here and
+deferring the ~75-file namespacing to FP-303 splits it exactly where the risk is… I would have ruled the
+same way. Deferring both halves would have been the wrong call, and deleting the inert path would have
+been worse than either."*
+
+## Warnings — all handed to FP-303 or taken immediately
+
+- **R2-W1 · `QaToolchainRegistryCoverageTest.php:229`** — `qaDeptracCollectsTestTree()` returns true if
+  **any one** namespace in a tree is collected, so **the self-liquidation can liquidate into a false
+  green**: namespace a single file of `packages/kernel/tests` and the entry is forced off the list while
+  57 of 58 files stay invisible. *"The same registration-is-not-coverage shape one level down, which is
+  mask shape 7 again."* States nothing false **today**, because all three trees are at 0% and the "any"
+  and "all" predicates coincide; it becomes false the moment FP-303 starts. **→ FP-303 acceptance item.**
+  Also: the plan says the host's tree is the one Deptrac really collects, but only **4 of 106** files
+  there declare a namespace and two are deliberate violation fixtures — **the prose overstates host
+  coverage by about 25×.**
+- **R2-W2 · `:176`** — nothing bounds the exemption list; a future global tree can be silenced by adding
+  one line labelled `FP-303`. **Taken immediately.**
+- **R2-W3 · `QaAuthIngressChannelTest.php:61`** — the extractor regexes the sibling file's **raw text**,
+  so a URL in a *comment* satisfies the pin. **Taken immediately.**
+
+## The two lead decisions, both endorsed
+
+**Guard-honesty scope: right call.** **Skipping a fourth QA round: acceptable, and explicitly not
+generalised** — *"the thing that makes it safe is specifically that no production file changed in
+`02f392b`, and a round that touches `src/` should not take this route."* **S-4 agreed, not overruled.**
+
+## Done well
+
+> Refusing to implement a reviewer's fix that does not compile, and saying so with the file and line, is
+> the correct response and the one I want. The same for `architect` owning the W-2 misreading as its own
+> rather than `dev`'s.
+
+> QA building the mutant that defeats its **own** pin (`->first()`, 19 cases still green) and then
+> closing it is the single best thing in this round.
+
+## What the reviewer did not check
+
+Nothing from the unchanged list was re-litigated. **No engine** — the MySQL changed-rows question
+remains unobserved. **It did not re-run `dev`'s or QA's mutation runs** — it read the mutants and judged
+them plausible against the code, but did not revert a controller and watch it redden. It did not review
+the QA report's prose, the FP-302/FP-303 row texts, or the agent-memory files beyond confirming they
+exist.
