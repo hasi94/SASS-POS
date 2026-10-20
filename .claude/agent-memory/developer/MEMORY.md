@@ -56,3 +56,6 @@
 - [Access HTTP surface seams](project_access_http_surface_seams.md) - the middleware-parameter declaration, mapping a tenant by two keys, and Pest's variadic `toContain`.
 - [Defence in depth needs a discriminating input](feedback_defence_in_depth_needs_a_discriminating_input.md) - deleting the URL guard stayed green: the body-only reader already answered that input.
 - [The PIN slices](project_pin_slices.md) - the generated weak list, the one-statement lockout, and the dummy digest that keeps the hasher count at one.
+- [Token claims and selection seams](project_token_claims_and_selection_seams.md) - three claim shapes, the verifier that closes the all-or-none hole, and the Route that caches its controller.
+- [A sweep prints what it found](feedback_a_sweep_prints_what_it_found.md) - two green sweeps over the wrong domain in one step; the print caught both, the assertion could not.
+- [Field by field is silent about absence](feedback_field_by_field_is_silent_about_absence.md) - AC-70's ip shipped null through fourteen handlers and a green sweep.
