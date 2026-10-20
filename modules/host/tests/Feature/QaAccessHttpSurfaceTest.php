@@ -589,3 +589,27 @@ it('returns no PIN digest, counter, lock or version in any employee response (AC
             ->and($body)->toContain('cashier');
     }
 });
+
+it('stamps the audit row with the address of the request that caused it (AC-70)', function () {
+    $world = accessHttpWorld();
+
+    $actor = accessInTenant(static fn (): string => AccessSeed::actorHolding('role-manager', ['roles.manage']));
+
+    json('POST', '/api/v1/access/roles', ['key' => 'shift_lead', 'name' => 'Shift lead'], [
+        'Authorization' => 'Bearer '.accessHttpToken($world['user'], $world['tenant'], $actor),
+    ])->assertCreated();
+
+    /** @var list<array<string, mixed>> $rows */
+    $rows = accessInTenant(static fn (): array => AccessSeed::connection()->table('audit_logs')
+        ->orderBy('id')
+        ->get()
+        ->map(static fn ($row): array => (array) $row)
+        ->all());
+
+    // The liveness half of `ClientIp`: in a package test there is no
+    // request and the resolver answers null, which is also what the
+    // defect wrote. Only a real request through the real container can
+    // tell the shipped resolver from a hard-coded null.
+    expect($rows)->toHaveCount(1)
+        ->and(AccessLogWriter::unpackIp((string) $rows[0]['ip']))->toBe('127.0.0.1');
+});

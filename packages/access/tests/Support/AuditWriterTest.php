@@ -34,9 +34,12 @@ use Flexipos\Access\Features\SetRolePermissions\SetRolePermissions;
 use Flexipos\Access\Features\SetRolePermissions\SetRolePermissionsHandler;
 use Flexipos\Access\Features\UpdateEmployee\UpdateEmployee;
 use Flexipos\Access\Features\UpdateEmployee\UpdateEmployeeHandler;
+use Flexipos\Access\Support\AccessLogWriter;
 use Flexipos\Access\Support\AuditWriter;
+use Flexipos\Access\Support\ClientIp;
 use Flexipos\Access\Support\EmployeeStatus;
 use Flexipos\Contracts\Access\RefusalReason;
+use PHPUnit\Framework\ExpectationFailedException;
 use Tests\TestCase;
 
 /*
@@ -72,9 +75,22 @@ use Tests\TestCase;
 
 uses(TestCase::class);
 
+/**
+ * The address every row below is expected to carry.
+ *
+ * Bound through {@see ClientIp::fixed()} because a package test has no
+ * request, so the shipped resolver would answer null - and null is exactly
+ * what the defect wrote. An expected value the test chose is the only way
+ * the assertion can tell "the writer stored the client's address" from
+ * "there was no client".
+ */
+const AUDIT_FIXED_IP = '203.0.113.7';
+
 beforeEach(function () {
     AccessTenantFixture::boot();
     AccessTenantFixture::enter('tenant-a');
+
+    app()->instance(ClientIp::class, ClientIp::fixed(AUDIT_FIXED_IP));
 });
 
 afterEach(function () {
@@ -100,6 +116,66 @@ function auditRows(): array
 function auditRowCount(): int
 {
     return AccessSeed::connection()->table('audit_logs')->count();
+}
+
+/**
+ * Every column `audit_logs` holds, so that an expected row is a whole row.
+ *
+ * Read from the table rather than listed here: a column added by a later
+ * migration arrives in this list on the day it is created, and the
+ * comparisons below then report it as unaccounted for instead of ignoring
+ * it. A hand-written list is the thing that made AC-70's `ip` invisible.
+ *
+ * @return list<string>
+ */
+function auditColumns(): array
+{
+    $columns = AccessSeed::connection()->getSchemaBuilder()->getColumnListing('audit_logs');
+
+    sort($columns);
+
+    return $columns;
+}
+
+/**
+ * Compare one written row against the whole row that was expected.
+ *
+ * **The assertion shape is the point, and it is AC-70's remedy.** Step 16
+ * asserted this row field by field, and a field-by-field assertion is
+ * silent about every field it omits - which is how `ip` shipped
+ * hard-coded to null through fourteen handlers and a green sweep. A
+ * criterion that enumerates the fields of a row is asserted against the
+ * whole row: every column is named, `id` and `created_at` are the two
+ * whose values the test cannot know and are asserted for shape instead,
+ * and anything else absent from `$expected` is reported.
+ *
+ * Extracted so it can be RUN TWICE - once against the row the writer
+ * produced, and once against a row with a field knocked out, which must
+ * throw.
+ *
+ * @param  array<string, mixed>  $row
+ * @param  array<string, mixed>  $expected
+ */
+function assertWholeAuditRow(array $row, array $expected): void
+{
+    $columns = auditColumns();
+
+    // `id` is the table's and `created_at` is the clock's; both are
+    // asserted for shape, and naming them here is what keeps them from
+    // being quietly absent from the comparison.
+    expect(array_keys($expected + ['id' => null, 'created_at' => null]))
+        ->toEqualCanonicalizing($columns, 'every column of audit_logs must be accounted for')
+        ->and($row['id'])->not->toBeNull()
+        ->and((string) $row['created_at'])->not->toBe('');
+
+    $actual = $row;
+
+    unset($actual['id'], $actual['created_at']);
+
+    ksort($actual);
+    ksort($expected);
+
+    expect($actual)->toBe($expected);
 }
 
 /**
@@ -238,10 +314,35 @@ it('writes exactly one audit row for every writing operation of sections C to E 
 
         $row = $rows[count($rows) - 1];
 
-        expect($row['module'])->toBe(AuditWriter::MODULE)
-            ->and($row['actor_type'])->toBe(AuditWriter::ACTOR_TYPE)
-            ->and($row['actor_id'])->toBe($ids['actor'])
-            ->and((string) $row['action'])->not->toBe('')
+        // Every column is accounted for, so a field the writer stopped
+        // filling is reported here rather than passed over.
+        expect(array_keys($row))->toEqualCanonicalizing(
+            auditColumns(),
+            "[{$handler}] wrote a row that does not cover audit_logs"
+        );
+
+        // The fields that are the same for all fifteen operations, with
+        // their expected values - `ip` among them, which is the field a
+        // field-by-field assertion omitted and a whole-row one cannot.
+        expect([
+            'module' => $row['module'],
+            'actor_type' => $row['actor_type'],
+            'actor_id' => $row['actor_id'],
+            'actor_name' => $row['actor_name'],
+            'ip' => AccessLogWriter::unpackIp($row['ip'] === null ? null : (string) $row['ip']),
+            'user_agent' => $row['user_agent'],
+            'request_id' => $row['request_id'],
+        ])->toBe([
+            'module' => AuditWriter::MODULE,
+            'actor_type' => AuditWriter::ACTOR_TYPE,
+            'actor_id' => $ids['actor'],
+            'actor_name' => 'actor',
+            'ip' => AUDIT_FIXED_IP,
+            'user_agent' => null,
+            'request_id' => null,
+        ], "[{$handler}] constant audit fields");
+
+        expect((string) $row['action'])->not->toBe('')
             ->and($row['subject_id'])->not->toBeNull()
             ->and($row['created_at'])->not->toBeNull();
 
@@ -347,4 +448,124 @@ it('covers exactly the handlers that call the writer, read from their source (D-
 
     expect($writers)->not->toBe([])
         ->and($writers)->toBe($covered, 'handlers calling the audit writer: '.implode(', ', $writers));
+});
+
+it('writes the whole audit row, every column of it, for one operation (AC-70)', function () {
+    $ids = auditWorld();
+
+    /** @var CreateRoleHandler $handler */
+    $handler = app(CreateRoleHandler::class);
+    $roleId = $handler->handle(new CreateRole('tidy', 'Tidy', null, $ids['actor']))->id;
+
+    $row = auditRows()[0];
+
+    assertWholeAuditRow($row, [
+        'actor_type' => AuditWriter::ACTOR_TYPE,
+        'actor_id' => $ids['actor'],
+        'actor_name' => 'actor',
+        'branch_id' => null,
+        'module' => AuditWriter::MODULE,
+        'action' => (string) $row['action'],
+        'subject_type' => (string) $row['subject_type'],
+        'subject_id' => $roleId,
+        'before' => null,
+        'after' => (string) $row['after'],
+        'changed_fields' => (string) $row['changed_fields'],
+        'ip' => AccessLogWriter::packIp(AUDIT_FIXED_IP),
+        'user_agent' => null,
+        'request_id' => null,
+    ]);
+
+    // The four fields the comparison above took from the row itself are
+    // pinned here, so the whole-row assertion is not partly circular.
+    expect((string) $row['action'])->toBe('role_created')
+        ->and((string) $row['subject_type'])->toBe('role')
+        ->and(json_decode((string) $row['after'], true))->toHaveKey('key')
+        ->and(json_decode((string) $row['changed_fields'], true))->toContain('key');
+});
+
+it('reddens when a field is absent, where the field-by-field shape passed (AC-70, mutation control)', function () {
+    $ids = auditWorld();
+
+    /** @var CreateRoleHandler $handler */
+    $handler = app(CreateRoleHandler::class);
+    $handler->handle(new CreateRole('tidy', 'Tidy', null, $ids['actor']));
+
+    $row = auditRows()[0];
+
+    $expected = [
+        'actor_type' => AuditWriter::ACTOR_TYPE,
+        'actor_id' => $ids['actor'],
+        'actor_name' => 'actor',
+        'branch_id' => null,
+        'module' => AuditWriter::MODULE,
+        'action' => (string) $row['action'],
+        'subject_type' => (string) $row['subject_type'],
+        'subject_id' => (string) $row['subject_id'],
+        'before' => null,
+        'after' => (string) $row['after'],
+        'changed_fields' => (string) $row['changed_fields'],
+        'ip' => AccessLogWriter::packIp(AUDIT_FIXED_IP),
+        'user_agent' => null,
+        'request_id' => null,
+    ];
+
+    // The shipped row passes, which is the liveness half: an assertion
+    // that throws on everything proves nothing about the one below.
+    assertWholeAuditRow($row, $expected);
+
+    // The defect, reproduced in its exact shape: a writer that stopped
+    // filling `ip`. This is what shipped at step 16.
+    $mutated = $row;
+    $mutated['ip'] = null;
+
+    expect(fn () => assertWholeAuditRow($mutated, $expected))->toThrow(ExpectationFailedException::class);
+
+    // And the shape that let it ship: the step-16 assertion named five
+    // fields and `ip` was not among them, so the mutated row passes it.
+    expect($mutated['module'])->toBe(AuditWriter::MODULE)
+        ->and($mutated['actor_type'])->toBe(AuditWriter::ACTOR_TYPE)
+        ->and($mutated['actor_id'])->toBe($ids['actor'])
+        ->and((string) $mutated['action'])->not->toBe('')
+        ->and($mutated['subject_id'])->not->toBeNull();
+});
+
+it('records no address when there is no client, and the two cases differ (AC-70)', function () {
+    $ids = auditWorld();
+
+    app()->instance(ClientIp::class, ClientIp::none());
+
+    /** @var CreateRoleHandler $handler */
+    $handler = app(CreateRoleHandler::class);
+    $handler->handle(new CreateRole('tidy', 'Tidy', null, $ids['actor']));
+
+    expect(auditRows()[0]['ip'])->toBeNull();
+
+    // The discriminating half: the identical operation under a client
+    // stores the address, so "null" above is the absence of a client and
+    // not the absence of the field.
+    // Resolved again, because the writer took its `ClientIp` when the
+    // handler above was built: the address is a collaborator, not a
+    // global read, which is the property this re-resolution shows.
+    app()->instance(ClientIp::class, ClientIp::fixed(AUDIT_FIXED_IP));
+
+    /** @var CreateRoleHandler $second */
+    $second = app(CreateRoleHandler::class);
+    $second->handle(new CreateRole('tidier', 'Tidier', null, $ids['actor']));
+
+    $rows = auditRows();
+
+    expect(AccessLogWriter::unpackIp((string) $rows[1]['ip']))->toBe(AUDIT_FIXED_IP);
+});
+
+it('stores an IPv6 address and reads it back unchanged (AC-70)', function () {
+    $ids = auditWorld();
+
+    app()->instance(ClientIp::class, ClientIp::fixed('2001:db8::7'));
+
+    /** @var CreateRoleHandler $handler */
+    $handler = app(CreateRoleHandler::class);
+    $handler->handle(new CreateRole('tidy', 'Tidy', null, $ids['actor']));
+
+    expect(AccessLogWriter::unpackIp((string) auditRows()[0]['ip']))->toBe('2001:db8::7');
 });

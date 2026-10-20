@@ -55,7 +55,10 @@ final class AuditWriter
      */
     public const ACTOR_TYPE = 'employee';
 
-    public function __construct(private readonly RunnerClock $clock) {}
+    public function __construct(
+        private readonly RunnerClock $clock,
+        private readonly ClientIp $client,
+    ) {}
 
     /**
      * Record one successful administrative operation.
@@ -85,7 +88,14 @@ final class AuditWriter
             'before' => $before === null ? null : self::encode($before),
             'after' => $after === null ? null : self::encode($after),
             'changed_fields' => self::encode(self::changedFields($before, $after)),
-            'ip' => null,
+            // AC-70 names `ip` among the fields the row carries. It comes
+            // from the request the container holds, packed by the one
+            // helper inside this package, and is null when there is no
+            // request - see ClientIp. `user_agent` and `request_id` are
+            // columns T-008 created and no criterion of this task names;
+            // they stay null until a task owns them, which is a different
+            // fact from this one having been forgotten.
+            'ip' => $this->client->packed(),
             'user_agent' => null,
             'request_id' => null,
             'created_at' => $this->clock->timestamp(),

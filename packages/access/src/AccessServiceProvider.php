@@ -7,6 +7,7 @@ namespace Flexipos\Access;
 use Flexipos\Access\Registry\AccessPermissions;
 use Flexipos\Access\Registry\PermissionRegistry;
 use Flexipos\Access\Resolver\DatabasePermissionResolver;
+use Flexipos\Access\Support\ClientIp;
 use Flexipos\Access\Support\EmployeeStatus;
 use Flexipos\Access\Support\PinPolicy;
 use Flexipos\Contracts\Access\DeclaresPermissions;
@@ -77,6 +78,13 @@ final class AccessServiceProvider extends ServiceProvider implements DeclaresPer
         // differ from the generated one is a test binding a different
         // instance, which is the seam the moved-value proof uses.
         $this->app->singleton(PinPolicy::class, static fn (): PinPolicy => PinPolicy::shipped());
+
+        // The calling client's address, for `audit_logs.ip` (AC-70). A
+        // singleton holding a closure, never a captured request: the
+        // address is read at write time, so one container serving many
+        // requests stamps each row with its own caller. A test that needs
+        // a chosen address binds `ClientIp::fixed()` over this.
+        $this->app->singleton(ClientIp::class, static fn ($app): ClientIp => ClientIp::fromRequests($app));
     }
 
     /**
