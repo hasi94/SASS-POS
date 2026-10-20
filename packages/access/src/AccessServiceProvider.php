@@ -80,6 +80,21 @@ final class AccessServiceProvider extends ServiceProvider implements DeclaresPer
     }
 
     /**
+     * Mount this package's tenant routes (step 20).
+     *
+     * `loadRoutesFrom()` rather than an entry in the host's bootstrap, for
+     * `AuthServiceProvider`'s reason: the file that declares the routes and
+     * the provider that decides they exist stay together, and a host that
+     * did not register this provider gets no access endpoints at all rather
+     * than endpoints pointing at a provider that never booted. The helper is
+     * route-cache aware, so a cached application does not re-read the file.
+     */
+    public function boot(): void
+    {
+        $this->loadRoutesFrom(__DIR__.'/../routes/api.php');
+    }
+
+    /**
      * This package's own six keys (AC-14, D-13).
      *
      * Declared the same way any module declares its own - by implementing
