@@ -30,6 +30,24 @@
 
 return [
 
+    'pin' => [
+        /*
+        | The digit bounds of a cashier PIN (AC-47, D-16). Read by
+        | `Flexipos\Access\Support\PinPolicy::shipped()` and by nothing
+        | else, so the weak-PIN set is generated for exactly the lengths
+        | this file accepts.
+        |
+        | They are here, and the acting statuses are not, because these are
+        | operational figures rather than an access decision: a shop moving
+        | to six-digit PINs widens nobody's rights. AC-52a's standing limit
+        | is unaffected by the choice - an Argon2id hash of a secret from a
+        | space this small is brute-forceable offline either way.
+        */
+        'min_digits' => (int) env('ACCESS_PIN_MIN_DIGITS', 4),
+
+        'max_digits' => (int) env('ACCESS_PIN_MAX_DIGITS', 8),
+    ],
+
     'employees' => [
         /*
         | How many employees one page of the employee list returns when the

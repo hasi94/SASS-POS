@@ -20,7 +20,7 @@ use RuntimeException;
  * every way in is a named constructor carrying exactly one
  * {@see RefusalReason}, so there is no shape of this object that means
  * "refused" and nothing more - which is the shape a test asserting that
- * *something* refused cannot tell apart from a defect. Fourteen reasons and
+ * *something* refused cannot tell apart from a defect. Fifteen reasons and
  * several sibling guards share one HTTP status, so the cause has to travel
  * with the refusal rather than beside it.
  *
@@ -135,6 +135,25 @@ final class AccessRefused extends RuntimeException
     public static function selfChange(string $message): self
     {
         return new self(RefusalReason::SelfChange, $message);
+    }
+
+    /**
+     * The operation changes access and named no actor (AC-36, D-36).
+     *
+     * **A question-level refusal, checked before any right is read.** It is
+     * deliberately not {@see self::noEscalation()}: that one says the actor
+     * lacks a key, and a single code carrying both would leave a test
+     * asserting `no_escalation` unable to tell AC-36's real subject from a
+     * defect at an internal call site. It is not `validation` either,
+     * because the actorless call is a coming legitimate case - provisioning
+     * creates the first owner with no human actor (D-24) - and the answer
+     * it needs is "supply an actor", not "your request is malformed".
+     *
+     * Thrown only by {@see Escalation::requireHeld()}.
+     */
+    public static function actorRequired(string $message): self
+    {
+        return new self(RefusalReason::ActorRequired, $message);
     }
 
     /**

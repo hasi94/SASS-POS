@@ -70,4 +70,21 @@ enum RefusalReason: string
 
     /** The request itself is malformed, including a disallowed field (D-32). */
     case Validation = 'validation';
+
+    /**
+     * The operation grants, removes or changes access and named no actor
+     * (D-36).
+     *
+     * A **question-level** refusal in D-33's sense, the same species as
+     * {@see self::BranchRequired}: a required input of the command is
+     * missing, so it is answered before any rights are read. Deliberately
+     * not {@see self::NoEscalation}, which is a proposition about rights -
+     * one code carrying both would mean a test asserting `no_escalation`
+     * could not tell AC-36's real subject from a defect at a call site.
+     *
+     * No end user can produce it: over HTTP the actor comes from the token.
+     * It fails closed and is logged at error level, like
+     * {@see self::UnknownPermission}.
+     */
+    case ActorRequired = 'actor_required';
 }

@@ -151,16 +151,34 @@ it('names the key the actor is missing, so the refusal can be acted on (AC-36)',
         ->and($refused->getMessage())->not->toContain($ids['first']);
 });
 
-it('refuses a grant with no actor at all, because an unbounded grant is bounded by nobody (AC-36)', function () {
+it('refuses a grant with no actor at all, under its own reason, and accepts the same grant from a privileged actor (AC-36, D-36)', function () {
     $ids = escalationWorld();
 
+    $before = AccessSeed::connection()->table('employee_roles')
+        ->where('employee_id', $ids['subject'])->count();
+
+    // The word is the ruling: `actor_required` is a proposition about the
+    // command, `no_escalation` one about rights, and a test that accepted
+    // either could not tell AC-36's real subject from a defect at a call
+    // site. D-36.
     AccessRefusals::expect(
-        RefusalReason::NoEscalation,
+        RefusalReason::ActorRequired,
         fn () => escalationAssign($ids['subject'], $ids['role'], null, null)
     );
 
     expect(AccessSeed::connection()->table('employee_roles')
-        ->where('employee_id', $ids['subject'])->count())->toBe(0);
+        ->where('employee_id', $ids['subject'])->count())->toBe($before);
+
+    // The paired control the criterion asks for, and the only thing that
+    // makes the refusal attributable to the missing actor: the identical
+    // operation, with an actor holding both of the role's keys, succeeds.
+    escalationHolds($ids['actor'], $ids['first']);
+    escalationHolds($ids['actor'], $ids['second']);
+
+    escalationAssign($ids['subject'], $ids['role'], null, $ids['actor']);
+
+    expect(AccessSeed::connection()->table('employee_roles')
+        ->where('employee_id', $ids['subject'])->count())->toBe($before + 1);
 });
 
 it('refuses a per-person allow of a key the actor does not hold, and accepts it once they do (AC-36)', function () {

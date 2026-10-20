@@ -21,7 +21,7 @@ use Illuminate\Database\Connection;
  * **A role that is soft-deleted is a role that does not exist**, for every
  * operation that is not the registry's own. It is refused `validation`
  * rather than with a reason of its own: the closed set (D-26) has no
- * `not_found`, and inventing one for this would publish a fourteenth
+ * `not_found`, and inventing one for this would publish a sixteenth
  * refusal across the whole platform to serve one query. `validation` is also
  * the honest description - the request named something that is not there.
  *

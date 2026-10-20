@@ -29,7 +29,7 @@ final class EmployeeLookup
     /**
      * The live employee with this id.
      *
-     * @return object{id: string, code: string, first_name: string, last_name: ?string, display_name: string, status: string, pin_hash: ?string}
+     * @return object{id: string, code: string, first_name: string, last_name: ?string, display_name: string, status: string, pin_hash: ?string, pin_set_at: ?string, pin_failed_attempts: int, pin_locked_until: ?string}
      *
      * @throws AccessRefused when no live employee has that id
      */
@@ -44,7 +44,7 @@ final class EmployeeLookup
             throw AccessRefused::validation("No live employee has id [{$employeeId}].");
         }
 
-        /** @var object{id: string, code: string, first_name: string, last_name: ?string, display_name: string, status: string, pin_hash: ?string} $employee */
+        /** @var object{id: string, code: string, first_name: string, last_name: ?string, display_name: string, status: string, pin_hash: ?string, pin_set_at: ?string, pin_failed_attempts: int, pin_locked_until: ?string} $employee */
         return $employee;
     }
 

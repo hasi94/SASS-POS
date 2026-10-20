@@ -28,6 +28,8 @@ use Flexipos\Access\Features\RenameRole\RenameRole;
 use Flexipos\Access\Features\RenameRole\RenameRoleHandler;
 use Flexipos\Access\Features\SetEmployeePermission\SetEmployeePermission;
 use Flexipos\Access\Features\SetEmployeePermission\SetEmployeePermissionHandler;
+use Flexipos\Access\Features\SetPin\SetPin;
+use Flexipos\Access\Features\SetPin\SetPinHandler;
 use Flexipos\Access\Features\SetRolePermissions\SetRolePermissions;
 use Flexipos\Access\Features\SetRolePermissions\SetRolePermissionsHandler;
 use Flexipos\Access\Features\UpdateEmployee\UpdateEmployee;
@@ -189,6 +191,15 @@ function auditOperations(array $ids): array
             /** @var DetachBranchHandler $handler */
             $handler = app(DetachBranchHandler::class);
             $handler->handle(new DetachBranch($ids['subject'], $ids['branch'], $ids['actor']));
+        },
+        SetPinHandler::class => static function () use ($ids): void {
+            // Step 17, and AC-70's `pin_set` clause: it was absent from this
+            // sweep only because the slice did not exist. The row records the
+            // fact and the instant; SetPinTest asserts that it holds neither
+            // the PIN nor the hash.
+            /** @var SetPinHandler $handler */
+            $handler = app(SetPinHandler::class);
+            $handler->handle(new SetPin($ids['subject'], '7391', $ids['actor']));
         },
         ChangeEmployeeStatusHandler::class => static function () use ($ids): void {
             /** @var ChangeEmployeeStatusHandler $handler */

@@ -174,7 +174,7 @@ it('refuses one key declared two different ways and names both providers', funct
     }
 
     expect($refusal)->toBeInstanceOf(AccessRefused::class)
-        // The cause travels with the refusal: fourteen reasons share a few
+        // The cause travels with the refusal: fifteen reasons share a few
         // statuses, so "it threw" is not the assertion.
         ->and($refusal?->reason)->toBe(RefusalReason::Validation)
         ->and((string) $refusal?->getMessage())->toContain('fixture.shared')

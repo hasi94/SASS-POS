@@ -8,6 +8,7 @@ use Flexipos\Access\Registry\AccessPermissions;
 use Flexipos\Access\Registry\PermissionRegistry;
 use Flexipos\Access\Resolver\DatabasePermissionResolver;
 use Flexipos\Access\Support\EmployeeStatus;
+use Flexipos\Access\Support\PinPolicy;
 use Flexipos\Contracts\Access\DeclaresPermissions;
 use Flexipos\Contracts\Access\PermissionDeclaration;
 use Flexipos\Contracts\Access\PermissionResolver;
@@ -68,6 +69,14 @@ final class AccessServiceProvider extends ServiceProvider implements DeclaresPer
         // real resolver exists and refuses correctly - never to a stub that
         // allows, not even for a minute (the plan's red-first rule).
         $this->app->singleton(PermissionResolver::class, DatabasePermissionResolver::class);
+
+        // Step 17. The PIN rules as one object, over the configured digit
+        // bounds (AC-47, D-16). A singleton for `EmployeeStatus`'s reason -
+        // every collaborator must judge a PIN against the same list - and
+        // built through `shipped()` so that the only way the weak set can
+        // differ from the generated one is a test binding a different
+        // instance, which is the seam the moved-value proof uses.
+        $this->app->singleton(PinPolicy::class, static fn (): PinPolicy => PinPolicy::shipped());
     }
 
     /**

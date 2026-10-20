@@ -7,6 +7,7 @@ namespace Flexipos\Access\Support;
 use Flexipos\Access\Exceptions\AccessRefused;
 use Flexipos\Access\Resolver\DatabasePermissionResolver;
 use Illuminate\Database\Connection;
+use Psr\Log\LoggerInterface;
 
 /**
  * Nobody hands out what they do not hold (AC-36).
@@ -29,14 +30,28 @@ use Illuminate\Database\Connection;
  * {@see DatabasePermissionResolver::holdsEverywhere()} out of the same
  * readers.
  *
- * **An unknown actor is refused, and that is a decision rather than an
- * oversight.** `actorId` is null when an operation did not come through the
- * HTTP surface, and the tempting reading is "no actor, no escalation, carry
- * on" - which is a guard that permits whenever its input is missing, the
- * precise shape this project forbids. Absence is a third state: there is no
- * actor whose rights bound this grant, so the grant is unbounded, so it is
- * refused. Nothing shipped grants without an actor; the day a background
- * process needs to, it gets an actor or an explicit decision, not silence.
+ * **An unknown actor is refused `actor_required`, and the word is the
+ * ruling rather than the behaviour** (D-36). `actorId` is null when an
+ * operation did not come through the HTTP surface, and the tempting reading
+ * is "no actor, no escalation, carry on" - which is a guard that permits
+ * whenever its input is missing, the precise shape this project forbids.
+ * Absence is a third state: there is no actor whose rights bound this
+ * grant, so the grant is unbounded, so it is refused.
+ *
+ * It is a **question-level** refusal in D-33's sense - a required input of
+ * the command is missing, the same species as `branch_required` - so it is
+ * answered **before** the escalation check, which could not run without an
+ * actor anyway. `no_escalation` is a proposition about rights and would
+ * have told the one real caller that is coming, FP-206's provisioning of
+ * the first owner (D-24), that provisioning *tried to escalate*; the
+ * plausible response to a nonsense refusal is to bypass the guard.
+ * Provisioning is expected to supply a **named system actor, not a null
+ * one**, and this message says so.
+ *
+ * It is logged at **error** level, like `unknown_permission` and for the
+ * same reason: no end user can produce it, because over HTTP the actor
+ * comes from the verified token, so a row in the log is a defect at a call
+ * site and not a caller's mistake.
  *
  * **A deny needs no check** (AC-36, in terms). Taking a right away from
  * somebody cannot raise anyone above the actor, and requiring the actor to
@@ -45,18 +60,27 @@ use Illuminate\Database\Connection;
  */
 final class Escalation
 {
-    public function __construct(private readonly DatabasePermissionResolver $resolver) {}
+    public function __construct(
+        private readonly DatabasePermissionResolver $resolver,
+        private readonly LoggerInterface $logger,
+    ) {}
 
     /**
      * Refuse unless the actor holds this key at this scope.
      *
-     * @throws AccessRefused no_escalation
+     * @throws AccessRefused actor_required when no actor was named,
+     *                       no_escalation when the actor lacks the key
      */
     public function requireHeld(?string $actorId, string $permissionKey, ?string $branchId): void
     {
         if ($actorId === null) {
-            throw AccessRefused::noEscalation(
-                "Granting [{$permissionKey}] needs a known actor whose own rights bound the grant."
+            $this->logger->error('A grant was attempted with no actor.', [
+                'permission_key' => $permissionKey,
+                'branch_id' => $branchId,
+            ]);
+
+            throw AccessRefused::actorRequired(
+                "Granting [{$permissionKey}] needs a named actor whose own rights bound the grant."
             );
         }
 
@@ -90,7 +114,7 @@ final class Escalation
      * gains a key its holders gain nothing either - `SetRolePermissions`
      * checks the actor adding the key.
      *
-     * @throws AccessRefused no_escalation
+     * @throws AccessRefused actor_required or no_escalation
      */
     public function requireRoleHeld(Connection $connection, ?string $actorId, string $roleId, ?string $branchId): void
     {
