@@ -435,7 +435,11 @@ function qaPhpunitTestDirectories(): array
 it('finds the packages this guard is supposed to protect', function () {
     expect(qaModulePackages())->toHaveKey('demo')
         ->and(array_keys(qaSharedPackages()))->toBe([
-            'auth', 'contracts', 'eventbus', 'http-client', 'kernel', 'plugin-sdk', 'testing',
+            // 'access' is T-010's. The literal is this guard's published
+            // domain - it is how a reader tells a clean sweep from an empty
+            // one - so a new package necessarily edits it, the way a new
+            // master table edits masterApplicationTables()'s counts.
+            'access', 'auth', 'contracts', 'eventbus', 'http-client', 'kernel', 'plugin-sdk', 'testing',
         ]);
 });
 

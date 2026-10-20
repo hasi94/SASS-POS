@@ -1,0 +1,73 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Flexipos\Contracts\Access;
+
+/**
+ * The closed refusal vocabulary of the access domain (D-26).
+ *
+ * **One place, so a criterion can assert the cause rather than the status
+ * class.** Fourteen reasons, and several of them are refused by sibling guards
+ * with the same HTTP status: a test asserting "403" alone proves only that
+ * *something* refused, which is the mask shape the plan's section 6.3 names as
+ * the big one for this task.
+ *
+ * Three finer causes - `not_granted`, `explicit_deny`, `out_of_scope` - are
+ * deliberately **not** members here. They never reach an HTTP body; they are
+ * written to `access_log.detail.reason` and live on {@see AccessDecision} as
+ * the detail. All three surface to a caller as {@see self::NotPermitted},
+ * because telling a caller whether an explicit deny exists discloses something
+ * and buys nothing (D-26).
+ */
+enum RefusalReason: string
+{
+    /**
+     * The caller holds no allowing contribution for the key and scope asked
+     * about, or holds a deny that covers it. The three finer causes collapse
+     * here.
+     */
+    case NotPermitted = 'not_permitted';
+
+    /** A branch-scoped key was asked about with no branch (D-8 (d)). */
+    case BranchRequired = 'branch_required';
+
+    /**
+     * The key is in no module's declarations. A server defect, not a caller
+     * error: fail closed and log at error level (D-26).
+     */
+    case UnknownPermission = 'unknown_permission';
+
+    /** The token's `perm_version` is behind the employee's row (D-7). */
+    case PermissionsChanged = 'permissions_changed';
+
+    /** The employee row is missing, soft-deleted, not acting, or not linked to the user (D-6). */
+    case EmployeeUnavailable = 'employee_unavailable';
+
+    /** The change would leave the tenant with no acting owner. */
+    case LastOwner = 'last_owner';
+
+    /** An actor may not make this change to their own access. */
+    case SelfChange = 'self_change';
+
+    /** An actor may not grant rights they do not hold themselves. */
+    case NoEscalation = 'no_escalation';
+
+    /** A role still assigned to an employee may not be deleted. */
+    case RoleInUse = 'role_in_use';
+
+    /** A system role (`owner`) may not be renamed, re-permissioned or deleted. */
+    case SystemRole = 'system_role';
+
+    /** A per-person row for a non-branch-scoped key named a branch (D-8 (e)). */
+    case ScopeNotApplicable = 'scope_not_applicable';
+
+    /** A grant named a branch the employee is not attached to (D-11). */
+    case NotAttached = 'not_attached';
+
+    /** A branch may not be detached while scoped grants for it remain (D-11). */
+    case HasScopedGrants = 'has_scoped_grants';
+
+    /** The request itself is malformed, including a disallowed field (D-32). */
+    case Validation = 'validation';
+}

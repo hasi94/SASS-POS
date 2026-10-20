@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "5d57afffb646b2f4fece69f07ebd6b5d",
+    "content-hash": "41fded610b9c4221161ab615876e2d78",
     "packages": [
         {
             "name": "brick/math",
@@ -584,6 +584,32 @@
                 "source": "https://github.com/googleapis/php-jwt/tree/v7.2.1"
             },
             "time": "2026-09-28T17:51:46+00:00"
+        },
+        {
+            "name": "flexipos/access",
+            "version": "0.1.0",
+            "dist": {
+                "type": "path",
+                "url": "../../packages/access",
+                "reference": "64e4676afb41eeeaa283f0c529a751dc93f1924f"
+            },
+            "require": {
+                "flexipos/contracts": "*",
+                "php": "^8.2"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Flexipos\\Access\\": "src/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "FlexiPOS access: tenant-local employees, roles, branch-scoped permissions, cashier PINs and the permission resolver.",
+            "transport-options": {
+                "relative": true
+            }
         },
         {
             "name": "flexipos/auth",

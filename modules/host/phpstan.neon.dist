@@ -33,6 +33,12 @@ parameters:
         - ../demo/src
         - ../demo/tests
         # packages/*
+        # The access package (T-010 step 1). Its test tree is the first in this
+        # repository declared in a namespace of its own rather than globally,
+        # which changes nothing for PHPStan - it matches on files - and is what
+        # makes it collectable by Deptrac; see deptrac.yaml.
+        - ../../packages/access/src
+        - ../../packages/access/tests
         - ../../packages/auth/src
         # The auth package's tests (T-009 step 5b). They were in neither
         # registry, which QaToolchainRegistryCoverageTest could not see

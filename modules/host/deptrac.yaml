@@ -20,6 +20,13 @@ deptrac:
     - tests
     - ../demo/src
     - ../demo/tests
+    # The access package (T-010 step 1). Unlike every other test tree here,
+    # this one is registered *and* collected: its files declare
+    # Flexipos\Access\Tests\..., so the Package_Access layer below matches
+    # them. The three trees for which registration is still inert are recorded
+    # in qaGlobalNamespaceTestTrees() against FP-303; this adds no fourth.
+    - ../../packages/access/src
+    - ../../packages/access/tests
     - ../../packages/auth/src
     # The auth package's tests (T-009 step 5b), for the reason stated
     # above: a layer is matched by namespace and not by directory, and
@@ -59,6 +66,16 @@ deptrac:
       collectors:
         - type: classLike
           value: ^Flexipos\\Module\\Demo\\.*
+
+    # T-010. The tenant-local authorization package: employees, roles,
+    # branch-scoped permissions, PINs and the resolver. The pattern covers
+    # Flexipos\Access\Tests\... as well, so this package's test code is
+    # boundary-checked like its source - which is the first time that is true
+    # of a package test tree here.
+    - name: Package_Access
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Access\\.*
 
     - name: Package_Auth
       collectors:
@@ -134,6 +151,7 @@ deptrac:
   # module layer. packages/* layers depend on nothing (`~`).
   ruleset:
     HostApp:
+      - Package_Access
       - Package_Auth
       - Package_Contracts
       - Package_Eventbus
@@ -145,8 +163,15 @@ deptrac:
 
     # The host's tests may use the host application and the shared packages.
     # No Module_* layer appears here on purpose: see the layer comment above.
+    # Package_Access is granted here as well as to HostApp. The host's own
+    # tests are where the access HTTP surface, the two middleware and the
+    # cross-package criteria are proved from (plan section 7), so withholding
+    # it would make the qa-owned tests of steps 19 to 24 unwritable. The
+    # omission that carries AC-11 is Module_Demo's, below, and it is
+    # unaffected.
     HostTests:
       - HostApp
+      - Package_Access
       - Package_Auth
       - Package_Contracts
       - Package_Eventbus
@@ -156,6 +181,14 @@ deptrac:
       - Package_PluginSdk
       - Package_Testing
 
+    # Package_Access is deliberately absent, and the omission is AC-11's
+    # instrument: a module reaching into the access tables' own classes is a
+    # reportable violation from day one, while the same module asking the
+    # authorization question through Flexipos\Contracts\Access is not. The
+    # pair is what discriminates - both are "a reference"; only one is
+    # forbidden. Stated limit (T-009 D-33): this proves the absence of *type
+    # references* only. It cannot see a table name in a string, which is why
+    # AC-2's and AC-73's query-log scans carry that half.
     Module_Demo:
       - Package_Auth
       - Package_Contracts
@@ -172,6 +205,19 @@ deptrac:
     # is a new *allowed edge*, not an exemption - nothing is silenced and no
     # baseline or skip list is touched. Package_Kernel_TenancyStatus is
     # withheld on purpose; see that layer's comment.
+    # T-010 step 1. The access package reads the kernel (IdentifierColumn,
+    # RunnerClock, Tenancy) and publishes its surface through
+    # packages/contracts. Package_Kernel_TenancyStatus is withheld for the
+    # same reason it is withheld from authentication: deciding whether a
+    # tenant *database* is served is not this package's question.
+    #
+    # Nothing is granted *to* Package_Auth here. Authentication reaches the
+    # employee-derived claims through Flexipos\Contracts\Access\
+    # EmployeeClaimSource, an edge it already has, so T-010 adds no allowed
+    # edge to authentication at all.
+    Package_Access:
+      - Package_Kernel
+      - Package_Contracts
     Package_Auth:
       - Package_Kernel
       - Package_Contracts

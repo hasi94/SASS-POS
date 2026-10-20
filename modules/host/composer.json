@@ -17,6 +17,7 @@
     ],
     "require": {
         "php": "^8.2",
+        "flexipos/access": "*",
         "flexipos/auth": "*",
         "flexipos/contracts": "*",
         "flexipos/eventbus": "*",
@@ -50,6 +51,7 @@
     },
     "autoload-dev": {
         "psr-4": {
+            "Flexipos\\Access\\Tests\\": "../../packages/access/tests/",
             "Tests\\": "tests/"
         }
     },
