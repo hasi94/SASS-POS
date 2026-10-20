@@ -64,3 +64,15 @@ driver in one named helper and state the SQLite difference there; when a test
 migrates, name the connection explicitly and assert it is SQLite *before*
 migrating, which is what makes the test structurally unable to reach
 `127.0.0.1:3306`. Related: [[project-shared-mariadb-engine-is-production]].
+
+**CORRECTION, measured 2026-10-20 (T-010 step 2): "SQLite has no ALTER TABLE
+ADD CONSTRAINT" is true of RAW SQL only.** The raw statement is a syntax
+error, as the bullet above says - but taking a foreign key through the
+**schema builder** (Schema::table with ->foreign()->references()->on())
+SUCCEEDS on SQLite through Laravel 12 grammar, which rebuilds the table:
+pragma foreign_key_list reports the key, sqlite_master shows it inside the
+recreated CREATE TABLE, and an insert naming an absent parent row is refused
+with "FOREIGN KEY constraint failed". So a contract migration that takes a
+foreign key does NOT have to be driver-gated, and an [ENGINE] label applied
+for that reason is wrong. JsonValidity gate is still right: a raw
+ADD CONSTRAINT ... CHECK has no builder equivalent.

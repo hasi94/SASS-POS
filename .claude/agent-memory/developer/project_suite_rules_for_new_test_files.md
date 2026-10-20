@@ -39,3 +39,22 @@ invisible until the full suite collects.
 **How to apply:** check the basename against the repository before naming a new
 test file, and keep glob-shaped paths out of block comments. Related:
 [[project-backend-toolchain-constraints]].
+
+- **A Pest file takes its generated class name from its PATH, not from its
+  declared namespace.** Measured 2026-10-20: a file declaring
+  `namespace Flexipos` + backslash + `Access` + backslash + `Tests;` still
+  collects as
+  `P` + backslash + `D` + backslash + `Flexiata` + backslash + ... + the file
+  path. A Pest file also declares no class, so Deptrac collects **no token**
+  from it either way. What the namespace declaration does buy is real and is
+  two things: `QaToolchainRegistryCoverageTest` reads the `namespace`
+  statement, so the tree stops being an FP-303 entry; and any ordinary class
+  declared in the tree (a Support helper, a fixture) lands inside that
+  package's layer and is boundary-checked. Proved as a pair - a namespaced
+  class in `packages/access/tests` reaching a module internal is 1 violation,
+  the same class global-namespaced is 0.
+- **A path package's own `autoload-dev` is inert** when the package is
+  installed as a dependency: only the root package's `autoload-dev` is
+  applied. A test namespace for `packages/<x>/tests` therefore has to be
+  declared in `modules/host/composer.json`.
+

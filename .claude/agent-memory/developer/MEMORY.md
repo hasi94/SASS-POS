@@ -47,3 +47,4 @@
 - [Say what a fix does not fix](feedback_say_what_a_fix_does_not_fix.md) — the conditional-UPDATE lockout changes structure, not sequential behaviour; bound the claim.
 - [Record the gap, do not assert zero](feedback_record_the_gap_dont_assert_zero.md) — a widened check ships with a named self-liquidating list; and Deptrac cannot see a global-namespace tree.
 - [Reproduce the defect in its exact shape](feedback_reproduce_the_defect_in_its_exact_shape.md) — a comment plant the old regex also missed read as "the fix changed nothing".
+- [Tenant tree top version is pinned everywhere](project_tenant_tree_top_version_is_pinned_everywhere.md) - one new tenant migration edits ~25 sites; a contract step in the shipped tree reddens 38 planner tests by design.
