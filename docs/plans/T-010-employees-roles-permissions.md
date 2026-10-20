@@ -1,6 +1,6 @@
 # Plan: T-010 Employees, roles and branch-scoped permissions
 
-Spec: `docs/specs/T-010-employees-roles-permissions.md` (75 criteria, AC-1 to AC-74 plus AC-52a, commit `c858dc0`). Decisions: `docs/decisions/T-010-employees-roles-permissions.md` (D-1 to D-31). Backlog row FP-208, carrying FP-200's debt. Branch `ai/T-010-employees-roles-permissions`, cut from the T-009 tip.
+Spec: `docs/specs/T-010-employees-roles-permissions.md` (AC-1 to AC-74, with AC-12a, AC-12b and AC-52a; the spec header is the authority for the set and this plan states no total — FP-181). Decisions: `docs/decisions/T-010-employees-roles-permissions.md` (D-1 to D-32). Backlog row FP-208, carrying FP-200's debt. Branch `ai/T-010-employees-roles-permissions`, cut from the T-009 tip.
 
 **Gate baseline this plan is written against, measured 2026-10-20 on this branch before any change:** `composer check` **exit 0 · 1157 passed · 11 skipped · 6914 assertions · test step 184.68s against a 900s limit (ratio 4.87, source=manifest)**. Every step below is measured against the gate as it stood when that step began, not against this number, because each step moves it.
 
@@ -393,7 +393,7 @@ Each step ends green on `composer check` from `modules/host`, with a **zero-delt
 
 ## 9. What I judge unrealistic in the spec — nothing is blocking, two items need `ba`
 
-The spec is unusually well-formed for 75 criteria and I am rejecting none of it. Two items are sent to `ba` (§12) and one is a note to the lead:
+The spec is unusually well-formed at this size and I am rejecting none of it. Two items are sent to `ba` (§12) and one is a note to the lead:
 
 1. **Open question 9's premise is false** and the spec should say so (Ruling 1). As written it leaves the lead a decision the shipped files already made, and a later reader would conclude T-010 deferred something.
 2. **AC-12 offers two cases and the truth is both** (Ruling 2). The criterion as written — "either already scope themselves to the baseline set, or `architect` records which of them scan the whole tree" — cannot be answered with one of its two branches, because AC-23's sites are whole-tree and AC-30's is baseline-scoped-and-still-needs-widening. `ba` may want to split it.
