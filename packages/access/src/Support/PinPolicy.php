@@ -51,12 +51,23 @@ final class PinPolicy
     public const MAX_DIGITS = 8;
 
     /**
+     * D-17's two lockout figures, as the values `config/access.php` defaults
+     * to: how many consecutive wrong PINs lock an employee, and for how many
+     * minutes.
+     */
+    public const LOCKOUT_AFTER = 5;
+
+    public const LOCKOUT_MINUTES = 15;
+
+    /**
      * @param  list<string>  $weakPins
      */
     private function __construct(
         private readonly int $minDigits,
         private readonly int $maxDigits,
         private readonly array $weakPins,
+        private readonly int $lockoutAfter,
+        private readonly int $lockoutMinutes,
     ) {}
 
     /**
@@ -69,7 +80,13 @@ final class PinPolicy
         $min = (int) config('access.pin.min_digits', self::MIN_DIGITS);
         $max = (int) config('access.pin.max_digits', self::MAX_DIGITS);
 
-        return new self($min, $max, self::weakPins($min, $max));
+        return new self(
+            $min,
+            $max,
+            self::weakPins($min, $max),
+            (int) config('access.pin.lockout_after', self::LOCKOUT_AFTER),
+            (int) config('access.pin.lockout_minutes', self::LOCKOUT_MINUTES),
+        );
     }
 
     /**
@@ -88,7 +105,13 @@ final class PinPolicy
     {
         $shipped = self::shipped();
 
-        return new self($shipped->minDigits, $shipped->maxDigits, $weakPins);
+        return new self(
+            $shipped->minDigits,
+            $shipped->maxDigits,
+            $weakPins,
+            $shipped->lockoutAfter,
+            $shipped->lockoutMinutes,
+        );
     }
 
     /**
@@ -147,6 +170,26 @@ final class PinPolicy
     public function maxDigits(): int
     {
         return $this->maxDigits;
+    }
+
+    /**
+     * How many consecutive wrong PINs lock an employee (D-17, AC-51).
+     *
+     * Read by the verify slice and nowhere else, so the threshold the
+     * counter is compared against and the threshold a report quotes are the
+     * same number.
+     */
+    public function lockoutAfter(): int
+    {
+        return $this->lockoutAfter;
+    }
+
+    /**
+     * How long a lock lasts, in minutes (D-17, AC-51).
+     */
+    public function lockoutMinutes(): int
+    {
+        return $this->lockoutMinutes;
     }
 
     /**

@@ -46,6 +46,21 @@ return [
         'min_digits' => (int) env('ACCESS_PIN_MIN_DIGITS', 4),
 
         'max_digits' => (int) env('ACCESS_PIN_MAX_DIGITS', 8),
+
+        /*
+        | The lockout, D-17's two figures: how many consecutive wrong PINs
+        | lock an employee, and for how long. Read by `PinPolicy` and
+        | through it by the verify slice, so the two numbers have one home
+        | each.
+        |
+        | They mirror T-009 D-5's account lockout deliberately - one rule to
+        | learn - and the no-extension rule (a failure while locked neither
+        | counts nor postpones the unlock) is what bounds the denial of
+        | service a deliberate lock-out would otherwise be.
+        */
+        'lockout_after' => (int) env('ACCESS_PIN_LOCKOUT_AFTER', 5),
+
+        'lockout_minutes' => (int) env('ACCESS_PIN_LOCKOUT_MINUTES', 15),
     ],
 
     'employees' => [
