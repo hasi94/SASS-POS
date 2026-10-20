@@ -30,9 +30,10 @@ Budget for that: the first full run after a migration lands is the inventory.
 `PlanMigrationRunHandler::assertContractStepsUnblocked()` refuses to plan a run
 containing a contract step while any tenant sits below V-1. The planner test
 corpus is built on fixture tenants that are deliberately *behind*, so with a
-contract step at the top of the shipped tree **38 pre-existing kernel tests
+contract step at the top of the shipped tree **24 pre-existing kernel tests
 fail and cannot be fixed by renumbering** - their scenario is now correctly
-refused. Those tests have to plan a fixture-only set, or target V-1. Decide
+refused (measured on the full suite 2026-10-20; an earlier count of 38 was
+wrong). Those tests have to plan a fixture-only set, or target V-1. Decide
 that before writing the migration, not after.
 
 The rule the planner enforces is about *planning a run*, never about *shipping
