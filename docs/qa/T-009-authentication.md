@@ -1,12 +1,12 @@
 # QA Report: T-009 Authentication
 
-Branch `ai/T-009-authentication`, spec `docs/specs/T-009-authentication.md` (53 criteria), plan `docs/plans/T-009-authentication.md`. Run 1, 2026-10-16.
+Branch `ai/T-009-authentication`, spec `docs/specs/T-009-authentication.md` (53 criteria), plan `docs/plans/T-009-authentication.md`. Run 2, 2026-10-20 (Run 1 2026-10-16; re-run after BUG-1 `bd56265` and D-38 `105feb7`).
 
 ## Verdict: PASS for what could be verified. NOT VERIFIED as a task on three criteria.
 
 Both halves are true and are reported separately, in the shape T-008 shipped.
 
-- **PASS (verifiable part).** Every criterion that can be executed on the SQLite stand-in passes, `composer check` exits 0, and no acceptance criterion fails. **0 critical, 0 major, 1 minor** defect (BUG-1, a test-support fixture, no criterion fails on it).
+- **PASS (verifiable part).** Every criterion that can be executed on the SQLite stand-in passes, `composer check` exits 0, and no acceptance criterion fails. **0 critical, 0 major, 1 minor** open defect: BUG-1 is CLOSED (behaviour), and BUG-2 (minor, a comment names a test that does not exist) is new. No criterion fails on either.
 - **NOT VERIFIED (engine hold, `ENGINE_HOLD` on, G-1 unmet).** **AC-22** in full (graded covered by reading only, and reading raises a question, see Note A); the **cross-engine half of AC-50**; the **collation half of AC-2**. No green test is offered for any of the three.
 - **Filed, named, not failed:** FP-201 (every signing key retired: all logins fail, `login_history` is completely silent, the only trace is one error-level log line), FP-297 (proxy address recorded, blocks public launch), FP-199 (throttling, blocks public launch).
 
@@ -49,10 +49,10 @@ Dev-owned tests are cited by title from the passing run. I did **not** re-mutate
 | 20 | LR "counts afresh after a lock has expired" | fourth failure does not lock, fifth does | IP |
 | 21 | LR "locks one account without touching another, and creates nothing for an unknown address" | user B succeeds while A is locked | IP |
 | 22 | **none offered** | **no control exists** | **READ, NV** |
-| 23 | RLA "writes exactly one row for a successful login ..."; RLA "carries each cause into the column ..." (dataset); RLA "refuses a command whose two halves disagree ..."; **QAS "writes exactly one login_history row per evaluated attempt for each of the five outcomes, and none without a key"**; HAE "answers a login with no active signing key with 503 and writes no history row" | the no-key zero has its positive control in the same test: key restored, same request, one row appears (QAS and HAE both). **Not filed as a defect against AC-23, no seventh reason asked for.** "No other value is writable" holds **through the application only**: the column is a free `VARCHAR(40)`, a direct insert accepts anything | IP |
+| 23 | RLA "writes exactly one row for a successful login ..."; RLA "carries each cause into the column ..." (dataset); RLA "refuses a command whose two halves disagree ..."; **QAS "writes exactly one login_history row per evaluated attempt for each of the five outcomes, and none without a key"**; HAE "answers a login with no active signing key with 503 and writes no history row" | the no-key zero has its positive control in the same test: key restored, same request, one row appears (QAS and HAE both). **Not filed as a defect against AC-23, no seventh reason asked for.** "No other value is writable" holds **through the application only**: the column is a free `VARCHAR(40)`, a direct insert accepts anything | IP  **Run 2 re-grade (D-38), still IP:** the stored `email` is now the trimmed value if address-shaped, else the marker `(not an email)`. Placement verified by reading: the conversion is the last statement of `RecordLoginAttempt`'s one private constructor (after the three refusals), and `succeeded()`, `failed()` and `securityEvent()` all reach it (`securityEvent` passes null, which skips it), so a blank address is still an `InvalidArgumentException`, not a row. Cases the dev matrix covers and I re-ran green: `user@example.com`, padded, `user@exmaple.con` byte for byte, `hunter2`, `correct horse battery staple`, `a@b@c.com`, `user@localhost`, `@example.com`, `user@` all exact. **Gap found by mutation and closed by QA:** deleting the `! str_ends_with($domain, '.')` clause left the whole suite green (233/233), so `user@example.` was unguarded; `QaEmailShapeEdgesTest` now pins it (mutant reddens it) together with `user@.`, `user@.example.com`, a tab inside, and case/typo preservation. Marker-only-on-the-column: lookup, `user_id`, `failure_reason`, lockout counting decided before the command exists (read in `LoginHandler`), covered by the dev AC-23 (5) cases; I did not re-derive them independently beyond the mutations in the ledger. |
 | 24 | RLA "leaves the row behind when the caller throws after recording the attempt"; RLA "writes outside any transaction of its own, and the probe can see one when there is one" | `transactionLevel()` probe with its own liveness control (plan step 7 mutation, 1 failed / 18 passed per dev; not re-run) | IP |
 | 25 | RLA "writes the lockout event beside the bad_password row that caused it"; LR lockout test | event absent for attempts 1 to 4 (RLA "writes no event for the four attempts before the fifth") | IP |
-| 26 | **QSC "leaves no password, refresh token or access token in login_history, security_events, the log or an exception message"**, QSC "records the operational failure of each issuing slice at error level and names no secret in it" | **mandatory positive control, QSC "finds a sentinel in every sink ..." and "finds a sentinel written by each real writer in that writer's sink and in no other"**. Runtime capture, no source text read. Four prod mutants M1 to M4 each reddened exactly its own sink | IP |
+| 26 | **QSC "leaves no password, refresh token or access token in login_history, security_events, the log or an exception message"**, QSC "records the operational failure of each issuing slice at error level and names no secret in it" | **mandatory positive control, QSC "finds a sentinel in every sink ..." and "finds a sentinel written by each real writer in that writer's sink and in no other"**. Runtime capture, no source text read. Four prod mutants M1 to M4 each reddened exactly its own sink | IP  **Run 2 re-grade against the amended scope: IP, narrower than before, and must not be quoted as 'no secret can reach login_history'.** What passes: no credential submitted AS a credential (password, refresh token, access token) in any sink, and, new, no non-address-shaped email value stored (a password typed into the email field is stored as the marker; mutant `forHistory()` returns raw reddens 9 tests incl. the sentinel scan). **What is explicitly NOT guaranteed and is not a defect:** an address-shaped secret such as `P@ss.word1` typed into the email field is stored as typed; LR asserts that residual on purpose (`LoginRefusalTest.php:198-200`). It is `ba`'s deliberate scope line, not filed, not closed here. |
 | 27 | QAS "round-trips a v4 and a v6 caller through login_history, users and refresh_tokens"; RLA "round-trips an address of either family through the one binary column"; LT "round-trips an IPv6 caller ..." | every assertion reads the PHP value after `inet_ntop`; **none uses `length(ip)` or `typeof(ip)` in SQL**. QA mutant M9 (store the printed address) reddens QAS. Column is `VARBINARY(16)` on the engine only | **CORR** |
 | 28 | ITP "mints exactly the platform claim set, and fails the same comparison with one claim more"; `TokenClaimsTest` | extra-claim token rejected (in text) | IP |
 | 29 | VAT (eight refusal cases, each with its valid-token control); QAS and QSG exp boundary through the middleware | valid token beside each refusal (in text); VAT "refuses a token that claims the other type while wearing this one shape" separates the `token_type` check from set-equality (shape 3). QA mutant M10 (clock minus 1s) reddens the QAS boundary test | IP |
@@ -91,12 +91,19 @@ Totals: 53 criteria. Independently proven 48 (AC-52 flagged). Corroborating 3 (A
 4. **Mutants (prod copied, never edited).** T0 byte-identical: green. **T6** middleware catches `TenantDatabaseNotActive` and returns 403: 5 of 6 reddened. **T7** handler runs before `enter()`: 6 of 6 reddened (handler count 1 on a refusal; the exception became `NoTenantResolved`). **T8** authentication keeps a private `['active','read_only']` list and refuses first: 5 of 6 reddened on the exception class. The one test that stays green under T6 and T8 is the expiry-boundary test, which never reaches the status gate, as it should. T8 is the "copied list" evasion Deptrac cannot see, and QSG sees it.
 5. **Residual (b), moved-value** is dev's (steps 8, 10, 11: LT "follows the selectable set it was given ...", STT "accepts and refuses by the policy it was given ...", RTT "re-checks the tenant against the policy it was given ..."). Cited, not re-mutated by QA. Residual (c) diff review is the reviewer's.
 
+### BUG-2 (minor, new in Run 2)
+- **Where:** `packages/auth/tests/Support/auth-fixture.php:424`, the `authFixtureRecordingLogger()` comment.
+- **Actual:** it says "`AuthFixtureRecordingLoggerTest` fails if any of them stops landing here". No such file or class exists (grep over `*.php` and `*.md`: this line is the only occurrence). The guard is `packages/auth/tests/Support/RecordingLoggerCoverageTest.php`. The task brief repeated the wrong name.
+- **Impact:** same class as BUG-1 (a comment claiming a guard it does not name correctly), but the guard exists and works; a reader searching for the named test finds nothing.
+- **Fix:** rename the reference. `dev` owns the file. Not blocking.
+
 ## Test run summary
 
 - Command: `cd modules/host && composer check` (Pint, PHPStan, Deptrac, Pest), three runs.
 - **Baseline at the start of my scope (step 12 tip): exit 0, 1094 passed, 11 skipped, 6260 assertions**, 149 s.
 - **Final: exit 0, 1114 passed, 11 skipped, 6703 assertions**, 218 s (cold-ish machine; the figure moved 149 to 218 s with no code change besides my files, treat as machine variance, ratio 4.5 against the 900 s limit). Pint passed, PHPStan "No errors", Deptrac 0 violations.
-- **Delta this step: +20 tests, +443 assertions, fully attributed:** `QaSecretSinkCaptureTest` 7 tests / 173 assertions; `QaSuspendedMappingGateTest` 6 / 120; `QaAuthHttpSurfaceTest` 7 / 150. 173 + 120 + 150 = 443. No unattributed increase.
+- **Run 2 gate: exit 0, 1145 passed, 11 skipped, 6802 assertions** (Pint, PHPStan 'No errors', Deptrac 0 violations), 153 s. `dev` claimed 1134/11/6790 and it reproduced exactly on my first run at their tip (1134 passed, 11 skipped, 6790 assertions, 194 s). Delta from 1134/6790 is mine: `QaEmailShapeEdgesTest` +10 tests / +10 assertions, `QaRecordingLoggerFacadeCacheTest` +1 / +2. Chain from Run 1: 1114/6703 -> BUG-1 1120/6709 (+6, `RecordingLoggerCoverageTest`) -> D-38 1134/6790 (+14/+81) -> QA 1145/6802.
+- **Delta in Run 1: +20 tests, +443 assertions, fully attributed:** `QaSecretSinkCaptureTest` 7 tests / 173 assertions; `QaSuspendedMappingGateTest` 6 / 120; `QaAuthHttpSurfaceTest` 7 / 150. 173 + 120 + 150 = 443. No unattributed increase.
 - **Against the original 857 / 11 / 4508:** +257 tests, +0 skipped, +2195 assertions. Skipped is unchanged at 11 (all engine skips from T-008); T-009 adds none.
 - **Progression (plan's figures, re-reconciled):** steps 1, 2: 857/11/4508 · step 3: 866/11/4598 · step 4a: unchanged · step 4: 872/11/4629 · step 5: 927/11/4917 · step 5b: unchanged · steps 6 and 7: 962/11/5096 · steps 8 and 9: 1012/11/5600 · steps 10 and 11: 1077/11/6090 · step 12: 1094/11/6260 (+17 tests, +170 assertions = `HttpAuthEndpointsTest` 12 + `TenantTokenMiddlewareTest` 5) · **step 13 (QA): 1114/11/6703**.
 - Gate used throughout is `composer check`, never `test:fast`. `ENGINE_HOLD` untouched; no connection to 127.0.0.1:3306; nothing under `E:` written.
@@ -120,9 +127,25 @@ Totals: 53 criteria. Independently proven 48 (AC-52 flagged). Corroborating 3 (A
 | T6, T7, T8 | AC-47 mutants above | QSG red 5 / 6 / 5 of 6 (T0 identical: 6 of 6 green) |
 | planted 7th exception class | an unmapped type | QAS exhaustiveness red naming `QaProbeSeventh`; file removed, `git status` clean |
 
+## Run 2 mutation ledger (each from a green control, source restored by `git checkout` / copy-back, `git status` clean of production changes)
+
+| Mutant | Result |
+|---|---|
+| fixture: delete `app()->instance('log', ...)` | RecordingLoggerCoverageTest 5 of 6 red |
+| fixture: delete `Facade::clearResolvedInstance('log')` | existing tests 0 red; QaRecordingLoggerFacadeCacheTest red |
+| `forHistory()` returns the raw value | 9 red of 233 |
+| `substr_count(...) !== 1` replaced by false | 1 red |
+| domain-ends-with-dot clause removed | **0 red** before QA; QaEmailShapeEdgesTest red after |
+| domain-starts-with-dot clause removed | 1 red |
+| conversion moved into the makers (`trim` replaced by `forHistory()`) | 1 red |
+
+dev's other mutants (always-marker, 192-char marker) were not re-run; the 191 length assertion at `RecordLoginAttemptTest.php:243` was not independently re-mutated. AC-22, AC-50 cross-engine half and AC-2 collation half are unchanged: NOT VERIFIED, no test offered. AC-22 stays READ with FP-300 open. AC-27 stays CORR. FP-201 stays a known filed gap. The AC-52 second-sentence item stays flagged for the reviewer.
+
 ## Defects
 
-### BUG-1 (minor)
+### BUG-1 (minor) - CLOSED in Run 2 (`bd56265`)
+
+**Re-test result:** the fixture now binds `LoggerInterface::class` and `log` and calls `Facade::clearResolvedInstance('log')`; the comment's claim is true. All four routes plus `channel()` land in the recorder (`RecordingLoggerCoverageTest`, 6 cases). Discrimination measured, not assumed: deleting the `log` registration reddens 5 of 6 (the injected case stays green, as dev said); deleting the `clearResolvedInstance` line reddens **0 of 6** because every test starts on a fresh app with an empty facade cache, so that line was untested. QA added `QaRecordingLoggerFacadeCacheTest` (facade already resolved to the real logger, liveness-controlled by asserting the pre-state); it is green and goes red when the line is deleted. Fixture restored by `git checkout` after each mutation. The original report text follows for the record.
 - **Where:** `packages/auth/tests/Support/auth-fixture.php`, `authFixtureRecordingLogger()` and its doc comment.
 - **Steps:** bind the recorder, then log through four routes: `Log::error`, `logger()->error`, `app(LoggerInterface::class)->error`, `app('log')->error`.
 - **Expected (per the comment):** "one instance registration replaces what a constructor injection receives and what the `Log` facade resolves", so all four are recorded.
@@ -154,7 +177,7 @@ No critical or major defect found. No BUG was filed against AC-23 for the missin
 - **B. AC-52's second sentence.** Five pre-existing files were edited in the T-009 range: `MasterSchemaBuildsTest` (a comment), `MigrationTreeDisciplineTest` (17 to 21 tables), `QaSchemaSignatureInstrumentTest` (25 to 29), `tests/Helpers.php` (the expected table list gains the four), `QaToolchainRegistryCoverageTest` (plan step 5b, a strengthening, shown red first). No assertion is weakened and no T-003 test is touched. The criterion's wording ("to make it pass") is broken in the letter by necessary count updates that AC-50 itself forces; flagged for the reviewer rather than called a pass or a fail.
 - **C. A suspended shop's till receives HTTP 500.** The kernel's `TenantDatabaseNotActive` has no renderer (its sibling `TenantSchemaBehind` gets a 503). AC-47 asks only for refusal by the existing gate, so this passes, but a commercial state (a shop that has stopped paying) will also log as an application error. QSG pins the 500 on purpose; a task that adds the renderer changes that test deliberately. Suggest a backlog row.
 - **D. CORS is the framework default `*` on `api/*`.** Tokens travel in the `Authorization` header, not cookies, so this is not a CSRF exposure, but it is the default and nobody decided it.
-- **E. `login_history.email` stores what was typed in the email field, trimmed.** A user who types a password there leaves it in the table (AC-23: "as submitted", up to 191 characters). AC-26 is about the password field and holds. Worth a decision from `ba` before launch.
+- **E. (RESOLVED by D-38, Run 2; original text kept)** `login_history.email` stores what was typed in the email field, trimmed. A user who types a password there leaves it in the table (AC-23: "as submitted", up to 191 characters). AC-26 is about the password field and holds. Worth a decision from `ba` before launch.
 - **F. No rate limit on any of the four endpoints.** FP-199, already filed and marked as blocking public launch.
 - **G. The sentinel harness refuses a needle shorter than 16 characters** and scans four encodings (raw, two JSON-escape forms, URL). A raw-only scan would have missed a password logged in a context array: the M1 hit was the escaped form.
 - **H. `AC-26` also scans the HTTP responses for the password** (never echoed) and confirms the issued tokens ARE in the responses, as a last liveness check on the scan.
@@ -174,3 +197,4 @@ No critical or major defect found. No BUG was filed against AC-23 for the missin
 ## History
 
 Run 1: PASS (verifiable part), NOT VERIFIED on AC-22, AC-50 cross-engine half, AC-2 collation half. BUG-1 minor open.
+Run 2: PASS (verifiable part) unchanged shape; NOT VERIFIED on AC-22, AC-50 cross-engine, AC-2 collation. BUG-1 closed, BUG-2 minor open, AC-23 and AC-26 re-graded (D-38), 1145/11/6802.
