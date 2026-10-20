@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flexipos\Access\Exceptions;
 
+use Flexipos\Access\Support\RoleLookup;
 use Flexipos\Contracts\Access\PermissionDeclaration;
 use Flexipos\Contracts\Access\RefusalReason;
 use RuntimeException;
@@ -49,5 +50,30 @@ final class AccessRefused extends RuntimeException
     public static function validation(string $message): self
     {
         return new self(RefusalReason::Validation, $message);
+    }
+
+    /**
+     * The role belongs to the platform, not to the shop (AC-21, D-12).
+     *
+     * Thrown only by {@see RoleLookup::requireCustom()},
+     * which is the one place `roles.is_system` is read, so the three
+     * operations AC-21 names cannot disagree about what a system role is.
+     */
+    public static function systemRole(string $message): self
+    {
+        return new self(RefusalReason::SystemRole, $message);
+    }
+
+    /**
+     * The role is still assigned to somebody (AC-22).
+     *
+     * Distinct from {@see self::systemRole()} and from `validation` because
+     * all three refuse a deletion and only this one is fixed by removing an
+     * assignment: a caller told "refused" cannot tell which of the three it
+     * met, and the remedy differs for each.
+     */
+    public static function roleInUse(string $message): self
+    {
+        return new self(RefusalReason::RoleInUse, $message);
     }
 }
