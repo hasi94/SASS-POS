@@ -147,6 +147,27 @@ final class AccessTenantFixture
     }
 
     /**
+     * Leave whichever tenant is resolved, then enter this one.
+     *
+     * **A separate method, and `enter()` is deliberately not made tolerant.**
+     * `Tenancy::enter()` refuses a second tenant while one is resolved, and
+     * that refusal is T-003's own criterion: a process that slid from one
+     * tenant to another without saying so is the shape a cross-tenant leak
+     * hides in. A test that genuinely wants both tenants in one case - AC-45
+     * asks for exactly that, the same worker answering for A and then for B -
+     * says so here, in one call a reader can see, instead of every `enter()`
+     * in the suite quietly acquiring the ability to do it.
+     */
+    public static function switchTo(string $tenant): void
+    {
+        if (tenancy()->current()->hasTenant()) {
+            tenancy()->leave();
+        }
+
+        self::enter($tenant);
+    }
+
+    /**
      * The name of the connection Tenancy configures - read, never written as
      * the literal `tenant`.
      */
