@@ -474,6 +474,19 @@ it('records only test trees that genuinely declare no namespace, each against it
     expect($recorded)->not->toBe([])
         ->and(array_values(array_unique(array_values($recorded))))->toBe(['FP-303']);
 
+    // R2-W2. The check above constrains the label, not the membership: a tree
+    // that becomes global-namespaced tomorrow could be silenced by one more
+    // line reading 'FP-303', and both Deptrac guards would stay green. This
+    // bounds the set at T-009's three. It shrinks freely - FP-303 deleting an
+    // entry is the work this list exists to invite and must not redden the
+    // gate - but it cannot grow without someone editing the literal below and
+    // being seen doing it.
+    expect(array_values(array_diff(array_keys($recorded), [
+        'modules/demo/tests',
+        'packages/auth/tests',
+        'packages/kernel/tests',
+    ])))->toBe([]);
+
     $root = dirname(modulesPath());
 
     foreach (array_keys($recorded) as $tree) {

@@ -54,11 +54,19 @@ function qaIngressAuthUris(RouteCollectionInterface $routes): array
 }
 
 /**
+ * R2-W3. Anchored to a call site, not to the bare URL. This reads the sibling
+ * file's raw text, so an unanchored pattern counted a URL mentioned in a
+ * comment as a pin: adding a route and naming its URL in a comment would make
+ * the completeness check below agree with the router while no request was ever
+ * sent. Requiring `post(` or `postJson(` immediately before the quote means
+ * only a URL that is actually dispatched counts. `[a-z0-9_-]+` replaces
+ * `[a-z-]+`, which could not see a digit or an underscore in a route segment.
+ *
  * @return list<string> every /api/v1/auth/<x> that the source posts to with a query string, sorted
  */
 function qaIngressUrlPinnedUris(string $source): array
 {
-    preg_match_all('#[\'"](/api/v1/auth/[a-z-]+)\?#', $source, $m);
+    preg_match_all('#\b(?:postJson|post)\(\s*[\'"](/api/v1/auth/[a-z0-9_-]+)\?#', $source, $m);
 
     $uris = array_values(array_unique($m[1]));
     sort($uris);
@@ -100,7 +108,14 @@ it('has a URL-channel pin for every route under api/v1/auth', function () {
     app('router')->getRoutes()->refreshNameLookups();
 
     expect(qaIngressAuthUris(app('router')->getRoutes()))->toContain('/api/v1/auth/qa-planted')
-        ->and(qaIngressUrlPinnedUris("postJson('/api/v1/auth/qa-planted?x=1', [])"))->toBe(['/api/v1/auth/qa-planted']);
+        ->and(qaIngressUrlPinnedUris("postJson('/api/v1/auth/qa-planted?x=1', [])"))->toBe(['/api/v1/auth/qa-planted'])
+        // R2-W3, the other half: a URL named only in a comment is not a pin.
+        // A route plus a comment mentioning its URL would otherwise satisfy the
+        // completeness check below while nothing was ever dispatched to it.
+        ->and(qaIngressUrlPinnedUris("// covered: /api/v1/auth/qa_commented2?token=x\n"))->toBe([])
+        // And a segment carrying a digit or an underscore is seen at a call
+        // site, which `[a-z-]+` could not do.
+        ->and(qaIngressUrlPinnedUris("post('/api/v1/auth/mfa_v2?x=1', [])"))->toBe(['/api/v1/auth/mfa_v2']);
 
     $pinned = qaIngressUrlPinnedUris((string) file_get_contents(__DIR__.'/AuthCredentialsAreNeverReadFromTheUrlTest.php'));
 
