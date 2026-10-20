@@ -366,6 +366,93 @@ it('locks on the fifth wrong password, for fifteen minutes, without changing the
         ->toBe(array_fill(0, 5, 'bad_password'));
 });
 
+/**
+ * Every statement of one request that writes to `users`.
+ *
+ * @param  list<string>  $statements
+ * @return list<string>
+ */
+function refusalUserWrites(array $statements): array
+{
+    return array_values(array_filter(
+        $statements,
+        static fn (string $sql): bool => str_starts_with($sql, 'update "users"')
+    ));
+}
+
+/**
+ * Every statement of one request that reads the failure counter into PHP.
+ *
+ * @param  list<string>  $statements
+ * @return list<string>
+ */
+function refusalCounterReads(array $statements): array
+{
+    return array_values(array_filter(
+        $statements,
+        static fn (string $sql): bool => str_starts_with($sql, 'select')
+            && str_contains($sql, 'failed_attempts')
+    ));
+}
+
+it('decides the lock inside the locking UPDATE, and not by a read of the counter', function () {
+    // AC-22's second half, and W-1. The increment was already atomic; the
+    // decision was a `SELECT` plus an unconditional reset-and-lock, so every
+    // one of N overlapping requests could believe it was the one that
+    // crossed the threshold and write its own `lockout` row. The threshold
+    // is now a predicate of the locking statement, which also resets the
+    // counter - so the engine decides, and the row the predicate matched
+    // stops matching it.
+    //
+    // **The pinned statements are the evidence, because the behaviour is
+    // identical sequentially**: this test would be just as green against
+    // either shape if it asserted outcomes alone. The input that makes the
+    // predicate bite is the pair of requests below - the same two writes,
+    // one of which the engine applies and the other it does not.
+    $userId = authFixtureUser('owner@example.com');
+
+    foreach (range(1, 3) as $ignored) {
+        refusalAttempt('owner@example.com', 'not-the-password');
+    }
+
+    [$fourth, $below] = authFixtureWithMasterQueryLog(
+        fn () => refusalAttempt('owner@example.com', 'not-the-password')
+    );
+
+    expect($fourth)->toBeInstanceOf(CredentialRefused::class)
+        ->and(authFixtureUserRow($userId)['locked_until'])->toBeNull()
+        ->and((int) authFixtureUserRow($userId)['failed_attempts'])->toBe(4);
+
+    [$fifth, $crossing] = authFixtureWithMasterQueryLog(
+        fn () => refusalAttempt('owner@example.com', 'not-the-password')
+    );
+
+    expect($fifth)->toBeInstanceOf(CredentialRefused::class);
+
+    // The two requests issue the same two writes against `users`, and the
+    // second of them carries the threshold as a predicate.
+    $writes = refusalUserWrites($crossing);
+
+    expect($writes)->toHaveCount(2)
+        ->and(refusalUserWrites($below))->toBe($writes)
+        ->and($writes[0])->toContain('"failed_attempts" = failed_attempts + 1')
+        ->and($writes[1])->toContain('"locked_until" = ?')
+        ->and($writes[1])->toContain('"failed_attempts" >= ?');
+
+    // And neither request read the counter into PHP to decide with.
+    expect(refusalCounterReads($below))->toBe([])
+        ->and(refusalCounterReads($crossing))->toBe([]);
+
+    // The difference between the two requests is the engine's alone, and it
+    // is visible where it should be: one lock, one event.
+    $row = authFixtureUserRow($userId);
+
+    expect($row['locked_until'])->toBe('2026-10-15 09:15:00.000')
+        ->and((int) $row['failed_attempts'])->toBe(0)
+        ->and(array_column(authFixtureRows('security_events'), 'type'))
+        ->toBe([RecordLoginAttempt::EVENT_LOCKOUT]);
+});
+
 /*
 |--------------------------------------------------------------------------
 | AC-18, AC-19: what a live lock does, and exactly when it stops

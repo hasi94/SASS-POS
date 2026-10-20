@@ -421,7 +421,7 @@ function authFixtureSelectTenantHandler(): SelectTenantHandler
  * receives and leaves `Log::`, `logger()` and `app('log')` resolving the real
  * `LogManager` (BUG-1: the comment here used to claim the facade was
  * covered, and it was not). Binding `log` as well covers all four routes, and
- * `AuthFixtureRecordingLoggerTest` fails if any of them stops landing here.
+ * `RecordingLoggerCoverageTest` fails if any of them stops landing here.
  *
  * **Install it before anything that logs.** The `Log` facade caches its
  * resolved instance for the test, and `SigningKeyring` is a singleton holding

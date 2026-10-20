@@ -148,21 +148,39 @@ final class SelectTenantHandler
      * lower-cased form in `email_lower`, which is a lookup key and not
      * evidence).
      *
+     * **The soft-delete filter is the predicate's, as it is in the login
+     * slice's `findUser()` and the refresh slice's.** The spec's Assumptions say a
+     * soft-deleted row counts as absent everywhere, and this read is the one
+     * place it did not: without `whereNull('deleted_at')` a deleted account
+     * holding an unexpired platform token could still select a tenant and
+     * leave a `login_history` row under its own address (W-3). Being absent
+     * here means the null branch below, which already refuses - so the
+     * filter adds a case to an existing refusal rather than a new branch.
+     *
      * **A `sub` naming no row is refused here, with no history row, and that
      * is a declared narrowing of AC-40.** It is not one of AC-40's five
-     * cases - all of those are about the tenant or the membership - and it is
-     * not reachable with a token this system issued unless the account was
-     * hard-deleted, which nothing does. Recording it is impossible rather
-     * than undesirable: there is no address to put in a non-nullable column,
-     * and inventing one would put a fictional value into the table
-     * investigations are run from. The refusal is the ordinary `no_access`,
-     * so the caller learns nothing from it either way.
+     * cases - all of those are about the tenant or the membership. It is
+     * reachable, for one access-token lifetime, by exactly the soft deletion
+     * above; the earlier version of this note argued it was unreachable and
+     * considered only hard deletion, which nothing does. Recording it is
+     * impossible rather than undesirable: there is no address to put in a
+     * non-nullable column, and inventing one would put a fictional value
+     * into the table investigations are run from. The refusal is the
+     * ordinary `no_access`, so the caller learns nothing from it either way.
+     *
+     * Status is deliberately **not** re-checked here: AC-48 accepts a
+     * disabled account's access token until `exp`, and the status rule for a
+     * selection is the membership's, which TenantSelectionPolicy applies.
      *
      * @throws NoTenantAccess
      */
     private function actorEmail(string $userId): string
     {
-        $email = $this->master()->table('users')->where('id', $userId)->value('email');
+        $email = $this->master()
+            ->table('users')
+            ->where('id', $userId)
+            ->whereNull('deleted_at')
+            ->value('email');
 
         if ($email === null) {
             throw NoTenantAccess::refused();

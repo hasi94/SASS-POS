@@ -221,11 +221,28 @@ final class LoginHandler
      * a green test over a sequential run would be evidence of nothing while
      * looking like evidence of something.
      *
-     * The count is then read back - a read *after* the write, which is not
-     * the same thing as a read-modify-write: the value compared against the
-     * threshold is the one the engine produced, and nothing is written back
-     * from it except the lock.
+     * **The lock decision is the second statement's affected-row count, not
+     * a read in PHP** - the shape `RefreshTokenHandler::rotate()` and
+     * `revokeFamily()` already use. The threshold is a predicate of the
+     * locking `UPDATE`, so the engine both tests it and takes the lock, and
+     * exactly one of N overlapping requests can be the one that finds
+     * `failed_attempts >= threshold` still true and resets it to zero. The
+     * reset is what makes that so: the row the predicate matched no longer
+     * matches it. A separate `SELECT` plus an unconditional reset-and-lock
+     * would let every one of those requests believe it was the one that
+     * crossed the line, and write a `lockout` event each.
      *
+     * **This does not make the lockout resist a parallel burst, and nothing
+     * here does.** `isLocked()` is read at the start of a request, so N
+     * simultaneous wrong passwords all clear the lock check and all reach
+     * the hasher however atomic this is; a perfectly atomic lockout behaves
+     * identically for a burst. What the shape above buys is that AC-17's
+     * "exactly one `security_events` row" is structural rather than
+     * sequential-only. The control for parallel guessing is per-IP
+     * throttling (FP-199), not this. **Sequential behaviour is unchanged,
+     * which is this change's weakness too: every existing lockout test
+     * stays green, so the statement is still graded by reading it** and the
+     * concurrent AC-22 test the engine task owns is what would observe it.
      *
      * @throws CredentialRefused
      */
@@ -239,13 +256,7 @@ final class LoginHandler
             'updated_at' => $now->format(RunnerClock::PRECISION),
         ]);
 
-        $attempts = (int) $connection->table('users')->where('id', $userId)->value('failed_attempts');
         $threshold = (int) $this->config->get('authentication.lockout.threshold');
-
-        if ($attempts < $threshold) {
-            $this->refuse($command, $credentials, RecordLoginAttempt::REASON_BAD_PASSWORD, $userId);
-        }
-
         $minutes = (int) $this->config->get('authentication.lockout.minutes');
         $lockedUntil = $now->addMinutes($minutes)->format(RunnerClock::PRECISION);
 
@@ -254,11 +265,18 @@ final class LoginHandler
         // and the run that follows its expiry starts from zero (AC-20).
         // `users.status` is untouched: a lock is a timer, not a state
         // (AC-17).
-        $connection->table('users')->where('id', $userId)->update([
-            'failed_attempts' => 0,
-            'locked_until' => $lockedUntil,
-            'updated_at' => $now->format(RunnerClock::PRECISION),
-        ]);
+        $locked = $connection->table('users')
+            ->where('id', $userId)
+            ->where('failed_attempts', '>=', $threshold)
+            ->update([
+                'failed_attempts' => 0,
+                'locked_until' => $lockedUntil,
+                'updated_at' => $now->format(RunnerClock::PRECISION),
+            ]);
+
+        if ($locked !== 1) {
+            $this->refuse($command, $credentials, RecordLoginAttempt::REASON_BAD_PASSWORD, $userId);
+        }
 
         // The attempt that locked the account is still a `bad_password`
         // attempt, and the lockout is the notable thing that happened

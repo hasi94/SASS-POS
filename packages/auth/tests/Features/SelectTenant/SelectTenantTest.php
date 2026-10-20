@@ -299,6 +299,31 @@ it('refuses every shape of no_access identically, and admits the valid case in t
         ->and(authFixtureRows('refresh_tokens'))->toHaveCount(1);
 });
 
+it('refuses a soft-deleted account, and admits the same account in the same test before it is deleted', function () {
+    // W-3. The spec's Assumptions make a soft-deleted row absent
+    // everywhere, and `actorEmail()` was the one read that did not say so:
+    // an unexpired platform token could still open a shop after the account
+    // was deleted. The order here is control first, defect second, with one
+    // fixture - so the refusal cannot be an artefact of a fixture that was
+    // never able to select at all.
+    [$userId, $tenantId] = selectFixture();
+
+    expect(authFixtureSelectTenantHandler()->handle(selectCommand($userId))->tenantId)->toBe($tenantId)
+        ->and(authFixtureRows('login_history'))->toHaveCount(1)
+        ->and(authFixtureRows('refresh_tokens'))->toHaveCount(1);
+
+    DB::connection('master')->table('users')->where('id', $userId)->update(['deleted_at' => SELECT_CLOCK]);
+    DB::connection('master')->table('login_history')->delete();
+
+    expect(fn () => authFixtureSelectTenantHandler()->handle(selectCommand($userId)))
+        ->toThrow(NoTenantAccess::class);
+
+    // The declared narrowing of AC-40: no address to record, so no row -
+    // and no second token, which is the harm the filter prevents.
+    expect(authFixtureRows('login_history'))->toBe([])
+        ->and(authFixtureRows('refresh_tokens'))->toHaveCount(1);
+});
+
 /*
 |--------------------------------------------------------------------------
 | AC-40(b): an active member of a shop that may not be opened

@@ -83,3 +83,18 @@ it('keeps the context of a facade entry inside AC-26 scan range', function () {
 
     expect($log->contains('sentinel-bug-1'))->toBeTrue();
 });
+
+it('is the guard the fixture names, under the name it actually has', function () {
+    // BUG-2. The fixture's docblock told the next author which file fails if
+    // a registration is removed, and named `AuthFixtureRecordingLoggerTest`,
+    // which has never existed - so the instruction pointed at nothing. The
+    // name is now read back out of the fixture and resolved to a file, which
+    // is a check a rename cannot pass by being plausible.
+    $source = (string) file_get_contents(__DIR__.'/auth-fixture.php');
+
+    preg_match('/`([A-Za-z]+Test)` fails if any of them stops landing here/', $source, $named);
+
+    expect($named)->toHaveCount(2)
+        ->and($named[1])->toBe(basename(__FILE__, '.php'))
+        ->and(is_file(__DIR__.'/'.$named[1].'.php'))->toBeTrue();
+});
