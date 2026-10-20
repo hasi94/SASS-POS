@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Access\Tests\Support;
 
 use Flexipos\Kernel\Tenancy\Exceptions\TenantSchemaBehind;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
@@ -51,18 +52,10 @@ afterAll(function () {
     AccessTenantFixture::deleteRoot();
 });
 
-/**
- * The connection name Tenancy configures - read, never written as 'tenant'.
- */
-function accessFixtureConnection(): string
-{
-    return (string) config('tenancy.connection', 'tenant');
-}
-
 it('gives every fixture tenant a database holding the whole shipped tenant tree', function (string $tenant) {
     tenancy()->enter($tenant);
 
-    $connection = accessFixtureConnection();
+    $connection = AccessTenantFixture::connectionName();
 
     expect(DB::connection($connection)->getDriverName())->toBe('sqlite');
 
@@ -104,7 +97,7 @@ it('refuses a tenant left behind the floor and admits the same tenant at the top
 
     tenancy()->enter('tenant-a');
 
-    expect(DB::connection(accessFixtureConnection())->table('permissions')->count())->toBe(0);
+    expect(DB::connection(AccessTenantFixture::connectionName())->table('permissions')->count())->toBe(0);
 });
 
 it('keeps the two fixture tenants distinguishable by data after the tree is applied', function () {
@@ -141,4 +134,74 @@ it('admits the tenants at exactly the version the committed catalogue publishes'
         // fixture rather than silently serving tenants at the wrong version.
         ->and(AccessTenantFixture::topVersion())->toBe(max($versions))
         ->and((int) config('tenancy.required_schema_version'))->toBe(AccessTenantFixture::topVersion());
+});
+
+it('enforces the tree foreign keys on a tenant entered through the fixture', function () {
+    AccessTenantFixture::enter('tenant-a');
+
+    $connection = DB::connection(AccessTenantFixture::connectionName());
+    $role = str_pad('ROLE-FK', 26, '0');
+
+    $connection->table('roles')->insert([
+        'id' => $role,
+        'key' => 'fk-probe',
+        'name' => 'FK probe',
+        'is_system' => false,
+        'created_at' => '2026-10-20 00:00:00.000',
+        'updated_at' => '2026-10-20 00:00:00.000',
+    ]);
+
+    // The refusal half: a grant of a permission that does not exist.
+    expect(fn () => $connection->table('role_permissions')->insert([
+        'role_id' => $role,
+        'permission_key' => 'nothing.declared',
+    ]))->toThrow(QueryException::class);
+
+    // The liveness half, and it is not optional: a connection on which every
+    // insert fails would satisfy the half above.
+    $connection->table('permissions')->insert([
+        'key' => 'fixture.real',
+        'module' => 'fixture',
+        'group' => 'fixture',
+        'description' => 'A declared key.',
+        'is_branch_scoped' => false,
+    ]);
+
+    $connection->table('role_permissions')->insert([
+        'role_id' => $role,
+        'permission_key' => 'fixture.real',
+    ]);
+
+    expect($connection->table('role_permissions')->count())->toBe(1);
+});
+
+it('records that a tenant entered without the fixture helper enforces nothing', function () {
+    // Measured, and the reason enter() above exists. The tenant stanza
+    // Tenancy writes carries no foreign_key_constraints key - it has no
+    // reason to, since MySQL and MariaDB enforce regardless - so SQLite
+    // parses every REFERENCES clause in the tree and ignores it. Asserted
+    // rather than described, so that the day the stanza or the driver
+    // changes, this case fails and the helper's docblock stops being true
+    // quietly.
+    tenancy()->enter('tenant-a');
+
+    $connection = DB::connection(AccessTenantFixture::connectionName());
+    $role = str_pad('ROLE-LAX', 26, '0');
+
+    $connection->table('roles')->insert([
+        'id' => $role,
+        'key' => 'lax-probe',
+        'name' => 'Lax probe',
+        'is_system' => false,
+        'created_at' => '2026-10-20 00:00:00.000',
+        'updated_at' => '2026-10-20 00:00:00.000',
+    ]);
+
+    $connection->table('role_permissions')->insert([
+        'role_id' => $role,
+        'permission_key' => 'nothing.declared',
+    ]);
+
+    expect($connection->table('role_permissions')->count())->toBe(1)
+        ->and($connection->table('permissions')->where('key', 'nothing.declared')->count())->toBe(0);
 });

@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Flexipos\Access;
 
+use Flexipos\Access\Registry\AccessPermissions;
+use Flexipos\Access\Registry\PermissionRegistry;
+use Flexipos\Contracts\Access\DeclaresPermissions;
+use Flexipos\Contracts\Access\PermissionDeclaration;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -26,16 +30,43 @@ use Illuminate\Support\ServiceProvider;
  *
  * The route file this provider will load (`routes/api.php`) arrives with the
  * HTTP surface in step 20.
+ *
+ * **Step 6 gives it its first binding and its first declaration.** Neither is
+ * a guard: the registry answers "which keys exist", not "may this person do
+ * it", so binding it breaks none of the red-first rule above.
  */
-final class AccessServiceProvider extends ServiceProvider
+final class AccessServiceProvider extends ServiceProvider implements DeclaresPermissions
 {
     /**
      * Register this package's bindings.
      *
-     * Empty by design in step 1; see the class docblock.
+     * The registry is a **singleton** because it is a reader with one
+     * question to answer and no state to keep in step - and, more usefully,
+     * because every collaborator must see the same registry: a sync that
+     * built its own could not be handed one holding a test's scratch
+     * declaration, and "the table holds exactly what the application
+     * declares" would be a claim about two different registries.
+     *
+     * It holds no memo of its own (see the class), so a provider registered
+     * after this binding is resolved is still seen.
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(PermissionRegistry::class);
+    }
+
+    /**
+     * This package's own six keys (AC-14, D-13).
+     *
+     * Declared the same way any module declares its own - by implementing
+     * the published interface on the provider - so the access package is not
+     * a special case in its own registry, and removing this method would
+     * remove six keys from the sweep exactly as it would for a module.
+     *
+     * @return list<PermissionDeclaration>
+     */
+    public function permissionDeclarations(): array
+    {
+        return AccessPermissions::declarations();
     }
 }

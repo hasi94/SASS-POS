@@ -109,6 +109,45 @@ final class AccessTenantFixture
     }
 
     /**
+     * Enter a fixture tenant, with its foreign keys actually enforced.
+     *
+     * **Measured 2026-10-20, and it is a gap in the stand-in that nothing
+     * else closes.** `Tenancy::writeTenantConnection()` builds the `tenant`
+     * stanza wholesale from the mapping record and it carries no
+     * `foreign_key_constraints` key - it has no reason to, because the
+     * platform's drivers are MySQL and MariaDB, which enforce foreign keys
+     * whatever the client says. SQLite does not: it parses a `REFERENCES`
+     * clause and then ignores it unless the connection issues
+     * `PRAGMA foreign_keys = ON`. So a fixture tenant entered with plain
+     * `tenancy()->enter()` accepts a `role_permissions` row naming a
+     * permission that does not exist, and every later slice test would be
+     * proving its handler's rules against a database laxer than production.
+     *
+     * The pragma is issued on the connection Tenancy built, not on one this
+     * class made, so T-009 AC-52 is untouched; and it is issued only for
+     * SQLite, because on the real engines there is nothing to turn on.
+     */
+    public static function enter(string $tenant = 'tenant-a'): void
+    {
+        tenancy()->enter($tenant);
+
+        $connection = DB::connection(self::connectionName());
+
+        if ($connection->getDriverName() === 'sqlite') {
+            $connection->statement('pragma foreign_keys = on');
+        }
+    }
+
+    /**
+     * The name of the connection Tenancy configures - read, never written as
+     * the literal `tenant`.
+     */
+    public static function connectionName(): string
+    {
+        return (string) config('tenancy.connection', 'tenant');
+    }
+
+    /**
      * The highest version the shipped tenant tree can produce.
      *
      * Derived from the tree, never written as a literal: a catalogue version
