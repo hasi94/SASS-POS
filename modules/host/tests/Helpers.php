@@ -490,6 +490,62 @@ function tenantBaselineTables(): array
     ];
 }
 
+/**
+ * Every table the shipped tenant tree creates: T-008's baseline six plus
+ * T-010's eight.
+ *
+ * **Two concepts, deliberately not one list** (T-010 Ruling 2). Three sites
+ * read "the whole tree" and three read "the baseline", and until T-010 those
+ * were the same set, so one helper answered both. Widening
+ * {@see tenantBaselineTables()} to fourteen would have made its own name
+ * false; it keeps its six and is accurate for the first time, and the
+ * whole-tree sites moved here.
+ *
+ * @return list<string>
+ */
+function tenantTreeTables(): array
+{
+    $tables = array_merge(tenantBaselineTables(), [
+        'access_log',
+        'employee_branches',
+        'employee_permissions',
+        'employee_roles',
+        'employees',
+        'permissions',
+        'role_permissions',
+        'roles',
+    ]);
+
+    sort($tables);
+
+    return $tables;
+}
+
+/**
+ * How many migration files the tenant tree holds.
+ *
+ * **Derived, because the identity it used to be written as has broken.**
+ * Three sites used `count(tenantBaselineTables())` as a stand-in for the
+ * number of tenant migration files - the highest catalogue version, the
+ * published row count, the version after the baseline. That held only
+ * because T-008 shipped one table per file. T-010 ships **nine files and
+ * eight tables**: the ninth is AC-10's contract step, which creates nothing.
+ * One number with two homes is FP-181's shape, so the number now comes from
+ * the tree itself.
+ *
+ * It globs rather than calling `migrationTreeSources()`, which is declared in
+ * a *test file*: a filtered single-file run that never loads that file would
+ * otherwise die on an undefined function, and one of the three callers lives
+ * in `packages/kernel/tests`. The directory still has one authority,
+ * {@see migrationTreeDirectory()}.
+ */
+function tenantMigrationFileCount(): int
+{
+    $directory = migrationTreeDirectory(MigrationTree::Tenant);
+
+    return count(glob($directory.DIRECTORY_SEPARATOR.'*.php') ?: []);
+}
+
 /*
 |--------------------------------------------------------------------------
 | Where the two migration trees are

@@ -46,5 +46,69 @@
         "checksum": "4e1c09b9d5690be55e6135f0f558db14ec880285ffee2c3a1d8f4241df3584a6",
         "is_destructive": false,
         "requires_offline": false
+    },
+    {
+        "version": 7,
+        "migration": "2026_10_20_000301_create_permissions_table",
+        "phase": "expand",
+        "checksum": "9575c491a85f2e6a59095c1c9f0e0d52eac50073fd06f7887f963b80a9d28576",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 8,
+        "migration": "2026_10_20_000302_create_roles_table",
+        "phase": "expand",
+        "checksum": "33024734de3bbef94cd0b55d229f70d332d1636383eeab62b28c0bbd9e83f3a8",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 9,
+        "migration": "2026_10_20_000303_create_role_permissions_table",
+        "phase": "expand",
+        "checksum": "362994fc28366c16a2f21b2adf9b0c324b27a81d134b29bd2fe0ea6e29678820",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 10,
+        "migration": "2026_10_20_000304_create_employees_table",
+        "phase": "expand",
+        "checksum": "8e846c38e2dee5670d7b6bf587d49134a9f71b18886aa2bc4162c454c22d873d",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 11,
+        "migration": "2026_10_20_000305_create_employee_roles_table",
+        "phase": "expand",
+        "checksum": "c2853ebf9a052171af7e1152f4aa3e7f33ac25225d5c0eb7107a9bd35257c0fc",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 12,
+        "migration": "2026_10_20_000306_create_employee_permissions_table",
+        "phase": "expand",
+        "checksum": "33aee59755080ccf76d60bfdb25158e11d29f138728c0c7a5bcfe3a014dffe90",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 13,
+        "migration": "2026_10_20_000307_create_employee_branches_table",
+        "phase": "expand",
+        "checksum": "3dc421ab0fed3fa9d68a5f5769b13de069b1549cb24e4e9385894e1cc757df25",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 14,
+        "migration": "2026_10_20_000308_create_access_log_table",
+        "phase": "expand",
+        "checksum": "418527572c2ee733b1c2d2922d80b778fa361c921da3e688dfeeec3a08963998",
+        "is_destructive": false,
+        "requires_offline": false
     }
 ]

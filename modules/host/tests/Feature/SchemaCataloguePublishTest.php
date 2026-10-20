@@ -165,7 +165,11 @@ it('publishes one row per shipped tenant migration and matches the committed fix
     // declaration of the catalogue, and AC-31's last sentence is that the table
     // equals it after publishing.
     expect($published)->toBe(catalogueCommittedRows())
-        ->and($published)->toHaveCount(count(tenantBaselineTables()));
+        // One row per FILE, not per table. T-008 shipped one table per file
+        // and this read count(tenantBaselineTables()); T-010 ships nine files
+        // and eight tables, so the number comes from the tree
+        // (T-010 Ruling 2, the FP-181 instance it names).
+        ->and($published)->toHaveCount(tenantMigrationFileCount());
 
     // Every version is accounted for and strictly increasing, which is the
     // property `tenant_databases.schema_version` is a number in.

@@ -78,7 +78,7 @@ it('dispatches one queue job per planned tenant, on the configured queue', funct
     expect($dispatched->jobIds)->toHaveCount(2)
         ->and($dispatched->queue)->toBe('migrations')
         ->and($dispatched->runId)->not->toBe('')
-        ->and($dispatched->targetVersion)->toBe(6);
+        ->and($dispatched->targetVersion)->toBe(tenantMigrationFileCount());
 
     Bus::assertDispatchedTimes(MigrateTenantQueueJob::class, 2);
 

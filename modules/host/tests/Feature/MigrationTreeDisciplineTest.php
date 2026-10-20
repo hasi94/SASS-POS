@@ -119,14 +119,24 @@ it('creates exactly the master tables AC-1 names', function () {
         ->and(masterSystemTables())->toHaveCount(7);
 });
 
-it('creates exactly the six tenant baseline tables AC-23 names', function () {
-    // Six files, one table each, so that every table gets its own catalogue
-    // version and AC-31's "strictly increasing in file-name order" has something
-    // to be true of. No projection-state table and no claim-mark column (D-1):
-    // `docs/patterns.md` section 5 wants a measurement first, and there is none.
-    expect(migrationTreeTables(MigrationTree::Tenant))->toBe(tenantBaselineTables())
+it('creates exactly the tenant tables the shipped tree declares', function () {
+    // T-008 wrote this as "exactly the six baseline tables" and read the
+    // *directory* to say it, so it went red the moment T-010's eighth table
+    // landed. T-010 Ruling 2 splits the two concepts rather than widening the
+    // baseline helper, whose name would then be false: tenantBaselineTables()
+    // keeps its six and means exactly that, tenantTreeTables() carries the
+    // whole tree, and this site - a whole-tree site - moved to the second.
+    //
+    // The file count is no longer the table count. T-008 shipped one table per
+    // file; T-010 ships nine files and eight tables, the ninth being AC-10's
+    // contract step, which creates nothing. So the two numbers are asserted
+    // separately and the file count is derived from the tree
+    // (tenantMigrationFileCount()), not from a table list.
+    expect(migrationTreeTables(MigrationTree::Tenant))->toBe(tenantTreeTables())
         ->and(tenantBaselineTables())->toHaveCount(6)
-        ->and(migrationTreeSources(MigrationTree::Tenant))->toHaveCount(6);
+        ->and(tenantTreeTables())->toHaveCount(14)
+        ->and(migrationTreeSources(MigrationTree::Tenant))->toHaveCount(tenantMigrationFileCount())
+        ->and(tenantMigrationFileCount())->toBe(14);
 });
 
 it('creates no tenant table in the master tree and no master table in the tenant tree', function () {
@@ -137,7 +147,10 @@ it('creates no tenant table in the master tree and no master table in the tenant
     $master = migrationTreeTables(MigrationTree::Master);
     $tenant = migrationTreeTables(MigrationTree::Tenant);
 
-    expect(array_values(array_intersect($master, tenantBaselineTables())))->toBe([])
+    // Whole-tree, so tenantTreeTables() (T-010 Ruling 2): the intersection has
+    // to be taken over the real tenant set, or a master table added under one
+    // of T-010's eight names would not be reported.
+    expect(array_values(array_intersect($master, tenantTreeTables())))->toBe([])
         ->and(array_values(array_intersect($tenant, masterApplicationTables())))->toBe([]);
 
     // And the controls, because two empty intersections are also what two empty

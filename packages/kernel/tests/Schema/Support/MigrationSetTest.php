@@ -183,5 +183,9 @@ it('produces the same catalogue for the baseline as reading the tree does', func
             static fn (MigrationCatalogue $entry): array => $entry->toRow(),
             MigrationCatalogue::forTree($tree)
         ))
-        ->and($set->highestVersion())->toBe(count(tenantBaselineTables()));
+        // The highest version is one per migration FILE. It was written as
+        // count(tenantBaselineTables()) while T-008's one-table-per-file
+        // identity held; T-010 ships nine files and eight tables and the
+        // number is now derived from the tree (T-010 Ruling 2).
+        ->and($set->highestVersion())->toBe(tenantMigrationFileCount());
 });

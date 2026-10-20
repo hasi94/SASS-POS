@@ -18,16 +18,18 @@ use Illuminate\Support\Facades\Schema;
 | What is answered here needs no engine, and most of it is behaviour rather than
 | shape - which is the half a column list cannot see:
 |
-| - the six baseline files apply to an empty database, in order;
-| - exactly the six tables of AC-23 exist afterwards, plus Laravel's own
-|   `migrations`, and `schema_meta` is **empty** (D-28);
+| - every file of the shipped tenant tree applies to an empty database, in
+|   order - T-008's six, and T-010's nine from step 3;
+| - exactly the tables tenantTreeTables() declares exist afterwards, plus
+|   Laravel's own `migrations`, and `schema_meta` is **empty** (D-28);
 | - no column named `tenant_id` exists anywhere in the applied schema (AC-24);
 | - the two stored sentinels **work**: a second company-wide row for the same
 |   key is refused, and a second company-wide `sale` sequence is refused, which
 |   is the duplicate that lets two sales take one number (D-6, AC-25, AC-26);
-| - the only foreign key in the baseline is `settings.key` ->
-|   `settings_registry`, and the four columns D-5 leaves unguarded exist,
-|   are nullable, and reference nothing (AC-30);
+| - the foreign-key inventory of the WHOLE tree is exactly the declared list,
+|   none of it references a table named `branches`, and the columns D-5 and
+|   T-010 D-30 leave unguarded exist, are nullable where the design says so,
+|   and reference nothing (T-008 AC-30, T-010 AC-9 and AC-12a);
 | - a business row and its outbox event commit or roll back together (AC-28).
 |
 | The stand-in is a private in-memory SQLite connection this file configures, and
@@ -117,10 +119,12 @@ function tenantStandInTables(): array
 |--------------------------------------------------------------------------
 */
 
-it('applies the baseline to an empty database and creates exactly six tables', function () {
+it('applies the tenant tree to an empty database and creates exactly its tables', function () {
     applyTenantBaseline();
 
-    $expected = array_merge(tenantBaselineTables(), ['migrations']);
+    // Whole-tree (T-010 Ruling 2): this case applies the DIRECTORY, so the
+    // set it must equal is the directory's, not the baseline subset's.
+    $expected = array_merge(tenantTreeTables(), ['migrations']);
     sort($expected);
 
     // Exact equality: "and nothing else" is half of AC-23, and it is the half a
@@ -154,12 +158,12 @@ it('leaves schema_meta empty, because T-008 writes no row into it', function () 
     expect(DB::connection(tenantStandIn())->table('schema_meta')->count())->toBe(1);
 });
 
-it('has no tenant_id column in any baseline table', function () {
+it('has no tenant_id column in any table of the tenant tree', function () {
     applyTenantBaseline();
 
     $offenders = [];
 
-    foreach (tenantBaselineTables() as $table) {
+    foreach (tenantTreeTables() as $table) {
         $columns = array_column(Schema::connection(tenantStandIn())->getColumns($table), 'name');
 
         if (in_array('tenant_id', $columns, true)) {
@@ -259,44 +263,120 @@ it('refuses a second company-wide sequence for one document type', function () {
 
 /*
 |--------------------------------------------------------------------------
-| The four columns that owe a foreign key, and the one that has it
+| The foreign-key inventory of the whole tree, and the columns that owe one
 |--------------------------------------------------------------------------
+|
+| **Widened from the baseline six to the whole tree by T-010 (AC-12a, Ruling
+| 2), and the widening is deliberate.** Read narrowly this sweep would have
+| stayed green forever while the tree grew around it - shape 7, an instrument
+| that discriminates perfectly over a domain that has stopped being the one
+| that matters. Two things made an edit unavoidable anyway: T-010 adds eight
+| tables with foreign keys of their own, and AC-9 asks for an assertion that
+| **no** key in the new tables references a table named `branches`, which a
+| six-table loop cannot answer.
+|
+| The inventory is declared as an explicit sorted list, not a count: the
+| criterion is about which keys exist. It is stronger than what T-008
+| asserted, not weaker, and T-008's own claim - `settings.key` ->
+| `settings_registry` is in the list, and an unknown settings key is refused -
+| is still here, in this case and the one after it.
+|
 */
 
-it('guards settings.key and nothing else, and leaves D-5 four columns unguarded and nullable', function () {
-    applyTenantBaseline();
-
+/**
+ * Every foreign key in the applied tenant schema, as `table.column ->
+ * table.column`, sorted.
+ *
+ * @return list<string>
+ */
+function tenantTreeForeignKeys(): array
+{
     $references = [];
 
-    foreach (tenantBaselineTables() as $table) {
+    foreach (tenantTreeTables() as $table) {
         foreach (DB::connection(tenantStandIn())->select('pragma foreign_key_list("'.$table.'")') as $key) {
             $key = (array) $key;
             $references[] = $table.'.'.$key['from'].' -> '.$key['table'].'.'.$key['to'];
         }
     }
 
-    // The whole foreign-key inventory of the baseline, as a list rather than a
-    // count: AC-30 is about which keys exist, and `branches` and `employees` do
-    // not exist to be referenced.
-    expect($references)->toBe(['settings.key -> settings_registry.key']);
+    sort($references);
 
-    // The four columns exist and are nullable (D-5). Each docblock names the
-    // module that owes its key; this is the assertion that the columns were not
-    // quietly dropped instead.
+    return $references;
+}
+
+it('holds exactly the declared foreign keys, none of them onto branches', function () {
+    applyTenantBaseline();
+
+    // The whole inventory, in both directions. `settings.updated_by ->
+    // employees.id` is absent on purpose: it is AC-10's contract migration,
+    // which is gated to mysql/mariadb, so on the stand-in the statement does
+    // not run. That gate is the only reason, and step 15 is where the
+    // migration's behaviour is exercised.
+    expect(tenantTreeForeignKeys())->toBe([
+        'access_log.employee_id -> employees.id',
+        'employee_branches.employee_id -> employees.id',
+        'employee_permissions.employee_id -> employees.id',
+        'employee_permissions.permission_key -> permissions.key',
+        'employee_roles.employee_id -> employees.id',
+        'employee_roles.granted_by -> employees.id',
+        'employee_roles.role_id -> roles.id',
+        'employees.created_by -> employees.id',
+        'employees.updated_by -> employees.id',
+        'role_permissions.permission_key -> permissions.key',
+        'role_permissions.role_id -> roles.id',
+        'settings.key -> settings_registry.key',
+    ]);
+
+    // AC-9, said as a property rather than as a consequence of the list
+    // above: nothing references `branches`, and no such table exists to be
+    // referenced. Both halves, because a key onto a table that does not exist
+    // is the mistake this is guarding against.
+    $ontoBranches = array_values(array_filter(
+        tenantTreeForeignKeys(),
+        static fn (string $reference): bool => str_contains($reference, '-> branches.')
+    ));
+
+    expect($ontoBranches)->toBe([])
+        ->and(tenantStandInTables())->not->toContain('branches');
+});
+
+it('leaves the unguarded identifier columns in place, and typed as identifiers', function () {
+    applyTenantBaseline();
+
+    // D-5's four, plus T-010 D-30's three. Each migration docblock names the
+    // module that owes the key; this is the assertion that the column was not
+    // quietly dropped instead, and that its nullability is the one the design
+    // states - `employee_branches.branch_id` is NOT NULL, because a row there
+    // IS an attachment to one branch, while the other two carry "all
+    // branches" as NULL.
     $unguarded = [
-        'settings' => 'updated_by',
-        'number_sequences' => 'branch_id',
-        'audit_logs' => 'branch_id',
-        'outbox_events' => 'branch_id',
+        'settings.updated_by' => true,
+        'number_sequences.branch_id' => true,
+        'audit_logs.branch_id' => true,
+        'outbox_events.branch_id' => true,
+        'employee_roles.branch_id' => true,
+        'employee_permissions.branch_id' => true,
+        'employee_branches.branch_id' => false,
+        'access_log.branch_id' => true,
     ];
 
-    foreach ($unguarded as $table => $column) {
-        $columns = collect(Schema::connection(tenantStandIn())->getColumns($table))
-            ->keyBy('name');
+    $found = [];
 
-        expect($columns)->toHaveKey($column)
-            ->and($columns->get($column)['nullable'])->toBeTrue();
+    foreach ($unguarded as $site => $nullable) {
+        [$table, $column] = explode('.', $site);
+
+        $columns = collect(Schema::connection(tenantStandIn())->getColumns($table))->keyBy('name');
+
+        expect($columns)->toHaveKey($column);
+
+        $found[$site] = $columns->get($column)['nullable'];
     }
+
+    // Published as a map, so a failure names the column rather than a count,
+    // and so a reader can see which domain was examined (D-27).
+    expect($found)->toBe($unguarded)
+        ->and($found)->toHaveCount(8);
 });
 
 it('refuses a settings row whose key is not in the registry', function () {

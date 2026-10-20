@@ -176,9 +176,12 @@ it('writes a signature for every master and baseline table, and accepts two equa
     // 29 = AC-1's seventeen application tables, T-009 step 3's four more
     // (login_history, refresh_tokens, security_events, signing_keys; AC-50) and
     // the eight system tables;
-    // 7 = AC-23's six baseline tables and the framework's `migrations`.
+    // The tenant side is the whole shipped tree plus the framework's
+    // `migrations`, derived rather than written as a literal: T-010 took it
+    // from AC-23's six to fourteen, and a count written here would have to be
+    // edited by every task that ships a tenant table (T-010 Ruling 2).
     expect($master)->toHaveCount(29)
-        ->and($tenant)->toHaveCount(7)
+        ->and($tenant)->toHaveCount(count(tenantTreeTables()) + 1)
         ->and(array_keys($master))->toContain('tenants', 'tenant_databases', 'users', 'sessions', 'migrations')
         ->and(array_keys($tenant))->toContain('settings', 'outbox_events', 'schema_meta', 'migrations');
 
