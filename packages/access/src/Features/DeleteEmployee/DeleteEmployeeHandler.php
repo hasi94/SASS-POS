@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flexipos\Access\Features\DeleteEmployee;
 
+use Flexipos\Access\Support\AuditWriter;
 use Flexipos\Access\Support\EmployeeLookup;
 use Flexipos\Access\Support\LastOwner;
 use Flexipos\Access\Support\PermVersion;
@@ -44,6 +45,7 @@ final class DeleteEmployeeHandler
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
         private readonly LastOwner $lastOwner,
+        private readonly AuditWriter $audit,
     ) {}
 
     public function handle(DeleteEmployee $command): void
@@ -69,6 +71,16 @@ final class DeleteEmployeeHandler
                 ]);
 
             PermVersion::bump($connection, [$command->employeeId]);
+
+            $this->audit->write(
+                $connection,
+                $command->actorId,
+                'employee_deleted',
+                'employee',
+                $command->employeeId,
+                ['deleted_at' => null],
+                ['deleted_at' => $now],
+            );
         });
     }
 }

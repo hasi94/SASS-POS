@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Access\Features\DeleteRole;
 
 use Flexipos\Access\Exceptions\AccessRefused;
+use Flexipos\Access\Support\AuditWriter;
 use Flexipos\Access\Support\RoleLookup;
 use Flexipos\Access\Support\TenantConnection;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
@@ -32,6 +33,7 @@ final class DeleteRoleHandler
     public function __construct(
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
+        private readonly AuditWriter $audit,
     ) {}
 
     public function handle(DeleteRole $command): void
@@ -53,10 +55,22 @@ final class DeleteRoleHandler
                 );
             }
 
+            $deletedAt = $this->clock->timestamp();
+
             $connection->table('roles')->where('id', $command->roleId)->update([
-                'deleted_at' => $this->clock->timestamp(),
-                'updated_at' => $this->clock->timestamp(),
+                'deleted_at' => $deletedAt,
+                'updated_at' => $deletedAt,
             ]);
+
+            $this->audit->write(
+                $connection,
+                $command->actorId,
+                'role_deleted',
+                'role',
+                $command->roleId,
+                ['key' => (string) $role->key, 'deleted_at' => null],
+                ['key' => (string) $role->key, 'deleted_at' => $deletedAt],
+            );
         });
     }
 }

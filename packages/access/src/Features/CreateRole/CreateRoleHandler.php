@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Access\Features\CreateRole;
 
 use Flexipos\Access\Exceptions\AccessRefused;
+use Flexipos\Access\Support\AuditWriter;
 use Flexipos\Access\Support\RoleKey;
 use Flexipos\Access\Support\RoleView;
 use Flexipos\Access\Support\TenantConnection;
@@ -33,6 +34,7 @@ final class CreateRoleHandler
     public function __construct(
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
+        private readonly AuditWriter $audit,
     ) {}
 
     public function handle(CreateRole $command): RoleView
@@ -65,7 +67,7 @@ final class CreateRoleHandler
 
         $connection = $this->tenant->get();
 
-        return $connection->transaction(function () use ($connection, $key, $name, $description): RoleView {
+        return $connection->transaction(function () use ($connection, $command, $key, $name, $description): RoleView {
             // Every role, including soft-deleted ones: a code or a key is
             // never reused, so audit history stays unambiguous (D-14's rule
             // for employees, and the same reason here).
@@ -85,6 +87,16 @@ final class CreateRoleHandler
                 'created_at' => $now,
                 'updated_at' => $now,
             ]);
+
+            $this->audit->write(
+                $connection,
+                $command->actorId,
+                'role_created',
+                'role',
+                $id,
+                null,
+                ['key' => $key, 'name' => $name, 'description' => $description],
+            );
 
             return new RoleView($id, $key, $name, $description, false, []);
         });

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Access\Features\UpdateEmployee;
 
 use Flexipos\Access\Exceptions\AccessRefused;
+use Flexipos\Access\Support\AuditWriter;
 use Flexipos\Access\Support\EmployeeLookup;
 use Flexipos\Access\Support\EmployeeView;
 use Flexipos\Access\Support\PermVersion;
@@ -57,6 +58,7 @@ final class UpdateEmployeeHandler
     public function __construct(
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
+        private readonly AuditWriter $audit,
     ) {}
 
     public function handle(UpdateEmployee $command): EmployeeView
@@ -122,7 +124,16 @@ final class UpdateEmployeeHandler
         $connection = $this->tenant->get();
 
         return $connection->transaction(function () use ($connection, $command, $values): EmployeeView {
-            EmployeeLookup::findLive($connection, $command->employeeId);
+            $employee = EmployeeLookup::findLive($connection, $command->employeeId);
+
+            // Read from the row, and only the fields this update names: an
+            // audit `before` listing fields nobody touched would make
+            // `changed_fields` the only honest part of the line.
+            $before = [];
+
+            foreach (array_keys($values) as $field) {
+                $before[$field] = $employee->{$field} === null ? null : (string) $employee->{$field};
+            }
 
             $connection->table('employees')
                 ->where('id', $command->employeeId)
@@ -130,6 +141,16 @@ final class UpdateEmployeeHandler
                     'updated_by' => $command->actorId,
                     'updated_at' => $this->clock->timestamp(),
                 ]);
+
+            $this->audit->write(
+                $connection,
+                $command->actorId,
+                'employee_updated',
+                'employee',
+                $command->employeeId,
+                $before,
+                $values,
+            );
 
             $views = EmployeeLookup::render($connection, [
                 EmployeeLookup::findLive($connection, $command->employeeId),

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Access\Features\RenameRole;
 
 use Flexipos\Access\Exceptions\AccessRefused;
+use Flexipos\Access\Support\AuditWriter;
 use Flexipos\Access\Support\RoleLookup;
 use Flexipos\Access\Support\RoleView;
 use Flexipos\Access\Support\TenantConnection;
@@ -26,6 +27,7 @@ final class RenameRoleHandler
     public function __construct(
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
+        private readonly AuditWriter $audit,
     ) {}
 
     public function handle(RenameRole $command): RoleView
@@ -64,6 +66,16 @@ final class RenameRoleHandler
                 ->pluck('permission_key')
                 ->map(static fn ($key): string => (string) $key)
                 ->all();
+
+            $this->audit->write(
+                $connection,
+                $command->actorId,
+                'role_renamed',
+                'role',
+                (string) $role->id,
+                ['name' => (string) $role->name, 'description' => $role->description],
+                ['name' => $name, 'description' => $description],
+            );
 
             return new RoleView(
                 (string) $role->id,

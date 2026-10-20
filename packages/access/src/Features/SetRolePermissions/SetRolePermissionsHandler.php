@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Access\Features\SetRolePermissions;
 
 use Flexipos\Access\Exceptions\AccessRefused;
+use Flexipos\Access\Support\AuditWriter;
 use Flexipos\Access\Support\Escalation;
 use Flexipos\Access\Support\PermVersion;
 use Flexipos\Access\Support\RoleLookup;
@@ -48,6 +49,7 @@ final class SetRolePermissionsHandler
     public function __construct(
         private readonly TenantConnection $tenant,
         private readonly Escalation $escalation,
+        private readonly AuditWriter $audit,
     ) {}
 
     public function handle(SetRolePermissions $command): SetRolePermissionsResult
@@ -87,11 +89,14 @@ final class SetRolePermissionsHandler
             // taking one away raises nobody - and the set is computed
             // against what the role holds right now, inside the
             // transaction, rather than against what a caller believed.
-            $added = array_values(array_diff($keys, $connection->table('role_permissions')
+            $held = $connection->table('role_permissions')
                 ->where('role_id', $command->roleId)
+                ->orderBy('permission_key')
                 ->pluck('permission_key')
                 ->map(static fn ($key): string => (string) $key)
-                ->all()));
+                ->all();
+
+            $added = array_values(array_diff($keys, $held));
 
             foreach ($added as $key) {
                 $this->escalation->requireHeld($command->actorId, $key, null);
@@ -113,6 +118,16 @@ final class SetRolePermissionsHandler
             }
 
             $bumped = PermVersion::bumpHoldersOfRole($connection, $command->roleId);
+
+            $this->audit->write(
+                $connection,
+                $command->actorId,
+                'role_permissions_set',
+                'role',
+                $command->roleId,
+                ['permission_keys' => $held],
+                ['permission_keys' => $keys],
+            );
 
             return new SetRolePermissionsResult($command->roleId, $keys, $bumped);
         });

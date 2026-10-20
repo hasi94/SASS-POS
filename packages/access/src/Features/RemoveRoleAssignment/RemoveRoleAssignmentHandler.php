@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Access\Features\RemoveRoleAssignment;
 
 use Flexipos\Access\Exceptions\AccessRefused;
+use Flexipos\Access\Support\AuditWriter;
 use Flexipos\Access\Support\BranchScope;
 use Flexipos\Access\Support\EmployeeLookup;
 use Flexipos\Access\Support\LastOwner;
@@ -52,6 +53,7 @@ final class RemoveRoleAssignmentHandler
     public function __construct(
         private readonly TenantConnection $tenant,
         private readonly LastOwner $lastOwner,
+        private readonly AuditWriter $audit,
     ) {}
 
     public function handle(RemoveRoleAssignment $command): void
@@ -83,6 +85,17 @@ final class RemoveRoleAssignmentHandler
             }
 
             PermVersion::bump($connection, [$command->employeeId]);
+
+            $this->audit->write(
+                $connection,
+                $command->actorId,
+                'role_assignment_removed',
+                'employee',
+                $command->employeeId,
+                ['role_id' => $command->roleId, 'branch_id' => $branchId],
+                null,
+                $branchId,
+            );
         });
     }
 

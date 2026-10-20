@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Access\Features\SetEmployeePermission;
 
 use Flexipos\Access\Exceptions\AccessRefused;
+use Flexipos\Access\Support\AuditWriter;
 use Flexipos\Access\Support\BranchScope;
 use Flexipos\Access\Support\EmployeeLookup;
 use Flexipos\Access\Support\Escalation;
@@ -51,6 +52,7 @@ final class SetEmployeePermissionHandler
     public function __construct(
         private readonly TenantConnection $tenant,
         private readonly Escalation $escalation,
+        private readonly AuditWriter $audit,
     ) {}
 
     public function handle(SetEmployeePermission $command): void
@@ -84,6 +86,13 @@ final class SetEmployeePermissionHandler
                 $this->escalation->requireHeld($command->actorId, $key, $branchId);
             }
 
+            $previous = BranchScope::at(
+                $connection->table('employee_permissions')
+                    ->where('employee_id', $command->employeeId)
+                    ->where('permission_key', $key),
+                $branchId
+            )->value('allowed');
+
             BranchScope::at(
                 $connection->table('employee_permissions')
                     ->where('employee_id', $command->employeeId)
@@ -100,6 +109,19 @@ final class SetEmployeePermissionHandler
             ]);
 
             PermVersion::bump($connection, [$command->employeeId]);
+
+            $this->audit->write(
+                $connection,
+                $command->actorId,
+                'employee_permission_set',
+                'employee',
+                $command->employeeId,
+                $previous === null
+                    ? null
+                    : ['permission_key' => $key, 'branch_id' => $branchId, 'allowed' => (bool) $previous],
+                ['permission_key' => $key, 'branch_id' => $branchId, 'allowed' => $command->allowed],
+                $branchId,
+            );
         });
     }
 }

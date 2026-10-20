@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Access\Features\AttachBranch;
 
 use Flexipos\Access\Exceptions\AccessRefused;
+use Flexipos\Access\Support\AuditWriter;
 use Flexipos\Access\Support\BranchScope;
 use Flexipos\Access\Support\EmployeeLookup;
 use Flexipos\Access\Support\PermVersion;
@@ -43,6 +44,7 @@ final class AttachBranchHandler
     public function __construct(
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
+        private readonly AuditWriter $audit,
     ) {}
 
     public function handle(AttachBranch $command): void
@@ -85,6 +87,17 @@ final class AttachBranchHandler
             ]);
 
             PermVersion::bump($connection, [$command->employeeId]);
+
+            $this->audit->write(
+                $connection,
+                $command->actorId,
+                'branch_attached',
+                'employee',
+                $command->employeeId,
+                null,
+                ['branch_id' => $branchId, 'is_default' => $command->isDefault],
+                $branchId,
+            );
         });
     }
 }

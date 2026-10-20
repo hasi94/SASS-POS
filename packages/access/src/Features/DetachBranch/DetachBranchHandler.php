@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Access\Features\DetachBranch;
 
 use Flexipos\Access\Exceptions\AccessRefused;
+use Flexipos\Access\Support\AuditWriter;
 use Flexipos\Access\Support\BranchScope;
 use Flexipos\Access\Support\EmployeeLookup;
 use Flexipos\Access\Support\PermVersion;
@@ -34,7 +35,10 @@ use Flexipos\Access\Support\TenantConnection;
  */
 final class DetachBranchHandler
 {
-    public function __construct(private readonly TenantConnection $tenant) {}
+    public function __construct(
+        private readonly TenantConnection $tenant,
+        private readonly AuditWriter $audit,
+    ) {}
 
     public function handle(DetachBranch $command): void
     {
@@ -70,6 +74,17 @@ final class DetachBranchHandler
                 ->delete();
 
             PermVersion::bump($connection, [$command->employeeId]);
+
+            $this->audit->write(
+                $connection,
+                $command->actorId,
+                'branch_detached',
+                'employee',
+                $command->employeeId,
+                ['branch_id' => $branchId],
+                null,
+                $branchId,
+            );
         });
     }
 }

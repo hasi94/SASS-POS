@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Access\Features\CreateEmployee;
 
 use Flexipos\Access\Exceptions\AccessRefused;
+use Flexipos\Access\Support\AuditWriter;
 use Flexipos\Access\Support\EmployeeStatus;
 use Flexipos\Access\Support\EmployeeView;
 use Flexipos\Access\Support\TenantConnection;
@@ -43,6 +44,7 @@ final class CreateEmployeeHandler
     public function __construct(
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
+        private readonly AuditWriter $audit,
     ) {}
 
     public function handle(CreateEmployee $command): EmployeeView
@@ -124,6 +126,23 @@ final class CreateEmployeeHandler
                 'created_at' => $now,
                 'updated_at' => $now,
             ]);
+
+            $this->audit->write(
+                $connection,
+                $command->actorId,
+                'employee_created',
+                'employee',
+                $id,
+                null,
+                [
+                    'code' => $code,
+                    'user_id' => $userId,
+                    'first_name' => $firstName,
+                    'last_name' => $lastName,
+                    'display_name' => $displayName,
+                    'status' => $status,
+                ],
+            );
 
             return new EmployeeView($id, $code, $firstName, $lastName, $displayName, $status, false, []);
         });

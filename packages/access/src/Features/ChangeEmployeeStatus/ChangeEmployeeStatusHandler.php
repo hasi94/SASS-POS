@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Access\Features\ChangeEmployeeStatus;
 
 use Flexipos\Access\Exceptions\AccessRefused;
+use Flexipos\Access\Support\AuditWriter;
 use Flexipos\Access\Support\EmployeeLookup;
 use Flexipos\Access\Support\EmployeeStatus;
 use Flexipos\Access\Support\LastOwner;
@@ -50,6 +51,7 @@ final class ChangeEmployeeStatusHandler
         private readonly EmployeeStatus $statuses,
         private readonly RunnerClock $clock,
         private readonly LastOwner $lastOwner,
+        private readonly AuditWriter $audit,
     ) {}
 
     public function handle(ChangeEmployeeStatus $command): ChangeEmployeeStatusResult
@@ -88,6 +90,16 @@ final class ChangeEmployeeStatusHandler
                     'updated_by' => $command->actorId,
                     'updated_at' => $this->clock->timestamp(),
                 ]);
+
+            $this->audit->write(
+                $connection,
+                $command->actorId,
+                'employee_status_changed',
+                'employee',
+                $command->employeeId,
+                ['status' => $from],
+                ['status' => $status],
+            );
 
             if ($crosses) {
                 // In the same transaction as the change, one atomic

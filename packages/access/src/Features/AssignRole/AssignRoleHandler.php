@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Access\Features\AssignRole;
 
 use Flexipos\Access\Exceptions\AccessRefused;
+use Flexipos\Access\Support\AuditWriter;
 use Flexipos\Access\Support\BranchScope;
 use Flexipos\Access\Support\EmployeeLookup;
 use Flexipos\Access\Support\Escalation;
@@ -52,6 +53,7 @@ final class AssignRoleHandler
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
         private readonly Escalation $escalation,
+        private readonly AuditWriter $audit,
     ) {}
 
     public function handle(AssignRole $command): void
@@ -95,6 +97,17 @@ final class AssignRoleHandler
             ]);
 
             PermVersion::bump($connection, [$command->employeeId]);
+
+            $this->audit->write(
+                $connection,
+                $command->actorId,
+                'role_assigned',
+                'employee',
+                $command->employeeId,
+                null,
+                ['role_id' => $command->roleId, 'branch_id' => $branchId],
+                $branchId,
+            );
         });
     }
 }

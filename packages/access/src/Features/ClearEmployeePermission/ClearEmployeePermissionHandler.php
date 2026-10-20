@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Access\Features\ClearEmployeePermission;
 
 use Flexipos\Access\Exceptions\AccessRefused;
+use Flexipos\Access\Support\AuditWriter;
 use Flexipos\Access\Support\BranchScope;
 use Flexipos\Access\Support\EmployeeLookup;
 use Flexipos\Access\Support\PermVersion;
@@ -40,7 +41,10 @@ use Flexipos\Access\Support\TenantConnection;
  */
 final class ClearEmployeePermissionHandler
 {
-    public function __construct(private readonly TenantConnection $tenant) {}
+    public function __construct(
+        private readonly TenantConnection $tenant,
+        private readonly AuditWriter $audit,
+    ) {}
 
     public function handle(ClearEmployeePermission $command): void
     {
@@ -68,6 +72,17 @@ final class ClearEmployeePermissionHandler
             }
 
             PermVersion::bump($connection, [$command->employeeId]);
+
+            $this->audit->write(
+                $connection,
+                $command->actorId,
+                'employee_permission_cleared',
+                'employee',
+                $command->employeeId,
+                ['permission_key' => $key, 'branch_id' => $branchId],
+                null,
+                $branchId,
+            );
         });
     }
 }
