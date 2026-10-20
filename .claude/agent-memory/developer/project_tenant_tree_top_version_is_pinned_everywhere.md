@@ -39,6 +39,21 @@ The rule the planner enforces is about *planning a run*, never about *shipping
 a file*, and the blocking set is empty in production while no tenant database
 exists - which is exactly why this trap is invisible until the suite runs.
 
+**And the corpus cannot simply be retargeted below the contract step
+(measured 2026-10-20).** `runFixtureSet(n)` composes each FX directory **on
+top of the shipped tree**, so a shipped contract step at 15 sits in the
+*middle* of `runFixtureSet(1)` (FX1 at 16), and `$applied` in
+`PlanMigrationRunHandler` is `range(lowestTenantVersion + 1, $target)` - so
+every target at or above 15 includes it and the guard fires. A helper of the
+form "the top of the set minus any contract steps at the top" therefore
+strips nothing for FX-composed sets and strips the FX contract step itself
+for FX4/FX5, which are the cases that exist to exercise the guard: applying
+it took PlanMigrationRunHandlerTest from 6 reds to 10. The plannable ceiling
+is a function of the set **and the fleet's floor**, which a helper taking
+only the set cannot see. With a contract step in the shipped tree and a fleet
+at 0, no plan can reach any FX migration at all - FP-304 arrives the day the
+step ships, not later.
+
 **How to apply:** ship expand migrations and contract migrations in different
 commits, and measure the suite after the expand set before writing the
 contract step. Related: [[master-table-list-is-pinned-three-times]],
