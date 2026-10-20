@@ -29,6 +29,9 @@ final class SyncPermissionRegistryResult
      * @param  list<string>  $unchanged  declared keys already stored exactly
      * @param  list<string>  $orphaned  stored keys nothing declares - never deleted
      * @param  list<string>  $refused  stored keys whose is_branch_scoped would flip
+     * @param  bool  $ownerCreated  the system role did not exist and was seeded
+     * @param  list<string>  $ownerGranted  keys owner did not hold and now does
+     * @param  int  $bumped  how many employees had their perm_version raised
      */
     public function __construct(
         public readonly array $inserted,
@@ -36,6 +39,9 @@ final class SyncPermissionRegistryResult
         public readonly array $unchanged,
         public readonly array $orphaned,
         public readonly array $refused,
+        public readonly bool $ownerCreated = false,
+        public readonly array $ownerGranted = [],
+        public readonly int $bumped = 0,
     ) {}
 
     /**
@@ -57,11 +63,15 @@ final class SyncPermissionRegistryResult
     /**
      * Did this sync change any row at all?
      *
-     * The question step 7's bump asks: a sync that inserted and updated
-     * nothing has changed nobody's rights, so nothing may be bumped by it.
+     * The question the bump asks: a sync that inserted nothing, updated
+     * nothing and granted `owner` nothing has changed nobody's rights, so
+     * nothing may have been bumped by it.
      */
     public function changedNothing(): bool
     {
-        return $this->inserted === [] && $this->updated === [];
+        return $this->inserted === []
+            && $this->updated === []
+            && $this->ownerGranted === []
+            && $this->bumped === 0;
     }
 }
