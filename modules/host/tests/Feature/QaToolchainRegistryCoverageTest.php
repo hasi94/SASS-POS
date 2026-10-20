@@ -16,8 +16,9 @@ use Symfony\Component\Yaml\Yaml;
  * during QA of T-001.
  *
  * These tests turn that manual discipline into an enforced invariant: however
- * the lists are maintained, by hand or by a glob, every package on disk must be
- * covered by all three.
+ * the lists are maintained, by hand or by a glob, every package on disk must
+ * appear in all three - and, where the registry is not the whole story, must
+ * actually be analysed by the tool that names it.
  *
  * T-009 step 5b widened the first two checks from `src` to `src` **and**
  * `tests`. They had only ever looked at `src`, so a package whose test
@@ -31,6 +32,25 @@ use Symfony\Component\Yaml\Yaml;
  * phpstan.neon.dist says a test file is as capable of a level 6 mistake as a
  * source file, and deptrac.yaml says test code is boundary-checked because a
  * layer is matched by namespace and not by directory.
+ *
+ * **W-2: for Deptrac, registration is not coverage.** PHPStan matches on
+ * files; Deptrac matches on namespaces. Every package test tree on disk is
+ * written as Pest files in the global namespace, so each registered `tests`
+ * path contributes no collectable token and the three new paths step 5b
+ * required are inert - a tree inside them reports zero violations because
+ * nothing in it was collected, not because everything in it is clean. The only
+ * test directory Deptrac really analyses is the host's own, and only because
+ * composer.json autoload-dev gives it `Tests\` and deptrac.yaml gives that
+ * namespace a layer.
+ *
+ * So qaDeptracGaps() now also reports a registered test tree that no layer
+ * collects, and the two Deptrac expectations below are deliberately *not*
+ * `toBe([])`: they equal qaRecordedDeptracTestTreeGaps(), the named list of the
+ * trees this is currently true of. Asserted bare, the check would fail the gate
+ * for three pre-existing trees at once; recorded, it states what is open and
+ * still reports any tree that is not on the list. See
+ * qaGlobalNamespaceTestTrees() for the list and for why emptying it is FP-303's
+ * definition of done.
  */
 
 /*
@@ -95,6 +115,126 @@ function qaProbeClassFor(string $packageDirectory): string
     $psr4 = $manifest['autoload']['psr-4'] ?? [];
 
     return ((string) array_key_first($psr4)).'QaProbe';
+}
+
+/**
+ * Every distinct namespace declared by the PHP files in a directory tree.
+ *
+ * Deptrac matches a layer by namespace, so this - and not the directory, and
+ * not the registry - is what decides whether anything in a tree can be
+ * collected. A file declaring no namespace contributes nothing.
+ *
+ * @return list<string>
+ */
+function qaDeclaredNamespacesIn(string $directory): array
+{
+    $namespaces = [];
+
+    /** @var iterable<mixed> $entries */
+    $entries = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS)
+    );
+
+    foreach ($entries as $entry) {
+        if (! $entry instanceof SplFileInfo || $entry->getExtension() !== 'php') {
+            continue;
+        }
+
+        $source = (string) file_get_contents($entry->getPathname());
+
+        if (preg_match('/^namespace\s+([^;\s]+)\s*;/m', $source, $matches) === 1) {
+            $namespaces[$matches[1]] = true;
+        }
+    }
+
+    return array_keys($namespaces);
+}
+
+/**
+ * Test trees that are registered in deptrac.yaml and that no layer collects,
+ * because every file in them declares no namespace at all.
+ *
+ * This list is the whole difference between this guard stating the true thing -
+ * "registered, nothing collects it, and that is recorded" - and silently
+ * passing. Registration alone buys nothing for Deptrac: PHPStan matches on
+ * files, Deptrac matches on namespaces, so a path whose files are all in the
+ * global namespace is inert however many registries name it. Each entry
+ * therefore carries the row that will fix it.
+ *
+ * It is self-liquidating: emptying it is FP-303's definition of done. The guard
+ * below asserts every entry is still genuinely global-namespaced, so the moment
+ * FP-303 namespaces a tree the entry must be deleted or the gate goes red.
+ *
+ * Not an exemption from a boundary rule and not a baseline: the trees are
+ * registered and will be collected the moment they are namespaced, which is
+ * also why the packages/auth/tests path stays in deptrac.yaml rather than being
+ * removed as unused - removing it would make FP-303 responsible for restoring
+ * it.
+ *
+ * @return array<string, string> relative tests path => row that will empty it
+ */
+function qaGlobalNamespaceTestTrees(): array
+{
+    return [
+        'modules/demo/tests' => 'FP-303',
+        'packages/auth/tests' => 'FP-303',
+        'packages/kernel/tests' => 'FP-303',
+    ];
+}
+
+/**
+ * The gaps qaDeptracGaps() is expected to report for the recorded trees under
+ * one label, in the order it reports them.
+ *
+ * @return list<string>
+ */
+function qaRecordedDeptracTestTreeGaps(string $label): array
+{
+    $gaps = [];
+
+    foreach (array_keys(qaGlobalNamespaceTestTrees()) as $tree) {
+        if (str_starts_with($tree, $label.'/')) {
+            $gaps[] = "no deptrac.yaml layer collects any namespace in {$tree}";
+        }
+    }
+
+    return $gaps;
+}
+
+/**
+ * The Deptrac layer that collects a class, or null if no layer does.
+ *
+ * @param  array<string, list<string>>  $layers
+ */
+function qaDeptracLayerFor(string $class, array $layers): ?string
+{
+    $owning = null;
+
+    foreach ($layers as $layer => $patterns) {
+        foreach ($patterns as $pattern) {
+            if (preg_match('{'.$pattern.'}', $class) === 1) {
+                $owning = $layer;
+            }
+        }
+    }
+
+    return $owning;
+}
+
+/**
+ * Whether any Deptrac layer collects anything declared in a test tree.
+ *
+ * @param  array<string, list<string>>  $layers
+ */
+function qaDeptracCollectsTestTree(string $directory, array $layers): bool
+{
+    foreach (qaDeclaredNamespacesIn($directory) as $namespace) {
+        if (qaDeptracLayerFor($namespace.'\\QaProbe', $layers) !== null) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 /**
@@ -239,16 +379,12 @@ function qaDeptracGaps(array $packages, string $label): array
             $gaps[] = "{$label}/{$name}/tests is not in deptrac.yaml paths";
         }
 
-        $probe = qaProbeClassFor($directory);
-        $owning = null;
-
-        foreach ($deptrac['layers'] as $layer => $patterns) {
-            foreach ($patterns as $pattern) {
-                if (preg_match('{'.$pattern.'}', $probe) === 1) {
-                    $owning = $layer;
-                }
-            }
+        if (is_dir($tests) && ! qaDeptracCollectsTestTree($tests, $deptrac['layers'])) {
+            $gaps[] = "no deptrac.yaml layer collects any namespace in {$label}/{$name}/tests";
         }
+
+        $probe = qaProbeClassFor($directory);
+        $owning = qaDeptracLayerFor($probe, $deptrac['layers']);
 
         if ($owning === null) {
             $gaps[] = "no deptrac.yaml layer collects {$probe}";
@@ -312,11 +448,45 @@ it('analyses every shared package with PHPStan', function () {
 });
 
 it('gives every module its own Deptrac layer, path and ruleset entry', function () {
-    expect(qaDeptracGaps(qaModulePackages(), 'modules'))->toBe([]);
+    expect(qaDeptracGaps(qaModulePackages(), 'modules'))->toBe(qaRecordedDeptracTestTreeGaps('modules'));
 });
 
 it('gives every shared package its own Deptrac layer, path and ruleset entry', function () {
-    expect(qaDeptracGaps(qaSharedPackages(), 'packages'))->toBe([]);
+    expect(qaDeptracGaps(qaSharedPackages(), 'packages'))->toBe(qaRecordedDeptracTestTreeGaps('packages'));
+});
+
+/*
+ * W-2. The two expectations above are not `toBe([])`, and that is the point:
+ * three registered test trees are collected by no Deptrac layer, so this guard
+ * says so by name instead of reporting a clean sweep it cannot deliver. The
+ * header's claim - every package on disk covered by all three - holds for
+ * PHPStan and phpunit; for Deptrac it holds for src and is recorded as open for
+ * these three trees.
+ *
+ * This test is the other half: the recorded list may only contain trees that
+ * are really uncollectable. It reads the trees, not the registry, so it goes
+ * red the moment FP-303 namespaces one - at which point the entry must be
+ * deleted, and the expectations above tighten by themselves.
+ */
+it('records only test trees that genuinely declare no namespace, each against its fixing row', function () {
+    $recorded = qaGlobalNamespaceTestTrees();
+
+    expect($recorded)->not->toBe([])
+        ->and(array_values(array_unique(array_values($recorded))))->toBe(['FP-303']);
+
+    $root = dirname(modulesPath());
+
+    foreach (array_keys($recorded) as $tree) {
+        $directory = $root.DIRECTORY_SEPARATOR.str_replace('/', DIRECTORY_SEPARATOR, $tree);
+
+        expect(is_dir($directory))->toBeTrue("{$tree} is recorded but does not exist");
+
+        // Not "no layer matches it" - that is what the guard above measures,
+        // and it would stay satisfied if a tree were namespaced under a
+        // namespace nobody collects. The claim being recorded is narrower and
+        // is the one FP-303 closes: there is no namespace in here at all.
+        expect(qaDeclaredNamespacesIn($directory))->toBe([], "{$tree} declares a namespace and is no longer global");
+    }
 });
 
 it('collects tests from every package that ships them', function () {
@@ -361,6 +531,11 @@ it('does not skip a legitimately named module just because its name contains the
         ->and(qaDeptracGaps($probe, 'modules'))->toBe([
             "modules/{$name}/src is not in deptrac.yaml paths",
             "modules/{$name}/tests is not in deptrac.yaml paths",
+            // W-2's liveness control: a brand-new test tree in the global
+            // namespace, which is not on the recorded list, must be reported
+            // here. Without this line the extended check could be deleted and
+            // the recorded list would absorb the loss in silence.
+            "no deptrac.yaml layer collects any namespace in modules/{$name}/tests",
             'no deptrac.yaml layer collects Flexipos\Module\DataFixtures\QaProbe',
         ])
         ->and(qaPhpunitGaps($probe))->toBe([]);
@@ -379,7 +554,7 @@ it('still skips every throwaway package the suite generates, by exact name only'
     try {
         expect(qaModulePackages())->not->toHaveKey('qadiscoveryfixture')
             ->and(qaPhpstanGaps(qaModulePackages(), 'modules'))->toBe([])
-            ->and(qaDeptracGaps(qaModulePackages(), 'modules'))->toBe([]);
+            ->and(qaDeptracGaps(qaModulePackages(), 'modules'))->toBe(qaRecordedDeptracTestTreeGaps('modules'));
     } finally {
         deleteFixtureDirectory(modulesPath('qadiscoveryfixture'));
     }

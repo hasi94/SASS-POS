@@ -10,19 +10,22 @@ use function Pest\Laravel\postJson;
 
 /*
 |--------------------------------------------------------------------------
-| R-1: the request URL is a sink, and no credential may reach it
+| R-1: the request URL is an ingress channel, and no credential may arrive by it
 |--------------------------------------------------------------------------
 |
-| **A fifth sink, and the reason this file exists rather than another case
-| in the sentinel harness.** AC-26's harness enumerates four places a secret
-| could be written - `login_history`, `security_events`, the application log
-| and exception messages - and scans all four for sentinels. Every one of
-| them is inside the application. The request URL is outside it: nginx sits
-| in front (docs/deployment-vps.md) and logs the request URI by default, and
-| nothing in this system prunes that file. No amount of scanning inside the
-| four sinks can see a credential that was never written to any of them,
-| which is why this is pinned by behaviour at the endpoints instead - by
-| what each one does when the credential is **only** in the URL.
+| **Not a fifth sink, and that is the reason this file exists rather than
+| another case in the sentinel harness.** QA owns the sink list and its
+| taxonomy is the one used here: a **sink** is a place the application
+| *writes* and the harness scans afterwards. AC-26's harness enumerates four
+| of them - `login_history`, `security_events`, the application log and
+| exception messages - and scans all four for sentinels; HTTP responses are
+| an adjacent check. The request URL is none of these. It is a **channel a
+| credential arrives by**, out of the application's hands: nginx sits in
+| front (docs/deployment-vps.md) and logs the request URI by default, and
+| nothing in this system prunes that file. No scan of written places could
+| ever see it, because nothing in the application wrote it - which is why
+| this channel is pinned behaviourally, per endpoint, by what each one does
+| when the credential is **only** in the URL, and is never scanned.
 |
 | **What is actually asserted.** `$request->input($key)` merges the query
 | bag as a fallback (`data_get($this->getInputSource()->all() +
