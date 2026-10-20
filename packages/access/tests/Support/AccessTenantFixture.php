@@ -135,6 +135,14 @@ final class AccessTenantFixture
 
         if ($connection->getDriverName() === 'sqlite') {
             $connection->statement('pragma foreign_keys = on');
+
+            // Durability is worthless to a database that is deleted at the
+            // end of the test and rebuilt from a template at the start of
+            // the next, and it is expensive: SQLite fsyncs every committed
+            // statement, which is why the marker write cost 0.7 s a tenant
+            // before it moved into the template. Nothing under test depends
+            // on surviving a power cut.
+            $connection->statement('pragma synchronous = off');
         }
     }
 
