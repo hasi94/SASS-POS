@@ -159,9 +159,23 @@ it('inserts every declared key into an empty table and reports the four counts',
     // nobody listed, which is the mutation the last case in this file makes.
     $declared = syncRegistryKeys();
 
+    /** @var PermissionRegistry $registry */
+    $registry = app(PermissionRegistry::class);
+
+    // The domain, stated in terms and not implied: this enumerates the
+    // declarations of the providers booted under MODULES=demo plus
+    // bootstrap/providers.php. A module that is not booted in this
+    // environment declares nothing here and is OUTSIDE this set - which
+    // is narrower than "every permission key the product has", and the
+    // difference is the one shape 7 hides in.
+    echo 'domain: the providers this process booted - the MODULES environment'
+        .' names them, plus bootstrap/providers.php'."\n";
+    echo 'providers ('.count($registry->providerNames()).'): '
+        .implode(', ', $registry->providerNames())."\n";
     echo 'declared keys ('.count($declared).'): '.implode(', ', $declared)."\n";
 
-    expect($declared)->not->toBeEmpty()
+    expect($registry->providerNames())->not->toBeEmpty()
+        ->and($declared)->not->toBeEmpty()
         ->and(array_keys(syncStoredPermissions()))->toBe($declared)
         ->and($result->inserted)->toBe($declared)
         ->and($result->counts())->toBe([
