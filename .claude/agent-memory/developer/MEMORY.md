@@ -43,3 +43,5 @@
 - [HTTP test seams](project_http_test_seams.md) — withHeaders leaks across requests, `$this->postJson` fails stan, and the throwaway guarded route.
 - [Mutate one decision, not the guard](feedback_middleware_mutations_need_the_right_case.md) — the coarse mutation reddened at 500 on the wrong case; and the duplicate validation no mutation can see.
 - [Logger and query-log probes](project_logger_and_query_log_probes.md) — the two reusable probes, and the singleton that empties the log one silently.
+- [Enumerate the sinks, not the scans](feedback_enumerate_the_sinks_not_the_scans.md) — `input()` reads the query string; the request URL was in nobody's list of four sinks.
+- [Say what a fix does not fix](feedback_say_what_a_fix_does_not_fix.md) — the conditional-UPDATE lockout changes structure, not sequential behaviour; bound the claim.
