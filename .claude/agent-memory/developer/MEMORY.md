@@ -50,3 +50,9 @@
 - [Tenant tree top version is pinned everywhere](project_tenant_tree_top_version_is_pinned_everywhere.md) - one new tenant migration edits ~25 sites; a contract step in the shipped tree reddens 24 planner tests by design.
 - [Tenant fixture on the stand-in](project_tenant_fixture_on_the_standin.md) - foreign keys off, fsync costs, VACUUM INTO templates, and one provider class means one instance.
 - [A missing import binds the wrong symbol](feedback_missing_import_binds_the_wrong_symbol.md) - "not instantiable" names the interface you asked for, not the one the provider bound.
+- [Shell escaping destroys PHP namespaces](feedback_shell_escaping_destroys_php_namespaces.md) - one sed ate the backslashes in 14 files; write a PHP script instead, and commit first.
+- [where($col, null) is already whereNull](feedback_laravel_where_null_is_already_wherenull.md) - the mutation stayed green across 93 cases and the helper's stated reason was false in three files.
+- [Access guard seams](project_access_guard_seams.md) - the three T-010 safeguards, the null-actor refusal, and the transactionLevel probe with its liveness control.
+- [Access HTTP surface seams](project_access_http_surface_seams.md) - the middleware-parameter declaration, mapping a tenant by two keys, and Pest's variadic `toContain`.
+- [Defence in depth needs a discriminating input](feedback_defence_in_depth_needs_a_discriminating_input.md) - deleting the URL guard stayed green: the body-only reader already answered that input.
+- [The PIN slices](project_pin_slices.md) - the generated weak list, the one-statement lockout, and the dummy digest that keeps the hasher count at one.
