@@ -7,8 +7,10 @@ namespace Flexipos\Access\Features\AssignRole;
 use Flexipos\Access\Exceptions\AccessRefused;
 use Flexipos\Access\Support\BranchScope;
 use Flexipos\Access\Support\EmployeeLookup;
+use Flexipos\Access\Support\Escalation;
 use Flexipos\Access\Support\PermVersion;
 use Flexipos\Access\Support\RoleLookup;
+use Flexipos\Access\Support\SelfChange;
 use Flexipos\Access\Support\TenantConnection;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Support\Str;
@@ -39,21 +41,24 @@ use Illuminate\Support\Str;
  * is looked for: a check that dropped the scope would refuse the second
  * scope of a role as a duplicate of the first.
  *
- * AC-34's `self_change`, AC-36's `no_escalation` and AC-37's `last_owner`
- * are step 14's and are deliberately absent here rather than stubbed: a
- * guard written to permit is worse than one not yet written, because it
- * reads as present.
+ * **Step 14's two guards are now here** (AC-34, AC-36), each in its own
+ * class so that the six operations of this section cannot disagree about
+ * what a self-change or an escalation is. AC-37's `last_owner` is not one
+ * of this operation's: adding an owner cannot remove the last one.
  */
 final class AssignRoleHandler
 {
     public function __construct(
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
+        private readonly Escalation $escalation,
     ) {}
 
     public function handle(AssignRole $command): void
     {
         $branchId = BranchScope::requireWellFormed($command->branchId);
+
+        SelfChange::refuse($command->actorId, $command->employeeId, 'assign a role');
 
         $connection = $this->tenant->get();
 
@@ -62,6 +67,10 @@ final class AssignRoleHandler
             RoleLookup::findLive($connection, $command->roleId);
 
             BranchScope::requireAttached($connection, $command->employeeId, $branchId);
+
+            // AC-36. Inside the transaction and after the role exists, so the
+            // set of keys checked is the set this assignment will confer.
+            $this->escalation->requireRoleHeld($connection, $command->actorId, $command->roleId, $branchId);
 
             $existing = BranchScope::at(
                 $connection->table('employee_roles')

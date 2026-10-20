@@ -7,6 +7,7 @@ namespace Flexipos\Access\Features\ChangeEmployeeStatus;
 use Flexipos\Access\Exceptions\AccessRefused;
 use Flexipos\Access\Support\EmployeeLookup;
 use Flexipos\Access\Support\EmployeeStatus;
+use Flexipos\Access\Support\LastOwner;
 use Flexipos\Access\Support\PermVersion;
 use Flexipos\Access\Support\TenantConnection;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
@@ -34,10 +35,13 @@ use Flexipos\Kernel\Schema\Support\RunnerClock;
  * another writer may have moved in between, and the bump would then be
  * attached to a crossing that did not happen.
  *
- * AC-37's last-owner safeguard also refuses this operation when it would
- * leave a tenant with no acting owner. It is step 14's work and is
- * deliberately absent here rather than stubbed: a guard written to permit
- * is worse than one not yet written, because it reads as present.
+ * **AC-37's last-owner safeguard is now here, and it is asked exactly when
+ * the change ends the ability to act.** `active` to `probation` moves
+ * nobody out of the acting set, so the only acting owner may make it;
+ * `active` to `on_leave` would leave the shop with nobody who can
+ * administer it, and is refused. The condition is therefore the same
+ * boundary crossing the bump already turns on, in the leaving direction -
+ * one fact, read once, in the direction that matters.
  */
 final class ChangeEmployeeStatusHandler
 {
@@ -45,6 +49,7 @@ final class ChangeEmployeeStatusHandler
         private readonly TenantConnection $tenant,
         private readonly EmployeeStatus $statuses,
         private readonly RunnerClock $clock,
+        private readonly LastOwner $lastOwner,
     ) {}
 
     public function handle(ChangeEmployeeStatus $command): ChangeEmployeeStatusResult
@@ -70,6 +75,11 @@ final class ChangeEmployeeStatusHandler
             }
 
             $crosses = $this->statuses->isActing($from) !== $this->statuses->isActing($status);
+
+            if ($crosses && ! $this->statuses->isActing($status)) {
+                // AC-37: only the leaving direction can remove an owner.
+                $this->lastOwner->requireAnother($connection, $command->employeeId);
+            }
 
             $connection->table('employees')
                 ->where('id', $command->employeeId)

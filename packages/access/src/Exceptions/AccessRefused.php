@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace Flexipos\Access\Exceptions;
 
 use Flexipos\Access\Support\BranchScope;
+use Flexipos\Access\Support\Escalation;
+use Flexipos\Access\Support\LastOwner;
 use Flexipos\Access\Support\RoleLookup;
+use Flexipos\Access\Support\SelfChange;
 use Flexipos\Contracts\Access\PermissionDeclaration;
 use Flexipos\Contracts\Access\RefusalReason;
 use RuntimeException;
@@ -119,5 +122,46 @@ final class AccessRefused extends RuntimeException
     public static function scopeNotApplicable(string $message): self
     {
         return new self(RefusalReason::ScopeNotApplicable, $message);
+    }
+
+    /**
+     * An actor may not change their own access (AC-34, D-19).
+     *
+     * Thrown only by {@see SelfChange::refuse()}.
+     * Setting one's own PIN is deliberately not one of these (AC-47): a PIN
+     * is a credential, not a grant, and changing it alters nothing about
+     * what the holder may do.
+     */
+    public static function selfChange(string $message): self
+    {
+        return new self(RefusalReason::SelfChange, $message);
+    }
+
+    /**
+     * An actor may not hand out rights they do not hold (AC-36).
+     *
+     * Thrown only by {@see Escalation}, which is
+     * also where the one definition of "holds it at that scope" lives: an
+     * operation deciding that for itself would eventually decide it
+     * differently from the resolver, and a grant the resolver then refuses
+     * to honour is the gentler half of that mistake.
+     */
+    public static function noEscalation(string $message): self
+    {
+        return new self(RefusalReason::NoEscalation, $message);
+    }
+
+    /**
+     * The change would leave the tenant with no acting owner (AC-37).
+     *
+     * Thrown only by {@see LastOwner::requireAnother()}.
+     * Three operations can produce it - removing the owner assignment,
+     * moving the owner out of the acting set, and soft-deleting them - and
+     * they must agree about what an owner is, which is why none of them
+     * counts for itself.
+     */
+    public static function lastOwner(string $message): self
+    {
+        return new self(RefusalReason::LastOwner, $message);
     }
 }

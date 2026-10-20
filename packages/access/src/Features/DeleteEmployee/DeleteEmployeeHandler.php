@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Access\Features\DeleteEmployee;
 
 use Flexipos\Access\Support\EmployeeLookup;
+use Flexipos\Access\Support\LastOwner;
 use Flexipos\Access\Support\PermVersion;
 use Flexipos\Access\Support\TenantConnection;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
@@ -30,14 +31,19 @@ use Flexipos\Kernel\Schema\Support\RunnerClock;
  * survives, the unique index covers it, and `CreateEmployee` refuses the
  * code for good.
  *
- * AC-37's last-owner safeguard refuses this operation for the only acting
- * owner; it is step 14's and is deliberately absent rather than stubbed.
+ * **AC-37's last-owner safeguard is now here and is unconditional**,
+ * unlike the other two operations that carry it: a soft delete ends the
+ * employee's ability to act whatever their status and whatever they hold,
+ * so there is no shape of it that needs no check. {@see LastOwner} still
+ * decides what an owner is, and returns without refusing when this
+ * employee is not one.
  */
 final class DeleteEmployeeHandler
 {
     public function __construct(
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
+        private readonly LastOwner $lastOwner,
     ) {}
 
     public function handle(DeleteEmployee $command): void
@@ -49,6 +55,8 @@ final class DeleteEmployeeHandler
             // `validation`, not a silent success, so a caller cannot read
             // "done" for an operation that did nothing.
             EmployeeLookup::findLive($connection, $command->employeeId);
+
+            $this->lastOwner->requireAnother($connection, $command->employeeId);
 
             $now = $this->clock->timestamp();
 

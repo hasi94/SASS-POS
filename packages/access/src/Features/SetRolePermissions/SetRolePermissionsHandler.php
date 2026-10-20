@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Access\Features\SetRolePermissions;
 
 use Flexipos\Access\Exceptions\AccessRefused;
+use Flexipos\Access\Support\Escalation;
 use Flexipos\Access\Support\PermVersion;
 use Flexipos\Access\Support\RoleLookup;
 use Flexipos\Access\Support\TenantConnection;
@@ -34,10 +35,20 @@ use Flexipos\Access\Support\TenantConnection;
  * unchanged write must not. Detecting "the set is identical" would be a
  * second opinion about what counts as a change, and the cost of being wrong
  * about it is a stale token rather than a spare one.
+ *
+ * **Step 14 adds AC-36's third clause**: an actor may only add a key they
+ * hold company-wide. It is checked for the keys being **added** and not
+ * for the whole requested set, because a request that merely re-states a
+ * key the role already holds grants nobody anything new - and checking the
+ * whole set would stop an actor removing a key from a role while leaving
+ * in place one they do not themselves hold.
  */
 final class SetRolePermissionsHandler
 {
-    public function __construct(private readonly TenantConnection $tenant) {}
+    public function __construct(
+        private readonly TenantConnection $tenant,
+        private readonly Escalation $escalation,
+    ) {}
 
     public function handle(SetRolePermissions $command): SetRolePermissionsResult
     {
@@ -69,6 +80,21 @@ final class SetRolePermissionsHandler
                         'These permission keys are not registered: ['.implode(', ', $unregistered).'].'
                     );
                 }
+            }
+
+            // AC-36: adding a key to a role requires the actor to hold that
+            // key company-wide. Only the keys being ADDED are checked -
+            // taking one away raises nobody - and the set is computed
+            // against what the role holds right now, inside the
+            // transaction, rather than against what a caller believed.
+            $added = array_values(array_diff($keys, $connection->table('role_permissions')
+                ->where('role_id', $command->roleId)
+                ->pluck('permission_key')
+                ->map(static fn ($key): string => (string) $key)
+                ->all()));
+
+            foreach ($added as $key) {
+                $this->escalation->requireHeld($command->actorId, $key, null);
             }
 
             // Replace, not merge (AC-20). The delete and the inserts are one

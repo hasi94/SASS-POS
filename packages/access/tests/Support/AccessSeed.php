@@ -131,6 +131,41 @@ final class AccessSeed
     }
 
     /**
+     * An employee who already holds these keys, through a role of their own.
+     *
+     * **What step 14's escalation rule made necessary.** AC-36 refuses a
+     * grant by an actor who does not hold the key at the scope concerned,
+     * so from step 14 onward a fixture that calls a granting handler needs
+     * an actor with rights, not merely an id. Seeding that actor through
+     * the handlers would be circular - the first assignment would need an
+     * actor of its own - so it is written directly, like every other row
+     * this class writes.
+     *
+     * `$system` makes the role a platform role, which is what AC-37's
+     * owner-counting reads (`roles.is_system`, never the key).
+     *
+     * @param  list<string>  $permissionKeys
+     * @return string the employee id
+     */
+    public static function actorHolding(
+        string $code,
+        array $permissionKeys,
+        ?string $branchId = null,
+        bool $system = false
+    ): string {
+        $employeeId = self::employee($code);
+        $roleId = self::role("role_for_{$code}", $permissionKeys, ['is_system' => $system]);
+
+        if ($branchId !== null) {
+            self::attach($employeeId, $branchId);
+        }
+
+        self::assign($employeeId, $roleId, $branchId);
+
+        return $employeeId;
+    }
+
+    /**
      * An `employee_roles` row at a scope.
      */
     public static function assign(string $employeeId, string $roleId, ?string $branchId = null): void

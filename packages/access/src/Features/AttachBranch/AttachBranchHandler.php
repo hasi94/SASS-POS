@@ -8,6 +8,7 @@ use Flexipos\Access\Exceptions\AccessRefused;
 use Flexipos\Access\Support\BranchScope;
 use Flexipos\Access\Support\EmployeeLookup;
 use Flexipos\Access\Support\PermVersion;
+use Flexipos\Access\Support\SelfChange;
 use Flexipos\Access\Support\TenantConnection;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 
@@ -30,7 +31,12 @@ use Flexipos\Kernel\Schema\Support\RunnerClock;
  * transaction would leave a window with no default at all. Both statements
  * are inside the one transaction here, in that order.
  *
- * AC-34's `self_change` is step 14's and is absent rather than stubbed.
+ * **AC-34 applies and AC-36 does not.** An attachment confers no
+ * permission of its own: it widens the set of scopes at which grants the
+ * employee already holds can be used, and each of those grants was checked
+ * against the actor when it was made. What it would let somebody do is
+ * attach themselves to a branch and reach it with a role they hold at the
+ * null scope - which is why the self-change rule is here.
  */
 final class AttachBranchHandler
 {
@@ -42,6 +48,8 @@ final class AttachBranchHandler
     public function handle(AttachBranch $command): void
     {
         $branchId = BranchScope::requireBranch($command->branchId);
+
+        SelfChange::refuse($command->actorId, $command->employeeId, 'attach a branch');
 
         $connection = $this->tenant->get();
 

@@ -137,6 +137,66 @@ final class DatabasePermissionResolver implements PermissionResolver
     }
 
     /**
+     * Does this employee hold the key **at every branch at once**?
+     *
+     * The question AC-36 asks when a grant is being made at the null scope,
+     * and the reason it cannot be asked through {@see self::decide()}: for
+     * a branch-scoped key, `decide($id, $key, null)` refuses
+     * `branch_required` before it reads a contribution, because picking a
+     * branch on the caller's behalf is exactly what it must not do. "May
+     * this person hand the key out for every branch?" is a different
+     * question from "may this person use it here?", and the resolver has to
+     * be able to answer both.
+     *
+     * **It is not on the published contract and must not be.** No caller
+     * outside this package has any business asking it: the answer is not
+     * an authorization decision, it is an input to one. What it reuses is
+     * the part that must not fork - the two contribution readers and
+     * {@see self::covers()} - evaluated as the non-branch-scoped case,
+     * which is precisely "an allowing contribution with a null scope, and
+     * no null-scope denial".
+     */
+    public function holdsEverywhere(string $employeeId, string $permissionKey): bool
+    {
+        $connection = $this->tenant->get();
+
+        $employee = $connection->table('employees')
+            ->where('id', $employeeId)
+            ->whereNull('deleted_at')
+            ->first();
+
+        if ($employee === null) {
+            return false;
+        }
+
+        /** @var object{status: string} $employee */
+        if (! $this->statuses->isActing((string) $employee->status)) {
+            return false;
+        }
+
+        $personal = $this->personalScopes($connection, $employeeId, $permissionKey);
+
+        foreach ($personal['deny'] as $scope) {
+            if ($this->covers($scope, false, null)) {
+                return false;
+            }
+        }
+
+        $allowing = array_merge(
+            $personal['allow'],
+            $this->roleScopes($connection, $employeeId, $permissionKey),
+        );
+
+        foreach ($allowing as $scope) {
+            if ($this->covers($scope, false, null)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Does a contribution at this scope cover the question being asked?
      *
      * D-8 (b): a scope covers a branch when it is null ("all branches") or

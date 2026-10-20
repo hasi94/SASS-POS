@@ -51,12 +51,35 @@ afterAll(function () {
     AccessTenantFixture::deleteRoot();
 });
 
-function setEmployeePermission(string $employeeId, string $key, bool $allowed, ?string $branchId = null): void
+/**
+ * The privileged actor `personalPermissionWorld()` seeds.
+ *
+ * AC-36 refuses a per-person **allow** by an actor who does not hold the
+ * key, so from step 14 onward every allow below needs one; the cases that
+ * are about the actor pass their own.
+ */
+function personalPermissionActor(): string
 {
+    return (string) AccessSeed::connection()->table('employees')->where('code', 'actor')->value('id');
+}
+
+function setEmployeePermission(
+    string $employeeId,
+    string $key,
+    bool $allowed,
+    ?string $branchId = null,
+    ?string $actorId = null
+): void {
     /** @var SetEmployeePermissionHandler $handler */
     $handler = app(SetEmployeePermissionHandler::class);
 
-    $handler->handle(new SetEmployeePermission($employeeId, $key, $allowed, $branchId));
+    $handler->handle(new SetEmployeePermission(
+        $employeeId,
+        $key,
+        $allowed,
+        $branchId,
+        $actorId ?? personalPermissionActor()
+    ));
 }
 
 /**
@@ -86,6 +109,7 @@ function personalPermissionWorld(): array
     ];
 
     $ids['employee'] = AccessSeed::employee('subject');
+    $ids['actor'] = AccessSeed::actorHolding('actor', [$ids['scoped'], $ids['wide']]);
 
     AccessSeed::attach($ids['employee'], $ids['branch']);
 

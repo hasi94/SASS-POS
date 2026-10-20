@@ -52,12 +52,26 @@ afterAll(function () {
     AccessTenantFixture::deleteRoot();
 });
 
+/**
+ * The privileged actor `assignRoleWorld()` seeds.
+ *
+ * Looked up by code rather than threaded through every call, so that the
+ * cases below read as what they are about. Step 14's escalation rule
+ * (AC-36) refuses an actor who does not hold the role's keys, which means
+ * every call here needs a real one - and the cases that are ABOUT the
+ * actor pass their own.
+ */
+function assignRoleActor(): string
+{
+    return (string) AccessSeed::connection()->table('employees')->where('code', 'actor')->value('id');
+}
+
 function assignRole(string $employeeId, string $roleId, ?string $branchId = null, ?string $actorId = null): void
 {
     /** @var AssignRoleHandler $handler */
     $handler = app(AssignRoleHandler::class);
 
-    $handler->handle(new AssignRole($employeeId, $roleId, $branchId, $actorId));
+    $handler->handle(new AssignRole($employeeId, $roleId, $branchId, $actorId ?? assignRoleActor()));
 }
 
 /**
@@ -88,7 +102,11 @@ function assignRoleWorld(): array
     ];
 
     $ids['employee'] = AccessSeed::employee('subject');
-    $ids['actor'] = AccessSeed::employee('actor');
+
+    // The actor holds `fixture.a` company-wide, which is what AC-36 asks of
+    // anyone assigning `shift_lead`: the escalation rule is step 14's and
+    // this fixture is what makes the ordinary cases below legal.
+    $ids['actor'] = AccessSeed::actorHolding('actor', ['fixture.a']);
 
     AccessSeed::attach($ids['employee'], $ids['branch']);
 
@@ -205,6 +223,11 @@ it('assigns a system role, because AC-21 protects rename, re-permission and dele
 
     AccessSeed::permission('fixture.owner_only');
     $ownerRoleId = AccessSeed::role(SystemRole::OWNER_KEY, ['fixture.owner_only'], ['is_system' => true]);
+
+    // AC-36 applies to a system role like any other: the actor must hold
+    // what they are handing out. This grant is what makes the case about
+    // AC-21 rather than about escalation.
+    AccessSeed::personal($ids['actor'], 'fixture.owner_only', true);
 
     assignRole($ids['employee'], $ownerRoleId);
 

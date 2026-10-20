@@ -7,8 +7,12 @@ namespace Flexipos\Access\Features\RemoveRoleAssignment;
 use Flexipos\Access\Exceptions\AccessRefused;
 use Flexipos\Access\Support\BranchScope;
 use Flexipos\Access\Support\EmployeeLookup;
+use Flexipos\Access\Support\LastOwner;
 use Flexipos\Access\Support\PermVersion;
+use Flexipos\Access\Support\RoleLookup;
+use Flexipos\Access\Support\SelfChange;
 use Flexipos\Access\Support\TenantConnection;
+use Illuminate\Database\Connection;
 
 /**
  * Take one scoped role assignment away (AC-33, AC-52).
@@ -30,21 +34,40 @@ use Flexipos\Access\Support\TenantConnection;
  * this file's fixture gives the employee the same role at two scopes and
  * asserts the other one survived.
  *
- * AC-34's `self_change` and AC-37's `last_owner` both refuse this operation
- * and are step 14's; they are absent rather than stubbed.
+ * **AC-37 is asked only when the grant being removed is an owner's**, and
+ * the condition is the role's `is_system` flag at the null scope. Removing
+ * a non-owner role from the last owner is not the thing AC-37 protects,
+ * and a guard that refused it would block an ordinary tidy-up with a
+ * refusal nobody could act on. What an acting owner *is* stays in
+ * {@see LastOwner}; when to ask is the only part this handler knows.
+ *
+ * **The guard runs before the delete, inside the transaction.** Asking
+ * afterwards - "is there still an owner?" - would read the state this
+ * statement created and would be correct too, but it would have to undo
+ * the delete to refuse, and an operation that writes before deciding is
+ * one rollback away from being wrong.
  */
 final class RemoveRoleAssignmentHandler
 {
-    public function __construct(private readonly TenantConnection $tenant) {}
+    public function __construct(
+        private readonly TenantConnection $tenant,
+        private readonly LastOwner $lastOwner,
+    ) {}
 
     public function handle(RemoveRoleAssignment $command): void
     {
         $branchId = BranchScope::requireWellFormed($command->branchId);
 
+        SelfChange::refuse($command->actorId, $command->employeeId, 'remove a role');
+
         $connection = $this->tenant->get();
 
         $connection->transaction(function () use ($connection, $command, $branchId): void {
             EmployeeLookup::findLive($connection, $command->employeeId);
+
+            if ($branchId === null && $this->removesSystemRole($connection, $command->roleId)) {
+                $this->lastOwner->requireAnother($connection, $command->employeeId);
+            }
 
             $deleted = BranchScope::at(
                 $connection->table('employee_roles')
@@ -61,5 +84,22 @@ final class RemoveRoleAssignmentHandler
 
             PermVersion::bump($connection, [$command->employeeId]);
         });
+    }
+
+    /**
+     * Is the role being removed one the platform owns?
+     *
+     * The flag on the row, never the key `owner` - the rule
+     * {@see RoleLookup} states and the reason it states it. A role that no
+     * longer exists is not a system role, and the removal then meets
+     * AC-33's absent-row refusal a few lines later, which is the right
+     * refusal for it.
+     */
+    private function removesSystemRole(Connection $connection, string $roleId): bool
+    {
+        return $connection->table('roles')
+            ->where('id', $roleId)
+            ->where('is_system', true)
+            ->exists();
     }
 }

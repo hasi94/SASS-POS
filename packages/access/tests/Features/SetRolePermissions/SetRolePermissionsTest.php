@@ -51,14 +51,26 @@ afterAll(function () {
 });
 
 /**
+ * The privileged actor `rolePermissionWorld()` seeds.
+ *
+ * Added by step 14: AC-36's third clause refuses an actor who does not
+ * hold, company-wide, a key they are adding to a role, so these cases need
+ * one. Nothing else about this file changed.
+ */
+function rolePermissionActor(): string
+{
+    return (string) AccessSeed::connection()->table('employees')->where('code', 'actor')->value('id');
+}
+
+/**
  * @param  list<string>  $keys
  */
-function setRolePermissions(string $roleId, array $keys): int
+function setRolePermissions(string $roleId, array $keys, ?string $actorId = null): int
 {
     /** @var SetRolePermissionsHandler $handler */
     $handler = app(SetRolePermissionsHandler::class);
 
-    return $handler->handle(new SetRolePermissions($roleId, $keys))->bumped;
+    return $handler->handle(new SetRolePermissions($roleId, $keys, $actorId ?? rolePermissionActor()))->bumped;
 }
 
 /**
@@ -85,6 +97,7 @@ function rolePermissionWorld(): array
     AccessSeed::assign($ids['holderBranch'], $ids['role'], $ids['branch']);
 
     $ids['stranger'] = AccessSeed::employee('stranger');
+    $ids['actor'] = AccessSeed::actorHolding('actor', ['fixture.a', 'fixture.b', 'fixture.c']);
 
     return $ids;
 }

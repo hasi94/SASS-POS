@@ -8,6 +8,7 @@ use Flexipos\Access\Exceptions\AccessRefused;
 use Flexipos\Access\Support\BranchScope;
 use Flexipos\Access\Support\EmployeeLookup;
 use Flexipos\Access\Support\PermVersion;
+use Flexipos\Access\Support\SelfChange;
 use Flexipos\Access\Support\TenantConnection;
 
 /**
@@ -30,7 +31,12 @@ use Flexipos\Access\Support\TenantConnection;
  * so an unregistered key has no row to clear and meets the same refusal the
  * absent-row case does, with the same remedy.
  *
- * AC-34's `self_change` is step 14's and is absent rather than stubbed.
+ * **AC-34 applies here and AC-36 does not.** Clearing takes a row away;
+ * nobody ends up holding anything the actor does not, so there is nothing
+ * to escalate. Clearing a **deny** does let a role's grant through again,
+ * which looks like a grant - but the right it restores is one the role
+ * already conferred, and the actor who may assign that role is the one
+ * AC-36 checked when it was assigned.
  */
 final class ClearEmployeePermissionHandler
 {
@@ -40,6 +46,8 @@ final class ClearEmployeePermissionHandler
     {
         $key = trim($command->permissionKey);
         $branchId = BranchScope::requireWellFormed($command->branchId);
+
+        SelfChange::refuse($command->actorId, $command->employeeId, 'clear a permission');
 
         $connection = $this->tenant->get();
 

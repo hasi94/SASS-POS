@@ -8,6 +8,7 @@ use Flexipos\Access\Exceptions\AccessRefused;
 use Flexipos\Access\Support\BranchScope;
 use Flexipos\Access\Support\EmployeeLookup;
 use Flexipos\Access\Support\PermVersion;
+use Flexipos\Access\Support\SelfChange;
 use Flexipos\Access\Support\TenantConnection;
 
 /**
@@ -38,6 +39,12 @@ final class DetachBranchHandler
     public function handle(DetachBranch $command): void
     {
         $branchId = BranchScope::requireBranch($command->branchId);
+
+        // AC-34. Detaching is the direction that takes access away, and the
+        // rule still applies: it is the four-eyes half of AC-34 rather than
+        // the privilege half, and an administrator detaching their own last
+        // branch is one of the lock-outs it exists to prevent.
+        SelfChange::refuse($command->actorId, $command->employeeId, 'detach a branch');
 
         $connection = $this->tenant->get();
 

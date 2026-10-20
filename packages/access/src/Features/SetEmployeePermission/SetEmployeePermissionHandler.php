@@ -7,7 +7,9 @@ namespace Flexipos\Access\Features\SetEmployeePermission;
 use Flexipos\Access\Exceptions\AccessRefused;
 use Flexipos\Access\Support\BranchScope;
 use Flexipos\Access\Support\EmployeeLookup;
+use Flexipos\Access\Support\Escalation;
 use Flexipos\Access\Support\PermVersion;
+use Flexipos\Access\Support\SelfChange;
 use Flexipos\Access\Support\TenantConnection;
 use Illuminate\Support\Str;
 
@@ -35,17 +37,28 @@ use Illuminate\Support\Str;
  * or not a row was there - an `update`-or-`insert` branch is where the two
  * halves come to disagree about what they write.
  *
- * AC-34's `self_change` and AC-36's escalation rule for a per-person
- * **allow** are step 14's and are absent rather than stubbed.
+ * **Step 14's two guards are here, and only one of them is conditional.**
+ * The self-change rule (AC-34) applies to an allow and to a deny alike -
+ * an administrator denying themselves a key is still changing their own
+ * access, and still the person who should not be doing it unwitnessed. The
+ * escalation rule (AC-36) applies to an **allow** only: taking a right
+ * away raises nobody, and requiring the actor to hold a key before they
+ * could deny it would stop them revoking a permission they were never
+ * given.
  */
 final class SetEmployeePermissionHandler
 {
-    public function __construct(private readonly TenantConnection $tenant) {}
+    public function __construct(
+        private readonly TenantConnection $tenant,
+        private readonly Escalation $escalation,
+    ) {}
 
     public function handle(SetEmployeePermission $command): void
     {
         $key = trim($command->permissionKey);
         $branchId = BranchScope::requireWellFormed($command->branchId);
+
+        SelfChange::refuse($command->actorId, $command->employeeId, 'set a permission');
 
         $connection = $this->tenant->get();
 
@@ -66,6 +79,10 @@ final class SetEmployeePermissionHandler
             }
 
             BranchScope::requireAttached($connection, $command->employeeId, $branchId);
+
+            if ($command->allowed) {
+                $this->escalation->requireHeld($command->actorId, $key, $branchId);
+            }
 
             BranchScope::at(
                 $connection->table('employee_permissions')
