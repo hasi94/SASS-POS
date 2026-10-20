@@ -6,8 +6,11 @@ namespace Flexipos\Access;
 
 use Flexipos\Access\Registry\AccessPermissions;
 use Flexipos\Access\Registry\PermissionRegistry;
+use Flexipos\Access\Resolver\DatabasePermissionResolver;
+use Flexipos\Access\Support\EmployeeStatus;
 use Flexipos\Contracts\Access\DeclaresPermissions;
 use Flexipos\Contracts\Access\PermissionDeclaration;
+use Flexipos\Contracts\Access\PermissionResolver;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -53,6 +56,18 @@ final class AccessServiceProvider extends ServiceProvider implements DeclaresPer
     public function register(): void
     {
         $this->app->singleton(PermissionRegistry::class);
+
+        // The acting set, as one object the whole process shares (D-15). It
+        // is the shipped policy and there is no channel through which an
+        // operator could widen it; what a test can do is bind a different
+        // object, which is a change only an author under review can make.
+        $this->app->singleton(EmployeeStatus::class, static fn (): EmployeeStatus => EmployeeStatus::shipped());
+
+        // Step 9's binding, and it is the first one that answers "may this
+        // person do it". It is bound to the real resolver on the day the
+        // real resolver exists and refuses correctly - never to a stub that
+        // allows, not even for a minute (the plan's red-first rule).
+        $this->app->singleton(PermissionResolver::class, DatabasePermissionResolver::class);
     }
 
     /**

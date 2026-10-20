@@ -1,0 +1,197 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Flexipos\Access\Tests\Support;
+
+use Illuminate\Database\Connection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+
+/**
+ * Rows in a fixture tenant's access tables, written directly.
+ *
+ * **Direct inserts, deliberately, and not the task's own handlers.** A
+ * resolver test seeded through `AssignRole` would be answering two questions
+ * at once, and the day the assignment slice refuses something the resolver
+ * fixture needs - a branch nobody is attached to, a role at a scope the
+ * escalation guard dislikes - the resolver's cases would start failing for a
+ * reason that has nothing to do with the resolver. The database is the
+ * resolver's input; this class writes that input.
+ *
+ * **It writes nothing the schema would not accept.** Foreign keys are
+ * enforced on the fixture connection ({@see AccessTenantFixture::enter()}),
+ * so a seed naming a permission that was never declared, or an employee that
+ * does not exist, fails here rather than producing a row production could
+ * not hold. That is the property that makes these fixtures evidence.
+ *
+ * The generated `branch_id_key` sentinel columns are never written: they are
+ * stored generated columns and the database computes them.
+ */
+final class AccessSeed
+{
+    /**
+     * The tenant connection, by its configured name.
+     */
+    public static function connection(): Connection
+    {
+        /** @var Connection $connection */
+        $connection = DB::connection(AccessTenantFixture::connectionName());
+
+        return $connection;
+    }
+
+    /**
+     * A fresh opaque branch id.
+     *
+     * There is no `branches` table (D-30), so a branch is a well-formed
+     * 26-character ULID and nothing else - which is exactly what a grant
+     * stores in production too.
+     */
+    public static function branch(): string
+    {
+        return (string) Str::ulid();
+    }
+
+    /**
+     * A row in `permissions`, as the registry sync would have written it.
+     *
+     * @return string the key
+     */
+    public static function permission(string $key, bool $branchScoped = false): string
+    {
+        self::connection()->table('permissions')->insert([
+            'key' => $key,
+            'module' => 'fixture',
+            'group' => 'fixture',
+            'description' => 'A fixture permission.',
+            'is_branch_scoped' => $branchScoped,
+        ]);
+
+        return $key;
+    }
+
+    /**
+     * An employee.
+     *
+     * @param  array<string, mixed>  $overrides
+     * @return string the id
+     */
+    public static function employee(string $code, array $overrides = []): string
+    {
+        $id = (string) Str::ulid();
+        $now = now()->format('Y-m-d H:i:s.v');
+
+        self::connection()->table('employees')->insert(array_merge([
+            'id' => $id,
+            'code' => $code,
+            'user_id' => null,
+            'first_name' => $code,
+            'last_name' => null,
+            'display_name' => $code,
+            'status' => 'active',
+            'perm_version' => 1,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ], $overrides));
+
+        return $id;
+    }
+
+    /**
+     * A role holding these permission keys.
+     *
+     * @param  list<string>  $permissionKeys
+     * @param  array<string, mixed>  $overrides
+     * @return string the id
+     */
+    public static function role(string $key, array $permissionKeys = [], array $overrides = []): string
+    {
+        $id = (string) Str::ulid();
+        $now = now()->format('Y-m-d H:i:s.v');
+
+        self::connection()->table('roles')->insert(array_merge([
+            'id' => $id,
+            'key' => $key,
+            'name' => $key,
+            'description' => null,
+            'is_system' => false,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ], $overrides));
+
+        foreach ($permissionKeys as $permissionKey) {
+            self::connection()->table('role_permissions')->insert([
+                'role_id' => $id,
+                'permission_key' => $permissionKey,
+            ]);
+        }
+
+        return $id;
+    }
+
+    /**
+     * An `employee_roles` row at a scope.
+     */
+    public static function assign(string $employeeId, string $roleId, ?string $branchId = null): void
+    {
+        self::connection()->table('employee_roles')->insert([
+            'id' => (string) Str::ulid(),
+            'employee_id' => $employeeId,
+            'role_id' => $roleId,
+            'branch_id' => $branchId,
+            'granted_by' => null,
+            'granted_at' => now()->format('Y-m-d H:i:s.v'),
+        ]);
+    }
+
+    /**
+     * An `employee_permissions` row: a per-person allow or deny at a scope.
+     */
+    public static function personal(string $employeeId, string $permissionKey, bool $allowed, ?string $branchId = null): void
+    {
+        self::connection()->table('employee_permissions')->insert([
+            'id' => (string) Str::ulid(),
+            'employee_id' => $employeeId,
+            'permission_key' => $permissionKey,
+            'branch_id' => $branchId,
+            'allowed' => $allowed,
+        ]);
+    }
+
+    /**
+     * An `employee_branches` attachment.
+     */
+    public static function attach(string $employeeId, string $branchId, bool $isDefault = false): void
+    {
+        $now = now()->format('Y-m-d H:i:s.v');
+
+        self::connection()->table('employee_branches')->insert([
+            'employee_id' => $employeeId,
+            'branch_id' => $branchId,
+            'is_default' => $isDefault,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+    }
+
+    /**
+     * One employee's stored `perm_version`.
+     */
+    public static function permVersion(string $employeeId): int
+    {
+        return (int) self::connection()->table('employees')->where('id', $employeeId)->value('perm_version');
+    }
+
+    /**
+     * One employee's row, as an array, or null.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function employeeRow(string $employeeId): ?array
+    {
+        $row = self::connection()->table('employees')->where('id', $employeeId)->first();
+
+        return $row === null ? null : (array) $row;
+    }
+}
