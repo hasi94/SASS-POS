@@ -36,6 +36,12 @@ as well as without. A case needing two providers that disagree needs two
 provider *classes*; the first draft passed for the wrong reason because the
 container held one.
 
+**`Tenancy::enter()` refuses a second tenant while one is resolved**
+(`TenantAlreadyResolved`), so a case that needs two - the cross-tenant
+isolation pair - must `tenancy()->leave()` between them. Put that in one named
+fixture method rather than making `enter()` tolerant: the refusal is T-003's
+own criterion.
+
 **How to apply:** when a package test needs a real tenant database, build on
 the kernel's `tenancy-fixture.php`, add a per-tenant template and the two
 pragmas, and never measure a timing on this machine without listing the other

@@ -94,6 +94,13 @@ otherwise.
   `git clone --local` from `D:` into a `C:` temp directory fails with `Improper link` —
   `--no-hardlinks` is required for any cross-drive clone on this machine.
 
+- **Pint rewrites a fully-qualified class name written inside a docblock** (`{@see
+  \Flexipos\X\Y}`) into a `use` statement plus a short `{@see Y}` - the
+  `fully_qualified_strict_types` fixer reads docblocks, not just code. Four files failed
+  `composer lint` for nothing but that. Write the short name and import it, even when the
+  only reference is a comment. PHPStan has a matching style rule: `$x?->value ?? '-'` is
+  reported as `nullsafe.neverNull` - with `??` on the right, use `->`.
+
 **Why:** each was found by running the tool, not by reading its docs; four of them changed
 a decision that had been written down differently.
 

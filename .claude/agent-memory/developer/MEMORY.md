@@ -49,3 +49,4 @@
 - [Reproduce the defect in its exact shape](feedback_reproduce_the_defect_in_its_exact_shape.md) — a comment plant the old regex also missed read as "the fix changed nothing".
 - [Tenant tree top version is pinned everywhere](project_tenant_tree_top_version_is_pinned_everywhere.md) - one new tenant migration edits ~25 sites; a contract step in the shipped tree reddens 24 planner tests by design.
 - [Tenant fixture on the stand-in](project_tenant_fixture_on_the_standin.md) - foreign keys off, fsync costs, VACUUM INTO templates, and one provider class means one instance.
+- [A missing import binds the wrong symbol](feedback_missing_import_binds_the_wrong_symbol.md) - "not instantiable" names the interface you asked for, not the one the provider bound.
