@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flexipos\Access\Exceptions;
 
+use Flexipos\Access\Support\BranchScope;
 use Flexipos\Access\Support\RoleLookup;
 use Flexipos\Contracts\Access\PermissionDeclaration;
 use Flexipos\Contracts\Access\RefusalReason;
@@ -75,5 +76,48 @@ final class AccessRefused extends RuntimeException
     public static function roleInUse(string $message): self
     {
         return new self(RefusalReason::RoleInUse, $message);
+    }
+
+    /**
+     * A grant named a branch the employee is not attached to (D-11, AC-31).
+     *
+     * Deliberately not `validation`: the request is well formed and the
+     * remedy is a different operation - attach the branch (AC-35) - rather
+     * than a corrected field. Thrown only by
+     * {@see BranchScope::requireAttached()}, so the
+     * four operations that take a scope cannot disagree about what
+     * attachment means.
+     */
+    public static function notAttached(string $message): self
+    {
+        return new self(RefusalReason::NotAttached, $message);
+    }
+
+    /**
+     * A branch may not be detached while scoped grants for it remain
+     * (D-11, AC-35).
+     *
+     * The other direction of the same rule as {@see self::notAttached()}:
+     * together they keep "every scoped grant names a branch the employee is
+     * attached to" true at all times, which is what lets a token's
+     * `branch_ids` be read as the complete list of scopes that can matter.
+     */
+    public static function hasScopedGrants(string $message): self
+    {
+        return new self(RefusalReason::HasScopedGrants, $message);
+    }
+
+    /**
+     * A per-person row for a non-branch-scoped key named a branch
+     * (D-8 (e), AC-32).
+     *
+     * Distinct from `not_attached`, and the difference is which half of the
+     * request is wrong: here the key can only ever be held company-wide, so
+     * attaching the branch would not help. A caller told `validation` would
+     * go looking at the key's spelling.
+     */
+    public static function scopeNotApplicable(string $message): self
+    {
+        return new self(RefusalReason::ScopeNotApplicable, $message);
     }
 }
