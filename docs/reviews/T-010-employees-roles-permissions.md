@@ -95,3 +95,60 @@ One Critical item, an escalation bypass on AC-36 in `ClearEmployeePermission`. T
 - S-6 → `dev`, fix now: AC-4 requires identifier columns through the single helper, so this is a criterion miss, not style. No tenant database exists, so editing an unshipped migration costs nothing.
 - S-1, S-3, S-4 → `dev`, fix now (a docblock sentence, one clause, one fail-closed branch).
 - S-2, S-5 → filed. S-5 is already FP-297.
+
+---
+
+# Code Review: T-010, round 2 (changed items only, `38d3ba9`)
+
+Round 2, 2026-10-21, `reviewer`, read-only, from reading the diff and the handlers it touches.
+
+## Verdict: APPROVE
+
+Every round-1 item fixed in `38d3ba9` is closed: R-1, the D-38 reactivation check, W-1, S-1, S-3, S-4 and S-6. No new Critical item.
+
+## Critical (must fix)
+
+None.
+
+## Warnings (should fix)
+
+- W-6 `packages/access/src/Features/ClearEmployeePermission/ClearEmployeePermissionHandler.php:73-86`: **a gap between judging a row and deleting it.**
+  - `value('allowed')` is a plain consistent read, while `delete()` removes whatever row is current when it runs.
+  - The race: an actor lacking K clears an *allow* of K and passes. Another administrator then swaps that allow for a deny and commits. The first actor's delete removes the *deny* without the D-37 check.
+  - It needs two administrators racing, and the result is the state before the deny, not a new grant.
+  - Fix: delete only the row that was judged (`->where('allowed', (bool) $allowed)`), so a flipped row deletes nothing and gets the existing `validation` refusal. The alternative is `lockForUpdate()` on the read.
+
+## Suggestions (optional)
+
+- S-7 `packages/access/src/Support/Escalation.php` (`requireEmployeeHeld`): stricter than needed, and safely so.
+  - A non-branch-scoped key held through a role assigned at branch B confers nothing (D-8 (c)), but it is still checked as `decide($actor, K, B)`.
+  - So a reactivation that would restore nothing can be refused. The docblock accepts "one too many" as the safe failure.
+  - `qa` independently noted the same strictness for an allow overridden by a personal deny.
+- S-8: S-6 changed an existing migration's checksum. That is fine while T-010 is unmerged and undeployed, but a local database migrated at the old checksum needs a fresh tenant rebuild. Say so in the release notes.
+
+## Done well
+
+- **R-1 is closed, and there is no other route that lifts a deny.**
+  - Clearing a deny asks the same `requireHeld` question as replacing a deny with an allow.
+  - Denies exist only in `employee_permissions`, so removing a role, deleting a role or setting a role's permissions cannot lift one.
+  - `DetachBranch` is refused while any scoped row, deny included, names the branch.
+  - A deny replaced at another scope leaves the original deny in place.
+  - The sync never deletes.
+  - Nothing hard-deletes an employee.
+  - Reactivation was the last route that restores rights, and D-38 now covers it.
+- **`requireEmployeeHeld()`** reads through `contributionsFor()`, so soft-deleted roles are excluded as the resolver excludes them. It also:
+  - checks every allowing contribution at its own scope;
+  - maps the all-branches marker to the resolver's `holdsEverywhere()` arm;
+  - is deterministic;
+  - refuses a null actor even for an employee with no grants (D-36, amended AC-27);
+  - runs only on the entering crossing, before any write.
+- **The `VerifyPin` lock** is the first locking statement in its transaction. An unknown code takes only a gap lock, and the transaction never inserts into `employees`, so there is no deadlock path.
+- **The smaller items:**
+  - S-1's docblock condition;
+  - S-3's owner lookup by system flag and key, with `ownerNotSystem` reported;
+  - S-4 fails closed on malformed claims, and a token with no `employee` claim is still refused by every guarded route;
+  - S-6's sweep over both trees.
+
+## Lead's routing of round 2
+
+W-6 → `dev`, fixed now (one clause). S-7 and S-8 are recorded here; S-8 goes into the release notes.

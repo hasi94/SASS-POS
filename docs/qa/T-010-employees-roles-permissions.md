@@ -1,8 +1,45 @@
 # QA Report: T-010 Employees, roles and branch-scoped permissions
 
+**Run 3 (2026-10-21, tip `38d3ba9`): PASS for what could be verified; NOT VERIFIED on the seven engine rows; AC-10 not done and recorded. 0 open defects. Gate exit 0, 1541 passed, 11 skipped, 9912 assertions, ratio 2.21. See "Run 3" below; it supersedes Run 2 and Run 1 where they differ.**
+
 **Run 2 (2026-10-21, tip `41e1c48`): PASS for what could be verified; NOT VERIFIED on the seven engine rows; AC-10 not done and recorded. 0 open defects. Gate exit 0, 1528 passed, 11 skipped, 9846 assertions. See "Run 2" below; the Run 1 text that follows is kept as written, and where it says FAIL or names BUG-1 to BUG-3 as open, Run 2 supersedes it.**
 
 Branch `ai/T-010-employees-roles-permissions`, spec `docs/specs/T-010-employees-roles-permissions.md` (77 criteria, counted from the spec file: AC-1 to AC-74 plus AC-12a, AC-12b and AC-52a), plan `docs/plans/T-010-employees-roles-permissions.md`, decisions D-1 to D-36. Run 1, 2026-10-21, against the branch tip `3548e4e`. Diff base for the (diff) criteria is the T-009 tip `60d960b` (the commit before `20f1875`); `git diff main...HEAD` also contains T-008 and T-009 and is not the T-010 range.
+
+## Run 3 (review round 1 fixes: D-37 to D-41, `5d667d3`, `38d3ba9`)
+
+**Verdict: PASS (verifiable part). No new defect.** Two readings of dev's are noted below as stricter than the amended text; neither contradicts it.
+
+| AC (amended text) | New control -> test | QA mutation (dev's red evidence looked thin where marked) | Grade |
+|---|---|---|---|
+| AC-33 / D-37: clearing a deny is escalation-checked; clearing an allow is not; null actor `actor_required` | controls 1 to 4 -> `ClearEmployeePermissionTest` "refuses an actor lacking K clearing a deny of K, and lets the owner", "refuses a null actor clearing a deny as actor_required, with the same effects", "lets an actor lacking K clear an allow of K, with the bump", "answers clearing a deny exactly as replacing it with an allow, for both actors" | L6 (deny clearing unchecked) red 3; L7 (allow clearing checked too) red 1 | IP |
+| AC-36 (amended sentence: deny set unchecked, clear checked) | same tests; ESC unchanged and green | as above | IP |
+| AC-27 / D-38: entering crossing escalation-checked at each grant's scope; leaving and same-side unchecked; null actor `actor_required`; holder of no grants reactivated by any `employees.manage` holder | `ChangeEmployeeStatusTest` "refuses to reactivate an employee to an actor lacking one of their keys, and lets the owner", "lets the same lesser actor suspend that employee", "lets any actor reactivate an employee who holds no grants, and refuses a null actor even then", "counts a personal allow as a grant the actor must hold" | L1 (check removed) red 4; L2 (also on leaving) red 2; L3 (every grant checked at the null scope) red 1; L4 (null actor passes for an employee with no grants) red 1; L5 (personal allows ignored) red 3 | IP |
+| AC-51 / W-1: PIN verify reads under a row lock | `VerifyPinTest` "reads the employee under a row lock, so simultaneous guesses take turns" | L8 (lock removed) red 1. Concurrent behaviour NV | IP + NV |
+| AC-4 / D-41 (S-6): `default_employee_id` through `IdentifierColumn` | `MigrationTreeDisciplineTest` "declares every ULID column through IdentifierColumn, in both trees" (prints files scanned; own planted control) | **QA in-place revert** of the migration to a plain `ulid()`: the sweep goes red (1 failed, 8 passed); restored, `git status` shows no production change | IP |
+| AC-66 / S-4 | `TenantTokenStalenessShapeTest` | see check 4 | IP |
+| AC-5 | catalogue row for version 13 republished | see check 3 | IP |
+
+**Check 1, dev's two readings of D-38.**
+- *An allow that a personal deny overrides is still counted.* `Escalation::requireEmployeeHeld()` takes every allowing contribution from `PermHash::contributionsFor()` and ignores denies, so an actor must hold a key the employee currently cannot use. The amended text says "every key the employee would then hold"; read literally an overridden allow is not held, so dev is **stricter than the text**. It is the conservative failure D-38 itself accepts ("a lesser HR user cannot reactivate a senior person; the owner can"), the deny can later be cleared (AC-33, now checked, so the effect is the same), and it avoids a third reading of grants. Noted, not filed; `ba` may want one clause to say so. No test pins this particular case either way.
+- *A null actor is refused even when the employee holds nothing.* The text says "a null actor is `actor_required` (D-36)" unconditionally, while the control says any `employees.manage` holder may reactivate an employee holding no grants; a null actor is not a holder. Dev's reading matches the text and is tested ("... refuses a null actor even then"); L4 proves the test bites.
+
+**Check 3, S-6 catalogue regeneration.** The publisher's checksum is `MigrationCatalogue::checksumOf()`: `hash('sha256', str_replace(["
+", ""], "
+", $source))` (`packages/kernel/src/Schema/Support/MigrationCatalogue.php:108`). I recomputed that function independently (python, same normalisation) over all fourteen tenant migration files: **the version-13 row (`f7fb824e...`) equals the hash of the file as committed, and no row of the fourteen differs from an independent hash**. The diff of the catalogue is exactly one line (that checksum); version, phase and the destructive/offline flags are unchanged. `SchemaCataloguePublishTest` ("matches the committed fixture", "exits non-zero when the committed fixture disagrees with the tree") is green in the gate, and it runs the publisher itself.
+
+**Check 4, `TenantTokenStalenessShapeTest` and reflection.** It builds the real `RequireTenantToken` from the container (with the staleness collaborator replaced by a spy) and invokes the real private `isStale()` on that instance, so it executes production code, not a copy. Controls run by QA (class-served copy): identical copy green; the malformed-claims branch changed to fail open -> red; the missing-employee early return removed (the pre-fix shape) -> red. Its stated limit is true: a signed token cannot carry the malformed shape (the verifier refuses it first), so this pins the defence in depth, not a reachable path.
+
+**Gate (Run 3): `composer check`, once, alone: exit 0.** Pint passed; PHPStan `[OK] No errors`; Deptrac 0 violations / 0 skipped; Pest **1541 passed, 11 skipped, 9912 assertions**, test step 406.72 s, **ratio 2.21** (source=manifest). Dev's figure at `38d3ba9` was 1541 passed, ratio 1.98; the pass count reproduces. Delta from Run 2 (1528): +13, all dev's (new controls, the S-4 file, the S-6 sweep); my files are unchanged since Run 2.
+
+**Ratio and the foreign `php.exe` list.** Reading the plan correctly this time: the escalation line is a ratio **below** 2.0. This run's 2.21 is above it, so no escalation on this figure; dev's 1.98 and Run 2's 1.69 were below it. Foreign `php.exe` processes, by pid and command line, identical before and after the run (none mine):
+- 1884 `artisan serve --port 8010` and 6932 `php -S 127.0.0.1:8010 ...99mobility_refferelportal...`
+- 40056 `artisan serve --host=127.0.0.1 --port=8000` and 39008 `php -S 127.0.0.1:8000 ...Scriberackend...` (this one had accumulated about 864 CPU-seconds by the earlier listing)
+- 38892 `artisan queue:work --tries=1`
+- 47504 `vendor/bin/phpunit --colors=never` and 46008 `vendor/bin/phpunit` (two other projects' test runs; 46008 started during my mutation batch)
+So five dev servers/workers plus two phpunit runs from other projects were live during the gate. I cannot compute a clean-machine figure; the series for this tree (305 s dev tip, 415, 532, 407 s) moves with that load far more than with anything added to the suite.
+
+History line at the bottom.
 
 ## Run 2 (fix round 1: `11f6b45`, `573d5d0`, `41e1c48`)
 
@@ -271,3 +308,4 @@ Counts are tests turned red by the mutant. Package-wide runs made after the BUG-
 
 Run 1: FAIL. One minor code defect with a red test (BUG-1), two minor record defects (BUG-2, BUG-3), seven evidence gaps closed by QA tests (EG-1 to EG-7), seven criteria NOT VERIFIED (engine hold), AC-10 not done and recorded.
 Run 2: FAIL -> PASS (verifiable part). BUG-1, BUG-2, BUG-3 closed; Note D lock verified by control; 1528 passed / 11 skipped / 9846 assertions, exit 0, ratio 1.69 with 8 foreign php.exe.
+Run 3: PASS (verifiable part), unchanged shape. D-37 to D-41 amendments graded against their new text (AC-27, AC-33, AC-36) with eight QA mutants all caught; S-6 checksum matches the publisher's function; S-4 test exercises the real method; 1541 / 11 / 9912, exit 0, ratio 2.21 (above the 2.0 line) with 7 foreign php.exe.
