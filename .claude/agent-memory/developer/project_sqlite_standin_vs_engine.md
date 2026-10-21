@@ -76,3 +76,11 @@ with "FOREIGN KEY constraint failed". So a contract migration that takes a
 foreign key does NOT have to be driver-gated, and an [ENGINE] label applied
 for that reason is wrong. JsonValidity gate is still right: a raw
 ADD CONSTRAINT ... CHECK has no builder equivalent.
+
+**But the rebuild never re-checks existing rows (measured T-011 step 6, 2026-10-21).**
+With the data-clean check cut out of the settings.updated_by migration, the rebuild
+applied over an unknown id with `foreign_keys` ON and OFF alike: 3 `__temp__`
+statements ran, the key was added, and `pragma foreign_key_check("settings")` then
+reported 1 violation. SQLite migrations are also not transactional. So on the
+stand-in a contract step that adds a key needs its own pre-check, and that check is
+the only guard. `SettingsUpdatedByKeyTest` pins this ("Ruling 7, measured").

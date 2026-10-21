@@ -127,17 +127,22 @@ it('creates exactly the tenant tables the shipped tree declares', function () {
     // keeps its six and means exactly that, tenantTreeTables() carries the
     // whole tree, and this site - a whole-tree site - moved to the second.
     //
-    // The file count is a different number from the table count, even where
-    // they agree. T-008 shipped one table per file and so does T-010 (eight
-    // files, eight tables): AC-10's tableless step, which would have split the
-    // two, was withdrawn by Ruling 3 correction (c). The two numbers are still
-    // asserted separately and the file count is derived from the tree
-    // (tenantMigrationFileCount()), not from a table list.
+    // The file count is a different number from the table count, and since
+    // T-011 they differ: the settings.updated_by key is a file that creates no
+    // table. So the file count is derived (T-011 AC-24 E5): one file per
+    // table created, plus one per file that creates none, and the tableless
+    // set is read from the files rather than written here.
+    $tableless = array_keys(array_filter(
+        migrationTreeSources(MigrationTree::Tenant),
+        static fn (string $source): bool => SourceRules::tablesCreatedIn($source) === []
+    ));
+
     expect(migrationTreeTables(MigrationTree::Tenant))->toBe(tenantTreeTables())
         ->and(tenantBaselineTables())->toHaveCount(6)
         ->and(tenantTreeTables())->toHaveCount(14)
         ->and(migrationTreeSources(MigrationTree::Tenant))->toHaveCount(tenantMigrationFileCount())
-        ->and(tenantMigrationFileCount())->toBe(14);
+        ->and($tableless)->not->toBe([])
+        ->and(tenantMigrationFileCount())->toBe(count(tenantTreeTables()) + count($tableless));
 });
 
 it('creates no tenant table in the master tree and no master table in the tenant tree', function () {

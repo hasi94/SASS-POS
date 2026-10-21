@@ -309,10 +309,9 @@ it('holds exactly the declared foreign keys, none of them onto branches', functi
     applyTenantBaseline();
 
     // The whole inventory, in both directions. `settings.updated_by ->
-    // employees.id` is absent because nothing in the tree creates it: AC-10's
-    // migration was withdrawn by Ruling 3 correction (c), on every driver, and
-    // the key is owed by FP-209 behind FP-304. There is no file being skipped
-    // on the stand-in; when the key ships, this list gains its line.
+    // employees.id` is T-011's contract step, the one key T-008 D-5 owed to
+    // the employees module; any other new key onto `employees` turns this
+    // exact list red.
     expect(tenantTreeForeignKeys())->toBe([
         'access_log.employee_id -> employees.id',
         'employee_branches.employee_id -> employees.id',
@@ -326,6 +325,7 @@ it('holds exactly the declared foreign keys, none of them onto branches', functi
         'role_permissions.permission_key -> permissions.key',
         'role_permissions.role_id -> roles.id',
         'settings.key -> settings_registry.key',
+        'settings.updated_by -> employees.id',
     ]);
 
     // AC-9, said as a property rather than as a consequence of the list
@@ -344,14 +344,13 @@ it('holds exactly the declared foreign keys, none of them onto branches', functi
 it('leaves the unguarded identifier columns in place, and typed as identifiers', function () {
     applyTenantBaseline();
 
-    // D-5's four, plus T-010 D-30's three. Each migration docblock names the
+    // D-5's three that remain, plus T-010 D-30's three. Each migration docblock names the
     // module that owes the key; this is the assertion that the column was not
     // quietly dropped instead, and that its nullability is the one the design
     // states - `employee_branches.branch_id` is NOT NULL, because a row there
     // IS an attachment to one branch, while the other two carry "all
     // branches" as NULL.
     $unguarded = [
-        'settings.updated_by' => true,
         'number_sequences.branch_id' => true,
         'audit_logs.branch_id' => true,
         'outbox_events.branch_id' => true,
@@ -376,7 +375,14 @@ it('leaves the unguarded identifier columns in place, and typed as identifiers',
     // Published as a map, so a failure names the column rather than a count,
     // and so a reader can see which domain was examined (D-27).
     expect($found)->toBe($unguarded)
-        ->and($found)->toHaveCount(8);
+        ->and($found)->toHaveCount(7);
+
+    // `settings.updated_by` left this map when T-011 gave it its key; it is
+    // still a nullable identifier, typed as the other identifier columns are.
+    $settings = collect(Schema::connection(tenantStandIn())->getColumns('settings'))->keyBy('name');
+
+    expect($settings->get('updated_by')['nullable'] ?? null)->toBeTrue()
+        ->and($settings->get('updated_by')['type'] ?? null)->toBe($settings->get('scope_id')['type'] ?? 'missing');
 });
 
 it('refuses a settings row whose key is not in the registry', function () {
