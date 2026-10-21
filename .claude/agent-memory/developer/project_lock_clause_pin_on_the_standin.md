@@ -21,3 +21,13 @@ set in one query gives both the same lock order, so the second blocks and
 then refuses. The engine half stays [ENGINE]/NV.
 
 **How to apply:** any read-then-write guard (FP-206, T-009 Note A shape).
+Used again for `VerifyPinHandler`'s employee read (review W-1).
+
+**Two traps met on the second use:** `pretend()` logs SQL with the bindings
+already substituted (`` `code` = 'cashier' ``, not `?`). And editing a
+tenant migration moves its checksum in
+`database/catalogue/tenant_schema_versions.json`. Regenerate it with a
+scratch script that requires `vendor/autoload.php` and writes
+`MigrationCatalogue::encodeFixture(MigrationCatalogue::forTree(...))`.
+That needs no app boot and no database. Then confirm only that file's row
+moved.

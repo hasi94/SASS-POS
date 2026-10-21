@@ -179,6 +179,59 @@ it('reads a table list that only a non-empty tree can produce', function () {
     expect(SourceRules::tablesCreatedIn($prose))->toBe([]);
 });
 
+/**
+ * The ULID columns a migration declares with `$table->ulid()` itself rather
+ * than through `IdentifierColumn`, comments excluded.
+ *
+ * @return list<string>
+ */
+function rawUlidColumnsIn(string $source): array
+{
+    $code = '';
+
+    foreach (token_get_all($source) as $token) {
+        if (is_array($token) && in_array($token[0], [T_COMMENT, T_DOC_COMMENT], true)) {
+            continue;
+        }
+
+        $code .= is_array($token) ? $token[1] : $token;
+    }
+
+    preg_match_all('/->\s*ulid\(\s*[\'"]([^\'"]+)[\'"]/', $code, $matches);
+
+    return $matches[1];
+}
+
+it('declares every ULID column through IdentifierColumn, in both trees (AC-4, D-41)', function () {
+    $raw = [];
+    $files = 0;
+
+    foreach ([MigrationTree::Master, MigrationTree::Tenant] as $tree) {
+        foreach (migrationTreeSources($tree) as $path => $source) {
+            $files++;
+
+            foreach (rawUlidColumnsIn($source) as $column) {
+                $raw[] = basename($path).': '.$column;
+            }
+        }
+    }
+
+    fwrite(STDOUT, "\nULID columns declared outside IdentifierColumn, over {$files} files: ".($raw === [] ? 'none' : implode(', ', $raw))."\n");
+
+    // The domain: both trees were read.
+    expect($files)->toBeGreaterThan(tenantMigrationFileCount())
+        ->and($raw)->toBe([]);
+
+    // The control: the declaration this rule was written for (review S-6) is
+    // reported, and the same column through the helper, or named in a comment,
+    // is not.
+    $before = "<?php \$table->ulid('default_employee_id')->nullable()->storedAs('x');";
+    $after = "<?php /* \$table->ulid('in_prose') */ IdentifierColumn::nullable(\$table, 'default_employee_id')->storedAs('x');";
+
+    expect(rawUlidColumnsIn($before))->toBe(['default_employee_id'])
+        ->and(rawUlidColumnsIn($after))->toBe([]);
+});
+
 /*
 |--------------------------------------------------------------------------
 | No fixture migration under the shipped tenant tree

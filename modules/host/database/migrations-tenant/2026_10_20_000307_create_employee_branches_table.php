@@ -22,14 +22,12 @@
  * that the next person needing a sentinel on a different shape writes their
  * own and says why. Recorded here so FP-180 does not later collect it.
  *
- * One consequence of declaring it outside the helper, stated rather than
- * discovered: `default_employee_id` is the one ULID-shaped column in this
- * tree that does not carry `ascii` / `ascii_bin`, because
- * `IdentifierColumn` is the only site allowed to name a charset and a
- * migration may not name one itself. It holds a copy of `employee_id` and
- * nothing compares it to anything but itself, so the weaker collation cannot
- * make two distinct employees collide: a ULID is upper-case Crockford base32
- * and two of them never differ only in case.
+ * **The column itself is still an identifier column, so it is declared
+ * through `IdentifierColumn::nullable()`** (AC-4, D-41): it holds a copy of
+ * `employee_id`, and it carries the same `ascii` / `ascii_bin` that column
+ * does. Only the generation expression is this file's own; the type, the
+ * charset and the collation come from the one helper, exactly as the
+ * sentinel columns' do.
  *
  * MEASURED on the stand-in in step 2: the first default is accepted, two
  * further non-defaults are accepted, a SECOND default for the same employee
@@ -59,8 +57,7 @@ return new class extends Migration
             IdentifierColumn::required($table, 'employee_id');
             IdentifierColumn::required($table, 'branch_id');
             $table->boolean('is_default')->default(false);
-            $table->ulid('default_employee_id')
-                ->nullable()
+            IdentifierColumn::nullable($table, 'default_employee_id')
                 ->storedAs('CASE WHEN is_default THEN employee_id END');
             $table->dateTime('created_at', 3);
             $table->dateTime('updated_at', 3);

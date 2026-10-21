@@ -13,8 +13,10 @@ use Psr\Log\LoggerInterface;
  * Nobody hands out what they do not hold (AC-36).
  *
  * **"Holds it at that scope" is asked of the resolver, never recomputed.**
- * Three operations consult this class - assigning a role, adding a key to a
- * custom role, and writing a per-person **allow** - and if any of them
+ * Five operations consult this class - assigning a role, adding a key to a
+ * custom role, writing a per-person **allow**, clearing a per-person
+ * **deny** (D-37) and moving an employee back into the acting set (D-38) -
+ * and if any of them
  * worked out for itself what holding a key means, it would eventually
  * disagree with the thing that later decides whether the grant works. The
  * failure is quiet in the worse direction: the grant is written and the
@@ -53,10 +55,12 @@ use Psr\Log\LoggerInterface;
  * comes from the verified token, so a row in the log is a defect at a call
  * site and not a caller's mistake.
  *
- * **A deny needs no check** (AC-36, in terms). Taking a right away from
- * somebody cannot raise anyone above the actor, and requiring the actor to
- * hold a key before they can deny it would stop an administrator revoking
- * a permission they themselves were never given.
+ * **Setting a deny needs no check** (AC-36, in terms). Taking a right away
+ * from somebody cannot raise anyone above the actor, and requiring the
+ * actor to hold a key before they can deny it would stop an administrator
+ * revoking a permission they themselves were never given. **Clearing** a
+ * deny is the opposite: it restores a right, so it is asked the question
+ * an allow is asked (D-37, AC-33).
  */
 final class Escalation
 {
@@ -94,6 +98,54 @@ final class Escalation
             throw AccessRefused::noEscalation(
                 "Actor [{$actorId}] does not hold [{$permissionKey}] at scope [{$scope}] and may not grant it."
             );
+        }
+    }
+
+    /**
+     * Refuse unless the actor holds every grant this employee holds, each at
+     * its own scope (D-38, AC-27's entering crossing).
+     *
+     * Moving an employee back into the acting set restores everything they
+     * hold, so it is a grant of all of it at once. **The grants are the
+     * employee's contributions as {@see PermHash::contributionsFor()} reads
+     * them** - the same list the hash, `all_branches` and "my permissions"
+     * read, roles soft-deleted excluded - and never a third reading. Every
+     * *allowing* contribution is checked at its scope, including one a
+     * personal deny currently overrides: the spec asks for every grant's
+     * key at the grant's scope, and checking one too many refuses a
+     * reactivation the owner can still make, which is the safe failure.
+     *
+     * **A null actor is refused even for an employee who holds nothing.**
+     * AC-27 says so in terms, unlike {@see self::requireRoleHeld()}'s empty
+     * role: a status change is never actorless over HTTP, so a null here is
+     * a call-site defect, not a case to wave through.
+     *
+     * @throws AccessRefused actor_required or no_escalation
+     */
+    public function requireEmployeeHeld(Connection $connection, ?string $actorId, string $employeeId): void
+    {
+        if ($actorId === null) {
+            $this->logger->error('A reactivation was attempted with no actor.', [
+                'employee_id' => $employeeId,
+            ]);
+
+            throw AccessRefused::actorRequired(
+                "Restoring employee [{$employeeId}] to the acting set needs a named actor whose own rights bound it."
+            );
+        }
+
+        $grants = [];
+
+        foreach (PermHash::contributionsFor($connection, $employeeId) as [$allowed, $key, $scope]) {
+            if ($allowed) {
+                $grants[$key."\t".$scope] = [$key, $scope === ScopeKey::ALL_BRANCHES ? null : $scope];
+            }
+        }
+
+        ksort($grants, SORT_STRING);
+
+        foreach ($grants as [$key, $branchId]) {
+            $this->requireHeld($actorId, $key, $branchId);
         }
     }
 

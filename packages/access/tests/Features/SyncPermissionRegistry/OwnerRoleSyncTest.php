@@ -314,3 +314,35 @@ it('grants and bumps inside a transaction, and the probe can tell', function () 
     expect($seen)->not->toBeEmpty()
         ->and($levels)->toBe([0]);
 });
+
+it('grants nothing to a role keyed owner that is not a system role, and reports it (AC-17, review S-3)', function () {
+    ownerTenant()->table('roles')->insert([
+        'id' => str_pad('ROLE-IMPOSTOR', 26, '0'),
+        'key' => SystemRole::OWNER_KEY,
+        'name' => 'Owner',
+        'is_system' => false,
+        'created_at' => '2026-10-20 00:00:00.000',
+        'updated_at' => '2026-10-20 00:00:00.000',
+    ]);
+
+    $result = ownerSync();
+
+    // The flag decides, as everywhere else: the custom role holds nothing,
+    // nothing was seeded beside it, and the result says why.
+    expect($result->ownerNotSystem)->toBeTrue()
+        ->and($result->ownerCreated)->toBeFalse()
+        ->and($result->ownerGranted)->toBe([])
+        ->and($result->bumped)->toBe(0)
+        ->and(ownerHeldKeys())->toBe([])
+        ->and(ownerTenant()->table('roles')->where('key', SystemRole::OWNER_KEY)->count())->toBe(1);
+
+    // The control: the same row made a system role is topped up in full,
+    // and the report clears.
+    ownerTenant()->table('roles')->where('key', SystemRole::OWNER_KEY)->update(['is_system' => true]);
+
+    $repaired = ownerSync();
+
+    expect($repaired->ownerNotSystem)->toBeFalse()
+        ->and($repaired->ownerGranted)->toBe(ownerDeclaredKeys())
+        ->and(ownerHeldKeys())->toBe(ownerDeclaredKeys());
+});

@@ -43,6 +43,17 @@ use Illuminate\Database\Connection;
  * lock lands once. The concurrent proof itself waits for an engine (G-1);
  * what is provable here is the shape.
  *
+ * **The employee is read under a row lock, so the lockout bounds a burst.**
+ * An atomic counter alone does not: N simultaneous wrong PINs would each
+ * read `pin_locked_until` empty and each be checked against the real digest
+ * before any of them counted, so fifty parallel guesses got fifty tries.
+ * `FOR UPDATE` makes the attempts on one employee take turns, each reading
+ * the counter and the lock the previous one committed - and the success
+ * path's reset then cannot clear a lock that landed meanwhile. It must stay
+ * the first locking statement in the transaction. SQLite compiles no lock
+ * clause; the test pins the statement as MySQL receives it, and the
+ * concurrent proof is `[ENGINE]`.
+ *
  * **A failure while locked neither counts nor postpones** (D-17). The locked
  * branch returns before the counter is touched, which is why "the counter
  * stays 0 and `pin_locked_until` is not extended" needs no code to be true -
@@ -121,6 +132,7 @@ final class VerifyPinHandler
             $employee = $connection->table('employees')
                 ->where('code', $command->code)
                 ->whereNull('deleted_at')
+                ->lockForUpdate()
                 ->first();
 
             // Once, always, before any branch. A soft-deleted employee is

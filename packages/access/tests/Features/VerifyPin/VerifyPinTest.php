@@ -17,6 +17,7 @@ use Flexipos\Access\Tests\Support\AccessTenantFixture;
 use Flexipos\Access\Tests\Support\CountingHasher;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Database\Query\Grammars\MySqlGrammar;
 use Illuminate\Support\Facades\Route;
 use InvalidArgumentException;
 use PHPUnit\Framework\ExpectationFailedException;
@@ -439,4 +440,38 @@ it('refuses an access log type outside D-21s three, and writes the three (D-21, 
     }
 
     expect(accessLogRows())->toHaveCount(count(AccessLogWriter::TYPES));
+});
+
+it('reads the employee under a row lock, so simultaneous guesses take turns (AC-51, review W-1)', function () {
+    employeeWithPin();
+
+    $connection = AccessSeed::connection();
+
+    // The stand-in compiles no lock clause, so the statements are compiled
+    // with MySQL's grammar and recorded under pretend(): nothing executes,
+    // the read finds nobody, and the handler takes the unknown-code path.
+    // What is asserted is the read it would send the engine.
+    $standIn = $connection->getQueryGrammar();
+    $connection->setQueryGrammar(new MySqlGrammar($connection));
+
+    try {
+        $log = $connection->pretend(fn () => verifyPin('cashier', VERIFY_PIN_WRONG));
+    } finally {
+        $connection->setQueryGrammar($standIn);
+    }
+
+    $reads = array_values(array_filter(
+        array_map(static fn (array $entry): string => (string) $entry['query'], $log),
+        static fn (string $sql): bool => str_starts_with($sql, 'select') && str_contains($sql, 'from `employees`')
+    ));
+
+    fwrite(STDOUT, "\nVerifyPin employee reads (MySQL grammar):\n".implode("\n", $reads)."\n");
+
+    expect($reads)->toHaveCount(1)
+        ->and($reads[0])->toContain("`code` = 'cashier'")
+        ->and($reads[0])->toEndWith(' for update');
+
+    // The liveness control: on the stand-in's own grammar the same handler
+    // still verifies, so the lock changed what MySQL is sent and nothing here.
+    expect(verifyPin('cashier', VERIFY_PIN_GOOD)->isVerified())->toBeTrue();
 });

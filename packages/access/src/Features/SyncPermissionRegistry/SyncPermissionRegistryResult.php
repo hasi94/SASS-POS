@@ -32,6 +32,7 @@ final class SyncPermissionRegistryResult
      * @param  bool  $ownerCreated  the system role did not exist and was seeded
      * @param  list<string>  $ownerGranted  keys owner did not hold and now does
      * @param  int  $bumped  how many employees had their perm_version raised
+     * @param  bool  $ownerNotSystem  a role keyed `owner` exists that is not a system role; it was granted nothing
      */
     public function __construct(
         public readonly array $inserted,
@@ -42,6 +43,7 @@ final class SyncPermissionRegistryResult
         public readonly bool $ownerCreated = false,
         public readonly array $ownerGranted = [],
         public readonly int $bumped = 0,
+        public readonly bool $ownerNotSystem = false,
     ) {}
 
     /**

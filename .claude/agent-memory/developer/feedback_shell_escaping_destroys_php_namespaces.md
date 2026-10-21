@@ -25,3 +25,5 @@ immediately: an insertion count that is not exactly what you intended is the
 tell. And commit before a sweeping mechanical edit - `git checkout --` was the
 whole restore path here. See [[feedback_red_phase_needs_a_restore_path]] and
 [[feedback_windows_line_endings_in_scripts]].
+
+**Also inside a heredoc'd PHP script (T-010 round 2):** `\\t` (meant to produce the two characters `\t`) inside a double-quoted PHP string in the script wrote a real tab into the target, and Pint then turned it into a single-quoted literal tab. Nothing failed until lint. Use the Write tool for the script, or `chr()`.

@@ -136,7 +136,7 @@ final class SyncPermissionRegistryHandler
             // insertion does not exist to be granted.
             $grantable = array_values(array_intersect($declaredKeys, array_keys($this->storedKeys($connection))));
 
-            [$ownerCreated, $granted, $bumped] = $this->keepOwnerWhole($connection, $grantable);
+            [$ownerCreated, $granted, $bumped, $ownerNotSystem] = $this->keepOwnerWhole($connection, $grantable);
 
             return new SyncPermissionRegistryResult(
                 $inserted,
@@ -147,6 +147,7 @@ final class SyncPermissionRegistryHandler
                 $ownerCreated,
                 $granted,
                 $bumped,
+                $ownerNotSystem,
             );
         });
     }
@@ -155,14 +156,26 @@ final class SyncPermissionRegistryHandler
      * Seed `owner` if it is missing, grant it every key it does not hold,
      * and bump its holders if anything was granted (AC-17).
      *
+     * **Found by the flag as well as the key** (review S-3): every other
+     * reader of the owner role reads `is_system`, never the key alone, and
+     * this one grants every key there is. A row keyed `owner` that is not a
+     * system role is somebody's custom role; it is reported in the result
+     * and granted nothing, and no second `owner` can be seeded beside it
+     * because `roles.key` is unique. Repairing it is a deliberate act.
+     *
      * @param  list<string>  $keys  every key owner should hold
-     * @return array{0: bool, 1: list<string>, 2: int}
+     * @return array{0: bool, 1: list<string>, 2: int, 3: bool}
      */
     private function keepOwnerWhole(Connection $connection, array $keys): array
     {
         $owner = $connection->table('roles')
             ->where('key', SystemRole::OWNER_KEY)
+            ->where('is_system', true)
             ->first();
+
+        if ($owner === null && $connection->table('roles')->where('key', SystemRole::OWNER_KEY)->exists()) {
+            return [false, [], 0, true];
+        }
 
         $created = $owner === null;
 
@@ -200,7 +213,7 @@ final class SyncPermissionRegistryHandler
             // Nothing granted, so nothing changed about anybody's rights, so
             // nothing is bumped. AC-17's "a second sync bumps nothing" is
             // this branch and not a check somewhere else.
-            return [$created, [], 0];
+            return [$created, [], 0, false];
         }
 
         $connection->table('role_permissions')->insert(array_map(
@@ -212,7 +225,7 @@ final class SyncPermissionRegistryHandler
         // selecting the holders inside it.
         $bumped = PermVersion::bumpHoldersOfRole($connection, $ownerId);
 
-        return [$created, $missing, $bumped];
+        return [$created, $missing, $bumped, false];
     }
 
     /**

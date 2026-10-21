@@ -178,7 +178,9 @@ final class AccessRefused extends RuntimeException implements AccessRefusal
      * creates the first owner with no human actor (D-24) - and the answer
      * it needs is "supply an actor", not "your request is malformed".
      *
-     * Thrown only by {@see Escalation::requireHeld()}.
+     * Thrown only by {@see Escalation}: by `requireHeld()` and by
+     * `requireEmployeeHeld()`, which AC-27 refuses for a null actor even
+     * when there is nothing to check.
      */
     public static function actorRequired(string $message): self
     {

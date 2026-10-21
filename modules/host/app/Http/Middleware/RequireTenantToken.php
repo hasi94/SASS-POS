@@ -140,15 +140,26 @@ final class RequireTenantToken
      * (AC-66): there is no employee whose rights could have changed, and
      * every guarded route refuses such a token `not_permitted` anyway.
      *
+     * **An `employee` claim beside a malformed one is stale, not fresh**
+     * (review S-4). A signed token cannot carry that shape today, because
+     * the verifier refuses it first; but if that ever stopped being true,
+     * an empty employee id or a `perm_version` that is not an integer must
+     * fail closed, as every other unreadable input in this class does,
+     * rather than skip the check and let the token through.
+     *
      * @param  array<string, mixed>  $claims
      */
     private function isStale(array $claims): bool
     {
-        $employeeId = $claims['employee'] ?? null;
+        if (! array_key_exists('employee', $claims) || $claims['employee'] === null) {
+            return false;
+        }
+
+        $employeeId = $claims['employee'];
         $claimed = $claims['perm_version'] ?? null;
 
         if (! is_string($employeeId) || $employeeId === '' || ! is_int($claimed)) {
-            return false;
+            return true;
         }
 
         return $this->staleness->isStale($employeeId, $claimed);

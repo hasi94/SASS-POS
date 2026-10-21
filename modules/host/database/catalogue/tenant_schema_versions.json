@@ -99,7 +99,7 @@
         "version": 13,
         "migration": "2026_10_20_000307_create_employee_branches_table",
         "phase": "expand",
-        "checksum": "3dc421ab0fed3fa9d68a5f5769b13de069b1549cb24e4e9385894e1cc757df25",
+        "checksum": "f7fb824ecea6ed0394b24ea8d8b54054174aeaadf83e93669668611037cb44fb",
         "is_destructive": false,
         "requires_offline": false
     },

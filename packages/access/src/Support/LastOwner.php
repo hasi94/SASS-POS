@@ -39,6 +39,13 @@ use Illuminate\Database\Query\Builder;
  * the employee being removed from the locked set would let the two lock
  * disjoint rows and meet in a deadlock instead of a refusal.
  *
+ * **It must be the first locking statement in the caller's transaction.**
+ * All three callers ask before they write anything. A future caller that
+ * wrote first would hold a lock of its own when it got here, and two such
+ * transactions could deadlock: still safe - the engine rolls one back with
+ * error 1213 and no owner is lost - but surfaced as a server error rather
+ * than `last_owner`.
+ *
  * **What is NOT proved here, and must not be claimed:** that the engine
  * honours it. Laravel's SQLite grammar compiles no lock clause, so on the
  * stand-in the read is unchanged and the tests pin only that the statement

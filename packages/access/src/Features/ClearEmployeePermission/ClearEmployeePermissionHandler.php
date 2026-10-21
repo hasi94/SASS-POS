@@ -8,6 +8,7 @@ use Flexipos\Access\Exceptions\AccessRefused;
 use Flexipos\Access\Support\AuditWriter;
 use Flexipos\Access\Support\BranchScope;
 use Flexipos\Access\Support\EmployeeLookup;
+use Flexipos\Access\Support\Escalation;
 use Flexipos\Access\Support\PermVersion;
 use Flexipos\Access\Support\SelfChange;
 use Flexipos\Access\Support\TenantConnection;
@@ -32,17 +33,23 @@ use Flexipos\Access\Support\TenantConnection;
  * so an unregistered key has no row to clear and meets the same refusal the
  * absent-row case does, with the same remedy.
  *
- * **AC-34 applies here and AC-36 does not.** Clearing takes a row away;
- * nobody ends up holding anything the actor does not, so there is nothing
- * to escalate. Clearing a **deny** does let a role's grant through again,
- * which looks like a grant - but the right it restores is one the role
- * already conferred, and the actor who may assign that role is the one
- * AC-36 checked when it was assigned.
+ * **AC-34 applies to every clear; AC-36 applies to clearing a deny (D-37).**
+ * Clearing a deny lets a role's grant through again, so it is a grant in
+ * effect, and the actor clearing it is not the actor who was checked when
+ * the role was assigned - a supervisor refused an allow of K could
+ * otherwise reach the same result by deleting the deny. So the row is read
+ * first, and a deny is asked exactly the question an allow is asked in
+ * `SetEmployeePermission`: does the actor hold this key at this scope. A
+ * null actor is `actor_required` (D-36). The question is asked before anything is
+ * written, so a refusal leaves the row, the version and the audit log as
+ * they were. Clearing an **allow** is not asked: removing a right raises
+ * nobody.
  */
 final class ClearEmployeePermissionHandler
 {
     public function __construct(
         private readonly TenantConnection $tenant,
+        private readonly Escalation $escalation,
         private readonly AuditWriter $audit,
     ) {}
 
@@ -57,6 +64,19 @@ final class ClearEmployeePermissionHandler
 
         $connection->transaction(function () use ($connection, $command, $key, $branchId): void {
             EmployeeLookup::findLive($connection, $command->employeeId);
+
+            $allowed = BranchScope::at(
+                $connection->table('employee_permissions')
+                    ->where('employee_id', $command->employeeId)
+                    ->where('permission_key', $key),
+                $branchId
+            )->value('allowed');
+
+            if ($allowed !== null && ! (bool) $allowed) {
+                // D-37: lifting a deny restores the right, so it is bounded
+                // as granting it would be.
+                $this->escalation->requireHeld($command->actorId, $key, $branchId);
+            }
 
             $deleted = BranchScope::at(
                 $connection->table('employee_permissions')

@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Flexipos\Access\Tests\Features\ClearEmployeePermission;
 
+use Flexipos\Access\Exceptions\AccessRefused;
 use Flexipos\Access\Features\ClearEmployeePermission\ClearEmployeePermission;
 use Flexipos\Access\Features\ClearEmployeePermission\ClearEmployeePermissionHandler;
+use Flexipos\Access\Features\SetEmployeePermission\SetEmployeePermission;
+use Flexipos\Access\Features\SetEmployeePermission\SetEmployeePermissionHandler;
 use Flexipos\Access\Tests\Support\AccessRefusals;
 use Flexipos\Access\Tests\Support\AccessSeed;
 use Flexipos\Access\Tests\Support\AccessTenantFixture;
@@ -27,6 +30,11 @@ use Tests\TestCase;
 | allow could not tell a handler that filtered on `allowed = 1` apart from
 | a correct one.
 |
+| D-37 bounds clearing a DENY as AC-36 bounds an allow, so every case names
+| its actor. The four paired controls of the amended AC-33 are at the end:
+| a lesser actor against the owner, a null actor, a lesser actor clearing
+| an allow, and the clear agreeing with the replace-by-allow route.
+|
 */
 
 uses(TestCase::class);
@@ -44,12 +52,17 @@ afterAll(function () {
     AccessTenantFixture::deleteRoot();
 });
 
-function clearEmployeePermission(string $employeeId, string $key, ?string $branchId = null): void
+function clearEmployeePermission(string $employeeId, string $key, ?string $branchId, ?string $actorId): void
 {
     /** @var ClearEmployeePermissionHandler $handler */
     $handler = app(ClearEmployeePermissionHandler::class);
 
-    $handler->handle(new ClearEmployeePermission($employeeId, $key, $branchId));
+    $handler->handle(new ClearEmployeePermission($employeeId, $key, $branchId, $actorId));
+}
+
+function clearAuditRows(): int
+{
+    return AccessSeed::connection()->table('audit_logs')->count();
 }
 
 /**
@@ -87,6 +100,14 @@ function clearPermissionWorld(): array
     AccessSeed::personal($ids['employee'], $ids['key'], false);
     AccessSeed::personal($ids['employee'], $ids['key'], true, $ids['branch']);
 
+    // D-37: clearing a deny is bounded as an allow is, so every clear here
+    // is made by somebody who holds the key everywhere - the owner - unless
+    // a case names a lesser actor. The lesser one holds an unrelated key, so
+    // a refusal is about K and not about holding nothing at all.
+    $ids['owner'] = AccessSeed::actorHolding('owner', [$ids['key']], null, true);
+    $ids['other'] = AccessSeed::permission('fixture.other');
+    $ids['lesser'] = AccessSeed::actorHolding('lesser', [$ids['other']]);
+
     return $ids;
 }
 
@@ -94,7 +115,7 @@ it('clears the deny at the all-branches scope and leaves the branch allow (AC-33
     $ids = clearPermissionWorld();
     $before = AccessSeed::permVersion($ids['employee']);
 
-    clearEmployeePermission($ids['employee'], $ids['key']);
+    clearEmployeePermission($ids['employee'], $ids['key'], null, $ids['owner']);
 
     expect(remainingPersonalScopes($ids['employee'], $ids['key']))->toBe([$ids['branch']])
         ->and(AccessSeed::permVersion($ids['employee']))->toBe($before + 1);
@@ -103,7 +124,7 @@ it('clears the deny at the all-branches scope and leaves the branch allow (AC-33
 it('clears the allow at the branch and leaves the all-branches deny (AC-33)', function () {
     $ids = clearPermissionWorld();
 
-    clearEmployeePermission($ids['employee'], $ids['key'], $ids['branch']);
+    clearEmployeePermission($ids['employee'], $ids['key'], $ids['branch'], $ids['owner']);
 
     expect(remainingPersonalScopes($ids['employee'], $ids['key']))->toBe([null]);
 });
@@ -111,13 +132,13 @@ it('clears the allow at the branch and leaves the all-branches deny (AC-33)', fu
 it('refuses to clear a row that is not there and bumps nothing (AC-33)', function () {
     $ids = clearPermissionWorld();
 
-    clearEmployeePermission($ids['employee'], $ids['key']);
+    clearEmployeePermission($ids['employee'], $ids['key'], null, $ids['owner']);
 
     $before = AccessSeed::permVersion($ids['employee']);
 
     AccessRefusals::expect(
         RefusalReason::Validation,
-        fn () => clearEmployeePermission($ids['employee'], $ids['key'])
+        fn () => clearEmployeePermission($ids['employee'], $ids['key'], null, $ids['owner'])
     );
 
     expect(remainingPersonalScopes($ids['employee'], $ids['key']))->toBe([$ids['branch']])
@@ -129,8 +150,91 @@ it('refuses an unregistered key the same way an absent row is refused (AC-33)', 
 
     AccessRefusals::expect(
         RefusalReason::Validation,
-        fn () => clearEmployeePermission($ids['employee'], 'fixture.never_declared')
+        fn () => clearEmployeePermission($ids['employee'], 'fixture.never_declared', null, $ids['owner'])
     );
 
     expect(remainingPersonalScopes($ids['employee'], $ids['key']))->toBe([null, $ids['branch']]);
+});
+
+it('refuses an actor lacking K clearing a deny of K, and lets the owner (AC-33 control 1, D-37)', function () {
+    $ids = clearPermissionWorld();
+    $before = AccessSeed::permVersion($ids['employee']);
+    $audits = clearAuditRows();
+
+    AccessRefusals::expect(
+        RefusalReason::NoEscalation,
+        fn () => clearEmployeePermission($ids['employee'], $ids['key'], null, $ids['lesser'])
+    );
+
+    expect(remainingPersonalScopes($ids['employee'], $ids['key']))->toBe([null, $ids['branch']])
+        ->and(AccessSeed::permVersion($ids['employee']))->toBe($before)
+        ->and(clearAuditRows())->toBe($audits);
+
+    clearEmployeePermission($ids['employee'], $ids['key'], null, $ids['owner']);
+
+    expect(remainingPersonalScopes($ids['employee'], $ids['key']))->toBe([$ids['branch']])
+        ->and(AccessSeed::permVersion($ids['employee']))->toBe($before + 1)
+        ->and(clearAuditRows())->toBe($audits + 1);
+});
+
+it('refuses a null actor clearing a deny as actor_required, with the same effects (AC-33 control 2, D-36, D-37)', function () {
+    $ids = clearPermissionWorld();
+    $before = AccessSeed::permVersion($ids['employee']);
+    $audits = clearAuditRows();
+
+    AccessRefusals::expect(
+        RefusalReason::ActorRequired,
+        fn () => clearEmployeePermission($ids['employee'], $ids['key'], null, null)
+    );
+
+    expect(remainingPersonalScopes($ids['employee'], $ids['key']))->toBe([null, $ids['branch']])
+        ->and(AccessSeed::permVersion($ids['employee']))->toBe($before)
+        ->and(clearAuditRows())->toBe($audits);
+});
+
+it('lets an actor lacking K clear an allow of K, with the bump (AC-33 control 3, D-37)', function () {
+    $ids = clearPermissionWorld();
+    $before = AccessSeed::permVersion($ids['employee']);
+
+    clearEmployeePermission($ids['employee'], $ids['key'], $ids['branch'], $ids['lesser']);
+
+    expect(remainingPersonalScopes($ids['employee'], $ids['key']))->toBe([null])
+        ->and(AccessSeed::permVersion($ids['employee']))->toBe($before + 1);
+});
+
+it('answers clearing a deny exactly as replacing it with an allow, for both actors (AC-33 control 4, D-37)', function () {
+    $ids = clearPermissionWorld();
+
+    // A second employee in the same state, so each route starts from it.
+    $twin = AccessSeed::employee('twin');
+    AccessSeed::personal($twin, $ids['key'], false);
+
+    /** @var SetEmployeePermissionHandler $set */
+    $set = app(SetEmployeePermissionHandler::class);
+
+    $outcomes = [];
+
+    foreach (['lesser', 'owner'] as $actor) {
+        $viaClear = null;
+        $viaAllow = null;
+
+        try {
+            clearEmployeePermission($ids['employee'], $ids['key'], null, $ids[$actor]);
+        } catch (AccessRefused $refused) {
+            $viaClear = $refused->reason;
+        }
+
+        try {
+            $set->handle(new SetEmployeePermission($twin, $ids['key'], true, null, $ids[$actor]));
+        } catch (AccessRefused $refused) {
+            $viaAllow = $refused->reason;
+        }
+
+        $outcomes[$actor] = [$viaClear, $viaAllow];
+    }
+
+    // Both routes agree for each actor, and the two actors are answered
+    // differently, so agreement is not two routes that always refuse.
+    expect($outcomes['lesser'])->toBe([RefusalReason::NoEscalation, RefusalReason::NoEscalation])
+        ->and($outcomes['owner'])->toBe([null, null]);
 });
