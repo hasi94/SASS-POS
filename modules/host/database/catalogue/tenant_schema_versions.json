@@ -115,7 +115,7 @@
         "version": 15,
         "migration": "2026_10_21_000401_add_updated_by_foreign_key_to_settings_table",
         "phase": "contract",
-        "checksum": "2793134afc26d1bfea3fd367aabb4406376d0116a4a9151fa5d66bdccfea06bc",
+        "checksum": "f5466682bfb1ff5f36f87e5f275a41bf411a7a07c4686975e44ad0b92c370b3d",
         "is_destructive": false,
         "requires_offline": false
     }

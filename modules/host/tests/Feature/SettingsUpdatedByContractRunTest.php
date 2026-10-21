@@ -340,6 +340,9 @@ it('issues the check and no statement that alters settings on a dirty tenant, an
 */
 
 it('takes the clean tenants to V, leaves the dirty one at V - 1, and retries it alone once cleaned (AC-19)', function () {
+    // "To V" means through V to the shipped tree's highest version: the run
+    // has no target, and a migration shipped after this one must not redden
+    // the case (D-16).
     $server = migrateFixtureServer();
     $a = contractRunTenant('tenant-a', $server);
     $b = contractRunTenant('tenant-b', $server, [contractRunSentinel()]);
@@ -350,8 +353,8 @@ it('takes the clean tenants to V, leaves the dirty one at V - 1, and retries it 
 
     expect($result->tenantIds())->toEqualCanonicalizing([$a, $b, $c])
         ->and((string) $run['status'])->toBe('completed_with_failures')
-        ->and((int) migrateFixtureMappingRow($a)['schema_version'])->toBe(contractRunV())
-        ->and((int) migrateFixtureMappingRow($c)['schema_version'])->toBe(contractRunV())
+        ->and((int) migrateFixtureMappingRow($a)['schema_version'])->toBe(contractRunSet()->highestVersion())
+        ->and((int) migrateFixtureMappingRow($c)['schema_version'])->toBe(contractRunSet()->highestVersion())
         ->and((int) migrateFixtureMappingRow($b)['schema_version'])->toBe(contractRunV() - 1);
 
     foreach (['tenant-a', 'tenant-c'] as $stem) {
@@ -384,7 +387,7 @@ it('takes the clean tenants to V, leaves the dirty one at V - 1, and retries it 
     $retried = contractRunExecute(runId: (string) $run['id'], retryFailed: true)['result'];
 
     expect($retried->tenantIds())->toBe([$b])
-        ->and((int) migrateFixtureMappingRow($b)['schema_version'])->toBe(contractRunV())
+        ->and((int) migrateFixtureMappingRow($b)['schema_version'])->toBe(contractRunSet()->highestVersion())
         ->and(contractRunSettingsKeys('tenant-b'))->toBe(['key -> settings_registry.key', 'updated_by -> employees.id'])
         ->and([
             'a' => [contractRunRows('tenant-a', 'migrations'), contractRunRows('tenant-a', 'settings')],

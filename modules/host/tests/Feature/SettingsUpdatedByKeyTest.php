@@ -315,7 +315,7 @@ afterEach(function () {
 |--------------------------------------------------------------------------
 */
 
-it('is the last file of the tree, a non-destructive contract step that only adds the key (AC-13)', function () {
+it('is one above the highest version before it, a non-destructive contract step that only adds the key (AC-13)', function () {
     $entry = settingsKeyEntry();
     $source = (string) file_get_contents(settingsKeyPath());
     $code = SourceRules::codeOnly($source);
@@ -323,12 +323,19 @@ it('is the last file of the tree, a non-destructive contract step that only adds
 
     preg_match_all('/Schema::(create|table|drop\w*|rename)\s*\(\s*\'([^\']+)\'/', $code, $blocks, PREG_SET_ORDER);
 
-    expect($entry->version)->toBe(count($catalogue))
+    // One above the highest version that existed before this file: the files
+    // that sort before it. Nothing here says it is the last file, so a later
+    // migration does not redden this case (D-16).
+    $before = array_values(array_filter(
+        $catalogue,
+        static fn (MigrationCatalogue $other): bool => strcmp($other->migration, settingsKeyMigration()) < 0
+    ));
+
+    expect($before)->not->toBe([])
+        ->and($entry->version)->toBe(max(array_map(static fn (MigrationCatalogue $other): int => $other->version, $before)) + 1)
         ->and($entry->phase->value)->toBe('contract')
         ->and($entry->isDestructive)->toBeFalse()
         ->and($entry->requiresOffline)->toBeFalse()
-        ->and(settingsKeyPath())->toBe(settingsKeyPaths()[count(settingsKeyPaths()) - 1])
-        ->and($entry->version)->toBe(count(settingsKeyPaths()))
         ->and(SourceRules::tablesCreatedIn($source))->toBe([])
         ->and(SourceRules::inspect($source, MigrationTree::Tenant))->toBe([])
         ->and(SourceRules::importsOutsideAllowedNamespaces($source))->toBe([])

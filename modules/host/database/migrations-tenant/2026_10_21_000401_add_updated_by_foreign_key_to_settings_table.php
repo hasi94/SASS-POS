@@ -22,7 +22,7 @@
  * one - to be run first, then the run that includes this file. No version
  * number is written here (D-6): it is this file's position in the tree.
  *
- * **The data-clean check runs first, and it is the guard.** It counts the
+ * **The data-clean check runs first.** It counts the
  * `settings` rows whose non-null `updated_by` matches no `employees.id`, and
  * refuses before anything is altered:
  *
@@ -31,7 +31,16 @@
  *   and no SQLite migration is wrapped in a transaction - so without this
  *   check, dirty rows would be carried silently into the keyed table, and a
  *   rebuild that failed halfway would leave it half-altered;
- * - on an engine, a session with foreign_key_checks off would do the same.
+ * - on MySQL and MariaDB with `foreign_key_checks = 1`, the ALTER re-checks
+ *   the existing rows itself and refuses dirty data; there the check is kept
+ *   for the clean, countable message and for one code path on every driver,
+ *   and it still catches a session with `foreign_key_checks` off. On the
+ *   stand-in it is the only guard (T-011 Ruling 7, measured).
+ *
+ * **Locking.** On an engine, adding the key copies the table and blocks writes
+ * to `settings` while it runs. That is acceptable because `settings` is a
+ * small configuration table, and it is why this file does not declare that
+ * it needs the shop offline.
  *
  * The comparison is exact (case matters), and a soft-deleted employee counts
  * as existing: the key refers to the row, not to whether it is live (D-8).

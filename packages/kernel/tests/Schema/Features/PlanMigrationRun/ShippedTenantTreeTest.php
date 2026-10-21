@@ -230,14 +230,22 @@ it('derives V from the shipped catalogue, and fails rather than skips when there
     $v = shippedTreeV();
     $shipped = runFixtureShippedSet();
 
+    // V is the highest CONTRACT step, not the highest version: a later expand
+    // migration must not move it or redden this case (D-16).
+    $laterContract = array_filter(
+        $shipped->catalogue(),
+        static fn ($entry): bool => $entry->version > $v && $entry->phase->value === 'contract'
+    );
+
     expect($shipped->entryFor($v)?->phase->value)->toBe('contract')
-        ->and($v)->toBe($shipped->highestVersion());
+        ->and($laterContract)->toBe([]);
 
     // Control: a tree of the shipped expand files only has nothing to measure,
     // and the failure branch fires on that answer.
-    shippedTreeUseScratch('expand-only', shippedTreeFiles(expandOnly: true));
+    $expandOnly = shippedTreeFiles(expandOnly: true);
+    shippedTreeUseScratch('expand-only', $expandOnly);
 
-    expect(runFixtureShippedSet()->highestVersion())->toBe($v - 1)
+    expect(runFixtureShippedSet()->highestVersion())->toBe(count($expandOnly))
         ->and(runFixtureContractVersion(runFixtureShippedSet()))->toBeNull()
         ->and(fn () => shippedTreeContractVersionOrFail(runFixtureContractVersion(runFixtureShippedSet())))
         ->toThrow(AssertionFailedError::class, 'the shipped-tree gate coverage has nothing to measure');
@@ -337,7 +345,7 @@ it('plans the shipped tree once the fleet is at V - 1, and a provisioning tenant
     expect($touched['thrown'])->toBeNull()
         ->and(runFixtureRunRows())->toHaveCount(1)
         ->and(array_values(array_unique(array_map(static fn (array $job): int => (int) $job['to_version'], runFixtureJobRows()))))
-        ->toBe([$v]);
+        ->toBe([$set->highestVersion()]);
 });
 
 it('refuses the second plan when the fleet was left below V - 1, as a lower remedy would leave it (AC-11 control)', function () {
@@ -407,15 +415,16 @@ it('runs the remedy the refusal prints with the shipped applier, then applies V 
             ->and(shippedTreeSettingsKeys($stem))->toBe(['key -> settings_registry.key']);
     }
 
-    // The second run: the plan to the top is now written, and V applies.
+    // The second run: the plan to the top is now written, and it applies V and
+    // whatever the shipped tree holds after it (D-16).
     expect(Artisan::call('tenant:migrate', ['--all' => true]))->toBe(0);
 
     foreach ($stems as $stem) {
-        expect((int) migrateFixtureMappingRow(migrateFixtureId($stem))['schema_version'])->toBe($v)
+        expect((int) migrateFixtureMappingRow(migrateFixtureId($stem))['schema_version'])->toBe($set->highestVersion())
             ->and(array_keys(migrateFixtureApplyLogOf($stem)))->toContain((string) $set->entryFor($v)?->migration)
             ->and(shippedTreeSettingsKeys($stem))->toBe(['key -> settings_registry.key', 'updated_by -> employees.id']);
     }
 
     expect(DB::connection('master')->table('tenant_migration_runs')->pluck('target_version')->map(fn ($t): int => (int) $t)->all())
-        ->toBe([$v - 1, $v]);
+        ->toBe([$v - 1, $set->highestVersion()]);
 });
