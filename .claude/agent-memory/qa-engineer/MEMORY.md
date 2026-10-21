@@ -9,3 +9,4 @@
 - [T-008 built but not wired](project_t008-built-but-not-wired.md) — classes unit-tested with no caller, status-vocabulary mismatch, PHPUnit env/$_SERVER hold trap, how to report a held [E] matrix.
 - [T-009 cross-cutting proofs](project_t009-auth-cross-cutting-proofs.md) — mutating prod via a phpunit bootstrap autoloader, sink-harness through real writers, Pest/router/logger traps, AC-22 reading.
 - [T-009 round 2 blind spots](project_t009-round2-ingress-and-pin-blind-spots.md) — ingress is not a sink, select-star evades column-keyed pins, QA files must pass Stan/Pint.
+- [T-010 mutation survivors and harness](project_t010-mutation-survivors-and-harness.md) — nine kinds of mutant that survived a green suite, the python mutation driver, never overlap gate runs.
