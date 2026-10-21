@@ -11,6 +11,15 @@ Branch `ai/T-011-planner-fixture-baseline`, tip `b1f5350`. Spec `docs/specs/T-01
 
 IP independently proven (stand-in, fails if absent); CORR corroborating; READ read or diff only; NV not verified. Dev-owned tests cited by title; "QA mutant" only where I mutated.
 
+## Run 2 (review round 1, W-1: commits 75c1503, 3753c28)
+
+**Verdict: PASS (verifiable part), unchanged. 0 defects.** D-16 amended AC-9 to AC-13 to state only what survives the next migration; dev fixed its three files.
+
+- My `QaSettingsUpdatedByEdgeTest` assumed the new migration is the tree's last file (it took the last catalogue entry and applied the last path). Fixed: the entry is found by name (`qaEdgeEntry()`, as `SettingsUpdatedByKeyTest::settingsKeyEntry()` does), the stand-in boots the paths below its version, and its own path is applied.
+- Plant proof: a temporary later expand migration in the real tree. Fixed file: 3 passed. Committed form: 3 failed. Plant removed, tree back to 15 tenant migrations, fixed file 3 passed again. Pint passed and PHPStan no errors on the file.
+- The migration's docblock changed, so its catalogue checksum was republished (now `f5466682...370b3d`). Recomputed independently over all 15 files: 0 mismatches against the committed catalogue.
+- Not run: `composer check` (the lead runs the final gate). The Run 1 gate figures describe the earlier tree.
+
 ## Acceptance criteria coverage
 
 | AC | Test(s) | Control / mutant | Grade |
@@ -113,4 +122,4 @@ Foreign `php.exe` processes by pid before the run (none mine), still three after
 
 Load control `QaRealApplierOnStandInTest` (unchanged by this task apart from E2/E3): **5.68 s** in the gate against its 4.07 s quiet baseline, so the machine was about 1.4x loaded. The ratio is above the 2.0 floor, so nothing is counted against the tree and no escalation arises from this figure; the tree's own ratio would be no lower than reported.
 
-History: Run 1: PASS (verifiable part), 0 defects.
+History: Run 1: PASS (verifiable part), 0 defects. Run 2: PASS -> PASS (review W-1: edge test no longer assumes the migration is last; checksum republished and rechecked).

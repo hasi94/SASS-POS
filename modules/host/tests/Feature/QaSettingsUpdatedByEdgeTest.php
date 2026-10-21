@@ -22,12 +22,26 @@ use Illuminate\Support\Facades\DB;
 | - a refused run leaves nothing that changes the second answer, and the file
 |   then applies once the data is clean (AC-17's retry, at migration level).
 |
-| The subject is the LAST file of the shipped tenant tree (AC-13 pins that it
-| is the highest-versioned); no version and no name is written here. Each case
+| The subject is found by name in the shipped tenant tree; it need not be the
+| last file, later migrations may follow it. Its version V is its position. Each case
 | builds a private in-memory SQLite stand-in with files 1 to V - 1 applied in
 | one migrate call. The tenant stanza leaves foreign-key enforcement off and
 | so do these cases: the pre-check is the guard there (Ruling 7).
 */
+
+/**
+ * The migration this file is about, found by name: later migrations may follow it.
+ */
+function qaEdgeEntry(): MigrationCatalogue
+{
+    foreach (MigrationCatalogue::forTree(migrationTreeDirectory(MigrationTree::Tenant)) as $entry) {
+        if ($entry->migration === '2026_10_21_000401_add_updated_by_foreign_key_to_settings_table') {
+            return $entry;
+        }
+    }
+
+    throw new RuntimeException('The shipped tenant tree does not hold the settings.updated_by migration.');
+}
 
 function qaEdgeConnection(): string
 {
@@ -61,12 +75,10 @@ function qaEdgeBoot(): void
         'prefix' => '',
     ]);
 
-    $entries = MigrationCatalogue::forTree(migrationTreeDirectory(MigrationTree::Tenant));
-
-    expect(end($entries)->phase->value)->toBe('contract')
+    expect(qaEdgeEntry()->phase->value)->toBe('contract')
         ->and(Artisan::call('migrate', [
             '--database' => qaEdgeConnection(),
-            '--path' => array_slice(qaEdgePaths(), 0, count($entries) - 1),
+            '--path' => array_slice(qaEdgePaths(), 0, qaEdgeEntry()->version - 1),
             '--realpath' => true,
             '--force' => true,
         ]))->toBe(0);
@@ -77,12 +89,10 @@ function qaEdgeBoot(): void
  */
 function qaEdgeApplyLast(): ?Throwable
 {
-    $paths = qaEdgePaths();
-
     try {
         Artisan::call('migrate', [
             '--database' => qaEdgeConnection(),
-            '--path' => $paths[count($paths) - 1],
+            '--path' => qaEdgePaths()[qaEdgeEntry()->version - 1],
             '--realpath' => true,
             '--force' => true,
         ]);
@@ -238,8 +248,7 @@ it('gives the same answer on a second refused run, then applies once the data is
     qaEdgeAddSetting('CLEAN', null, qaEdgeId('EMPLIVE'));
     qaEdgeAddSetting('DIRTY', qaEdgeId('BRANCHA'), qaEdgeId('NOBODY'));
 
-    $entries = MigrationCatalogue::forTree(migrationTreeDirectory(MigrationTree::Tenant));
-    $last = end($entries)->migration;
+    $last = qaEdgeEntry()->migration;
 
     $first = qaEdgeApplyLast();
     $second = qaEdgeApplyLast();
