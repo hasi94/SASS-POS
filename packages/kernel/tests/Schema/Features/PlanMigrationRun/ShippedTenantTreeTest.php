@@ -84,6 +84,34 @@ function shippedTreeV(): int
 }
 
 /**
+ * Every contract-phase version of the shipped catalogue, ascending.
+ *
+ * @return list<int>
+ */
+function shippedTreeContractVersions(): array
+{
+    $versions = [];
+
+    foreach (runFixtureShippedSet()->catalogue() as $entry) {
+        if ($entry->phase->value === 'contract') {
+            $versions[] = $entry->version;
+        }
+    }
+
+    return $versions;
+}
+
+/**
+ * The LOWEST contract step of the shipped catalogue. The guard walks the set
+ * ascending, so a fleet at 0 is refused on this one, and the remedy it prints
+ * stops just below it. It is V only while V is the only contract step.
+ */
+function shippedTreeFirstContract(): int
+{
+    return shippedTreeContractVersionOrFail(shippedTreeContractVersions()[0] ?? null);
+}
+
+/**
  * Build a scratch tree from the given files and point the configuration at
  * it. The value stays relative, which is the form the key takes.
  *
@@ -290,8 +318,8 @@ it('builds every runFixtureSet catalogue identically whatever the shipped tree h
 |--------------------------------------------------------------------------
 */
 
-it('refuses FX-1 composed on the shipped tree for a fleet at 0, naming V (AC-5 control a)', function () {
-    $v = shippedTreeV();
+it('refuses FX-1 composed on the shipped tree for a fleet at 0, naming its first contract step (AC-5 control a)', function () {
+    $first = shippedTreeFirstContract();
     $set = runFixtureShippedSet()->with('fx1', base_path('tests/Fixtures/TenantMigrations/FX1'));
     runFixturePublish($set);
 
@@ -301,15 +329,16 @@ it('refuses FX-1 composed on the shipped tree for a fleet at 0, naming V (AC-5 c
     $touched = shippedTreePlan($set);
 
     expect($touched['thrown'])->toBeInstanceOf(MigrationRunRefused::class)
-        ->and((string) $touched['thrown']?->getMessage())->toContain('(version '.$v.')')
-        ->and((string) $touched['thrown']?->getMessage())->toContain((string) $set->entryFor($v)?->migration)
+        ->and((string) $touched['thrown']?->getMessage())->toContain('(version '.$first.')')
+        ->and((string) $touched['thrown']?->getMessage())->toContain((string) $set->entryFor($first)?->migration)
         ->and((string) $touched['thrown']?->getMessage())->toContain($tenant)
         ->and(runFixtureJobRows())->toBe([])
         ->and(runFixtureRunRows())->toBe([]);
 });
 
-it('refuses the shipped tree for a fleet at 0, naming the step, V and every blocking tenant, and touches nothing (AC-10)', function () {
-    $v = shippedTreeV();
+it('refuses the shipped tree for a fleet at 0, naming its first contract step and every blocking tenant, and touches nothing (AC-10)', function () {
+    // The lowest contract step: the guard walks the set ascending (D-16).
+    $first = shippedTreeFirstContract();
     $set = runFixtureShippedSet();
     runFixturePublish($set);
 
@@ -321,7 +350,7 @@ it('refuses the shipped tree for a fleet at 0, naming the step, V and every bloc
     $message = (string) $touched['thrown']?->getMessage();
 
     expect($touched['thrown'])->toBeInstanceOf(MigrationRunRefused::class)
-        ->and($message)->toContain('['.$set->entryFor($v)?->migration.'] (version '.$v.')')
+        ->and($message)->toContain('['.$set->entryFor($first)?->migration.'] (version '.$first.')')
         ->and($message)->toContain($one)
         ->and($message)->toContain($two)
         ->and(runFixtureJobRows())->toBe([])
@@ -384,18 +413,44 @@ it('runs the remedy the refusal prints with the shipped applier, then applies V 
         migrateFixtureTenant($stem, $server, ['size_bytes' => 1024 * ($index + 1)]);
     }
 
-    $refused = shippedTreePlan($set)['thrown'];
+    // Plan to the top; while it is refused, take the remedy from the refusal
+    // (never retyped), run it, and plan again. One remedy per contract step:
+    // the first stops below the lowest, the last below V (D-16).
+    $contracts = shippedTreeContractVersions();
+    $remedies = [];
+    $planned = null;
 
-    expect($refused)->toBeInstanceOf(MigrationRunRefused::class);
+    foreach (range(0, count($contracts)) as $round) {
+        $touched = shippedTreePlan($set);
 
-    // The remedy, taken from the message and never retyped.
-    $remedy = shippedTreeInvocationIn((string) $refused?->getMessage());
+        if ($touched['thrown'] === null) {
+            $planned = $touched['result'];
 
-    expect($remedy)->toBe(['--all' => true, '--to' => (string) ($v - 1)]);
+            break;
+        }
 
-    // Without runFixtureCommandsReadTheFixtureBaseline(): the command reads the
-    // shipped tree, which is the subject here.
-    expect(Artisan::call('tenant:migrate', $remedy))->toBe(0);
+        expect($touched['thrown'])->toBeInstanceOf(MigrationRunRefused::class);
+
+        $remedy = shippedTreeInvocationIn((string) $touched['thrown']->getMessage());
+
+        expect($remedy)->toHaveKey('--all')
+            ->and($remedy)->toHaveKey('--to');
+
+        $remedies[] = (int) $remedy['--to'];
+
+        // Without runFixtureCommandsReadTheFixtureBaseline(): the command reads
+        // the shipped tree, which is the subject here.
+        expect(Artisan::call('tenant:migrate', $remedy))->toBe(0);
+
+        foreach ($stems as $stem) {
+            expect((int) migrateFixtureMappingRow(migrateFixtureId($stem))['schema_version'])->toBe((int) $remedy['--to']);
+        }
+    }
+
+    expect($planned)->not->toBeNull()
+        ->and($remedies)->toBe(array_map(static fn (int $contract): int => $contract - 1, $contracts))
+        ->and($remedies[0])->toBe(shippedTreeFirstContract() - 1)
+        ->and($remedies[count($remedies) - 1])->toBe($v - 1);
 
     $tablesUpToV = ['migrations'];
 
@@ -411,20 +466,19 @@ it('runs the remedy the refusal prints with the shipped applier, then applies V 
         expect((int) migrateFixtureMappingRow(migrateFixtureId($stem))['schema_version'])->toBe($v - 1)
             ->and(shippedTreeTenantTables($stem))->toBe($tablesUpToV)
             ->and(array_keys(migrateFixtureApplyLogOf($stem)))->toHaveCount($v - 1)
-            ->and(array_keys(migrateFixtureApplyLogOf($stem)))->not->toContain((string) $set->entryFor($v)?->migration)
-            ->and(shippedTreeSettingsKeys($stem))->toBe(['key -> settings_registry.key']);
+            ->and(array_keys(migrateFixtureApplyLogOf($stem)))->not->toContain((string) $set->entryFor($v)?->migration);
     }
 
-    // The second run: the plan to the top is now written, and it applies V and
-    // whatever the shipped tree holds after it (D-16).
-    expect(Artisan::call('tenant:migrate', ['--all' => true]))->toBe(0);
+    // The plan to the top is now written: run it. It applies V and whatever
+    // the shipped tree holds after it (D-16).
+    expect(Artisan::call('tenant:migrate', ['--run' => (string) $planned?->runId]))->toBe(0);
 
     foreach ($stems as $stem) {
         expect((int) migrateFixtureMappingRow(migrateFixtureId($stem))['schema_version'])->toBe($set->highestVersion())
             ->and(array_keys(migrateFixtureApplyLogOf($stem)))->toContain((string) $set->entryFor($v)?->migration)
-            ->and(shippedTreeSettingsKeys($stem))->toBe(['key -> settings_registry.key', 'updated_by -> employees.id']);
+            ->and(shippedTreeSettingsKeys($stem))->toContain('updated_by -> employees.id');
     }
 
     expect(DB::connection('master')->table('tenant_migration_runs')->pluck('target_version')->map(fn ($t): int => (int) $t)->all())
-        ->toBe([$v - 1, $set->highestVersion()]);
+        ->toBe([...$remedies, $set->highestVersion()]);
 });

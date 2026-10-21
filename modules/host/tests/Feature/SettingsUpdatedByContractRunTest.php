@@ -170,6 +170,11 @@ function contractRunSettingsKeys(string $stem): array
  * Run through the handler, recording every statement issued on the tenant
  * connection.
  *
+ * A new run targets V explicitly. The subject is this migration's failure
+ * isolation, and a later contract step in the shipped tree would otherwise
+ * refuse a run to the top from a fleet at V - 1 before this migration ran at
+ * all (D-16). A resumed run keeps the target it was planned with.
+ *
  * @param  list<string>|null  $tenantIds
  * @return array{result: RunTenantMigrationsResult, tenantSql: list<string>}
  */
@@ -187,6 +192,7 @@ function contractRunExecute(?array $tenantIds = null, ?string $runId = null, boo
         $result = app(RunTenantMigrationsHandler::class)->handle(new RunTenantMigrations(
             set: contractRunSet(),
             tenantIds: $tenantIds,
+            targetVersion: $runId === null ? contractRunV() : null,
             runId: $runId,
             retryFailed: $retryFailed,
             workerId: 'contract-run-worker',
@@ -282,7 +288,7 @@ it('prints the count and no value in the command output, two dirty rows giving 2
     // slot.
     $buffer = new BufferedOutput;
 
-    expect(Artisan::call('tenant:migrate', ['--tenant' => [$dirty]], $buffer))->toBe(1);
+    expect(Artisan::call('tenant:migrate', ['--tenant' => [$dirty], '--to' => (string) contractRunV()], $buffer))->toBe(1);
 
     $output = $buffer->fetch();
 
@@ -340,9 +346,6 @@ it('issues the check and no statement that alters settings on a dirty tenant, an
 */
 
 it('takes the clean tenants to V, leaves the dirty one at V - 1, and retries it alone once cleaned (AC-19)', function () {
-    // "To V" means through V to the shipped tree's highest version: the run
-    // has no target, and a migration shipped after this one must not redden
-    // the case (D-16).
     $server = migrateFixtureServer();
     $a = contractRunTenant('tenant-a', $server);
     $b = contractRunTenant('tenant-b', $server, [contractRunSentinel()]);
@@ -353,8 +356,8 @@ it('takes the clean tenants to V, leaves the dirty one at V - 1, and retries it 
 
     expect($result->tenantIds())->toEqualCanonicalizing([$a, $b, $c])
         ->and((string) $run['status'])->toBe('completed_with_failures')
-        ->and((int) migrateFixtureMappingRow($a)['schema_version'])->toBe(contractRunSet()->highestVersion())
-        ->and((int) migrateFixtureMappingRow($c)['schema_version'])->toBe(contractRunSet()->highestVersion())
+        ->and((int) migrateFixtureMappingRow($a)['schema_version'])->toBe(contractRunV())
+        ->and((int) migrateFixtureMappingRow($c)['schema_version'])->toBe(contractRunV())
         ->and((int) migrateFixtureMappingRow($b)['schema_version'])->toBe(contractRunV() - 1);
 
     foreach (['tenant-a', 'tenant-c'] as $stem) {
@@ -387,7 +390,7 @@ it('takes the clean tenants to V, leaves the dirty one at V - 1, and retries it 
     $retried = contractRunExecute(runId: (string) $run['id'], retryFailed: true)['result'];
 
     expect($retried->tenantIds())->toBe([$b])
-        ->and((int) migrateFixtureMappingRow($b)['schema_version'])->toBe(contractRunSet()->highestVersion())
+        ->and((int) migrateFixtureMappingRow($b)['schema_version'])->toBe(contractRunV())
         ->and(contractRunSettingsKeys('tenant-b'))->toBe(['key -> settings_registry.key', 'updated_by -> employees.id'])
         ->and([
             'a' => [contractRunRows('tenant-a', 'migrations'), contractRunRows('tenant-a', 'settings')],

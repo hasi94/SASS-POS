@@ -37,10 +37,10 @@
  *   and it still catches a session with `foreign_key_checks` off. On the
  *   stand-in it is the only guard (T-011 Ruling 7, measured).
  *
- * **Locking.** On an engine, adding the key copies the table and blocks writes
- * to `settings` while it runs. That is acceptable because `settings` is a
- * small configuration table, and it is why this file does not declare that
- * it needs the shop offline.
+ * **Locking.** On an engine with `foreign_key_checks` on, adding the key copies
+ * the table and blocks writes to `settings` while it runs. That is acceptable
+ * because `settings` is a small configuration table, and it is why this file
+ * does not declare that it needs the shop offline.
  *
  * The comparison is exact (case matters), and a soft-deleted employee counts
  * as existing: the key refers to the row, not to whether it is live (D-8).
