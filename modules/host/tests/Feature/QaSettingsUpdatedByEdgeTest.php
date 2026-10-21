@@ -63,7 +63,7 @@ function qaEdgePaths(): array
 }
 
 /**
- * Boot a stand-in at V - 1, where V is the tree's last file.
+ * Boot a stand-in at V - 1, where V is the settings key's version.
  */
 function qaEdgeBoot(): void
 {
@@ -85,9 +85,9 @@ function qaEdgeBoot(): void
 }
 
 /**
- * Apply the last file, returning what it threw or null.
+ * Apply V's file, returning what it threw or null.
  */
-function qaEdgeApplyLast(): ?Throwable
+function qaEdgeApplyV(): ?Throwable
 {
     try {
         Artisan::call('migrate', [
@@ -213,7 +213,7 @@ it('keeps every column definition and every index of settings, and leaves employ
         ->and(count($before['indexes']))->toBeGreaterThanOrEqual(1)
         ->and(array_column($before['columns'], 'name'))->toContain('scope_id_key');
 
-    expect(qaEdgeApplyLast())->toBeNull()
+    expect(qaEdgeApplyV())->toBeNull()
         ->and(qaEdgeShape('settings'))->toBe($before)
         ->and(['shape' => qaEdgeShape('employees'), 'rows' => qaEdgeRows('employees')])->toBe($employees);
 });
@@ -234,7 +234,7 @@ it('counts rows rather than distinct ids, and counts an empty string and a blank
     qaEdgeAddSetting('DIRTYBLANK', qaEdgeId('BRANCHF'), ' ');
 
     $rows = qaEdgeRows('settings');
-    $thrown = qaEdgeApplyLast();
+    $thrown = qaEdgeApplyV();
 
     expect($thrown)->toBeInstanceOf(RuntimeException::class)
         ->and((string) $thrown?->getMessage())->toContain('4 row(s)')
@@ -248,20 +248,20 @@ it('gives the same answer on a second refused run, then applies once the data is
     qaEdgeAddSetting('CLEAN', null, qaEdgeId('EMPLIVE'));
     qaEdgeAddSetting('DIRTY', qaEdgeId('BRANCHA'), qaEdgeId('NOBODY'));
 
-    $last = qaEdgeEntry()->migration;
+    $subject = qaEdgeEntry()->migration;
 
-    $first = qaEdgeApplyLast();
-    $second = qaEdgeApplyLast();
+    $first = qaEdgeApplyV();
+    $second = qaEdgeApplyV();
 
     expect($first)->toBeInstanceOf(RuntimeException::class)
         ->and((string) $second?->getMessage())->toBe((string) $first?->getMessage())
-        ->and(DB::connection(qaEdgeConnection())->table('migrations')->where('migration', $last)->count())->toBe(0);
+        ->and(DB::connection(qaEdgeConnection())->table('migrations')->where('migration', $subject)->count())->toBe(0);
 
     DB::connection(qaEdgeConnection())->table('settings')->where('id', qaEdgeId('DIRTY'))->update(['updated_by' => qaEdgeId('EMPLIVE')]);
 
     $rows = qaEdgeRows('settings');
 
-    expect(qaEdgeApplyLast())->toBeNull()
-        ->and(DB::connection(qaEdgeConnection())->table('migrations')->where('migration', $last)->count())->toBe(1)
+    expect(qaEdgeApplyV())->toBeNull()
+        ->and(DB::connection(qaEdgeConnection())->table('migrations')->where('migration', $subject)->count())->toBe(1)
         ->and(qaEdgeRows('settings'))->toBe($rows);
 });

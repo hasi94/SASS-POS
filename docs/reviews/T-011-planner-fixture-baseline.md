@@ -64,3 +64,34 @@ None.
   - `dev` fixes `SettingsUpdatedByKeyTest` and `ShippedTenantTreeTest`, plus S-1, S-2 and S-4.
   - `qa` fixes its own `QaSettingsUpdatedByEdgeTest`.
 - **S-3 is left as is:** the printed evidence is the house style for sweeps (D-27).
+
+---
+
+# Code Review: T-011, rounds 2 and 3
+
+## Round 2 (W-1, S-1, S-2, S-4): APPROVE, with W-1b opened
+
+- **W-1 is fixed for a later expand migration.** No test asserts the file is last or has the highest version, and a plant proof was run in both directions.
+- **W-1b, new:** several tests still assumed this is the shipped tree's **only contract step**.
+  - The planner refuses on the lowest blocked contract step, while the tests followed the highest.
+  - FP-209's owed branch keys are contract steps, so they would turn AC-5(a), AC-10, AC-11 and AC-19 red.
+  - AC-10's amended text already said "the lowest-versioned one when there are several".
+- **S-1:** the docblock wording is accurate. With `foreign_key_checks` on, the `ALTER` re-checks rows on an engine.
+- **S-2a (nit):** the table copy happens only with checks on.
+- **S-5:** "last" wording remained in qa's edge test.
+
+## Round 3 (W-1b, S-2a, S-5): APPROVE
+
+- **No "only contract step" or "last file" assumption remains**, checked by grep over the four T-011 test files. The only hits are comments explaining the change.
+- **AC-5(a) and AC-10** name `shippedTreeFirstContract()`.
+- **AC-11 loops over the remedies and is bounded** to one round more than there are contract steps. Every round asserts progress, and a plan refused forever goes red.
+- **`SettingsUpdatedByContractRunTest` targets V explicitly**, so a later contract step cannot refuse its plan.
+- **Proofs:**
+  - dev's contract plant (a branch key onto `number_sequences`): fixed forms 25 green, committed forms 7 red;
+  - the expand plant: green;
+  - qa's edge test under the contract plant: 3/3.
+- **S-2a and S-5 are resolved.**
+
+## Final gate (lead, alone, on the tree these rounds approved)
+
+`composer check` exit 0. Pint, PHPStan and Deptrac are clean. 1590 passed, 11 skipped, 10331 assertions. Test step 356.94 s of 900 s, ratio 2.52, with three slow-group test runs from other projects running alongside it.
