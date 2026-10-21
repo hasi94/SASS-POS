@@ -13,6 +13,7 @@ use Flexipos\Access\Tests\Support\AccessRefusals;
 use Flexipos\Access\Tests\Support\AccessSeed;
 use Flexipos\Access\Tests\Support\AccessTenantFixture;
 use Flexipos\Contracts\Access\RefusalReason;
+use Illuminate\Database\Events\QueryExecuted;
 use Tests\TestCase;
 
 /*
@@ -237,4 +238,57 @@ it('answers clearing a deny exactly as replacing it with an allow, for both acto
     // differently, so agreement is not two routes that always refuse.
     expect($outcomes['lesser'])->toBe([RefusalReason::NoEscalation, RefusalReason::NoEscalation])
         ->and($outcomes['owner'])->toBe([null, null]);
+});
+
+it('deletes only the row it judged, so an allow swapped for a deny mid-way is not lifted unchecked (D-37, review W-6)', function () {
+    $ids = clearPermissionWorld();
+    $connection = AccessSeed::connection();
+    $before = AccessSeed::permVersion($ids['employee']);
+    $audits = clearAuditRows();
+
+    // The swap another administrator would make, played between the
+    // handler's judging read and its delete: the moment the read of
+    // `employee_permissions` has run, the branch allow becomes a deny.
+    // It runs inside the handler's transaction, so the refusal's rollback
+    // also undoes it; what is asserted is what the delete did meanwhile.
+    $flipped = false;
+    $deletes = [];
+
+    $connection->listen(function (QueryExecuted $query) use ($connection, $ids, &$flipped, &$deletes): void {
+        $sql = strtolower($query->sql);
+
+        if (str_starts_with($sql, 'delete') && str_contains($sql, 'employee_permissions')) {
+            $deletes[] = $query->sql;
+        }
+
+        if ($flipped || ! str_starts_with($sql, 'select') || ! str_contains($sql, '"allowed" from "employee_permissions"')) {
+            return;
+        }
+
+        $flipped = true;
+
+        $connection->table('employee_permissions')
+            ->where('employee_id', $ids['employee'])
+            ->where('permission_key', $ids['key'])
+            ->where('branch_id', $ids['branch'])
+            ->update(['allowed' => false]);
+    });
+
+    // The lesser actor lacks K: clearing the allow passes D-37, clearing the
+    // deny it has become would not. The judged row is gone, so: validation.
+    AccessRefusals::expect(
+        RefusalReason::Validation,
+        fn () => clearEmployeePermission($ids['employee'], $ids['key'], $ids['branch'], $ids['lesser'])
+    );
+
+    fwrite(STDOUT, "\nW-6 delete statements:\n".implode("\n", $deletes)."\n");
+
+    // Liveness: the swap happened, and the delete ran after it.
+    expect($flipped)->toBeTrue()
+        ->and($deletes)->toHaveCount(1)
+        ->and(strtolower($deletes[0]))->toContain('"allowed" = ?')
+        // Nothing changed: both rows as seeded, no bump, no audit row.
+        ->and(remainingPersonalScopes($ids['employee'], $ids['key']))->toBe([null, $ids['branch']])
+        ->and(AccessSeed::permVersion($ids['employee']))->toBe($before)
+        ->and(clearAuditRows())->toBe($audits);
 });

@@ -78,10 +78,17 @@ final class ClearEmployeePermissionHandler
                 $this->escalation->requireHeld($command->actorId, $key, $branchId);
             }
 
-            $deleted = BranchScope::at(
+            // Delete only the row that was judged (review W-6). The read
+            // above is a plain read, so another administrator may swap an
+            // allow for a deny before this runs; matching the flag judged
+            // makes that row delete nothing and meet the refusal below,
+            // rather than lifting a deny nobody checked. No row judged means
+            // nothing is deleted, not whatever row has appeared since.
+            $deleted = $allowed === null ? 0 : BranchScope::at(
                 $connection->table('employee_permissions')
                     ->where('employee_id', $command->employeeId)
-                    ->where('permission_key', $key),
+                    ->where('permission_key', $key)
+                    ->where('allowed', (bool) $allowed),
                 $branchId
             )->delete();
 
