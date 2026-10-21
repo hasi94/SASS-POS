@@ -80,18 +80,18 @@ it('mirrors the applied version, stamps the time, clears the previous error and 
         'last_migration_error' => 'the previous run failed here',
     ]);
 
-    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), tenantMigrationFileCount());
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), runFixtureBaselineVersion());
 
     $result = migrateAs($job, 'worker-one');
 
     expect($result->succeeded)->toBeTrue()
-        ->and($result->applied)->toHaveCount(tenantMigrationFileCount())
-        ->and($result->schemaVersion)->toBe(tenantMigrationFileCount())
+        ->and($result->applied)->toHaveCount(runFixtureBaselineVersion())
+        ->and($result->schemaVersion)->toBe(runFixtureBaselineVersion())
         ->and($result->claimRetained)->toBeTrue();
 
     $mapping = migrateFixtureMappingRow($tenant);
 
-    expect((int) $mapping['schema_version'])->toBe(tenantMigrationFileCount())
+    expect((int) $mapping['schema_version'])->toBe(runFixtureBaselineVersion())
         ->and($mapping['last_migrated_at'])->toBe('2026-10-15 09:00:00.000')
         ->and($mapping['last_migration_error'])->toBeNull()
         // Not touched: this plan is not offline, so the tenant served
@@ -102,7 +102,7 @@ it('mirrors the applied version, stamps the time, clears the previous error and 
 
     expect((string) $row['status'])->toBe('done')
         ->and((int) $row['from_version'])->toBe(0)
-        ->and((int) $row['to_version'])->toBe(tenantMigrationFileCount())
+        ->and((int) $row['to_version'])->toBe(runFixtureBaselineVersion())
         ->and($row['duration_ms'])->not->toBeNull()
         ->and($row['finished_at'])->toBe('2026-10-15 09:00:00.000')
         ->and($row['error_class'])->toBeNull();
@@ -110,7 +110,7 @@ it('mirrors the applied version, stamps the time, clears the previous error and 
 
 it('mirrors the version the tenant carries, not the version the job asked for', function () {
     $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'));
-    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), tenantMigrationFileCount());
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), runFixtureBaselineVersion());
 
     // The migrator applies four of the six and returns **successfully** - the
     // shape of a partially applied tree. A handler that wrote the job's target
@@ -134,7 +134,7 @@ it('mirrors the version the tenant carries, not the version the job asked for', 
 
 it('completes the job with one statement whose where re-checks the status and the holder', function () {
     $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'));
-    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), tenantMigrationFileCount());
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), runFixtureBaselineVersion());
 
     $touched = runFixtureConnectionsUsedBy(static fn () => migrateAs($job, 'worker-one'));
 
@@ -166,7 +166,7 @@ it('writes no job row when the lease expired and another worker took the job ove
     // above is the only evidence, and a reader could believe the terms are
     // decoration.
     $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'));
-    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), tenantMigrationFileCount());
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), runFixtureBaselineVersion());
 
     $first = runFixtureSet()->catalogue()[0]->migration;
 
@@ -200,12 +200,12 @@ it('writes no job row when the lease expired and another worker took the job ove
     // The mirror is still written: the database really did change, and hiding
     // that because of a bookkeeping race would leave the mapping claiming a
     // version the tenant has passed.
-    expect((int) migrateFixtureMappingRow($tenant)['schema_version'])->toBe(tenantMigrationFileCount());
+    expect((int) migrateFixtureMappingRow($tenant)['schema_version'])->toBe(runFixtureBaselineVersion());
 });
 
 it('refuses a job this worker does not hold', function () {
     $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'));
-    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), tenantMigrationFileCount());
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), runFixtureBaselineVersion());
 
     expect(fn () => migrateAs($job, 'worker-two'))
         ->toThrow(TenantMigrationFailed::class, 'is not held as [running] by the worker [worker-two]');
@@ -222,7 +222,7 @@ it('refuses a job this worker does not hold', function () {
 
 it('shows migrating from inside an offline plan and active again afterwards', function () {
     $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'));
-    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), tenantMigrationFileCount() + 1);
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), runFixtureBaselineVersion() + 1);
 
     $seen = [];
 
@@ -240,7 +240,7 @@ it('shows migrating from inside an offline plan and active again afterwards', fu
     expect($result->succeeded)->toBeTrue()
         ->and(array_unique($seen))->toBe(['migrating'])
         ->and((string) migrateFixtureMappingRow($tenant)['status'])->toBe('active')
-        ->and((int) migrateFixtureMappingRow($tenant)['schema_version'])->toBe(tenantMigrationFileCount() + 1);
+        ->and((int) migrateFixtureMappingRow($tenant)['schema_version'])->toBe(runFixtureBaselineVersion() + 1);
 });
 
 it('leaves the status active throughout a plan that does not require offline', function () {
@@ -248,7 +248,7 @@ it('leaves the status active throughout a plan that does not require offline', f
     // `migrating` for every run: without it, "the status was migrating" is
     // also true of an implementation that never read requires_offline.
     $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'));
-    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), tenantMigrationFileCount());
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), runFixtureBaselineVersion());
 
     $seen = [];
 
@@ -266,7 +266,7 @@ it('leaves an offline tenant failed when its migration fails', function () {
     // D-12: an offline migration that fails leaves the shop stopped, because
     // the schema is in an unknown state and serving it would be the guess.
     $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'));
-    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), tenantMigrationFileCount() + 1);
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), runFixtureBaselineVersion() + 1);
 
     migrateFixtureApplier()->onMigration = function (string $database, string $migration): void {
         if (str_contains($migration, 'fx3')) {
@@ -300,7 +300,7 @@ it('leaves an offline tenant failed when its migration fails', function () {
 
 it('restores the status an offline run entered on, promoting only a failed tenant', function (string $entry, string $after) {
     $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'), ['status' => $entry]);
-    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), tenantMigrationFileCount() + 1);
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), runFixtureBaselineVersion() + 1);
 
     $seen = [];
 
@@ -330,7 +330,7 @@ it('writes failed whatever the entry status when an offline run fails', function
     // pair the restore above is also true of a handler that writes the entry
     // status back on *every* path.
     $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'), ['status' => $entry]);
-    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), tenantMigrationFileCount() + 1);
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), runFixtureBaselineVersion() + 1);
 
     migrateFixtureApplier()->onMigration = function (string $database, string $migration): void {
         if (str_contains($migration, 'fx3')) {
@@ -352,7 +352,7 @@ it('writes no status at all for a non-offline run on a read_only tenant', functi
     // plan leaves the status alone, so a read_only tenant is still read_only
     // and the restore never ran.
     $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'), ['status' => 'read_only']);
-    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), tenantMigrationFileCount());
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), runFixtureBaselineVersion());
 
     $result = migrateAs($job, 'worker-one');
 
@@ -368,7 +368,7 @@ it('writes no status at all for a non-offline run on a read_only tenant', functi
 
 it('evicts the cached mapping in the same step as the status change', function () {
     $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'));
-    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), tenantMigrationFileCount() + 1);
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), runFixtureBaselineVersion() + 1);
 
     // Warm the cache *before* the run, which is AC-53's own Given: an entry
     // written while the tenant was active and a 300-second window in front of
@@ -391,7 +391,7 @@ it('evicts the cached mapping in the same step as the status change', function (
     $after = app(TenantDatabaseRepository::class)->find($tenant);
 
     expect($after?->status)->toBe('active')
-        ->and($after?->schemaVersion)->toBe(tenantMigrationFileCount() + 1);
+        ->and($after?->schemaVersion)->toBe(runFixtureBaselineVersion() + 1);
 });
 
 it('would have served the stale mapping without the eviction', function () {
@@ -419,7 +419,7 @@ it('would have served the stale mapping without the eviction', function () {
 
 it('stores a failure without the password or the credential reference', function () {
     $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'));
-    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), tenantMigrationFileCount());
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), runFixtureBaselineVersion());
 
     // The shape a driver really produces on a rejected login: the whole stanza
     // in the message, credential and reference together.
@@ -502,7 +502,7 @@ it('truncates after redacting, never before', function () {
 
 it('refuses a tenant whose schema_meta row names a different tenant, and alters nothing', function () {
     $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'));
-    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), tenantMigrationFileCount());
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), runFixtureBaselineVersion());
 
     migrateFixtureSchemaMeta('tenant-a', 'SOMEBODY-ELSES-TENANT-ID00');
 
@@ -526,12 +526,12 @@ it('proceeds when the schema_meta row names this tenant', function () {
     // The control that stops the refusal above from passing against a check
     // that refuses whenever the table exists.
     $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'));
-    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), tenantMigrationFileCount());
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), runFixtureBaselineVersion());
 
     migrateFixtureSchemaMeta('tenant-a', $tenant);
 
     expect(migrateAs($job, 'worker-one')->succeeded)->toBeTrue()
-        ->and((int) migrateFixtureMappingRow($tenant)['schema_version'])->toBe(tenantMigrationFileCount());
+        ->and((int) migrateFixtureMappingRow($tenant)['schema_version'])->toBe(runFixtureBaselineVersion());
 });
 
 it('proceeds when the database does not say who it is', function () {
@@ -539,7 +539,7 @@ it('proceeds when the database does not say who it is', function () {
     // identity row, which is what the baseline leaves behind. A check that
     // refused on absence would refuse every tenant on the platform.
     $tenant = migrateFixtureTenant('tenant-a', migrateFixtureId('server-one'));
-    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), tenantMigrationFileCount());
+    $job = migrateFixtureClaimedJob(migrateFixtureRunId(), 'JOB0000000000000000000001', $tenant, migrateFixtureId('server-one'), runFixtureBaselineVersion());
 
     migrateFixtureSchemaMeta('tenant-a', null);
 

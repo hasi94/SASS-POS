@@ -96,8 +96,8 @@ it('writes one run row and one job row per selected tenant, every job pending', 
     $set = runFixtureSet(1);
     runFixturePublish($set);
 
-    $fixture = new ThreeTenantFixture(base_path((string) config('schema.tenant_migration_path')));
-    $fixture->mapInto(DB::connection('master'), MigrationSet::baseline(base_path((string) config('schema.tenant_migration_path')))->highestVersion());
+    $fixture = new ThreeTenantFixture(runFixtureBaselineDirectory());
+    $fixture->mapInto(DB::connection('master'), runFixtureBaselineVersion());
 
     $touched = planRun($set);
 
@@ -137,7 +137,7 @@ it('writes one run row and one job row per selected tenant, every job pending', 
     }
 
     expect($byTenant[ThreeTenantFixture::EMPTY_TENANT])->toBe([0, $set->highestVersion()])
-        ->and($byTenant[ThreeTenantFixture::FAILING_TENANT])->toBe([tenantMigrationFileCount(), $set->highestVersion()]);
+        ->and($byTenant[ThreeTenantFixture::FAILING_TENANT])->toBe([runFixtureBaselineVersion(), $set->highestVersion()]);
 });
 
 /*
@@ -155,10 +155,10 @@ it('selects active and read_only tenants below the target and orders them by siz
     // The dataset AC-40 names, and the two controls that stop a selector which
     // ignores a field from passing: a tenant already **at** the target, and an
     // archived tenant at the same old version as an active one.
-    $behindLarge = runFixtureTenant('behind-large', $server, 'active', tenantMigrationFileCount(), 9_000);
+    $behindLarge = runFixtureTenant('behind-large', $server, 'active', runFixtureBaselineVersion(), 9_000);
     $behindSmall = runFixtureTenant('behind-small', $server, 'read_only', 3, 1_000);
     $behindMid = runFixtureTenant('behind-mid', $server, 'active', 0, 5_000);
-    $atTarget = runFixtureTenant('at-target', $server, 'active', tenantMigrationFileCount() + 1, 2_000);
+    $atTarget = runFixtureTenant('at-target', $server, 'active', runFixtureBaselineVersion() + 1, 2_000);
     $archived = runFixtureTenant('archived-old', $server, 'archived', 0, 10);
     $provisioning = runFixtureTenant('provisioning-old', $server, 'provisioning', 0, 20);
 
@@ -315,7 +315,7 @@ it('plans the same destructive run once the backup key says backups exist', func
     config()->set('schema.backups.available', true);
 
     $server = masterMappingServer('backed-up-server');
-    $tenant = runFixtureTenant('backed-up-tenant', $server, 'active', tenantMigrationFileCount() + 1, 100);
+    $tenant = runFixtureTenant('backed-up-tenant', $server, 'active', runFixtureBaselineVersion() + 1, 100);
 
     $touched = planRun($set);
 
@@ -333,7 +333,7 @@ it('does not refuse a contract step that destroys nothing', function () {
     runFixturePublish($set);
 
     $server = masterMappingServer('contract-ok-server');
-    $tenant = runFixtureTenant('contract-ok-tenant', $server, 'active', tenantMigrationFileCount(), 100);
+    $tenant = runFixtureTenant('contract-ok-tenant', $server, 'active', runFixtureBaselineVersion(), 100);
 
     $touched = planRun($set);
 
@@ -353,7 +353,7 @@ it('refuses a contract step while a tenant is below the version before it, namin
 
     $server = masterMappingServer('blocked-server');
     $behind = runFixtureTenant('blocking-tenant', $server, 'active', 0, 10);
-    runFixtureTenant('ready-tenant', $server, 'active', tenantMigrationFileCount(), 20);
+    runFixtureTenant('ready-tenant', $server, 'active', runFixtureBaselineVersion(), 20);
     // A provisioning tenant holds nothing yet, so it does not block (AC-58).
     runFixtureTenant('provisioning-tenant', $server, 'provisioning', 0, 30);
 
@@ -370,7 +370,7 @@ it('refuses a contract step while a tenant is below the version before it, namin
         // `--all` is asserted with it: `--to=6` alone is refused by this
         // command's own argument guard, so the printed remedy would not run
         // (T-008 BUG-12). QaPrintedInstructionRoundTripTest calls it back.
-        ->and($touched['thrown']->getMessage())->toContain('tenant:migrate --all --to='.tenantMigrationFileCount());
+        ->and($touched['thrown']->getMessage())->toContain('tenant:migrate --all --to='.runFixtureBaselineVersion());
 
     expect(runFixtureJobRows())->toBe([])
         ->and(runFixtureRunRows())->toBe([]);
@@ -383,8 +383,8 @@ it('plans the contract step once every tenant a bulk run touches has the version
     runFixturePublish($set);
 
     $server = masterMappingServer('ready-server');
-    $one = runFixtureTenant('ready-one', $server, 'active', tenantMigrationFileCount(), 10);
-    $two = runFixtureTenant('ready-two', $server, 'read_only', tenantMigrationFileCount(), 20);
+    $one = runFixtureTenant('ready-one', $server, 'active', runFixtureBaselineVersion(), 10);
+    $two = runFixtureTenant('ready-two', $server, 'read_only', runFixtureBaselineVersion(), 20);
     runFixtureTenant('still-provisioning', $server, 'provisioning', 0, 30);
 
     $touched = planRun($set);
@@ -410,7 +410,7 @@ it('refuses to start when the set holds a migration the catalogue never publishe
     $touched = planRun($set);
 
     expect($touched['thrown'])->toBeInstanceOf(MigrationRunRefused::class)
-        ->and($touched['thrown']->getMessage())->toContain('create_schema_meta_table');
+        ->and($touched['thrown']->getMessage())->toContain(runFixtureSet(1)->catalogue()[0]->migration);
 
     expect(runFixtureJobRows())->toBe([])
         ->and(runFixtureRunRows())->toBe([]);

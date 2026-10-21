@@ -47,6 +47,7 @@ uses(TestCase::class);
 
 beforeEach(function () {
     migrateFixtureBoot();
+    runFixtureCommandsReadTheFixtureBaseline();
 
     $server = migrateFixtureServer();
 

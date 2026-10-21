@@ -34,6 +34,7 @@ uses(TestCase::class);
 
 beforeEach(function () {
     migrateFixtureBoot();
+    runFixtureCommandsReadTheFixtureBaseline();
 
     $server = migrateFixtureServer();
 
@@ -91,7 +92,7 @@ it('completes the healthy tenants, fails the one that threw, and exits non-zero'
         ->and($result->counts['failed'])->toBe(1);
 
     foreach ([migrateFixtureId('tenant-a'), migrateFixtureId('tenant-b')] as $healthy) {
-        expect((int) migrateFixtureMappingRow($healthy)['schema_version'])->toBe(tenantMigrationFileCount())
+        expect((int) migrateFixtureMappingRow($healthy)['schema_version'])->toBe(runFixtureBaselineVersion())
             ->and(migrateFixtureMappingRow($healthy)['last_migration_error'])->toBeNull();
     }
 
@@ -190,7 +191,7 @@ it('re-runs only the failed tenant and leaves the finished ones untouched', func
     // mutation note for AC-46): a second application would have appended.
     expect(migrateFixtureApplier()->appliedByDatabase[migrateFixtureDatabasePath('tenant-a')])->toBe($appliedToA)
         ->and(migrateFixtureApplier()->appliedByDatabase[migrateFixtureDatabasePath('tenant-b')])->toBe($appliedToB)
-        ->and((int) migrateFixtureMappingRow(migrateFixtureId('tenant-c'))['schema_version'])->toBe(tenantMigrationFileCount())
+        ->and((int) migrateFixtureMappingRow(migrateFixtureId('tenant-c'))['schema_version'])->toBe(runFixtureBaselineVersion())
         ->and(migrateFixtureMappingRow(migrateFixtureId('tenant-c'))['last_migration_error'])->toBeNull();
 });
 

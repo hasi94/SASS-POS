@@ -88,19 +88,20 @@ it('applies the baseline and a later migration to every tenant with the shipped 
     foreach (['tenant-a', 'tenant-b'] as $stem) {
         $log = migrateFixtureApplyLogOf($stem);
 
-        // The tenant's own table lists every shipped file plus FX-1, and the
-        // real tables exist: the table list is the observable the fake
-        // applier cannot produce. Both sides are derived from the tree
-        // (T-010 step 3): the count from tenantMigrationFileCount(), the
-        // names from tenantTreeTables() plus Laravel's `migrations` and
-        // FX-1's own table, so a ninth shipped migration does not edit this
-        // file again.
-        $expectedTables = array_merge(tenantTreeTables(), ['fx_projection_counts', 'migrations']);
+        // The tenant's own table lists every fixture-baseline file plus FX-1,
+        // and the real tables exist: the table list is the observable the
+        // fake applier cannot produce. Both sides are derived from the
+        // fixture baseline (T-011 E2 and E3): the count from
+        // runFixtureBaselineVersion(), the names from
+        // runFixtureBaselineTables() plus Laravel's `migrations` and FX-1's
+        // own table. The shipped tree applied through this applier is
+        // ShippedTenantTreeTest's AC-11 now.
+        $expectedTables = array_merge(runFixtureBaselineTables(), ['fx_projection_counts', 'migrations']);
         sort($expectedTables);
 
-        expect(array_keys($log))->toHaveCount(tenantMigrationFileCount() + 1)
+        expect(array_keys($log))->toHaveCount(runFixtureBaselineVersion() + 1)
             ->and(qaTenantTables($stem))->toBe($expectedTables)
-            ->and((int) migrateFixtureMappingRow(migrateFixtureId($stem))['schema_version'])->toBe(tenantMigrationFileCount() + 1);
+            ->and((int) migrateFixtureMappingRow(migrateFixtureId($stem))['schema_version'])->toBe(runFixtureBaselineVersion() + 1);
     }
 
     // A second bulk run selects tenants below the target; both are at it, so

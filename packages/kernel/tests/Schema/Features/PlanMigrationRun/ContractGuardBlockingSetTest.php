@@ -49,7 +49,7 @@ function blockingFixture(string $status): string
 {
     $server = masterMappingServer('blocking-server');
 
-    runFixtureTenant('blocking-ready', $server, 'active', tenantMigrationFileCount(), 10);
+    runFixtureTenant('blocking-ready', $server, 'active', runFixtureBaselineVersion(), 10);
 
     return runFixtureTenant('blocking-other', $server, $status, 0, 20);
 }
@@ -104,7 +104,7 @@ it('plans the contract step when the only tenant behind is provisioning', functi
 
     $result = app(PlanMigrationRunHandler::class)->handle(new PlanMigrationRun(set: $set));
 
-    expect($result->targetVersion)->toBe(tenantMigrationFileCount() + 1)
+    expect($result->targetVersion)->toBe(runFixtureBaselineVersion() + 1)
         ->and(runFixtureRunRows())->toHaveCount(1);
 });
 
@@ -124,10 +124,10 @@ it('keeps the blocking set and the selection set as two different rules', functi
         ->and($policy->accepted(TenantConnectionPurpose::Migrating))->not->toContain('suspended');
 
     // Not selected: a bulk run at a version it is below plans nothing for it.
-    $result = app(PlanMigrationRunHandler::class)->handle(new PlanMigrationRun(set: runFixtureSet(), targetVersion: tenantMigrationFileCount()));
+    $result = app(PlanMigrationRunHandler::class)->handle(new PlanMigrationRun(set: runFixtureSet(), targetVersion: runFixtureBaselineVersion()));
 
     expect(array_column(runFixtureJobRows(), 'tenant_id'))->not->toContain($suspended)
-        ->and($result->targetVersion)->toBe(tenantMigrationFileCount());
+        ->and($result->targetVersion)->toBe(runFixtureBaselineVersion());
 
     // Still blocking: the same tenant, the same status, the opposite answer.
     expect(fn () => app(PlanMigrationRunHandler::class)->handle(new PlanMigrationRun(set: $set)))

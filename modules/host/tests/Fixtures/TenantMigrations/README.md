@@ -13,6 +13,7 @@ not be composed that way.
 
 | Set | Phase | What it is for |
 |---|---|---|
+| Baseline | expand, six files | The **fixture baseline** every FX set is composed onto (T-011, FP-304). Not the product's tenant tree: see below. |
 | FX-1 | expand | A new table after the baseline — D-1's reversal path (AC-38), and AC-39's observation point. |
 | FX-2 | expand | Fails on one tenant only, told which by database name (AC-44, AC-46). |
 | FX-3 | expand, `@requires-offline` | Observes the mapping status from inside `up()` (AC-52). |
@@ -34,3 +35,26 @@ reading. The cross-connection read belongs to the test.
 
 `FixtureMigrationLog` is deliberately **beside** the directories and not inside
 one: every `*.php` file in a set directory is a migration.
+
+## The fixture baseline (`Baseline/`)
+
+T-011, FP-304. `runFixtureSet()` composes the FX directories onto
+`Baseline/`, six synthetic expand files that each create one trivial
+`fxbase_*` table, and **not** onto the product's tenant tree. Before this, the
+corpus's meaning changed every time the product shipped a file, and a contract
+step anywhere in the shipped tree refused every plan from a fleet at 0 before
+any FX migration was reached. The product never reads this directory; the one
+kernel case that still measures the shipped tree is
+`packages/kernel/tests/Schema/Features/PlanMigrationRun/ShippedTenantTreeTest.php`.
+
+File *n* is version *n*, and no file is copied from the product tree.
+
+**Six is load-bearing, and that is a coupling.** Several T-008-era corpus
+cases write versions as literals against a six-file baseline: `6` as "the top
+of the baseline" and `7` as "FX-1's version". They live in
+`DetectSchemaDriftHandlerTest`, `RepairSchemaVersionHandlerTest`,
+`MigrateTenantLockTest`, `QaPlannedStatusReachabilityTest`,
+`QaPrintedInstructionRoundTripTest` and `PlanMigrationRunHandlerTest`.
+Changing the number of files here silently changes what those cases test, so
+do not change it until those literals are derived from
+`runFixtureBaselineVersion()` (a follow-up row for the lead).

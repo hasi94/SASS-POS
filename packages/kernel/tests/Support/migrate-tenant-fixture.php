@@ -358,9 +358,10 @@ function migrateFixtureRunId(): string
 /**
  * One run row for the jobs to belong to.
  */
-function migrateFixtureRun(?string $runId = null, int $target = 6): string
+function migrateFixtureRun(?string $runId = null, ?int $target = null): string
 {
     $runId ??= migrateFixtureRunId();
+    $target ??= runFixtureBaselineVersion();
 
     DB::connection('master')->table('tenant_migration_runs')->insert([
         'id' => $runId,
@@ -409,7 +410,7 @@ function migrateFixtureRunRow(string $runId): array
 
 /**
  * Write a tenant's own `migrations` table, with the first `$upTo` migrations
- * of the shipped baseline in it.
+ * of the fixture baseline in it.
  *
  * T-008 step 12. The tenant's own table is the **authority** on where it is
  * (D-14), so a drift or repair case has to be able to set it independently of

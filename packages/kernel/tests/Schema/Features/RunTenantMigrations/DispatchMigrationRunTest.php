@@ -37,6 +37,7 @@ uses(TestCase::class);
 
 beforeEach(function () {
     migrateFixtureBoot();
+    runFixtureCommandsReadTheFixtureBaseline();
 
     $server = migrateFixtureServer();
 
@@ -78,7 +79,7 @@ it('dispatches one queue job per planned tenant, on the configured queue', funct
     expect($dispatched->jobIds)->toHaveCount(2)
         ->and($dispatched->queue)->toBe('migrations')
         ->and($dispatched->runId)->not->toBe('')
-        ->and($dispatched->targetVersion)->toBe(tenantMigrationFileCount());
+        ->and($dispatched->targetVersion)->toBe(runFixtureBaselineVersion());
 
     Bus::assertDispatchedTimes(MigrateTenantQueueJob::class, 2);
 

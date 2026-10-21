@@ -1,7 +1,9 @@
 <?php
 
 use Flexipos\Kernel\Schema\Support\MigrationCatalogue;
+use Flexipos\Kernel\Schema\Support\MigrationPhase;
 use Flexipos\Kernel\Schema\Support\MigrationSet;
+use Flexipos\Kernel\Schema\Support\SourceRules;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 
@@ -25,23 +27,121 @@ require_once __DIR__.'/master-mapping-fixture.php';
  */
 
 /**
- * A migration set made of the shipped baseline and zero or more FX
+ * A migration set made of the **fixture** baseline and zero or more FX
  * directories, in the order given.
  *
- * The directories are absolute and the shipped one is read from
- * `schema.tenant_migration_path`, which is its one authority. A version is a
- * position in the set, so appending FX1 gives it the version after the
- * baseline's last and leaves the baseline's numbering alone.
+ * T-011 (FP-304): the corpus no longer composes onto the product's tenant
+ * tree. It used to, and so its meaning changed every time the product shipped
+ * a file - and with a contract step anywhere in the shipped tree, a fleet at 0
+ * (the corpus's deliberate "a tenant that is behind") was refused by that step
+ * before any FX migration could be reached, so the whole corpus was dead. The
+ * fixture baseline is six synthetic expand files that only tests read; see
+ * modules/host/tests/Fixtures/TenantMigrations/README.md for why six. The one
+ * place the corpus still measures the shipped tree is
+ * runFixtureShippedSet(), read only by ShippedTenantTreeTest.php.
+ *
+ * A version is a position in the set, so appending FX1 gives it the version
+ * after the baseline's last and leaves the baseline's numbering alone. The
+ * set's name is still `baseline+fxN`.
  */
 function runFixtureSet(int ...$fx): MigrationSet
 {
-    $set = MigrationSet::baseline(base_path((string) config('schema.tenant_migration_path')));
+    $set = MigrationSet::baseline(runFixtureBaselineDirectory());
 
     foreach ($fx as $number) {
         $set = $set->with('fx'.$number, base_path('tests/Fixtures/TenantMigrations/FX'.$number));
     }
 
     return $set;
+}
+
+/**
+ * The fixture baseline's directory, relative to the base path - the form
+ * `schema.tenant_migration_path` takes, because the migrate command calls
+ * basePath() on that value. The one home of this string.
+ */
+function runFixtureBaselinePath(): string
+{
+    return 'tests/Fixtures/TenantMigrations/Baseline';
+}
+
+/**
+ * The fixture baseline's directory, absolute.
+ */
+function runFixtureBaselineDirectory(): string
+{
+    return base_path(runFixtureBaselinePath());
+}
+
+/**
+ * B: the fixture baseline's highest version. Derived, never written.
+ */
+function runFixtureBaselineVersion(): int
+{
+    return runFixtureSet()->highestVersion();
+}
+
+/**
+ * Every table the fixture baseline creates, read from the files' own `up()`
+ * rather than kept as a second hand-written list.
+ *
+ * @return list<string>
+ */
+function runFixtureBaselineTables(): array
+{
+    $tables = [];
+
+    foreach (runFixtureSet()->paths() as $path) {
+        foreach (SourceRules::tablesCreatedIn((string) file_get_contents($path)) as $table) {
+            $tables[] = $table;
+        }
+    }
+
+    sort($tables);
+
+    return $tables;
+}
+
+/**
+ * The **shipped** tenant tree, as a set - the one entry point through which
+ * the kernel corpus may read it.
+ *
+ * Read from `schema.tenant_migration_path`, its one authority. Only
+ * ShippedTenantTreeTest.php calls this; QaFixtureBaselineSweepsTest fails on a
+ * second caller inside packages/kernel/tests.
+ */
+function runFixtureShippedSet(): MigrationSet
+{
+    return MigrationSet::baseline(base_path((string) config('schema.tenant_migration_path')));
+}
+
+/**
+ * The highest contract-phase version in a set, or null when it holds none.
+ */
+function runFixtureContractVersion(MigrationSet $set): ?int
+{
+    $version = null;
+
+    foreach ($set->catalogue() as $entry) {
+        if ($entry->phase === MigrationPhase::Contract) {
+            $version = $entry->version;
+        }
+    }
+
+    return $version;
+}
+
+/**
+ * Point the migrate command at the fixture baseline (T-011 AC-24 E4).
+ *
+ * `tenant:migrate` builds its set from `schema.tenant_migration_path` at call
+ * time, so a command-level test that did not call this would plan against the
+ * shipped tree - a second shipped-tree reader in the corpus. The value is
+ * relative because the command calls basePath() on it.
+ */
+function runFixtureCommandsReadTheFixtureBaseline(): void
+{
+    config()->set('schema.tenant_migration_path', runFixtureBaselinePath());
 }
 
 /**

@@ -34,7 +34,7 @@ it('refuses a named run for a ready tenant while a tenant it left out is still b
     runFixturePublish($set);
 
     $server = masterMappingServer('named-server');
-    $ready = runFixtureTenant('named-ready', $server, 'active', tenantMigrationFileCount(), 10);
+    $ready = runFixtureTenant('named-ready', $server, 'active', runFixtureBaselineVersion(), 10);
     $left = runFixtureTenant('named-left-out', $server, 'active', 0, 20);
 
     $thrown = null;
@@ -61,8 +61,8 @@ it('plans the same named run once the tenant that was left out has caught up', f
     runFixturePublish($set);
 
     $server = masterMappingServer('named-server');
-    $ready = runFixtureTenant('named-ready', $server, 'active', tenantMigrationFileCount(), 10);
-    runFixtureTenant('named-caught-up', $server, 'active', tenantMigrationFileCount(), 20);
+    $ready = runFixtureTenant('named-ready', $server, 'active', runFixtureBaselineVersion(), 10);
+    runFixtureTenant('named-caught-up', $server, 'active', runFixtureBaselineVersion(), 20);
 
     $result = app(PlanMigrationRunHandler::class)->handle(new PlanMigrationRun(set: $set, tenantIds: [$ready]));
 
