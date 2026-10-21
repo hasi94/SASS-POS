@@ -152,3 +152,16 @@ None.
 ## Lead's routing of round 2
 
 W-6 → `dev`, fixed now (one clause). S-7 and S-8 are recorded here; S-8 goes into the release notes.
+
+---
+
+# Code Review: T-010, round 3 (W-6 only, `4db692a`)
+
+## Verdict: APPROVE
+
+W-6 is closed, and there is nothing new at Critical level.
+- The delete now removes only a row whose `allowed` flag matches the one judged. An allow swapped for a deny between the read and the delete deletes nothing and gets the existing `validation` refusal, with no bump and no audit row.
+- The reverse swap is also safe. The escalation check has already run, and the new allow is left in place.
+- A row missing at the read sets `$deleted = 0` and takes the same refusal, so a row inserted after the read is never deleted unchecked.
+
+Final gate on this tree (lead, alone): `composer check` exit 0, 1542 passed, 11 skipped, ratio 2.25.
