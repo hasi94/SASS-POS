@@ -50,7 +50,7 @@ use PHPUnit\Framework\AssertionFailedError;
 |
 | **The bound of AC-2's query-log half, stated rather than implied.** The
 | criterion says "over a full run of this task's tests"; what runs here is
-| a representative pass over every one of the seven new tables, not the
+| a representative pass over every one of the eight new tables, not the
 | whole suite - there is no hook that could collect one connection's
 | statements across every file. What closes the rest is structural: no
 | column is named `tenant_id` (AC-3 lists the columns live), so a tenant
@@ -109,7 +109,7 @@ function closeOutInTenant(string $tenant, callable $work): mixed
 }
 
 /**
- * A representative pass over every one of the seven new tables, run
+ * A representative pass over every one of the eight new tables, run
  * inside whichever tenant is current.
  *
  * It is the operations and not a hand-written list of queries, because

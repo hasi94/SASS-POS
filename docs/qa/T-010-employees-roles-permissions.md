@@ -1,6 +1,27 @@
 # QA Report: T-010 Employees, roles and branch-scoped permissions
 
+**Run 2 (2026-10-21, tip `41e1c48`): PASS for what could be verified; NOT VERIFIED on the seven engine rows; AC-10 not done and recorded. 0 open defects. Gate exit 0, 1528 passed, 11 skipped, 9846 assertions. See "Run 2" below; the Run 1 text that follows is kept as written, and where it says FAIL or names BUG-1 to BUG-3 as open, Run 2 supersedes it.**
+
 Branch `ai/T-010-employees-roles-permissions`, spec `docs/specs/T-010-employees-roles-permissions.md` (77 criteria, counted from the spec file: AC-1 to AC-74 plus AC-12a, AC-12b and AC-52a), plan `docs/plans/T-010-employees-roles-permissions.md`, decisions D-1 to D-36. Run 1, 2026-10-21, against the branch tip `3548e4e`. Diff base for the (diff) criteria is the T-009 tip `60d960b` (the commit before `20f1875`); `git diff main...HEAD` also contains T-008 and T-009 and is not the T-010 range.
+
+## Run 2 (fix round 1: `11f6b45`, `573d5d0`, `41e1c48`)
+
+**Verdict: PASS (verifiable part).** BUG-1, BUG-2 and BUG-3 are CLOSED, Note D is addressed, no new defect.
+
+| Item | Re-test | Result |
+|---|---|---|
+| BUG-1 (AC-43/57/54) | `PermHash::contributionsFor()` now joins `roles` with `deleted_at is null`; my `QaClaimsResolverAgreementTest` (not edited) is green, and its live-role control still green. The Run 1 mutant K8 was this same change | CLOSED. AC-57 is now plain IP |
+| BUG-2 | `git grep` for "nine files", "ninth", "gated to mysql", "step 15 is where", "T-010's nine" over modules and packages: only `QaRealApplierOnStandInTest.php:96` "a ninth shipped migration", a hypothetical, which is correct. The two "seven new tables" comments in my `QaAccessCloseOutSweepsTest.php:53,112` now say eight (my edit) | CLOSED |
+| BUG-3 | FP-209 now says the file "was never committed and exists in no commit on any branch" and "must be written afresh"; plan correction (d) and lines 335, 446, 450, 478 say the same; FP-304 no longer says `highestPlannableVersion()` closes it, nor 38 failures. Grep for "already exists" / "recovered rather" finds none | CLOSED. AC-10 stays REC |
+| Note D (AC-37) | `LastOwner::requireAnother()` makes one `lockForUpdate()` read of every acting owner, the removed one included. New test `LastOwnerTest` "takes row locks on every acting owner it reads, the one being removed included". **Control run by QA:** byte-identical class green (9 of 9); lock removed -> that test red (1 failed, 8 passed); the removed owner excluded from the read (`!= ''` clause added) -> red. Production restored by construction (class-served copy; `git diff --stat` on packages and host app empty). **Grammar leak:** the test swaps in `MySqlGrammar` on its own fixture connection and restores the original in a `finally`; the only two `setQueryGrammar` uses in the repo are in that test, and the fixture rebuilds the tenant per test (`AccessTenantFixture::forget()` in `afterEach`), so nothing can reach another test | the lock is asserted on the compiled statement only. **AC-37 concurrent half stays NV**; Note D is downgraded from "no lock exists" to "lock present, concurrent behaviour unproven" |
+
+Coverage rows touched: AC-37 (now IP on the statement shape + NV concurrency), AC-43/AC-57/AC-54 (BUG-1 closed), AC-10 (record corrected). No other row changes.
+
+**Gate (Run 2): `composer check`, once, alone: exit 0.** Pint passed, PHPStan `[OK] No errors`, Deptrac 0 violations / 0 skipped. Pest **1528 passed, 11 skipped, 9846 assertions**, test step 529.65 s, **ratio 1.69** (limit 900 s). Delta from Run 1's 1526 passed: +1 (my BUG-1 test now passes) +1 (dev's new lock test) = 1528; the one failure is gone. Dev's own figure at `11f6b45` was 1528 / 11 skipped, ratio 2.00; reproduced on the pass count.
+
+**Ratio versus noise.** Foreign `php.exe` processes counted with `tasklist` before the run: **8**; after: **8** (none mine; the same eight throughout, I started nothing else). Dev's run had eight as well. Test-step elapsed for this tree, same machine, this session: 304.58 s at the dev tip with fewer foreign processes (Run 1 baseline), 415.30 s in Run 1 final (4 to 7 foreign), 531.70 s now (8). The ratio 1.69 is therefore below the plan's 2.0 escalation line, but the series is dominated by machine load that I cannot attribute: the QA tests add only about 25 to 36 s in isolation and the lock test adds under a second. I cannot give a clean figure for the tree while eight foreign processes run; the escalation to the lead is warranted on the number as measured, with that caveat.
+
+History line is at the bottom.
 
 ## Verdict: FAIL. One minor code defect with a red automated test. Everything else PASS for what could be verified; seven criteria NOT VERIFIED (engine hold); one criterion not done and recorded.
 
@@ -249,3 +270,4 @@ Counts are tests turned red by the mutant. Package-wide runs made after the BUG-
 ## History
 
 Run 1: FAIL. One minor code defect with a red test (BUG-1), two minor record defects (BUG-2, BUG-3), seven evidence gaps closed by QA tests (EG-1 to EG-7), seven criteria NOT VERIFIED (engine hold), AC-10 not done and recorded.
+Run 2: FAIL -> PASS (verifiable part). BUG-1, BUG-2, BUG-3 closed; Note D lock verified by control; 1528 passed / 11 skipped / 9846 assertions, exit 0, ratio 1.69 with 8 foreign php.exe.
