@@ -28,3 +28,9 @@ one closure route to exist in the live table.
 Route URIs from `Route::getRoutes()` have **no leading slash** (`api/v1/auth/login`).
 
 See [[middleware-mutations-need-the-right-case]] for mutating a guard like this.
+
+**Nested Artisan output (T-011, 2026-10-21).** When a command calls another
+command (the real tenant applier runs `migrate` per file), `Artisan::output()`
+returns the NESTED call's output, not the outer command's. Pass a
+`Symfony\Component\Console\Output\BufferedOutput` as the third argument to
+`Artisan::call()` and read `->fetch()` to get the outer command's own lines.

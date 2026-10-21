@@ -40,7 +40,7 @@
 - [Observe during the write, not after](feedback_observe_during_the_write_not_after.md) — the decorated-throw control stayed green under the very transaction it forbade; the probe must run inside the statement.
 - [Hasher seam and assertion reds](project_hasher_seam_and_assertion_reds.md) — bind doubles under the contract, not the facade; Pest scalar datasets fail stan; run an assertion twice to prove it bites.
 - [An ordering mutation needs a refusable input](feedback_ordering_mutation_needs_a_refusable_input.md) — moving a guard later stays green against a fixture that succeeds.
-- [HTTP test seams](project_http_test_seams.md) — withHeaders leaks across requests, `$this->postJson` fails stan, and the throwaway guarded route.
+- [HTTP test seams](project_http_test_seams.md) — withHeaders leaks across requests, `$this->postJson` fails stan, guarded route; nested Artisan output needs a BufferedOutput.
 - [Mutate one decision, not the guard](feedback_middleware_mutations_need_the_right_case.md) — the coarse mutation reddened at 500 on the wrong case; and the duplicate validation no mutation can see.
 - [Logger and query-log probes](project_logger_and_query_log_probes.md) — the two reusable probes, and the singleton that empties the log one silently.
 - [Enumerate the sinks, not the scans](feedback_enumerate_the_sinks_not_the_scans.md) — `input()` reads the query string; the request URL was in nobody's list of four sinks.
