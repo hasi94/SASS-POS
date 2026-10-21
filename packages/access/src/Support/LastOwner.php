@@ -28,12 +28,22 @@ use Illuminate\Database\Query\Builder;
  * does not administer the shop, so somebody holding it is not the person
  * this guard exists to keep.
  *
- * **What is NOT proved here, and must not be claimed:** AC-37's
- * concurrency half. Two removals racing, each seeing the other as the
- * remaining owner, is `[ENGINE]` and ships NOT VERIFIED - the guard is a
- * read followed by a write, and only a real engine with real locking can
- * say whether both can win. Nothing in this class or its tests should be
- * read as evidence either way.
+ * **The read takes row locks, and that is AC-37's concurrency half.** The
+ * guard is a read followed, in the caller's transaction, by a write. Two
+ * removals of two different owners each reading without a lock would each
+ * see the other as the remaining owner and both commit. So the one read
+ * this guard makes is `SELECT ... FOR UPDATE` over every acting owner,
+ * **including this one**: both transactions run the same locking read in
+ * the same order, the second blocks on the first row until the first
+ * commits, then reads the committed state and sees one owner. Excluding
+ * the employee being removed from the locked set would let the two lock
+ * disjoint rows and meet in a deadlock instead of a refusal.
+ *
+ * **What is NOT proved here, and must not be claimed:** that the engine
+ * honours it. Laravel's SQLite grammar compiles no lock clause, so on the
+ * stand-in the read is unchanged and the tests pin only that the statement
+ * carries `for update` when compiled for MySQL. Two transactions racing is
+ * `[ENGINE]` and ships NOT VERIFIED.
  */
 final class LastOwner
 {
@@ -51,13 +61,15 @@ final class LastOwner
      */
     public function requireAnother(Connection $connection, string $employeeId): void
     {
-        if (! $this->isActingOwner($connection, $employeeId)) {
+        $owners = $this->lockedActingOwners($connection);
+
+        if (! in_array($employeeId, $owners, true)) {
             // Not an owner, or already not acting: the change cannot remove
             // the last one, and refusing here would block a repair.
             return;
         }
 
-        if ($this->actingOwnersOtherThan($connection, $employeeId) > 0) {
+        if (count($owners) > 1) {
             return;
         }
 
@@ -67,23 +79,24 @@ final class LastOwner
     }
 
     /**
-     * Is this employee an acting owner right now?
+     * Every acting owner's id, distinct, read under row locks.
+     *
+     * Distinct because one employee may hold two system roles at the null
+     * scope and is still one owner. The lock covers every row the join
+     * reads, so the employee, the assignment and the role a concurrent
+     * removal would write are all held until this transaction ends.
+     *
+     * @return list<string>
      */
-    public function isActingOwner(Connection $connection, string $employeeId): bool
+    private function lockedActingOwners(Connection $connection): array
     {
-        return $this->ownerQuery($connection)
-            ->where('employees.id', $employeeId)
-            ->exists();
-    }
+        $ids = [];
 
-    /**
-     * How many acting owners there are apart from this one.
-     */
-    private function actingOwnersOtherThan(Connection $connection, string $employeeId): int
-    {
-        return $this->ownerQuery($connection)
-            ->where('employees.id', '!=', $employeeId)
-            ->count();
+        foreach ($this->ownerQuery($connection)->lockForUpdate()->pluck('employees.id') as $id) {
+            $ids[] = (string) $id;
+        }
+
+        return array_values(array_unique($ids));
     }
 
     /**

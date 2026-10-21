@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\Schema;
 | shape - which is the half a column list cannot see:
 |
 | - every file of the shipped tenant tree applies to an empty database, in
-|   order - T-008's six, and T-010's nine from step 3;
+|   order - T-008's six, and T-010's eight from step 3;
 | - exactly the tables tenantTreeTables() declares exist afterwards, plus
 |   Laravel's own `migrations`, and `schema_meta` is **empty** (D-28);
 | - no column named `tenant_id` exists anywhere in the applied schema (AC-24);
@@ -309,10 +309,10 @@ it('holds exactly the declared foreign keys, none of them onto branches', functi
     applyTenantBaseline();
 
     // The whole inventory, in both directions. `settings.updated_by ->
-    // employees.id` is absent on purpose: it is AC-10's contract migration,
-    // which is gated to mysql/mariadb, so on the stand-in the statement does
-    // not run. That gate is the only reason, and step 15 is where the
-    // migration's behaviour is exercised.
+    // employees.id` is absent because nothing in the tree creates it: AC-10's
+    // migration was withdrawn by Ruling 3 correction (c), on every driver, and
+    // the key is owed by FP-209 behind FP-304. There is no file being skipped
+    // on the stand-in; when the key ships, this list gains its line.
     expect(tenantTreeForeignKeys())->toBe([
         'access_log.employee_id -> employees.id',
         'employee_branches.employee_id -> employees.id',

@@ -97,10 +97,14 @@ final class PermHash
      * - the same key granted by two roles, or by a role and directly - are
      * collapsed by {@see self::compute()}.
      *
-     * Nothing here filters soft-deleted roles. A role may not be deleted
-     * while any employee holds it (AC-22), so a soft-deleted role has no
-     * assignments and the two readings cannot differ; a filter would be a
-     * guard against a state the operations refuse to create.
+     * A soft-deleted role contributes nothing (AC-43), here exactly as in
+     * the resolver's role join. AC-22 stops the operations deleting a role
+     * somebody holds, but that is not why the filter is here: a repair, a
+     * restore or a race between `DeleteRole`'s count and an `AssignRole`
+     * can still leave an assignment pointing at a deleted role, and the
+     * resolver already ignores it. The resolver is the authority, so the
+     * hash, `all_branches` and "my permissions" must read the same set of
+     * contributions it does - one fact with two answers is the defect.
      */
     public static function forEmployee(Connection $connection, string $employeeId, int $permVersion): string
     {
@@ -124,7 +128,9 @@ final class PermHash
         $contributions = [];
 
         $roleDerived = $connection->table('employee_roles')
+            ->join('roles', 'roles.id', '=', 'employee_roles.role_id')
             ->join('role_permissions', 'role_permissions.role_id', '=', 'employee_roles.role_id')
+            ->whereNull('roles.deleted_at')
             ->where('employee_roles.employee_id', $employeeId)
             ->get(['role_permissions.permission_key as permission_key', 'employee_roles.branch_id as branch_id']);
 

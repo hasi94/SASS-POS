@@ -59,3 +59,4 @@
 - [Token claims and selection seams](project_token_claims_and_selection_seams.md) - three claim shapes, the verifier that closes the all-or-none hole, and the Route that caches its controller.
 - [A sweep prints what it found](feedback_a_sweep_prints_what_it_found.md) - two green sweeps over the wrong domain in one step; the print caught both, the assertion could not.
 - [Field by field is silent about absence](feedback_field_by_field_is_silent_about_absence.md) - AC-70's ip shipped null through fourteen handlers and a green sweep.
+- [Lock clause pin on the stand-in](project_lock_clause_pin_on_the_standin.md) - MySqlGrammar + pretend() shows `for update`; lock the full owner set, self included.

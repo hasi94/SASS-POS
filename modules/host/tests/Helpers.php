@@ -528,10 +528,11 @@ function tenantTreeTables(): array
  * Three sites used `count(tenantBaselineTables())` as a stand-in for the
  * number of tenant migration files - the highest catalogue version, the
  * published row count, the version after the baseline. That held only
- * because T-008 shipped one table per file. T-010 ships **nine files and
- * eight tables**: the ninth is AC-10's contract step, which creates nothing.
- * One number with two homes is FP-181's shape, so the number now comes from
- * the tree itself.
+ * because T-008 shipped one table per file. T-010 was planned to break it
+ * with a step that creates no table (AC-10's foreign key); Ruling 3
+ * correction (c) withdrew that step, so T-010 ships eight files and eight
+ * tables and the identity happens to hold again. One number with two homes
+ * is FP-181's shape regardless, so the number comes from the tree itself.
  *
  * It globs rather than calling `migrationTreeSources()`, which is declared in
  * a *test file*: a filtered single-file run that never loads that file would

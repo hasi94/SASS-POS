@@ -11,8 +11,10 @@ use Flexipos\Access\Features\DeleteEmployee\DeleteEmployeeHandler;
 use Flexipos\Access\Features\RemoveRoleAssignment\RemoveRoleAssignment;
 use Flexipos\Access\Features\RemoveRoleAssignment\RemoveRoleAssignmentHandler;
 use Flexipos\Access\Support\EmployeeStatus;
+use Flexipos\Access\Support\LastOwner;
 use Flexipos\Access\Support\SystemRole;
 use Flexipos\Contracts\Access\RefusalReason;
+use Illuminate\Database\Query\Grammars\MySqlGrammar;
 use Tests\TestCase;
 
 /*
@@ -35,9 +37,11 @@ use Tests\TestCase;
 |
 | What is NOT here, deliberately: AC-37's concurrency half. Two removals
 | racing, each seeing the other as the remaining owner, is [ENGINE] and
-| ships NOT VERIFIED. The guard is a read followed by a write and only a
-| real engine can say whether both can win; nothing in this file is
-| evidence either way, and a green run here must not be reported as one.
+| ships NOT VERIFIED. What IS here is the half the stand-in can answer:
+| the guard's read is a locking read (`for update` when compiled for
+| MySQL), which is the mechanism the engine proof will exercise. That the
+| engine then serialises two removals is not shown by anything in this
+| file, and a green run here must not be reported as it.
 |
 */
 
@@ -258,4 +262,55 @@ it('reads the is_system flag and not the key owner (AC-37, AC-21)', function () 
     deleteOwner($ids['owner'], $ids['actor']);
 
     expect(AccessSeed::employeeRow($ids['owner'])['deleted_at'])->not->toBeNull();
+});
+
+it('takes row locks on every acting owner it reads, the one being removed included (AC-37, QA Note D)', function () {
+    $ids = lastOwnerWorld();
+    secondOwner($ids);
+
+    $connection = AccessSeed::connection();
+
+    /** @var LastOwner $guard */
+    $guard = app(LastOwner::class);
+
+    // The stand-in compiles no lock clause, so the statement is compiled
+    // with MySQL's grammar and recorded under pretend(): nothing executes,
+    // which is also why the guard sees no owners and returns without
+    // writing. What is asserted is the statement it would send the engine.
+    $standIn = $connection->getQueryGrammar();
+    $connection->setQueryGrammar(new MySqlGrammar($connection));
+
+    try {
+        $log = $connection->pretend(fn () => $guard->requireAnother($connection, $ids['owner']));
+    } finally {
+        $connection->setQueryGrammar($standIn);
+    }
+
+    $statements = array_map(static fn (array $entry): string => (string) $entry['query'], $log);
+
+    // Printed, so a run shows what was compiled rather than only a verdict.
+    fwrite(STDOUT, "\nLastOwner statements (MySQL grammar):\n".implode("\n", $statements)."\n");
+
+    // The domain: the guard's whole read is one statement over the owner join,
+    // and it does not exclude the employee being removed - excluding them would
+    // let two removals lock disjoint rows.
+    expect($statements)->toHaveCount(1)
+        ->and($statements[0])->toStartWith('select')
+        ->and($statements[0])->toContain('`employee_roles`')
+        ->and($statements[0])->toContain('`roles`')
+        ->and($statements[0])->not->toContain('!=')
+        ->and($statements[0])->toEndWith(' for update');
+
+    // The liveness control: the same guard on the stand-in's own grammar
+    // still answers - a second owner exists, so it permits, and the last
+    // owner alone is still refused once the second one is gone.
+    $guard->requireAnother($connection, $ids['owner']);
+
+    $connection->table('employee_roles')->where('role_id', $ids['ownerRole'])
+        ->where('employee_id', '!=', $ids['owner'])->delete();
+
+    AccessRefusals::expect(
+        RefusalReason::LastOwner,
+        fn () => $guard->requireAnother($connection, $ids['owner'])
+    );
 });

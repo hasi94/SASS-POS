@@ -143,9 +143,11 @@ it('supplies FX-1 as the version after the baseline, without moving the baseline
     $baseline = MigrationSet::baseline($tree);
     $withFx1 = $baseline->with('fx1', base_path('tests/Fixtures/TenantMigrations/FX1'));
 
-    // The baseline's highest version is its FILE count, which stopped being
-    // its table count when T-010 shipped nine files and eight tables
-    // (T-010 Ruling 2).
+    // The baseline's highest version is its FILE count, not its table count.
+    // The two agree today (T-010 ships eight files and eight tables; the
+    // tableless step Ruling 2 was written for was withdrawn by Ruling 3
+    // correction (c)), and the number stays derived from the tree so the
+    // first file that creates no table cannot make it wrong.
     $highest = tenantMigrationFileCount();
 
     expect($baseline->highestVersion())->toBe($highest)

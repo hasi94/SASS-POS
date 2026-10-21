@@ -166,9 +166,11 @@ it('publishes one row per shipped tenant migration and matches the committed fix
     // equals it after publishing.
     expect($published)->toBe(catalogueCommittedRows())
         // One row per FILE, not per table. T-008 shipped one table per file
-        // and this read count(tenantBaselineTables()); T-010 ships nine files
-        // and eight tables, so the number comes from the tree
-        // (T-010 Ruling 2, the FP-181 instance it names).
+        // and this read count(tenantBaselineTables()); the number now comes
+        // from the tree (T-010 Ruling 2, the FP-181 instance it names). T-010
+        // ships eight files and eight tables - its tableless step was
+        // withdrawn by Ruling 3 correction (c) - so the derivation guards the
+        // next file that creates no table, not one that ships today.
         ->and($published)->toHaveCount(tenantMigrationFileCount());
 
     // Every version is accounted for and strictly increasing, which is the

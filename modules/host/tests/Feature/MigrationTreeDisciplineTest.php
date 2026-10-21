@@ -127,10 +127,11 @@ it('creates exactly the tenant tables the shipped tree declares', function () {
     // keeps its six and means exactly that, tenantTreeTables() carries the
     // whole tree, and this site - a whole-tree site - moved to the second.
     //
-    // The file count is no longer the table count. T-008 shipped one table per
-    // file; T-010 ships nine files and eight tables, the ninth being AC-10's
-    // contract step, which creates nothing. So the two numbers are asserted
-    // separately and the file count is derived from the tree
+    // The file count is a different number from the table count, even where
+    // they agree. T-008 shipped one table per file and so does T-010 (eight
+    // files, eight tables): AC-10's tableless step, which would have split the
+    // two, was withdrawn by Ruling 3 correction (c). The two numbers are still
+    // asserted separately and the file count is derived from the tree
     // (tenantMigrationFileCount()), not from a table list.
     expect(migrationTreeTables(MigrationTree::Tenant))->toBe(tenantTreeTables())
         ->and(tenantBaselineTables())->toHaveCount(6)
