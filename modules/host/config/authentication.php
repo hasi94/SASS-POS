@@ -67,6 +67,19 @@ return [
         'minutes' => (int) env('AUTH_LOCKOUT_MINUTES', 15),
     ],
 
+    'terminal_activation' => [
+        /*
+        | The guessing limit of the public activation route (T-014 D-18, AC-31):
+        | this many failures of any cause, for one tenant or from one address,
+        | within the window, and the next attempt is refused with the same
+        | refusal even for a correct code. The window is anchored to the first
+        | failure and is not extended by a refusal made while locked.
+        */
+        'max_failures' => (int) env('AUTH_TERMINAL_ACTIVATION_MAX_FAILURES', 10),
+
+        'window_minutes' => (int) env('AUTH_TERMINAL_ACTIVATION_WINDOW_MINUTES', 15),
+    ],
+
     'limits' => [
         /*
         | The longest email and password the login endpoint accepts. Both are

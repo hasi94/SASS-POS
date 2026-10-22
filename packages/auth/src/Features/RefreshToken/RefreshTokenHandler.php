@@ -116,7 +116,14 @@ final class RefreshTokenHandler
         // Before the lookup, before any judgement, before any write.
         $this->keyring->signingKey();
 
-        $row = $this->master()->table('refresh_tokens')->where('token_hash', $hash)->first();
+        // **Only a user's row is this slice's** (T-014 step 12): a terminal's
+        // refresh token presented here is a value this endpoint does not
+        // know, refused with nothing revoked. Without the filter it would be
+        // judged as a user's, and its family revoked.
+        $row = $this->master()->table('refresh_tokens')
+            ->where('token_hash', $hash)
+            ->where('principal_type', IssueTokenPairHandler::PRINCIPAL_TYPE)
+            ->first();
 
         if ($row === null || $row->revoked_at !== null) {
             // Unknown and revoked are one answer: a value this system does

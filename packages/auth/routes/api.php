@@ -4,6 +4,8 @@ use App\Http\Controllers\Auth\LoginController;
 use App\Http\Controllers\Auth\LogoutController;
 use App\Http\Controllers\Auth\RefreshController;
 use App\Http\Controllers\Auth\SelectTenantController;
+use App\Http\Controllers\Terminal\ActivateTerminalController;
+use App\Http\Controllers\Terminal\RefreshTerminalTokenController;
 use App\Http\Middleware\RequirePlatformToken;
 use Illuminate\Support\Facades\Route;
 
@@ -43,4 +45,23 @@ Route::middleware('api')
         Route::post('/refresh', RefreshController::class)->name('auth.refresh');
 
         Route::post('/logout', LogoutController::class)->name('auth.logout');
+    });
+
+/*
+ * The terminal's two public routes (T-014 AC-29, AC-36), in a group of their
+ * own because they are not authentication of a person.
+ *
+ * **No middleware beyond `api`, and the body is the only input channel**: an
+ * activation code and a refresh token are credentials, and neither has an
+ * access token to verify when it arrives. Activation is the one place a
+ * terminal's identity is created; refresh is how it stays alive. Both answer
+ * every refusal with the one uniform body.
+ */
+
+Route::middleware('api')
+    ->prefix('api/v1/terminal')
+    ->group(function (): void {
+        Route::post('/activate', ActivateTerminalController::class)->name('terminal.activate');
+
+        Route::post('/refresh', RefreshTerminalTokenController::class)->name('terminal.refresh');
     });

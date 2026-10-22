@@ -14,12 +14,14 @@ use Flexipos\Access\Support\ClientIp;
 use Flexipos\Access\Support\DatabaseEmployeeDirectory;
 use Flexipos\Access\Support\EmployeeStatus;
 use Flexipos\Access\Support\PinPolicy;
+use Flexipos\Access\Support\TerminalLoginLogWriter;
 use Flexipos\Contracts\Access\DeclaresPermissions;
 use Flexipos\Contracts\Access\EmployeeClaimSource;
 use Flexipos\Contracts\Access\EmployeeDirectory;
 use Flexipos\Contracts\Access\EmployeeStalenessCheck;
 use Flexipos\Contracts\Access\PermissionDeclaration;
 use Flexipos\Contracts\Access\PermissionResolver;
+use Flexipos\Contracts\Access\TerminalLoginLog;
 use Flexipos\Contracts\Audit\AuditTrail;
 use Illuminate\Support\ServiceProvider;
 
@@ -112,6 +114,7 @@ final class AccessServiceProvider extends ServiceProvider implements DeclaresPer
         // never queries them (T-010 AC-11's stated limit).
         $this->app->singleton(AuditTrail::class, AuditWriter::class);
         $this->app->singleton(EmployeeDirectory::class, DatabaseEmployeeDirectory::class);
+        $this->app->singleton(TerminalLoginLog::class, TerminalLoginLogWriter::class);
     }
 
     /**

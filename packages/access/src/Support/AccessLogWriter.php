@@ -11,10 +11,10 @@ use InvalidArgumentException;
 /**
  * The only writer of `access_log` in this package (D-21, AC-69).
  *
- * **Three types and no fourth, refused rather than documented.** D-21 closes
- * the set at `pin_login`, `pin_failed` and `permission_denied`;
- * `terminal_login` and `override_used` belong to tasks that do not exist, and
- * the column is wide enough for them. {@see self::write()} refuses anything
+ * **A closed set, refused rather than documented.** D-21 closed it at
+ * `pin_login`, `pin_failed` and `permission_denied`; T-014 adds
+ * `terminal_login`, and `override_used` still belongs to a task that does not
+ * exist. The column is wide enough for both. {@see self::write()} refuses anything
  * outside {@see self::TYPES} before it reaches the table, so a later caller
  * inventing a type gets an exception rather than a row nobody's report knows
  * how to read. The three named methods above it exist so that no ordinary
@@ -64,7 +64,15 @@ final class AccessLogWriter
     public const TYPE_PERMISSION_DENIED = 'permission_denied';
 
     /**
-     * The closed set D-21 allows this task to write.
+     * A terminal activated (T-014 AC-29). **Amends T-010 D-21's closed set of
+     * three**: the column was always wide enough for it, and the task that
+     * writes it is this one. Written with `terminal_id` and `branch_id`, no
+     * employee, and no detail.
+     */
+    public const TYPE_TERMINAL_LOGIN = 'terminal_login';
+
+    /**
+     * The closed set this package writes: D-21's three and T-014's one.
      *
      * @var list<string>
      */
@@ -72,6 +80,7 @@ final class AccessLogWriter
         self::TYPE_PIN_LOGIN,
         self::TYPE_PIN_FAILED,
         self::TYPE_PERMISSION_DENIED,
+        self::TYPE_TERMINAL_LOGIN,
     ];
 
     public function __construct(private readonly RunnerClock $clock) {}
@@ -82,6 +91,25 @@ final class AccessLogWriter
     public function pinLogin(Connection $connection, string $employeeId, ?string $ip): void
     {
         $this->write($connection, self::TYPE_PIN_LOGIN, $employeeId, null, null, [], $ip);
+    }
+
+    /**
+     * One terminal activation (T-014 AC-29): the terminal, its branch and the
+     * caller's printed address, packed. No employee - a till is not a person -
+     * and nothing the caller submitted: no code, no fingerprint.
+     */
+    public function terminalLogin(Connection $connection, string $terminalId, string $branchId, ?string $ip): void
+    {
+        $connection->table('access_log')->insert([
+            'employee_id' => null,
+            'terminal_id' => $terminalId,
+            'type' => self::TYPE_TERMINAL_LOGIN,
+            'permission_key' => null,
+            'branch_id' => $branchId,
+            'detail' => null,
+            'ip' => self::packIp($ip),
+            'created_at' => $this->clock->timestamp(),
+        ]);
     }
 
     /**

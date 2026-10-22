@@ -71,6 +71,12 @@ final class AuthRefusals
     public const SIGNING_UNAVAILABLE = 'signing_unavailable';
 
     /**
+     * The error token of the 503 a terminal activation answers when the server
+     * could not finish it (T-014 Ruling 12).
+     */
+    public const ACTIVATION_UNAVAILABLE = 'activation_unavailable';
+
+    /**
      * D-12's one refusal, rendered as the bytes `GenericRefusal` produced.
      */
     public static function credentials(): JsonResponse
@@ -132,5 +138,16 @@ final class AuthRefusals
     public static function signingUnavailable(): JsonResponse
     {
         return new JsonResponse(['error' => self::SIGNING_UNAVAILABLE], 503);
+    }
+
+    /**
+     * T-014 Ruling 12: activation failed for the server's own reason (the
+     * master could not write the refresh row, or the tenant could not commit).
+     * Not the uniform refusal and not counted: an outage says nothing about the
+     * code, and must never lock a tenant out of activating.
+     */
+    public static function activationUnavailable(): JsonResponse
+    {
+        return new JsonResponse(['error' => self::ACTIVATION_UNAVAILABLE], 503);
     }
 }

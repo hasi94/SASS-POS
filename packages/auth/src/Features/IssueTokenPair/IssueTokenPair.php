@@ -48,6 +48,12 @@ final class IssueTokenPair
         public readonly ?string $familyId = null,
         public readonly ?string $ip = null,
         public readonly ?string $userAgent = null,
+        /**
+         * The one branch of a terminal token (T-014 AC-33), and of no other
+         * type: a platform or tenant token naming a branch would be a claim no
+         * verifier admits, so the constructor refuses it here.
+         */
+        public readonly ?string $branchId = null,
     ) {
         if (! in_array($tokenType, TokenClaims::TYPES, true)) {
             throw new InvalidArgumentException(sprintf('unknown token type %s', $tokenType));
@@ -55,6 +61,14 @@ final class IssueTokenPair
 
         if ($userId === '') {
             throw new InvalidArgumentException('a token pair must name a principal');
+        }
+
+        if ($tokenType === TokenClaims::TYPE_TERMINAL) {
+            if ($tenantId === null || $tenantId === '' || $branchId === null || $branchId === '' || $employeeClaims !== null) {
+                throw new InvalidArgumentException('a terminal pair names its tenant and its branch, and carries no employee claims');
+            }
+        } elseif ($branchId !== null) {
+            throw new InvalidArgumentException('only a terminal pair names a branch');
         }
     }
 }

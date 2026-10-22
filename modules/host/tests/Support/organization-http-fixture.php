@@ -13,6 +13,7 @@ use Illuminate\Testing\TestResponse;
 use Symfony\Component\HttpFoundation\Response;
 
 use function Pest\Laravel\json;
+use function Pest\Laravel\withServerVariables;
 
 /*
 |--------------------------------------------------------------------------
@@ -158,4 +159,112 @@ function orgHttpCall(string $method, string $uri, string $token, array $body = [
 function orgHttpRead(callable $work): mixed
 {
     return orgHttpInTenant($work);
+}
+
+/*
+|--------------------------------------------------------------------------
+| Terminals: creating one, and activating it as a till does (T-014 steps 11-13)
+|--------------------------------------------------------------------------
+*/
+
+/**
+ * A branch with its store, created through the API as the owner.
+ *
+ * @return array{branch: string, store: string}
+ */
+function orgHttpBranch(string $token, string $code = 'br1'): array
+{
+    $created = orgHttpCall('POST', '/api/v1/organization/branches', $token, [
+        'code' => $code, 'name' => 'Branch '.$code, 'timezone' => 'Asia/Colombo', 'currency' => 'LKR',
+    ]);
+
+    return ['branch' => (string) $created->json('branch_id'), 'store' => (string) $created->json('location_id')];
+}
+
+/**
+ * A pending terminal through the API, with the code the response showed once.
+ *
+ * @param  array{branch: string, store: string}  $at
+ * @return array{terminal: string, code: string}
+ */
+function orgHttpTerminalAt(string $token, array $at, string $code): array
+{
+    $created = orgHttpCall('POST', '/api/v1/organization/terminals', $token, [
+        'branch_id' => $at['branch'], 'location_id' => $at['store'], 'code' => $code, 'name' => 'Till '.$code,
+    ]);
+
+    return ['terminal' => (string) $created->json('terminal_id'), 'code' => (string) $created->json('activation_code')];
+}
+
+/**
+ * A fingerprint: 64 lower-case hex characters from a stem.
+ */
+function orgHttpFingerprint(string $stem): string
+{
+    return hash('sha256', 'fingerprint:'.$stem);
+}
+
+/**
+ * The public activation call, from a chosen caller address.
+ *
+ * @param  array<string, mixed>  $body
+ * @return TestResponse<Response>
+ */
+function orgHttpActivate(array $body, string $ip = '203.0.113.5'): TestResponse
+{
+    withServerVariables(['REMOTE_ADDR' => $ip]);
+
+    return json('POST', '/api/v1/terminal/activate', $body);
+}
+
+/**
+ * A refresh call, from a chosen address.
+ *
+ * @return TestResponse<Response>
+ */
+function orgHttpRefresh(mixed $refreshToken, string $ip = '203.0.113.5'): TestResponse
+{
+    withServerVariables(['REMOTE_ADDR' => $ip]);
+
+    return json('POST', '/api/v1/terminal/refresh', ['refresh_token' => $refreshToken]);
+}
+
+/**
+ * A terminal created and activated: its ids, its two tokens and its
+ * fingerprint.
+ *
+ * @param  array{branch: string, store: string}  $at
+ * @return array{terminal: string, branch: string, access: string, refresh: string, fingerprint: string}
+ */
+function orgHttpActivated(string $ownerToken, array $at, string $code, ?string $fingerprint = null): array
+{
+    $terminal = orgHttpTerminalAt($ownerToken, $at, $code);
+    $fingerprint ??= orgHttpFingerprint($code);
+
+    $activated = orgHttpActivate(['code' => $terminal['code'], 'fingerprint' => $fingerprint, 'platform' => 'Windows']);
+
+    expect($activated->getStatusCode())->toBe(200);
+
+    return [
+        'terminal' => $terminal['terminal'],
+        'branch' => $at['branch'],
+        'access' => (string) $activated->json('access_token'),
+        'refresh' => (string) $activated->json('refresh_token'),
+        'fingerprint' => $fingerprint,
+    ];
+}
+
+/**
+ * Decode a JWT's claims without verifying it: for asserting what was minted.
+ *
+ * @return array<string, mixed>
+ */
+function orgHttpClaims(string $jwt): array
+{
+    $segment = explode('.', $jwt)[1] ?? '';
+
+    /** @var array<string, mixed> $claims */
+    $claims = json_decode((string) base64_decode(strtr($segment, '-_', '+/'), true), true) ?: [];
+
+    return $claims;
 }

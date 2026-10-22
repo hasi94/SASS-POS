@@ -49,9 +49,18 @@ final class TokenClaims
     public const TYPE_TENANT = 'tenant';
 
     /**
-     * The two token types, which are also the two claim shapes.
+     * A terminal's token (T-014 AC-33, D-19): a machine principal, minted at
+     * activation and at every terminal refresh. It carries `tenant`,
+     * `terminal_id` and `branch_ids` holding exactly the terminal's one branch,
+     * and **none** of the five employee claims - a till is not a person, and a
+     * token that carried `employee` would be taken for one.
      */
-    public const TYPES = [self::TYPE_PLATFORM, self::TYPE_TENANT];
+    public const TYPE_TERMINAL = 'terminal';
+
+    /**
+     * The token types, which are also the claim shapes.
+     */
+    public const TYPES = [self::TYPE_PLATFORM, self::TYPE_TENANT, self::TYPE_TERMINAL];
 
     /**
      * The platform access token's claims: AC-28's set exactly.
@@ -101,6 +110,26 @@ final class TokenClaims
     }
 
     /**
+     * The terminal access token's claims (T-014 AC-33): `sub` is the terminal's
+     * id, `tenant` the tenant's ULID, `terminal_id` the same terminal again as
+     * the claim a till-specific route reads, and `branch_ids` a list of exactly
+     * one upper-case branch id. The plural form keeps one claim shape across
+     * token kinds (D-19).
+     *
+     * @return array<string, mixed>
+     */
+    public static function terminal(
+        string $terminalId,
+        string $tenantId,
+        string $branchId,
+        string $jti,
+        int $issuedAt,
+        int $ttlMinutes
+    ): array {
+        return self::build(self::TYPE_TERMINAL, $terminalId, $tenantId, null, $jti, $issuedAt, $ttlMinutes, $branchId);
+    }
+
+    /**
      * The claim names one shape is allowed to carry, sorted.
      *
      * @return list<string>
@@ -114,7 +143,8 @@ final class TokenClaims
             $withEmployee ? self::specimenEmployee() : null,
             'specimen',
             0,
-            0
+            0,
+            $tokenType === self::TYPE_TERMINAL ? 'specimen' : null
         ));
     }
 
@@ -183,7 +213,8 @@ final class TokenClaims
         ?EmployeeClaims $employee,
         string $jti,
         int $issuedAt,
-        int $ttlMinutes
+        int $ttlMinutes,
+        ?string $branchId = null
     ): array {
         if (! in_array($tokenType, self::TYPES, true)) {
             throw new InvalidArgumentException(sprintf('unknown token type %s', $tokenType));
@@ -196,6 +227,18 @@ final class TokenClaims
             'exp' => $issuedAt + $ttlMinutes * 60,
             'jti' => $jti,
         ];
+
+        if ($tokenType === self::TYPE_TERMINAL) {
+            if ($tenantId === null || $tenantId === '' || $branchId === null || $branchId === '') {
+                throw new InvalidArgumentException('a terminal token must name a tenant and a branch');
+            }
+
+            // The terminal id is the subject and is repeated as `terminal_id`, so
+            // a route reading the terminal does not have to know `sub` means it.
+            $claims['tenant'] = $tenantId;
+            $claims['terminal_id'] = $userId;
+            $claims['branch_ids'] = [$branchId];
+        }
 
         if ($tokenType === self::TYPE_TENANT) {
             if ($tenantId === null || $tenantId === '') {

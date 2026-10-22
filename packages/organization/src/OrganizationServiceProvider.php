@@ -7,8 +7,12 @@ namespace Flexipos\Organization;
 use Flexipos\Contracts\Access\DeclaresPermissions;
 use Flexipos\Contracts\Access\PermissionDeclaration;
 use Flexipos\Contracts\Organization\BranchDirectory;
+use Flexipos\Contracts\Organization\TerminalActivation;
+use Flexipos\Contracts\Organization\TerminalAuthority;
+use Flexipos\Organization\Features\ActivateTerminal\ActivateTerminalHandler;
 use Flexipos\Organization\Registry\OrganizationPermissions;
 use Flexipos\Organization\Support\DatabaseBranchDirectory;
+use Flexipos\Organization\Support\DatabaseTerminalAuthority;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -35,6 +39,16 @@ final class OrganizationServiceProvider extends ServiceProvider implements Decla
         // A reader that answers from the tenant database; it has no permissive
         // state, because an unreadable branch is `Unknown`, which refuses.
         $this->app->singleton(BranchDirectory::class, DatabaseBranchDirectory::class);
+
+        // Step 11. What `packages/auth` calls, with a callable that mints the
+        // master refresh row as the last act of the tenant transaction. Bound to
+        // the one implementation, which refuses before it writes.
+        $this->app->singleton(TerminalActivation::class, ActivateTerminalHandler::class);
+
+        // Step 12. The per-request and per-refresh question about a terminal,
+        // answered from the tenant database. A reader: a terminal it cannot
+        // find is null, which refuses.
+        $this->app->singleton(TerminalAuthority::class, DatabaseTerminalAuthority::class);
     }
 
     /**

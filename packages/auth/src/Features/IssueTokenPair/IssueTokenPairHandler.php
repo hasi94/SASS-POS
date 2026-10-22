@@ -64,14 +64,23 @@ final class IssueTokenPairHandler
         $now = $this->clock->now();
         $jti = (string) Str::ulid();
 
-        $claims = $command->tokenType === TokenClaims::TYPE_TENANT
-            ? $this->tenantClaims($command, $jti, $now->getTimestamp())
-            : TokenClaims::platform(
+        $claims = match ($command->tokenType) {
+            TokenClaims::TYPE_TENANT => $this->tenantClaims($command, $jti, $now->getTimestamp()),
+            TokenClaims::TYPE_TERMINAL => TokenClaims::terminal(
+                $command->userId,
+                (string) $command->tenantId,
+                (string) $command->branchId,
+                $jti,
+                $now->getTimestamp(),
+                $this->accessTtlMinutes()
+            ),
+            default => TokenClaims::platform(
                 $command->userId,
                 $jti,
                 $now->getTimestamp(),
                 $this->accessTtlMinutes()
-            );
+            ),
+        };
 
         $accessToken = JWT::encode($claims, $key['private_key'], SigningKeyring::ALGORITHM, $key['kid']);
 
@@ -85,7 +94,9 @@ final class IssueTokenPairHandler
             ->table('refresh_tokens')
             ->insert([
                 'id' => $refreshTokenId,
-                'principal_type' => self::PRINCIPAL_TYPE,
+                'principal_type' => $command->tokenType === TokenClaims::TYPE_TERMINAL
+                    ? self::PRINCIPAL_TYPE_TERMINAL
+                    : self::PRINCIPAL_TYPE,
                 'principal_id' => $command->userId,
                 'tenant_id' => $command->tenantId,
                 // The hash, never the value (AC-32).
