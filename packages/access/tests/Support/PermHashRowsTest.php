@@ -117,8 +117,34 @@ function rowsRole(string $stem, array $keys): string
     return $id;
 }
 
+/**
+ * Make sure a branch row holds this id (T-014 step 6).
+ *
+ * The contract migration keys every branch column onto `branches`, so a row
+ * naming an opaque id needs the branch it names. Seeding only: no assertion
+ * in this file changes.
+ */
+function rowsEnsureBranch(?string $branchId): void
+{
+    if ($branchId === null || rowsTenant()->table('branches')->where('id', $branchId)->exists()) {
+        return;
+    }
+
+    rowsTenant()->table('branches')->insert([
+        'id' => $branchId,
+        'code' => 'B'.substr(md5($branchId), 0, 8),
+        'name' => 'Seeded '.$branchId,
+        'timezone' => 'Asia/Colombo',
+        'currency' => 'LKR',
+        'created_at' => '2026-10-20 00:00:00.000',
+        'updated_at' => '2026-10-20 00:00:00.000',
+    ]);
+}
+
 function rowsAssign(string $assignmentId, string $employeeId, string $roleId, ?string $branchId = null): void
 {
+    rowsEnsureBranch($branchId);
+
     rowsTenant()->table('employee_roles')->insert([
         'id' => rowsId($assignmentId),
         'employee_id' => $employeeId,
@@ -131,6 +157,7 @@ function rowsAssign(string $assignmentId, string $employeeId, string $roleId, ?s
 function rowsGrant(string $grantId, string $employeeId, string $key, ?string $branchId, bool $allowed): void
 {
     rowsPermission($key);
+    rowsEnsureBranch($branchId);
 
     rowsTenant()->table('employee_permissions')->insert([
         'id' => rowsId($grantId),

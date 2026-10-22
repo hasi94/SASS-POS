@@ -131,8 +131,34 @@ function ownerEmployee(string $stem): string
     return $id;
 }
 
+/**
+ * Make sure a branch row holds this id (T-014 step 6).
+ *
+ * The contract migration keys every branch column onto `branches`, so a row
+ * naming an opaque id needs the branch it names. Seeding only: no assertion
+ * in this file changes.
+ */
+function ownerEnsureBranch(?string $branchId): void
+{
+    if ($branchId === null || ownerTenant()->table('branches')->where('id', $branchId)->exists()) {
+        return;
+    }
+
+    ownerTenant()->table('branches')->insert([
+        'id' => $branchId,
+        'code' => 'B'.substr(md5($branchId), 0, 8),
+        'name' => 'Seeded '.$branchId,
+        'timezone' => 'Asia/Colombo',
+        'currency' => 'LKR',
+        'created_at' => '2026-10-20 00:00:00.000',
+        'updated_at' => '2026-10-20 00:00:00.000',
+    ]);
+}
+
 function ownerAssign(string $employeeId, string $roleId, ?string $branchId = null): void
 {
+    ownerEnsureBranch($branchId);
+
     ownerTenant()->table('employee_roles')->insert([
         'id' => str_pad(strtoupper(substr($employeeId, 0, 10).substr($roleId, 0, 6)), 26, 'X'),
         'employee_id' => $employeeId,

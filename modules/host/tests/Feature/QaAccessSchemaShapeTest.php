@@ -308,7 +308,7 @@ it('reports a table with one missing column too (AC-3)', function () {
     expect(qaT10Columns('roles'))->not->toBe($spec['roles']);
 });
 
-it('types the three unguarded branch columns as identifiers and states who owes their keys (AC-9)', function () {
+it('types the three branch columns as identifiers, keys them to branches, and states who owed the keys (AC-9)', function () {
     qaT10ApplyTree();
 
     $nullable = [
@@ -343,22 +343,30 @@ it('types the three unguarded branch columns as identifiers and states who owes 
             ->and((string) file_get_contents($directory.DIRECTORY_SEPARATOR.$file))->toContain($call);
     }
 
-    // No foreign key of T-010's tables references a table named `branches`.
-    // Narrowed to T-010's tables by T-014 step 4 (the new tables reference
-    // `branches` from their own creation, and the table now exists); the
-    // contract migration of step 6 flips this to "the three branch columns
-    // reference `branches.id`".
+    // T-014 step 6 flips what T-010 asserted here: the three branch columns
+    // now reference `branches.id` (the contract migration, AC-3), and no other
+    // key of T-010's tables does. The "FP-209 owes its foreign key" docblock
+    // check in the next case still passes, because those files are untouched
+    // (AC-8).
     $t010 = ['access_log', 'employee_branches', 'employee_permissions', 'employee_roles', 'employees', 'permissions', 'role_permissions', 'roles'];
     $references = [];
 
     foreach ($t010 as $table) {
         foreach (Schema::connection(QA_T10_SCHEMA_CONNECTION)->getForeignKeys($table) as $key) {
-            $references[] = $table.' -> '.$key['foreign_table'];
+            $references[] = $table.'.'.implode(',', $key['columns']).' -> '.$key['foreign_table'];
         }
     }
 
+    $ontoBranches = array_values(array_filter($references, static fn (string $r): bool => str_ends_with($r, ' -> branches')));
+
+    sort($ontoBranches);
+
     expect($references)->not->toBe([])
-        ->and(array_values(array_filter($references, static fn (string $r): bool => str_ends_with($r, ' -> branches'))))->toBe([]);
+        ->and($ontoBranches)->toBe([
+            'employee_branches.branch_id -> branches',
+            'employee_permissions.branch_id -> branches',
+            'employee_roles.branch_id -> branches',
+        ]);
 });
 
 /**

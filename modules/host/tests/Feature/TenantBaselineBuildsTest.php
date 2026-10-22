@@ -231,6 +231,13 @@ it('refuses a second company-wide sequence for one document type', function () {
 
     $branch = str_pad('branch', 26, 'b');
 
+    // T-014 step 6: the contract migration keys number_sequences.branch_id onto
+    // branches, so the branch this case names is a real row. Seeding only.
+    DB::connection(tenantStandIn())->table('branches')->insert([
+        'id' => $branch, 'code' => 'SEQB', 'name' => 'Sequence branch', 'timezone' => 'Asia/Colombo',
+        'currency' => 'LKR', 'created_at' => '2026-10-14 00:00:00.000', 'updated_at' => '2026-10-14 00:00:00.000',
+    ]);
+
     $row = static fn (string $id, ?string $branchId, string $type): array => [
         'id' => str_pad($id, 26, 'x'),
         'branch_id' => $branchId,
@@ -305,46 +312,53 @@ function tenantTreeForeignKeys(): array
     return $references;
 }
 
-it('holds exactly the declared foreign keys, and only the new tables reference branches', function () {
+it('holds exactly the declared foreign keys, and the branch keys of T-014 (AC-3, AC-4, AC-9)', function () {
     applyTenantBaseline();
 
     // The whole inventory, in both directions. `settings.updated_by ->
     // employees.id` is T-011's contract step, the one key T-008 D-5 owed to
-    // the employees module; any other new key onto `employees` turns this
-    // exact list red. T-014's five tables bring the keys they can carry in
-    // their own creation; the keys onto the tables created later in the tree,
-    // and onto `branches` from the four older tables, are the contract
-    // migration's and this list grows again when it lands.
+    // the employees module. T-014's five tables bring the keys they can carry
+    // in their own creation, and its one contract migration adds nine more:
+    // the branch column of four older tables, the two circular keys and the
+    // three employee-audit columns. Any other new key turns this exact list
+    // red.
     expect(tenantTreeForeignKeys())->toBe([
         'access_log.employee_id -> employees.id',
         'branches.created_by -> employees.id',
+        'branches.default_location_id -> locations.id',
         'branches.updated_by -> employees.id',
         'devices.revoked_by -> employees.id',
         'devices.terminal_id -> terminals.id',
+        'employee_branches.branch_id -> branches.id',
         'employee_branches.employee_id -> employees.id',
+        'employee_permissions.branch_id -> branches.id',
         'employee_permissions.employee_id -> employees.id',
         'employee_permissions.permission_key -> permissions.key',
+        'employee_roles.branch_id -> branches.id',
         'employee_roles.employee_id -> employees.id',
         'employee_roles.granted_by -> employees.id',
         'employee_roles.role_id -> roles.id',
         'employees.created_by -> employees.id',
         'employees.updated_by -> employees.id',
         'locations.branch_id -> branches.id',
+        'locations.created_by -> employees.id',
         'locations.manager_employee_id -> employees.id',
+        'locations.updated_by -> employees.id',
+        'number_sequences.branch_id -> branches.id',
         'role_permissions.permission_key -> permissions.key',
         'role_permissions.role_id -> roles.id',
         'settings.key -> settings_registry.key',
         'settings.updated_by -> employees.id',
         'terminal_credentials.activated_by -> employees.id',
+        'terminal_credentials.revoked_by -> employees.id',
         'terminal_credentials.terminal_id -> terminals.id',
         'terminals.branch_id -> branches.id',
+        'terminals.current_device_id -> devices.id',
         'terminals.location_id -> locations.id',
     ]);
 
-    // AC-9, said as a property rather than as a consequence of the list
-    // above: the only tables whose keys reference `branches` are the two of
-    // T-014's that belong to a branch, and none of the older tables does yet.
-    // The table exists now, so the old "no such table" half is gone.
+    // AC-3, said as a property rather than as a consequence of the list above:
+    // the four older tables' branch columns now reference `branches`.
     $referencing = array_values(array_unique(array_map(
         static fn (string $reference): string => explode('.', $reference)[0],
         array_filter(
@@ -355,27 +369,23 @@ it('holds exactly the declared foreign keys, and only the new tables reference b
 
     sort($referencing);
 
-    expect($referencing)->toBe(['locations', 'terminals'])
-        ->and(tenantStandInTables())->toContain('branches');
+    expect($referencing)->toBe([
+        'employee_branches', 'employee_permissions', 'employee_roles', 'locations', 'number_sequences', 'terminals',
+    ])->and(tenantStandInTables())->toContain('branches');
 });
 
 it('leaves the unguarded identifier columns in place, and typed as identifiers', function () {
     applyTenantBaseline();
 
-    // D-5's three that remain, plus T-010 D-30's three. Each migration docblock names the
-    // module that owes the key; this is the assertion that the column was not
-    // quietly dropped instead, and that its nullability is the one the design
-    // states - `employee_branches.branch_id` is NOT NULL, because a row there
-    // IS an attachment to one branch, while the other two carry "all
-    // branches" as NULL.
+    // T-014 AC-9: after the contract migration exactly four branch columns are
+    // left without a key, on purpose (D-2): the append-only histories. Each
+    // migration docblock says the key was deferred, and this is the assertion
+    // that the column was not quietly dropped and that all four stay nullable.
     $unguarded = [
-        'number_sequences.branch_id' => true,
         'audit_logs.branch_id' => true,
         'outbox_events.branch_id' => true,
-        'employee_roles.branch_id' => true,
-        'employee_permissions.branch_id' => true,
-        'employee_branches.branch_id' => false,
         'access_log.branch_id' => true,
+        'access_log.terminal_id' => true,
     ];
 
     $found = [];
@@ -393,7 +403,15 @@ it('leaves the unguarded identifier columns in place, and typed as identifiers',
     // Published as a map, so a failure names the column rather than a count,
     // and so a reader can see which domain was examined (D-27).
     expect($found)->toBe($unguarded)
-        ->and($found)->toHaveCount(7);
+        ->and($found)->toHaveCount(4);
+
+    // And they reference nothing: no key in the tree starts at one of them.
+    $referencingFrom = array_values(array_filter(
+        tenantTreeForeignKeys(),
+        static fn (string $reference): bool => in_array(explode(' -> ', $reference)[0], array_keys($unguarded), true)
+    ));
+
+    expect($referencingFrom)->toBe([]);
 
     // `settings.updated_by` left this map when T-011 gave it its key; it is
     // still a nullable identifier, typed as the other identifier columns are.

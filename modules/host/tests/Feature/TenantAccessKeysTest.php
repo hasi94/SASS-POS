@@ -83,6 +83,33 @@ function accessKeysId(string $stem): string
 }
 
 /**
+ * A branch id that names a real row, inserting the row on first use.
+ *
+ * T-014 step 6: the contract migration keys `employee_roles`,
+ * `employee_permissions` and `employee_branches` onto `branches`, so a
+ * fixture row naming a branch needs the branch. Seeding only; the key
+ * behaviour these cases assert is unchanged.
+ */
+function accessKeysBranch(string $stem): string
+{
+    $id = accessKeysId($stem);
+
+    if (! DB::connection(accessKeysStandIn())->table('branches')->where('id', $id)->exists()) {
+        DB::connection(accessKeysStandIn())->table('branches')->insert([
+            'id' => $id,
+            'code' => strtoupper(substr(md5($stem), 0, 8)),
+            'name' => $stem,
+            'timezone' => 'Asia/Colombo',
+            'currency' => 'LKR',
+            'created_at' => '2026-10-20 00:00:00.000',
+            'updated_at' => '2026-10-20 00:00:00.000',
+        ]);
+    }
+
+    return $id;
+}
+
+/**
  * Insert one employee and return its id.
  */
 function accessKeysEmployee(string $stem, ?string $userId = null, ?string $deletedAt = null, ?string $code = null): string
@@ -145,14 +172,14 @@ it('refuses a second all-branches role assignment and accepts a distinct branch'
     expect(static fn () => $assign('er-null-b', null))
         ->toThrow(QueryException::class, 'branch_id_key');
 
-    $assign('er-branch-a', accessKeysId('branch-a'));
+    $assign('er-branch-a', accessKeysBranch('branch-a'));
 
-    expect(static fn () => $assign('er-branch-b', accessKeysId('branch-a')))
+    expect(static fn () => $assign('er-branch-b', accessKeysBranch('branch-a')))
         ->toThrow(QueryException::class, 'branch_id_key');
 
     // A distinct branch is still accepted, so the key constrains the pair and
     // not the employee.
-    $assign('er-branch-c', accessKeysId('branch-b'));
+    $assign('er-branch-c', accessKeysBranch('branch-b'));
 
     expect(DB::connection(accessKeysStandIn())->table('employee_roles')->count())->toBe(3);
 });
@@ -190,9 +217,9 @@ it('refuses a second all-branches per-person grant and accepts a distinct branch
     expect(static fn () => $grant('ep-null-b', null))
         ->toThrow(QueryException::class, 'branch_id_key');
 
-    $grant('ep-branch-a', accessKeysId('branch-a'));
+    $grant('ep-branch-a', accessKeysBranch('branch-a'));
 
-    expect(static fn () => $grant('ep-branch-b', accessKeysId('branch-a')))
+    expect(static fn () => $grant('ep-branch-b', accessKeysBranch('branch-a')))
         ->toThrow(QueryException::class, 'branch_id_key');
 
     expect(DB::connection(accessKeysStandIn())->table('employee_permissions')->count())->toBe(2);
@@ -304,7 +331,7 @@ it('allows one default branch per employee, any number of non-default ones, and 
         ->table('employee_branches')
         ->insert([
             'employee_id' => $employee,
-            'branch_id' => accessKeysId($branch),
+            'branch_id' => accessKeysBranch($branch),
             'is_default' => $default,
             'created_at' => '2026-10-20 00:00:00.000',
             'updated_at' => '2026-10-20 00:00:00.000',
