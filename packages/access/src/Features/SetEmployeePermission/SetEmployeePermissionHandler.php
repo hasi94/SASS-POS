@@ -12,6 +12,7 @@ use Flexipos\Access\Support\Escalation;
 use Flexipos\Access\Support\PermVersion;
 use Flexipos\Access\Support\SelfChange;
 use Flexipos\Access\Support\TenantConnection;
+use Flexipos\Contracts\Organization\BranchDirectory;
 use Illuminate\Support\Str;
 
 /**
@@ -53,6 +54,7 @@ final class SetEmployeePermissionHandler
         private readonly TenantConnection $tenant,
         private readonly Escalation $escalation,
         private readonly AuditWriter $audit,
+        private readonly BranchDirectory $branches,
     ) {}
 
     public function handle(SetEmployeePermission $command): void
@@ -80,6 +82,7 @@ final class SetEmployeePermissionHandler
                 );
             }
 
+            BranchScope::requireUsable($this->branches, $branchId);
             BranchScope::requireAttached($connection, $command->employeeId, $branchId);
 
             if ($command->allowed) {

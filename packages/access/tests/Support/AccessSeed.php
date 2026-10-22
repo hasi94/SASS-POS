@@ -44,15 +44,36 @@ final class AccessSeed
     }
 
     /**
-     * A fresh opaque branch id.
+     * A real branch, active unless asked otherwise, and its upper-case id.
      *
-     * There is no `branches` table (D-30), so a branch is a well-formed
-     * 26-character ULID and nothing else - which is exactly what a grant
-     * stores in production too.
+     * **Since T-014 a branch is a row** (the contract migration keys every
+     * branch column onto `branches`, and the application refuses an id that
+     * names nothing, AC-52), so this inserts one with a unique code from a
+     * counter. That one change keeps every call site meaningful: they all
+     * wanted "a branch" and now get one.
      */
-    public static function branch(): string
+    public static function branch(bool $active = true): string
     {
-        return (string) Str::ulid();
+        static $counter = 0;
+
+        $counter++;
+
+        $id = (string) Str::ulid();
+        $now = now()->format('Y-m-d H:i:s.v');
+
+        self::connection()->table('branches')->insert([
+            'id' => $id,
+            'code' => 'B'.$counter,
+            'name' => 'Branch '.$counter,
+            'timezone' => 'Asia/Colombo',
+            'currency' => 'LKR',
+            'is_active' => $active,
+            'sort_order' => 0,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        return $id;
     }
 
     /**

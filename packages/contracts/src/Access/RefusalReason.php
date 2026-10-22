@@ -87,4 +87,20 @@ enum RefusalReason: string
      * {@see self::UnknownPermission}.
      */
     case ActorRequired = 'actor_required';
+
+    /**
+     * A branch id names no branch (T-014 AC-52, D-6).
+     *
+     * Rendered as `validation` with this value as the `reason`, so the wire
+     * keeps one status for a submission the caller can correct and still says
+     * which part was wrong.
+     */
+    case UnknownBranch = 'unknown_branch';
+
+    /**
+     * The branch exists and is deactivated, so nothing new may be scoped to it
+     * (T-014 AC-15, AC-52). Detaching, removing and clearing are never
+     * refused with it (D-6).
+     */
+    case BranchInactive = 'branch_inactive';
 }

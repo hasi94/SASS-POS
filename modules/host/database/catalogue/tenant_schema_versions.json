@@ -158,5 +158,13 @@
         "checksum": "11fe2400c8250baf2b58d4c7a82d515bb4e245c93b8199cc02cfe761f1a89ebe",
         "is_destructive": false,
         "requires_offline": false
+    },
+    {
+        "version": 21,
+        "migration": "2026_10_22_000506_add_branch_foreign_keys",
+        "phase": "contract",
+        "checksum": "b6e4e78dbe37ab5bf70bda0bf1b4b31cbe5e834eabb5a5e5472fba222b45b29e",
+        "is_destructive": false,
+        "requires_offline": false
     }
 ]

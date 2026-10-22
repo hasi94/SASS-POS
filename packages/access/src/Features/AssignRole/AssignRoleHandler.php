@@ -13,6 +13,7 @@ use Flexipos\Access\Support\PermVersion;
 use Flexipos\Access\Support\RoleLookup;
 use Flexipos\Access\Support\SelfChange;
 use Flexipos\Access\Support\TenantConnection;
+use Flexipos\Contracts\Organization\BranchDirectory;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Support\Str;
 
@@ -54,6 +55,7 @@ final class AssignRoleHandler
         private readonly RunnerClock $clock,
         private readonly Escalation $escalation,
         private readonly AuditWriter $audit,
+        private readonly BranchDirectory $branches,
     ) {}
 
     public function handle(AssignRole $command): void
@@ -68,6 +70,7 @@ final class AssignRoleHandler
             EmployeeLookup::findLive($connection, $command->employeeId);
             RoleLookup::findLive($connection, $command->roleId);
 
+            BranchScope::requireUsable($this->branches, $branchId);
             BranchScope::requireAttached($connection, $command->employeeId, $branchId);
 
             // AC-36. Inside the transaction and after the role exists, so the

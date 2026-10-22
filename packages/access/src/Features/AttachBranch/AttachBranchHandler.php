@@ -11,6 +11,7 @@ use Flexipos\Access\Support\EmployeeLookup;
 use Flexipos\Access\Support\PermVersion;
 use Flexipos\Access\Support\SelfChange;
 use Flexipos\Access\Support\TenantConnection;
+use Flexipos\Contracts\Organization\BranchDirectory;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 
 /**
@@ -45,6 +46,7 @@ final class AttachBranchHandler
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
         private readonly AuditWriter $audit,
+        private readonly BranchDirectory $branches,
     ) {}
 
     public function handle(AttachBranch $command): void
@@ -57,6 +59,10 @@ final class AttachBranchHandler
 
         $connection->transaction(function () use ($connection, $command, $branchId): void {
             EmployeeLookup::findLive($connection, $command->employeeId);
+
+            // T-014 AC-52: before the "already attached" read, so an unknown
+            // branch is `unknown_branch` and an inactive one `branch_inactive`.
+            BranchScope::requireUsable($this->branches, $branchId);
 
             $attached = $connection->table('employee_branches')
                 ->where('employee_id', $command->employeeId)

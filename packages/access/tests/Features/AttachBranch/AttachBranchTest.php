@@ -10,6 +10,7 @@ use Flexipos\Access\Tests\Support\AccessRefusals;
 use Flexipos\Access\Tests\Support\AccessSeed;
 use Flexipos\Access\Tests\Support\AccessTenantFixture;
 use Flexipos\Contracts\Access\RefusalReason;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /*
@@ -146,4 +147,21 @@ it('refuses an employee who was soft-deleted (AC-35)', function () {
     );
 
     expect(attachments($employeeId))->toBe([]);
+});
+
+it('refuses an unknown branch and an inactive one, and folds a lower-case id (AC-52, AC-15, AC-61)', function () {
+    $employee = AccessSeed::employee('attach_subject');
+    $branch = AccessSeed::branch();
+    $inactive = AccessSeed::branch(active: false);
+
+    AccessRefusals::expect(RefusalReason::UnknownBranch, fn () => attachBranch($employee, (string) Str::ulid()));
+    AccessRefusals::expect(RefusalReason::BranchInactive, fn () => attachBranch($employee, $inactive));
+
+    expect(attachments($employee))->toBe([]);
+
+    // Control: the active one is accepted, spelled in lower case, and stored
+    // upper-case.
+    attachBranch($employee, strtolower($branch));
+
+    expect(attachments($employee))->toBe([$branch => false]);
 });

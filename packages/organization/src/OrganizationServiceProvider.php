@@ -6,7 +6,9 @@ namespace Flexipos\Organization;
 
 use Flexipos\Contracts\Access\DeclaresPermissions;
 use Flexipos\Contracts\Access\PermissionDeclaration;
+use Flexipos\Contracts\Organization\BranchDirectory;
 use Flexipos\Organization\Registry\OrganizationPermissions;
+use Flexipos\Organization\Support\DatabaseBranchDirectory;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -27,7 +29,13 @@ use Illuminate\Support\ServiceProvider;
  */
 final class OrganizationServiceProvider extends ServiceProvider implements DeclaresPermissions
 {
-    public function register(): void {}
+    public function register(): void
+    {
+        // Step 5. What `packages/access` asks through the published contract.
+        // A reader that answers from the tenant database; it has no permissive
+        // state, because an unreadable branch is `Unknown`, which refuses.
+        $this->app->singleton(BranchDirectory::class, DatabaseBranchDirectory::class);
+    }
 
     public function boot(): void {}
 

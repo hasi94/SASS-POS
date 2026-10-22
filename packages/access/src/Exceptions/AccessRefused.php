@@ -214,4 +214,22 @@ final class AccessRefused extends RuntimeException implements AccessRefusal
     {
         return new self(RefusalReason::LastOwner, $message);
     }
+
+    /**
+     * A branch id names no branch (T-014 AC-52). Thrown only by
+     * {@see BranchScope::requireUsable()}.
+     */
+    public static function unknownBranch(string $message): self
+    {
+        return new self(RefusalReason::UnknownBranch, $message);
+    }
+
+    /**
+     * The branch exists and is switched off (T-014 AC-15, AC-52). Thrown only
+     * by {@see BranchScope::requireUsable()}.
+     */
+    public static function branchInactive(string $message): self
+    {
+        return new self(RefusalReason::BranchInactive, $message);
+    }
 }

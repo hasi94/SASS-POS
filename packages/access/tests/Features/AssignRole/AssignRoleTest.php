@@ -6,6 +6,8 @@ namespace Flexipos\Access\Tests\Features\AssignRole;
 
 use Flexipos\Access\Features\AssignRole\AssignRole;
 use Flexipos\Access\Features\AssignRole\AssignRoleHandler;
+use Flexipos\Access\Features\RemoveRoleAssignment\RemoveRoleAssignment;
+use Flexipos\Access\Features\RemoveRoleAssignment\RemoveRoleAssignmentHandler;
 use Flexipos\Access\Support\SystemRole;
 use Flexipos\Access\Tests\Support\AccessRefusals;
 use Flexipos\Access\Tests\Support\AccessSeed;
@@ -19,12 +21,10 @@ use Tests\TestCase;
 | T-010 step 13 - assigning a role at a scope (AC-30, AC-31, AC-52)
 |--------------------------------------------------------------------------
 |
-| AC-31's acceptance of a well-formed id naming no branch is asserted
-| POSITIVELY and by name, because the alternative reading of a missing test
-| is "nobody thought about it". There is no `branches` table (D-30), so the
-| branch ids here exist in `employee_branches` and nowhere else - which is
-| exactly the production shape until FP-209 ships branches - and the
-| assignment is accepted.
+| AC-31's acceptance of a well-formed id naming no branch was asserted
+| positively here by T-010. **T-014 AC-52 supersedes it (intended, D-6):** an
+| unknown id is `unknown_branch`, an inactive branch is `branch_inactive`, an
+| active one is accepted, and removal at an inactive branch still succeeds.
 |
 | Every refusal case asserts three things: the reason (not merely that
 | something was refused - four of this section's guards share a status), no
@@ -159,18 +159,67 @@ it('refuses the same role twice at the same scope, writes nothing and bumps noth
         ->and(AccessSeed::permVersion($ids['employee']))->toBe($before);
 });
 
-it('accepts a well-formed branch id for which no branch exists, deliberately (AC-31, D-30)', function () {
+/*
+ * SUPERSEDED by T-014 AC-52, intended and not a regression: this case used to
+ * assert that a well-formed id naming no branch is accepted (T-010 AC-31,
+ * D-30) because no `branches` table existed. The criterion text was withdrawn
+ * by T-014 D-6, and the assertions below replace it.
+ */
+it('refuses an unknown branch, refuses an inactive one, accepts an active one, and still removes at an inactive one (AC-52, AC-15)', function () {
     $ids = assignRoleWorld();
 
-    // The attachment is the only record of this branch anywhere in the
-    // database: no application code checks it against `branches` yet, so
-    // this IS the shape and the assignment is accepted. T-014 step 4 created
-    // the table (the `hasTable('branches')` line that stood here is the one
-    // scoped edit); step 5 makes the check real and replaces this case with
-    // AC-52.
+    $unknown = (string) Str::ulid();
+    $before = AccessSeed::permVersion($ids['employee']);
+
+    // Unknown: validation with its own reason, and `unknown_branch` precedes
+    // `not_attached` (the employee is attached to nothing at this id).
+    AccessRefusals::expect(RefusalReason::UnknownBranch, fn () => assignRole($ids['employee'], $ids['role'], $unknown));
+
+    expect(assignmentRows($ids['employee']))->toBe([])
+        ->and(AccessSeed::permVersion($ids['employee']))->toBe($before);
+
+    // Active: accepted, as T-010 AC-31 describes for an existing branch.
     assignRole($ids['employee'], $ids['role'], $ids['branch']);
 
-    expect(assignmentRows($ids['employee'])[0]['branch_id'])->toBe($ids['branch']);
+    expect(assignmentRows($ids['employee']))->toHaveCount(1);
+
+    // Inactive: a second role at the deactivated branch is refused.
+    $second = AccessSeed::role('second_lead', ['fixture.a']);
+
+    AccessSeed::connection()->table('branches')->where('id', $ids['branch'])->update(['is_active' => false]);
+
+    $afterFirst = AccessSeed::permVersion($ids['employee']);
+
+    AccessRefusals::expect(RefusalReason::BranchInactive, fn () => assignRole($ids['employee'], $second, $ids['branch']));
+
+    expect(assignmentRows($ids['employee']))->toHaveCount(1)
+        ->and(AccessSeed::permVersion($ids['employee']))->toBe($afterFirst);
+
+    // Control: removing the assignment at the inactive branch succeeds
+    // (D-6: rights stay revocable at a closed branch) and, once reactivated,
+    // the refused request succeeds too.
+    app(RemoveRoleAssignmentHandler::class)->handle(
+        new RemoveRoleAssignment($ids['employee'], $ids['role'], $ids['branch'], $ids['actor'])
+    );
+
+    expect(assignmentRows($ids['employee']))->toBe([]);
+
+    AccessSeed::connection()->table('branches')->where('id', $ids['branch'])->update(['is_active' => true]);
+
+    assignRole($ids['employee'], $second, $ids['branch']);
+
+    expect(assignmentRows($ids['employee']))->toHaveCount(1);
+});
+
+it('treats a lower-case spelling of a branch id as the same branch (AC-61)', function () {
+    $ids = assignRoleWorld();
+
+    assignRole($ids['employee'], $ids['role'], strtolower($ids['branch']));
+
+    $rows = assignmentRows($ids['employee']);
+
+    expect($rows)->toHaveCount(1)
+        ->and($rows[0]['branch_id'])->toBe($ids['branch']);
 });
 
 it('refuses a scope the employee is not attached to, with not_attached (AC-31, D-11)', function () {

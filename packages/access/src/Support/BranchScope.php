@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Flexipos\Access\Support;
 
 use Flexipos\Access\Exceptions\AccessRefused;
+use Flexipos\Contracts\Organization\BranchDirectory;
+use Flexipos\Contracts\Organization\BranchState;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Str;
@@ -12,18 +14,18 @@ use Illuminate\Support\Str;
 /**
  * What a branch id is, and what an operation may do with one (D-11, D-30).
  *
- * **There is no `branches` table, and this class is where that fact is
- * stated once instead of six times.** A branch is a 26-character ULID and
- * nothing else: the format is checkable, existence is not. Four operations
+ * **Since T-014 there is a `branches` table, and {@see self::requireUsable()}
+ * is where existence is asked once instead of six times.** (T-010 wrote: "A
+ * branch is a 26-character ULID and nothing else: the format is checkable,
+ * existence is not." The second half stopped being true.) Four operations
  * of section E take a scope and every one of them would otherwise carry its
  * own opinion about what a well-formed id is and about whether a branch has
  * to exist - and the second question has no answer to carry.
  *
- * **A well-formed id naming no branch is accepted, deliberately** (AC-31,
- * D-30). The alternative is a check against a table that does not exist,
- * which would be shape only: it could refuse nothing, so it would pass
- * everything while reading as a guard. When FP-209 ships `branches`, the
- * existence check belongs here, in one place, beside the format rule.
+ * **A well-formed id naming no branch is refused `unknown_branch`** (T-014
+ * AC-52, which supersedes T-010 AC-31's acceptance and D-30). The check is
+ * asked of the published `BranchDirectory` contract and never of the table,
+ * so this package holds no query against `branches`.
  *
  * **Attachment, on the other hand, is checkable and is checked** (D-11).
  * `employee_branches` exists, and a grant scoped to a branch the employee
@@ -55,10 +57,16 @@ final class BranchScope
     public const GRANT_TABLES = ['employee_roles', 'employee_permissions'];
 
     /**
-     * Check a scope's shape, returning it unchanged.
+     * Check a scope's shape and fold it to upper case (T-014 FP-309, AC-61).
      *
      * Null passes through untouched: it is the all-branches scope and is a
      * meaningful value rather than a missing one (D-10).
+     *
+     * **The fold is here, once, and the folded value is what every caller
+     * must use.** Under `ascii_bin` a lower- and an upper-case spelling of one
+     * ULID are two different strings, so a caller that compared or stored the
+     * submitted spelling would make two branches out of one. A string that is
+     * not a 26-character ULID in either case is `validation`.
      *
      * @throws AccessRefused validation, when a non-null id is not a ULID
      */
@@ -74,7 +82,32 @@ final class BranchScope
             );
         }
 
-        return $branchId;
+        return strtoupper($branchId);
+    }
+
+    /**
+     * Refuse a scope that names no branch or one that is switched off
+     * (T-014 AC-15, AC-52).
+     *
+     * Null passes: it is every branch, and it names no row. **Called
+     * immediately before {@see self::requireAttached()}**, so an unknown id is
+     * `unknown_branch` and never `not_attached`, and an allow or a deny at an
+     * inactive branch is refused. Detach, remove and clear never call it
+     * (D-6): rights must stay revocable at a branch that has been closed.
+     *
+     * @throws AccessRefused unknown_branch or branch_inactive
+     */
+    public static function requireUsable(BranchDirectory $directory, ?string $branchId): void
+    {
+        if ($branchId === null) {
+            return;
+        }
+
+        match ($directory->state($branchId)) {
+            BranchState::Active => null,
+            BranchState::Unknown => throw AccessRefused::unknownBranch("Branch [{$branchId}] does not exist."),
+            BranchState::Inactive => throw AccessRefused::branchInactive("Branch [{$branchId}] is not active."),
+        };
     }
 
     /**

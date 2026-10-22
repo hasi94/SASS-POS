@@ -79,6 +79,16 @@ final class AccessRefusals
      */
     public static function of(RefusalReason $reason): JsonResponse
     {
+        // T-014 AC-63: an unknown branch is a submission the caller can
+        // correct, so it keeps validation's status and body and names the
+        // part that was wrong.
+        if ($reason === RefusalReason::UnknownBranch) {
+            return new JsonResponse(
+                ['error' => RefusalReason::Validation->value, 'reason' => $reason->value],
+                422,
+            );
+        }
+
         return new JsonResponse(
             ['error' => $reason->value],
             $reason === RefusalReason::Validation ? 422 : 403,

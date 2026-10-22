@@ -244,6 +244,9 @@ function qaT10gSeed(): array
 
         return [
             'branch' => $branch,
+            // A second real branch for the attach body (T-014 AC-52: a body
+            // naming no branch is no longer one that would succeed).
+            'attachable' => AccessSeed::branch(),
             'subject' => $subject,
             'held' => $held,
             // Unassigned, so DELETE can succeed on it.
@@ -277,7 +280,7 @@ function qaT10gRequestFor(string $method, string $uri, array $ids): array
         'PUT api/v1/access/employees/{employee}/status' => ['status' => 'suspended'],
         'POST api/v1/access/employees/{employee}/roles' => ['role_id' => $ids['free']],
         'PUT api/v1/access/employees/{employee}/permissions/{permissionKey}' => ['allowed' => false],
-        'POST api/v1/access/employees/{employee}/branches' => ['branch_id' => (string) Str::ulid()],
+        'POST api/v1/access/employees/{employee}/branches' => ['branch_id' => $ids['attachable']],
         'PUT api/v1/access/employees/{employee}/pin' => ['pin' => '7391'],
     ];
 
@@ -390,7 +393,7 @@ it('returns no secret field in the response to any mutating route, headers inclu
         ]);
     });
 
-    $newBranch = (string) Str::ulid();
+    $newBranch = qaT10gInTenant(static fn (): string => AccessSeed::branch());
 
     $calls = [
         ['POST', '/api/v1/access/roles', ['key' => 'qa_resp_role', 'name' => 'QA']],

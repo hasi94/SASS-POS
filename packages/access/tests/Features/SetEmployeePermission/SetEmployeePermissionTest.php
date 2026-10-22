@@ -10,6 +10,7 @@ use Flexipos\Access\Tests\Support\AccessRefusals;
 use Flexipos\Access\Tests\Support\AccessSeed;
 use Flexipos\Access\Tests\Support\AccessTenantFixture;
 use Flexipos\Contracts\Access\RefusalReason;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /*
@@ -227,4 +228,24 @@ it('refuses a branch id that is not a ULID, with validation (AC-31)', function (
     );
 
     expect(personalRows($ids['employee']))->toBe([]);
+});
+
+it('refuses an allow and a deny at an unknown or inactive branch (AC-52, AC-15)', function () {
+    $ids = personalPermissionWorld();
+
+    AccessRefusals::expect(RefusalReason::UnknownBranch, fn () => setEmployeePermission($ids['employee'], $ids['scoped'], true, (string) Str::ulid()));
+
+    AccessSeed::connection()->table('branches')->where('id', $ids['branch'])->update(['is_active' => false]);
+
+    AccessRefusals::expect(RefusalReason::BranchInactive, fn () => setEmployeePermission($ids['employee'], $ids['scoped'], true, $ids['branch']));
+    AccessRefusals::expect(RefusalReason::BranchInactive, fn () => setEmployeePermission($ids['employee'], $ids['scoped'], false, $ids['branch']));
+
+    expect(personalRows($ids['employee']))->toBe([]);
+
+    // Control: reactivated, the identical request is accepted.
+    AccessSeed::connection()->table('branches')->where('id', $ids['branch'])->update(['is_active' => true]);
+
+    setEmployeePermission($ids['employee'], $ids['scoped'], true, $ids['branch']);
+
+    expect(personalRows($ids['employee']))->toHaveCount(1);
 });
