@@ -6,6 +6,7 @@ use Flexipos\Access\AccessServiceProvider;
 use Flexipos\Auth\AuthServiceProvider;
 use Flexipos\Kernel\Schema\SchemaServiceProvider;
 use Flexipos\Kernel\Tenancy\TenancyServiceProvider;
+use Flexipos\Organization\OrganizationServiceProvider;
 
 return [
     AppServiceProvider::class,
@@ -14,4 +15,5 @@ return [
     SchemaServiceProvider::class,
     AuthServiceProvider::class,
     AccessServiceProvider::class,
+    OrganizationServiceProvider::class,
 ];

@@ -305,15 +305,22 @@ function tenantTreeForeignKeys(): array
     return $references;
 }
 
-it('holds exactly the declared foreign keys, none of them onto branches', function () {
+it('holds exactly the declared foreign keys, and only the new tables reference branches', function () {
     applyTenantBaseline();
 
     // The whole inventory, in both directions. `settings.updated_by ->
     // employees.id` is T-011's contract step, the one key T-008 D-5 owed to
     // the employees module; any other new key onto `employees` turns this
-    // exact list red.
+    // exact list red. T-014's five tables bring the keys they can carry in
+    // their own creation; the keys onto the tables created later in the tree,
+    // and onto `branches` from the four older tables, are the contract
+    // migration's and this list grows again when it lands.
     expect(tenantTreeForeignKeys())->toBe([
         'access_log.employee_id -> employees.id',
+        'branches.created_by -> employees.id',
+        'branches.updated_by -> employees.id',
+        'devices.revoked_by -> employees.id',
+        'devices.terminal_id -> terminals.id',
         'employee_branches.employee_id -> employees.id',
         'employee_permissions.employee_id -> employees.id',
         'employee_permissions.permission_key -> permissions.key',
@@ -322,23 +329,34 @@ it('holds exactly the declared foreign keys, none of them onto branches', functi
         'employee_roles.role_id -> roles.id',
         'employees.created_by -> employees.id',
         'employees.updated_by -> employees.id',
+        'locations.branch_id -> branches.id',
+        'locations.manager_employee_id -> employees.id',
         'role_permissions.permission_key -> permissions.key',
         'role_permissions.role_id -> roles.id',
         'settings.key -> settings_registry.key',
         'settings.updated_by -> employees.id',
+        'terminal_credentials.activated_by -> employees.id',
+        'terminal_credentials.terminal_id -> terminals.id',
+        'terminals.branch_id -> branches.id',
+        'terminals.location_id -> locations.id',
     ]);
 
     // AC-9, said as a property rather than as a consequence of the list
-    // above: nothing references `branches`, and no such table exists to be
-    // referenced. Both halves, because a key onto a table that does not exist
-    // is the mistake this is guarding against.
-    $ontoBranches = array_values(array_filter(
-        tenantTreeForeignKeys(),
-        static fn (string $reference): bool => str_contains($reference, '-> branches.')
-    ));
+    // above: the only tables whose keys reference `branches` are the two of
+    // T-014's that belong to a branch, and none of the older tables does yet.
+    // The table exists now, so the old "no such table" half is gone.
+    $referencing = array_values(array_unique(array_map(
+        static fn (string $reference): string => explode('.', $reference)[0],
+        array_filter(
+            tenantTreeForeignKeys(),
+            static fn (string $reference): bool => str_contains($reference, '-> branches.')
+        )
+    )));
 
-    expect($ontoBranches)->toBe([])
-        ->and(tenantStandInTables())->not->toContain('branches');
+    sort($referencing);
+
+    expect($referencing)->toBe(['locations', 'terminals'])
+        ->and(tenantStandInTables())->toContain('branches');
 });
 
 it('leaves the unguarded identifier columns in place, and typed as identifiers', function () {

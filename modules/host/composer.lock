@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "41fded610b9c4221161ab615876e2d78",
+    "content-hash": "c91d324209fe8f11aff271e5c754e53d",
     "packages": [
         {
             "name": "brick/math",
@@ -733,6 +733,32 @@
                 "proprietary"
             ],
             "description": "FlexiPOS kernel: tenant context, scopes, settings, idempotency, audit and correlation ids.",
+            "transport-options": {
+                "relative": true
+            }
+        },
+        {
+            "name": "flexipos/organization",
+            "version": "0.1.0",
+            "dist": {
+                "type": "path",
+                "url": "../../packages/organization",
+                "reference": "4a263d023f44d235c75fe744e9eef12cfbbcbd34"
+            },
+            "require": {
+                "flexipos/contracts": "*",
+                "php": "^8.2"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Flexipos\\Organization\\": "src/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "FlexiPOS organization: tenant-local branches, locations and warehouses, terminals and their devices, terminal activation and the settings hierarchy.",
             "transport-options": {
                 "relative": true
             }

@@ -118,5 +118,45 @@
         "checksum": "4dd75595a674f0b344e93fc9faa77fac00001ca2ffeb37cd26df976ee33c098d",
         "is_destructive": false,
         "requires_offline": false
+    },
+    {
+        "version": 16,
+        "migration": "2026_10_22_000501_create_branches_table",
+        "phase": "expand",
+        "checksum": "d8c37a950d9049dff0506ad0612757ae3fc11c071498aaf64e54e1db0a949723",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 17,
+        "migration": "2026_10_22_000502_create_locations_table",
+        "phase": "expand",
+        "checksum": "15f9fb5b34b1553c662a3d4926b2c0f78c259a5c28dc9e34315970d1bb76e75a",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 18,
+        "migration": "2026_10_22_000503_create_terminals_table",
+        "phase": "expand",
+        "checksum": "8a1098a1c48ac889a43e67b58da4d603dc0ea22c4f4509dddd3be389d8820b56",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 19,
+        "migration": "2026_10_22_000504_create_devices_table",
+        "phase": "expand",
+        "checksum": "dc3bf47429e4580fd463d84c619b40a896f3eac226daa28a5d303139d0286f20",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 20,
+        "migration": "2026_10_22_000505_create_terminal_credentials_table",
+        "phase": "expand",
+        "checksum": "11fe2400c8250baf2b58d4c7a82d515bb4e245c93b8199cc02cfe761f1a89ebe",
+        "is_destructive": false,
+        "requires_offline": false
     }
 ]

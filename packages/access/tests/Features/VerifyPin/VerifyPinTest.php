@@ -384,7 +384,7 @@ it('clears a lock when a new PIN is set, and the new PIN verifies at once (AC-47
 
     /** @var SetPinHandler $setter */
     $setter = app(SetPinHandler::class);
-    $setter->handle(new SetPin($employeeId, '5826', null));
+    $setter->handle(new SetPin($employeeId, '5826', $employeeId));
 
     expect(pinCounters($employeeId))->toBe(['attempts' => 0, 'locked_until' => null])
         ->and(verifyPin('cashier', '5826')->isVerified())->toBeTrue();

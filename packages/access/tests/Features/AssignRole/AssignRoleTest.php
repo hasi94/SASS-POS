@@ -163,11 +163,11 @@ it('accepts a well-formed branch id for which no branch exists, deliberately (AC
     $ids = assignRoleWorld();
 
     // The attachment is the only record of this branch anywhere in the
-    // database: there is no `branches` table to check against, so this IS
-    // the production shape and the assignment is accepted. `qa` must not
-    // file this as unvalidated input.
-    expect(AccessSeed::connection()->getSchemaBuilder()->hasTable('branches'))->toBeFalse();
-
+    // database: no application code checks it against `branches` yet, so
+    // this IS the shape and the assignment is accepted. T-014 step 4 created
+    // the table (the `hasTable('branches')` line that stood here is the one
+    // scoped edit); step 5 makes the check real and replaces this case with
+    // AC-52.
     assignRole($ids['employee'], $ids['role'], $ids['branch']);
 
     expect(assignmentRows($ids['employee'])[0]['branch_id'])->toBe($ids['branch']);

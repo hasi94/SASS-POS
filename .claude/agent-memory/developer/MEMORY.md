@@ -60,3 +60,5 @@
 - [A sweep prints what it found](feedback_a_sweep_prints_what_it_found.md) - two green sweeps over the wrong domain in one step; the print caught both, the assertion could not.
 - [Field by field is silent about absence](feedback_field_by_field_is_silent_about_absence.md) - AC-70's ip shipped null through fourteen handlers and a green sweep.
 - [Lock clause pin on the stand-in](project_lock_clause_pin_on_the_standin.md) - MySqlGrammar + pretend() shows `for update`; lock the full owner set, self included.
+- [Worktree .env and the gate baseline](project_worktree_env_and_gate_baseline.md) - a bare worktree has no .env: 10 to 11 env failures, the harness blocks .env writes, use an exported APP_KEY.
+- [SQLite rebuild, measured for T-014](project_sqlite_rebuild_measured_t014.md) - nine contract keys rebuild cleanly on the stand-in; the transaction trap is real.

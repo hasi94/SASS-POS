@@ -150,6 +150,81 @@ final class Escalation
     }
 
     /**
+     * Name the actor, or refuse `actor_required` and log it at error level.
+     *
+     * The first line of the PIN rule (T-014 D-44, AC-58): an actorless PIN
+     * reset is a defect at a call site, not a caller's mistake, so it is
+     * answered before anything is read and it is **not** `no_escalation` -
+     * that word is a proposition about rights, and a test asserting it for
+     * the actorless case fails by design (T-010 D-36).
+     *
+     * @throws AccessRefused actor_required
+     */
+    public function requireActor(?string $actorId, string $operation): string
+    {
+        if ($actorId === null) {
+            $this->logger->error('An operation that bounds itself by the actor was attempted with no actor.', [
+                'operation' => $operation,
+            ]);
+
+            throw AccessRefused::actorRequired(
+                "To {$operation} needs a named actor whose own rights bound it."
+            );
+        }
+
+        return $actorId;
+    }
+
+    /**
+     * Refuse unless the actor holds everything the target holds (T-010 D-39,
+     * T-014 AC-54 to AC-59, D-44).
+     *
+     * **Setting somebody's PIN is handing out their identity at the till**, so
+     * the actor must be able to do whatever the target can: a cashier-level
+     * HR user must not be able to set the owner's PIN. The set compared is
+     * the target's *allowing* contributions as {@see PermHash::contributionsFor()}
+     * reads them - **whatever the target's status**, because a suspended
+     * person's rights return on reactivation (T-010 D-38), and roles
+     * soft-deleted excluded, as the resolver excludes them.
+     *
+     * **A target deny cancels the allow it covers, and no more.** A deny at
+     * the null scope covers every scope of that key; a deny at one branch
+     * covers the allow at that branch only. An allow at the null scope with a
+     * deny at one branch still has to be held by the actor everywhere: that
+     * is the conservative reading (D-44).
+     *
+     * Each remaining (key, scope) goes through {@see self::requireHeld()}, so
+     * "holds" is asked of the resolver and never recomputed here, and a null
+     * scope asks {@see DatabasePermissionResolver::holdsEverywhere()}: a
+     * null-scope grant covers every branch.
+     *
+     * @throws AccessRefused no_escalation (actor_required when the actor is null)
+     */
+    public function requireHoldsWhatTargetHolds(Connection $connection, string $actorId, string $targetId): void
+    {
+        $allows = [];
+        $denies = [];
+
+        foreach (PermHash::contributionsFor($connection, $targetId) as [$allowed, $key, $scope]) {
+            if ($allowed) {
+                $allows[$key."\t".$scope] = [$key, $scope];
+            } else {
+                $denies[$key."\t".$scope] = true;
+            }
+        }
+
+        ksort($allows, SORT_STRING);
+
+        foreach ($allows as [$key, $scope]) {
+            if (isset($denies[$key."\t".ScopeKey::ALL_BRANCHES]) || isset($denies[$key."\t".$scope])) {
+                continue;
+            }
+
+            $this->requireHeld($actorId, $key, $scope === ScopeKey::ALL_BRANCHES ? null : $scope);
+        }
+    }
+
+    /**
      * Refuse unless the actor holds every key a role confers, at the scope
      * the role is being granted at.
      *

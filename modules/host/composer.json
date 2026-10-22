@@ -23,6 +23,7 @@
         "flexipos/eventbus": "*",
         "flexipos/http-client": "*",
         "flexipos/kernel": "*",
+        "flexipos/organization": "*",
         "flexipos/plugin-sdk": "*",
         "laravel/framework": "^12.0",
         "laravel/tinker": "^2.10.1"
@@ -52,6 +53,7 @@
     "autoload-dev": {
         "psr-4": {
             "Flexipos\\Access\\Tests\\": "../../packages/access/tests/",
+            "Flexipos\\Organization\\Tests\\": "../../packages/organization/tests/",
             "Tests\\": "tests/"
         }
     },

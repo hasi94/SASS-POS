@@ -131,7 +131,9 @@ it('creates exactly the tenant tables the shipped tree declares', function () {
     // T-011 they differ: the settings.updated_by key is a file that creates no
     // table. So the file count is derived (T-011 AC-24 E5): one file per
     // table created, plus one per file that creates none, and the tableless
-    // set is read from the files rather than written here.
+    // set is read from the files rather than written here. T-014 adds five
+    // tables in five files (14 becomes 19), and the identity below still holds
+    // because each new file creates exactly one table.
     $tableless = array_keys(array_filter(
         migrationTreeSources(MigrationTree::Tenant),
         static fn (string $source): bool => SourceRules::tablesCreatedIn($source) === []
@@ -139,7 +141,7 @@ it('creates exactly the tenant tables the shipped tree declares', function () {
 
     expect(migrationTreeTables(MigrationTree::Tenant))->toBe(tenantTreeTables())
         ->and(tenantBaselineTables())->toHaveCount(6)
-        ->and(tenantTreeTables())->toHaveCount(14)
+        ->and(tenantTreeTables())->toHaveCount(19)
         ->and(migrationTreeSources(MigrationTree::Tenant))->toHaveCount(tenantMigrationFileCount())
         ->and($tableless)->not->toBe([])
         ->and(tenantMigrationFileCount())->toBe(count(tenantTreeTables()) + count($tableless));

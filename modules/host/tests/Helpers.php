@@ -492,7 +492,8 @@ function tenantBaselineTables(): array
 
 /**
  * Every table the shipped tenant tree creates: T-008's baseline six plus
- * T-010's eight.
+ * T-010's eight plus T-014's five (branches, locations, terminals, devices,
+ * terminal_credentials).
  *
  * **Two concepts, deliberately not one list** (T-010 Ruling 2). Three sites
  * read "the whole tree" and three read "the baseline", and until T-010 those
@@ -507,13 +508,18 @@ function tenantTreeTables(): array
 {
     $tables = array_merge(tenantBaselineTables(), [
         'access_log',
+        'branches',
+        'devices',
         'employee_branches',
         'employee_permissions',
         'employee_roles',
         'employees',
+        'locations',
         'permissions',
         'role_permissions',
         'roles',
+        'terminal_credentials',
+        'terminals',
     ]);
 
     sort($tables);

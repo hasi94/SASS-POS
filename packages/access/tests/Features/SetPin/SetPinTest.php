@@ -153,7 +153,7 @@ it('refuses every shape AC-47 names, writes nothing, and never prints the value'
 
     $refused = AccessRefusals::expect(
         RefusalReason::Validation,
-        fn () => setPin($employeeId, $pin, null)
+        fn () => setPin($employeeId, $pin, $employeeId)
     );
 
     $row = pinRow($employeeId);
@@ -200,7 +200,7 @@ it('accepts exactly the PIN taken out of the weak list, and nothing else (AC-47,
     app()->instance(PinPolicy::class, PinPolicy::withWeakPins($moved));
 
     // Exactly the moved entry is now acceptable...
-    setPin($employeeId, '1234', null);
+    setPin($employeeId, '1234', $employeeId);
 
     expect(pinRow($employeeId)['pin_hash'])->not->toBeNull();
 
@@ -212,7 +212,7 @@ it('accepts exactly the PIN taken out of the weak list, and nothing else (AC-47,
     foreach (['4321', '0000', '1111'] as $stillWeak) {
         AccessRefusals::expect(
             RefusalReason::Validation,
-            fn () => setPin($second, $stillWeak, null)
+            fn () => setPin($second, $stillWeak, $second)
         );
     }
 
@@ -282,9 +282,13 @@ it('refuses a PIN for an employee who is not there, and writes nothing (AC-47)',
         'deleted_at' => '2026-10-20 00:00:00.000',
     ]);
 
+    // A named actor, because an actorless reset is `actor_required` and is
+    // refused before the target is looked up (T-014 AC-58).
+    $actorId = AccessSeed::employee('manager');
+
     AccessRefusals::expect(
         RefusalReason::Validation,
-        fn () => setPin($employeeId, '7391', null)
+        fn () => setPin($employeeId, '7391', $actorId)
     );
 
     expect(pinRow($employeeId)['pin_hash'])->toBeNull()
