@@ -62,3 +62,4 @@
 - [Lock clause pin on the stand-in](project_lock_clause_pin_on_the_standin.md) - MySqlGrammar + pretend() shows `for update`; lock the full owner set, self included.
 - [Worktree .env and the gate baseline](project_worktree_env_and_gate_baseline.md) - a bare worktree has no .env: 10 to 11 env failures, the harness blocks .env writes, use an exported APP_KEY.
 - [SQLite rebuild, measured for T-014](project_sqlite_rebuild_measured_t014.md) - nine contract keys rebuild cleanly on the stand-in; the transaction trap is real.
+- [Stage files during a gate run](feedback_stage_files_during_a_gate_run.md) - draft the next step in a scratchpad stage tree plus an installer; never write into the repo mid-gate.

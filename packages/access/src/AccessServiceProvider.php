@@ -9,14 +9,18 @@ use Flexipos\Access\Registry\AccessPermissions;
 use Flexipos\Access\Registry\PermissionRegistry;
 use Flexipos\Access\Resolver\DatabaseEmployeeStalenessCheck;
 use Flexipos\Access\Resolver\DatabasePermissionResolver;
+use Flexipos\Access\Support\AuditWriter;
 use Flexipos\Access\Support\ClientIp;
+use Flexipos\Access\Support\DatabaseEmployeeDirectory;
 use Flexipos\Access\Support\EmployeeStatus;
 use Flexipos\Access\Support\PinPolicy;
 use Flexipos\Contracts\Access\DeclaresPermissions;
 use Flexipos\Contracts\Access\EmployeeClaimSource;
+use Flexipos\Contracts\Access\EmployeeDirectory;
 use Flexipos\Contracts\Access\EmployeeStalenessCheck;
 use Flexipos\Contracts\Access\PermissionDeclaration;
 use Flexipos\Contracts\Access\PermissionResolver;
+use Flexipos\Contracts\Audit\AuditTrail;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -101,6 +105,13 @@ final class AccessServiceProvider extends ServiceProvider implements DeclaresPer
         // requests stamps each row with its own caller. A test that needs
         // a chosen address binds `ClientIp::fixed()` over this.
         $this->app->singleton(ClientIp::class, static fn ($app): ClientIp => ClientIp::fromRequests($app));
+
+        // T-014. What organization asks of access through the published
+        // contracts: the one audit writer, and whether an employee exists.
+        // Both are readers or writers of access's own tables, so organization
+        // never queries them (T-010 AC-11's stated limit).
+        $this->app->singleton(AuditTrail::class, AuditWriter::class);
+        $this->app->singleton(EmployeeDirectory::class, DatabaseEmployeeDirectory::class);
     }
 
     /**

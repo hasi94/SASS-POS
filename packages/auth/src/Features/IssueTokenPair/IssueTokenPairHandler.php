@@ -42,6 +42,13 @@ final class IssueTokenPairHandler
      */
     public const PRINCIPAL_TYPE = 'user';
 
+    /**
+     * The principal type of a terminal's refresh rows (T-014): written by
+     * activation and refresh, read by revocation. `PRINCIPAL_TYPE` stays
+     * `user`, because T-009's agreement pins are about login.
+     */
+    public const PRINCIPAL_TYPE_TERMINAL = 'terminal';
+
     public function __construct(
         private readonly DatabaseManager $database,
         private readonly ConfigRepository $config,

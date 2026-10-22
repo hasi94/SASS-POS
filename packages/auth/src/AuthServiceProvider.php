@@ -6,8 +6,10 @@ namespace Flexipos\Auth;
 
 use Flexipos\Auth\Keys\PrivateKeyResolver;
 use Flexipos\Auth\Keys\ReferencedPrivateKeyResolver;
+use Flexipos\Auth\Tenancy\MasterTerminalSessions;
 use Flexipos\Auth\Tenancy\TenantSelectionPolicy;
 use Flexipos\Auth\Tokens\SigningKeyring;
+use Flexipos\Contracts\Auth\TerminalSessions;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Support\ServiceProvider;
 
@@ -86,6 +88,12 @@ final class AuthServiceProvider extends ServiceProvider
             TenantSelectionPolicy::class,
             static fn (): TenantSelectionPolicy => TenantSelectionPolicy::shipped()
         );
+
+        // T-014 step 10. What organization asks of the master through the
+        // published contract: a tenant's code and the revocation of a
+        // terminal's refresh families. A reader and one idempotent update, so
+        // there is no permissive state to be in.
+        $this->app->singleton(TerminalSessions::class, MasterTerminalSessions::class);
     }
 
     /**

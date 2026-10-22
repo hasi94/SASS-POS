@@ -37,7 +37,16 @@ final class OrganizationServiceProvider extends ServiceProvider implements Decla
         $this->app->singleton(BranchDirectory::class, DatabaseBranchDirectory::class);
     }
 
-    public function boot(): void {}
+    /**
+     * Mount this package's tenant routes. `loadRoutesFrom()` for the reason
+     * `AccessServiceProvider` does it: the file that declares the routes and
+     * the provider that decides they exist stay together, and the helper is
+     * route-cache aware.
+     */
+    public function boot(): void
+    {
+        $this->loadRoutesFrom(__DIR__.'/../routes/api.php');
+    }
 
     /**
      * This package's eight keys (D-12).

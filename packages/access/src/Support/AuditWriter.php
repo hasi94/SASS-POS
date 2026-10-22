@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flexipos\Access\Support;
 
+use Flexipos\Contracts\Audit\AuditTrail;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Database\Connection;
 
@@ -35,7 +36,7 @@ use Illuminate\Database\Connection;
  * (AC-71) - which is the worst possible audit defect: a record of something
  * that did not happen.
  */
-final class AuditWriter
+final class AuditWriter implements AuditTrail
 {
     /**
      * The module every row this writer produces belongs to.
@@ -58,6 +59,7 @@ final class AuditWriter
     public function __construct(
         private readonly RunnerClock $clock,
         private readonly ClientIp $client,
+        private readonly TenantConnection $tenant,
     ) {}
 
     /**
@@ -76,12 +78,55 @@ final class AuditWriter
         ?array $after,
         ?string $branchId = null,
     ): void {
+        $this->insert($connection, self::MODULE, $actorId, $action, $subjectType, $subjectId, $before, $after, $branchId);
+    }
+
+    /**
+     * {@see AuditTrail::record()}: the same writer for another module's rows
+     * (T-014 AC-20), on the tenant connection the caller has entered.
+     *
+     * **Organization asks for its audit rows through the contract and never
+     * inserts one itself**, so the actor-name snapshot, the derived
+     * `changed_fields`, the clock and the caller's address stay decided in
+     * this one place. The caller is inside its own transaction.
+     *
+     * @param  array<string, mixed>|null  $before
+     * @param  array<string, mixed>|null  $after
+     */
+    public function record(
+        string $module,
+        ?string $actorId,
+        string $action,
+        string $subjectType,
+        string $subjectId,
+        ?array $before,
+        ?array $after,
+        ?string $branchId = null,
+    ): void {
+        $this->insert($this->tenant->get(), $module, $actorId, $action, $subjectType, $subjectId, $before, $after, $branchId);
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $before
+     * @param  array<string, mixed>|null  $after
+     */
+    private function insert(
+        Connection $connection,
+        string $module,
+        ?string $actorId,
+        string $action,
+        string $subjectType,
+        string $subjectId,
+        ?array $before,
+        ?array $after,
+        ?string $branchId,
+    ): void {
         $connection->table('audit_logs')->insert([
             'actor_type' => self::ACTOR_TYPE,
             'actor_id' => $actorId,
             'actor_name' => $this->actorName($connection, $actorId),
             'branch_id' => $branchId,
-            'module' => self::MODULE,
+            'module' => $module,
             'action' => $action,
             'subject_type' => $subjectType,
             'subject_id' => $subjectId,

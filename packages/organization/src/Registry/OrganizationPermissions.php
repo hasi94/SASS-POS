@@ -45,6 +45,52 @@ final class OrganizationPermissions
      */
     public static function declarations(): array
     {
-        return [];
+        return [
+            new PermissionDeclaration(
+                self::BRANCHES_VIEW,
+                self::MODULE,
+                'branches',
+                'List and read branches.',
+                false,
+            ),
+            new PermissionDeclaration(
+                self::BRANCHES_MANAGE,
+                self::MODULE,
+                'branches',
+                'Create, update, deactivate and reactivate branches.',
+                false,
+            ),
+            new PermissionDeclaration(
+                self::LOCATIONS_VIEW,
+                self::MODULE,
+                'locations',
+                'List and read locations and warehouses.',
+                false,
+            ),
+            new PermissionDeclaration(
+                self::LOCATIONS_MANAGE,
+                self::MODULE,
+                'locations',
+                'Create warehouses, update, deactivate and reactivate locations.',
+                false,
+            ),
+            new PermissionDeclaration(
+                self::TERMINALS_VIEW,
+                self::MODULE,
+                'terminals',
+                'List and read terminals and their devices.',
+                false,
+            ),
+            // Separate from terminals.view, and the one that can lock a till
+            // out: revoking a terminal and issuing an activation code are both
+            // under it (D-12).
+            new PermissionDeclaration(
+                self::TERMINALS_MANAGE,
+                self::MODULE,
+                'terminals',
+                'Create, update, pause, resume and revoke terminals and issue activation codes.',
+                false,
+            ),
+        ];
     }
 }
