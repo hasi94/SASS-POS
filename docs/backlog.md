@@ -310,7 +310,7 @@ The master database, tenant provisioning and everything that must exist before a
 | FP-217 | Docker development environment | OPS | Application, MySQL, Redis, mail catcher; XAMPP path documented as the alternative | FP-201 | TODO |
 | FP-218 | CI pipeline | OPS | Format, static analysis, boundaries, tests, migration tests on a fresh and an existing database | FP-217 | TODO |
 | FP-219 | Frontend bootstrap | FE | Angular workspace: till application, admin application, shared library | — | TODO |
-| FP-220 | Print agent bootstrap | PA | .NET solution, loopback service, packaging | — | TODO |
+| FP-220 | Print agent bootstrap | PA | .NET solution, loopback service, packaging | — | IN_QA (T-013, `ai/T-013-print-agent-bootstrap`) — solution, loopback-only host with `/health` and `/v1/info`, 10 xUnit tests, publish and Windows-service scripts. Pairing, queue and printing are FP-239. MSI deferred |
 | FP-221 | VPS pre-flight and walking skeleton | OPS | Owner APPROVED 2026-10-02. Read-only pre-flight first, then Docker Engine, /opt/flexipos, compose with limits, CloudPanel reverse-proxy site. Must not disturb existing applications. | FP-217 | TODO |
 
 ## Phase 1 — Point of sale

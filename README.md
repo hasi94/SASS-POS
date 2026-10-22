@@ -22,7 +22,7 @@ rewrite.
 | `infra/`       | Docker images, Compose files, CI and provisioning scripts                              |
 | `docs/`        | Architecture, database, backlog, specs, plans and decisions                            |
 
-`gateway/`, `frontend/`, `print-agent/`, `plugins/` and `infra/` are placeholders for now;
+`gateway/`, `frontend/`, `plugins/` and `infra/` are placeholders for now;
 their real contents land in later backlog rows.
 
 ## Getting started
