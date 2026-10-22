@@ -7,6 +7,8 @@ use Flexipos\Auth\Features\Login\LoginHandler;
 use Flexipos\Auth\Features\RecordLoginAttempt\RecordLoginAttempt;
 use Flexipos\Auth\Support\GenericRefusal;
 use Flexipos\Auth\Tokens\SigningKeyring;
+use Flexipos\Contracts\Organization\ActivationAttempt;
+use Flexipos\Contracts\Organization\TerminalActivation;
 use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
 use Flexipos\Kernel\Tenancy\Contracts\TenantMigrationTargetRepository;
 use Illuminate\Support\Facades\DB;
@@ -239,7 +241,11 @@ it('maps every exception type the package defines to a non-500 response, and see
     $record = tenancyFixtureMapping()['tenant-a'];
     $record['schema_version'] = AccessTenantFixture::topVersion();
 
-    config()->set('tenancy.databases', [$employeeShop => $record, 'tenant-a' => $record]);
+    // T-014: a second shop, with an upper-case code a terminal can activate
+    // against, mapped in the same breath for the same reason.
+    $activationShop = authFixtureTenant('SHOP-ACT');
+
+    config()->set('tenancy.databases', [$employeeShop => $record, $activationShop => $record, 'tenant-a' => $record]);
     config()->set('tenancy.required_schema_version', AccessTenantFixture::topVersion());
 
     app()->forgetInstance(TenantDatabaseRepository::class);
@@ -247,6 +253,22 @@ it('maps every exception type the package defines to a non-500 response, and see
     app()->forgetScopedInstances();
 
     $drive('EmployeeUnavailable', '/api/v1/auth/tenant', ['code' => 'shop-employee'], $bearer, 403);
+
+    // T-014's operational type: the tenant side of an activation fails for its
+    // own reason (a double standing in for the tenant database being
+    // unavailable), which is a 503 and never the uniform refusal. Driven here
+    // for the same reason as the type above, and BEFORE any other row can use
+    // the activation route and cache its controller. The full proof - a real
+    // rollback with the master unable to write - is TerminalActivationHttpTest's.
+    app()->instance(TerminalActivation::class, new class implements TerminalActivation
+    {
+        public function activate(ActivationAttempt $attempt, callable $issueInsideTransaction): mixed
+        {
+            throw new RuntimeException('the tenant side is unavailable');
+        }
+    });
+
+    $drive('ActivationUnavailable', '/api/v1/terminal/activate', ['code' => 'SHOP-ACT-ABCD-EFGH', 'fingerprint' => str_repeat('a', 64)], [], 503);
 
     AccessTenantFixture::forget();
 

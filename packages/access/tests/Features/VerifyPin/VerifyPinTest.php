@@ -422,16 +422,18 @@ it('reaches the verify operation from no route at all, over the routes it printe
         ->and($reaching)->toBe([], 'routes reaching VerifyPin: '.implode(' / ', $reaching));
 });
 
-it('refuses an access log type outside D-21s three, and writes the three (D-21, AC-69)', function () {
+it('refuses an access log type outside the closed set, and writes every type in it (D-21, AC-69, T-014)', function () {
     /** @var AccessLogWriter $writer */
     $writer = app(AccessLogWriter::class);
 
     $connection = AccessSeed::connection();
     $employeeId = AccessSeed::employee('cashier');
 
-    expect(fn () => $writer->write($connection, 'terminal_login', $employeeId, null, null, [], null))
+    // T-014 amends D-21's three to four: `terminal_login` joins (AC-29), and
+    // `override_used` is the type that still belongs to a task that does not exist.
+    expect(fn () => $writer->write($connection, 'override_used', $employeeId, null, null, [], null))
         ->toThrow(InvalidArgumentException::class)
-        ->and(AccessLogWriter::TYPES)->toBe(['pin_login', 'pin_failed', 'permission_denied'])
+        ->and(AccessLogWriter::TYPES)->toBe(['pin_login', 'pin_failed', 'permission_denied', 'terminal_login'])
         ->and(accessLogRows())->toBe([]);
 
     // The liveness half: a refusal that refuses everything is also a refusal.

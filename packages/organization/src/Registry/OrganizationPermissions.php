@@ -91,6 +91,21 @@ final class OrganizationPermissions
                 'Create, update, pause, resume and revoke terminals and issue activation codes.',
                 false,
             ),
+            new PermissionDeclaration(
+                self::SETTINGS_VIEW,
+                self::MODULE,
+                'settings',
+                'Read the effective settings of a company, branch or terminal.',
+                false,
+            ),
+            // Writes to settings, including a secret's value, which no read returns.
+            new PermissionDeclaration(
+                self::SETTINGS_MANAGE,
+                self::MODULE,
+                'settings',
+                'Set and clear settings at company, branch and terminal scope.',
+                false,
+            ),
         ];
     }
 }

@@ -10,7 +10,6 @@ use Flexipos\Auth\Features\IssueTokenPair\IssueTokenPairHandler;
 use Flexipos\Auth\Support\GenericRefusal;
 use Flexipos\Auth\Tokens\TokenClaims;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
@@ -40,14 +39,6 @@ use function Pest\Laravel\json;
 */
 
 require_once __DIR__.'/../Support/organization-http-fixture.php';
-
-final class TerminalProbeController
-{
-    public function __invoke(): JsonResponse
-    {
-        return new JsonResponse(['ok' => true]);
-    }
-}
 
 beforeEach(function () {
     orgHttpBoot();

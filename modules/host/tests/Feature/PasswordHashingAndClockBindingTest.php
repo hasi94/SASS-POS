@@ -182,12 +182,15 @@ it('ships the authentication figures as numbers, and names no status, algorithm 
     $shipped = shippedConfig('authentication', [
         'AUTH_ACCESS_TTL_MINUTES', 'AUTH_REFRESH_TTL_DAYS', 'AUTH_LOCKOUT_THRESHOLD',
         'AUTH_LOCKOUT_MINUTES', 'AUTH_LIMIT_EMAIL', 'AUTH_LIMIT_PASSWORD',
+        // T-014: the guessing limit of the public activation route.
+        'AUTH_TERMINAL_ACTIVATION_MAX_FAILURES', 'AUTH_TERMINAL_ACTIVATION_WINDOW_MINUTES',
     ]);
 
     expect($shipped)->toBe([
         'access_ttl_minutes' => 15,
         'refresh_ttl_days' => 14,
         'lockout' => ['threshold' => 5, 'minutes' => 15],
+        'terminal_activation' => ['max_failures' => 10, 'window_minutes' => 15],
         'limits' => ['email' => 191, 'password' => 1024],
     ]);
 

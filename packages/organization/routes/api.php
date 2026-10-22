@@ -3,6 +3,7 @@
 use App\Http\Controllers\Organization\ChangeBranchStatusController;
 use App\Http\Controllers\Organization\ChangeLocationStatusController;
 use App\Http\Controllers\Organization\ChangeTerminalStatusController;
+use App\Http\Controllers\Organization\ClearSettingController;
 use App\Http\Controllers\Organization\CreateBranchController;
 use App\Http\Controllers\Organization\CreateTerminalController;
 use App\Http\Controllers\Organization\CreateWarehouseController;
@@ -11,14 +12,19 @@ use App\Http\Controllers\Organization\GetLocationController;
 use App\Http\Controllers\Organization\GetTerminalController;
 use App\Http\Controllers\Organization\ListBranchesController;
 use App\Http\Controllers\Organization\ListLocationsController;
+use App\Http\Controllers\Organization\ListSettingsController;
 use App\Http\Controllers\Organization\ListTerminalDevicesController;
 use App\Http\Controllers\Organization\ListTerminalsController;
 use App\Http\Controllers\Organization\ReissueActivationCodeController;
+use App\Http\Controllers\Organization\RevokeTerminalController;
+use App\Http\Controllers\Organization\SetSettingController;
 use App\Http\Controllers\Organization\UpdateBranchController;
 use App\Http\Controllers\Organization\UpdateLocationController;
 use App\Http\Controllers\Organization\UpdateTerminalController;
+use App\Http\Controllers\Terminal\ListTerminalSettingsController;
 use App\Http\Middleware\RequireTenantPermission;
 use App\Http\Middleware\RequireTenantToken;
+use App\Http\Middleware\RequireTerminalToken;
 use Flexipos\Organization\Registry\OrganizationPermissions;
 use Illuminate\Support\Facades\Route;
 
@@ -87,7 +93,7 @@ Route::middleware(['api', RequireTenantToken::class])
             ->middleware(RequireTenantPermission::class.':'.OrganizationPermissions::LOCATIONS_MANAGE)
             ->name('organization.locations.status');
 
-        // Section D - terminals. Revoking one arrives with step 13.
+        // Section D - terminals. There is no route that un-revokes one (AC-40).
         Route::get('/terminals', ListTerminalsController::class)
             ->middleware(RequireTenantPermission::class.':'.OrganizationPermissions::TERMINALS_VIEW)
             ->name('organization.terminals.list');
@@ -115,4 +121,33 @@ Route::middleware(['api', RequireTenantToken::class])
         Route::put('/terminals/{terminal}/status', ChangeTerminalStatusController::class)
             ->middleware(RequireTenantPermission::class.':'.OrganizationPermissions::TERMINALS_MANAGE)
             ->name('organization.terminals.status');
+
+        Route::post('/terminals/{terminal}/revoke', RevokeTerminalController::class)
+            ->middleware(RequireTenantPermission::class.':'.OrganizationPermissions::TERMINALS_MANAGE)
+            ->name('organization.terminals.revoke');
+
+        // Section E - settings. The scope is in the query on a read and in the
+        // body on a write; a value is never read from the URL (AC-47).
+        Route::get('/settings', ListSettingsController::class)
+            ->middleware(RequireTenantPermission::class.':'.OrganizationPermissions::SETTINGS_VIEW)
+            ->name('organization.settings.list');
+
+        Route::put('/settings', SetSettingController::class)
+            ->middleware(RequireTenantPermission::class.':'.OrganizationPermissions::SETTINGS_MANAGE)
+            ->name('organization.settings.set');
+
+        Route::post('/settings/clear', ClearSettingController::class)
+            ->middleware(RequireTenantPermission::class.':'.OrganizationPermissions::SETTINGS_MANAGE)
+            ->name('organization.settings.clear');
+    });
+
+/*
+ * A terminal's own settings (AC-50): terminal token only, no employee
+ * permission, and the terminal is the token's, never a path or query value.
+ */
+Route::middleware(['api', RequireTerminalToken::class])
+    ->prefix('api/v1/terminal')
+    ->group(function (): void {
+        Route::get('/settings', ListTerminalSettingsController::class)
+            ->name('terminal.settings');
     });

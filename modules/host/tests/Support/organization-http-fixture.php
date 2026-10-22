@@ -9,6 +9,7 @@ use Flexipos\Auth\Features\IssueTokenPair\IssueTokenPairHandler;
 use Flexipos\Auth\Tokens\TokenClaims;
 use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
 use Flexipos\Kernel\Tenancy\Contracts\TenantMigrationTargetRepository;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Testing\TestResponse;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -267,4 +268,20 @@ function orgHttpClaims(string $jwt): array
     $claims = json_decode((string) base64_decode(strtr($segment, '-_', '+/'), true), true) ?: [];
 
     return $claims;
+}
+
+/**
+ * The terminal-only route the middleware tests mount (T-014 step 12): step 14's
+ * settings route is the shipped one, and `RequireTerminalToken` has to be
+ * reachable on its own. A class, not a closure, so no later route sweep in the
+ * same process can trip over it. Declared once here for every file that mounts it.
+ */
+if (! class_exists('TerminalProbeController', false)) {
+    final class TerminalProbeController
+    {
+        public function __invoke(): JsonResponse
+        {
+            return new JsonResponse(['ok' => true]);
+        }
+    }
 }
