@@ -91,7 +91,12 @@ afterAll(function () {
  */
 function closeOutNewTables(): array
 {
-    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables()));
+    // T-014's five tables are excluded by name: this is T-010's sweep and its
+    // claim is about T-010's eight tables. The five are scanned by T-014's own
+    // tenant-isolation test.
+    $t014 = ['branches', 'devices', 'locations', 'terminal_credentials', 'terminals'];
+
+    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014));
 }
 
 /**
