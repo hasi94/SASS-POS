@@ -279,6 +279,23 @@ There is one cached **entitlement snapshot** per tenant: `{plan_id, limits, plan
 | `src/Features/CheckSeatAvailability/{…,…Handler}.php` | implements `TenantSeats` (Ruling 9) |
 | `tests/**` | the mirror tree, namespaced `Flexipos\Platform\Tests\…`. `tests/Support/PlatformSeed.php` seeds plans, limits, flags, tenants, subscriptions and licences on the master stand-in, and has `bindMasterSource()` |
 
+#### Files added during implementation, recorded after review round 1 (S-1)
+
+These files shipped and were not in the list above. Each is legitimate. None changes a ruling or a step.
+
+| Path | What, and why it was not listed |
+|---|---|
+| `src/Support/EvictsEntitlements.php` | An interface with one method, `evict(string $tenantId)`. The provider binds it to the same singleton as `EntitlementSource`. `StartSubscription`, `ChangeSubscriptionPlan`, `SetTenantFeatureFlag` and `ResolveFeatureFlag` (for Ruling 13's refresh-once) depend on it rather than on the concrete `CachingEntitlementSource`. This mirrors the kernel's `EvictsTenantMappings`. The plan named only `evict()` on the caching class (Ruling 12) |
+| `src/Features/{StartSubscription,ChangeSubscriptionStatus,ChangeSubscriptionPlan,ChangeLicenceStatus,EnforceCommercialDeadlines}/*Result.php` | One result object per write slice: what changed, and the reconcile trigger if any. The table above listed `*Result.php` only for `StartSubscription` and `EnforceCommercialDeadlines` |
+| `src/Features/ChangeSubscriptionStatus/ChangeSubscriptionStatusCommand.php` (`platform:change-subscription-status`) | **AC-33** (added to the spec after this plan, with D-21): each operator write ships as an internal handler **plus one console command**, with no HTTP route. This formalises Ruling 17. Each command is a thin adapter: it parses its arguments, calls the handler, and prints the result or the refusal |
+| `src/Features/ChangeSubscriptionPlan/ChangeSubscriptionPlanCommand.php` (`platform:change-subscription-plan`) | AC-33, as above |
+| `src/Features/ChangeLicenceStatus/ChangeLicenceStatusCommand.php` (`platform:change-licence-status`) | AC-33, as above |
+| `src/Features/SetTenantFeatureFlag/SetTenantFeatureFlagCommand.php` (`platform:set-tenant-feature-flag`) | AC-33, as above |
+| `tests/Features/ChangeSubscriptionStatus/ChangeSubscriptionStatusCommandTest.php`, `tests/Features/ChangeSubscriptionPlan/ChangeSubscriptionPlanCommandTest.php`, `tests/Features/ChangeLicenceStatus/ChangeLicenceStatusCommandTest.php`, `tests/Features/SetTenantFeatureFlag/SetTenantFeatureFlagCommandTest.php` | AC-33. One test per command, run through Artisan against the master stand-in. They live in each slice's mirror folder, beside the slice's handler test |
+| `tests/Features/EnforceCommercialDeadlines/EnforceCommercialDeadlinesScheduleTest.php` | Step 6's assertion that the schedule runs `platform:enforce-deadlines` every minute. It is kept in its own file, apart from the handler's `EnforceCommercialDeadlinesTest.php` |
+
+**AC-33 also amends Ruling 17.** "One console command" in Ruling 17 meant the sweep only. As shipped, there are **five** `platform:*` commands: the sweep plus the four AC-33 operator commands. `StartSubscription` has no command, because AC-33 does not name it.
+
 ### `packages/organization` (change: T-014 files, see section 9)
 
 | Path | What |
@@ -608,6 +625,7 @@ Each step ends with `composer check` green from `modules/host`, with a zero-delt
   | AC-30 | the directory listing plus `composer deptrac` (steps 1 and 12) |
   | AC-31 | step 13 |
   | AC-32 | steps 1 and 12 |
+  | AC-33 *(added after this plan; recorded after review S-1)* | the four `*CommandTest.php` files listed in section 3's addendum |
 
 - **Grades:** each criterion is independently proven on the stand-in, except AC-28.
 
