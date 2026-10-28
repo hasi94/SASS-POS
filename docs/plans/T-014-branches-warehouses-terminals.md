@@ -237,6 +237,8 @@ This follows T-010 Ruling 5. AC-49 is satisfied structurally. Its two controls (
 | `src/Support/Escalation.php` | `requireHoldsWhatTargetHolds(Connection, string $actorId, string $targetId)`: Ruling 13 step 5 |
 | `src/Features/SetPin/SetPinHandler.php` | Ruling 13's order |
 | `src/AccessServiceProvider.php` | binds the three new contracts |
+| `src/Support/SystemRole.php` *(change, T-010 file; recorded after QA BUG-1)* | step 3: gains `isHeldBy()`, which Ruling 13 (D-44) reads to decide whether a PIN subject holds a system role. Additive; no existing caller changes |
+| `src/Resolver/DatabasePermissionResolver.php` *(change, T-010 file; recorded after QA BUG-1)* | AC-61 access half (steps 5 and 16; landed in the step 15-16 checkpoint): `decide()` folds the branch id to upper case before it is compared. Additive; the four refusals and their order are unchanged |
 
 ### Host, `modules/host`
 
@@ -246,6 +248,7 @@ This follows T-010 Ruling 5. AC-49 is satisfied structurally. Its two controls (
 | `app/Http/Controllers/Terminal/{ActivateTerminal,RefreshTerminalToken,GetTerminalSettings}Controller.php` | the activation controller refuses (uniformly) if the query string has `code` or `activation_code`, and reads the body only |
 | `app/Http/Middleware/RequireTerminalToken.php` | section 4 |
 | `app/Http/Responses/OrganizationRefusals.php` *(new)*, `AccessRefusals.php` *(change)* | Ruling 8's shapes |
+| `app/Http/Responses/AuthRefusals.php` *(change, T-009 file; recorded after QA BUG-1)* | step 11: gains `ACTIVATION_UNAVAILABLE` and `activationUnavailable()` for Ruling 12's 503. Additive; existing refusals unchanged |
 | `config/organization.php` *(new)* | page size 50, max 100, activation lifetime 24 hours. Numbers only, as `config/access.php` does |
 | `config/authentication.php` *(change)* | `terminal_activation.max_failures` 10, `window_minutes` 15 |
 | `bootstrap/providers.php`, `composer.json`, `composer.lock` | add `OrganizationServiceProvider`, require `flexipos/organization`, `autoload-dev` `Flexipos\Organization\Tests\` → `../../packages/organization/tests/`. Run `composer update flexipos/organization`, never with `--lock` |
@@ -699,6 +702,9 @@ Each edit is stated here so `qa` reports it as intended, not as a regression. No
 | 6 | `QaAccessSchemaShapeTest` | the T-010 branch columns now reference `branches` |
 | 6 | `TenantAccessKeysTest` | branch ids seeded as real rows |
 | 11 | auth route-surface tests, if they pin the route list | two new public routes |
+| 5 *(recorded after QA BUG-1)* | `packages/access/tests/Features/SyncPermissionRegistry/OwnerRoleSyncTest.php` | the same branch-seeding fix as `TenantAccessKeysTest`: a row naming an opaque `branch_id` now needs a real `branches` row once the contract migration's keys are in place. Seeding-only helper, no assertion changed, stated in its docblock (landed in the step 5-7 checkpoint) |
+| 5 *(recorded after QA BUG-1)* | `packages/access/tests/Support/PermHashRowsTest.php` | the same branch-seeding fix, same cause; seeding-only, no assertion changed, stated in its docblock |
+| 11 then 14 *(recorded after QA BUG-1)* | `modules/host/tests/Feature/PasswordHashingAndClockBindingTest.php` (T-009) | its config-key enumeration of `config/authentication.php` gains the new `terminal_activation` keys (section 3, host). No assertion weakened (landed in the step 13-14 checkpoint) |
 | any | `PermissionRegistryTest`, `SyncPermissionRegistryTest`, `QaAccessHttpSurfaceTest`, `QaVerifyPinReachabilityTest`, `QaSchemaSignatureInstrumentTest`, `QaTenantBaselineStandInShapeTest`, `QaDatetimePrecisionSourceTest` | **expected unchanged** (they derive their domain), listed so a red one is investigated rather than patched |
 
 **Expected unedited:**
