@@ -44,7 +44,7 @@ by D-37/D-38 for Ruling 7/8's refusal-vocabulary and settings-registry criteria)
 | AC-43 [ENGINE] | stand-in half only (second sequential request refused) | PASS stand-in half; **NOT VERIFIED** concurrent half |
 | AC-44 | `SettingsResolutionTest.php` printed dataset; mutation 1 (below) | PASS, confirmed by mutation |
 | AC-45 to AC-51 | settings slices, `QaSecretSettingSinkTest.php` | PASS |
-| AC-52 | `AssignRoleTest.php`, `AttachBranchTest.php`, `SetEmployeePermissionTest.php`; mutation 5 (below) | PASS, confirmed by mutation |
+| AC-52 | `AssignRoleTest.php`, `AttachBranchTest.php`, `SetEmployeePermissionTest.php`; mutation 5 (below) | PASS, confirmed by mutation. T-010 AC-31's "well-formed id naming no branch is accepted" is withdrawn by AC-52; `AssignRoleTest`'s case was replaced as intended, not a regression. |
 | AC-53 | `OwnerRoleSyncTest.php` + sweep | PASS |
 | AC-54 to AC-58 | `SetPinEscalationTest.php`, `SetPinTest.php` | PASS |
 | AC-59 | `QaPinResetRuleTest.php` printed dataset; mutation 2 (below, both sub-cases) | PASS, confirmed by mutation |
@@ -280,3 +280,20 @@ tenant-part scheme ever stops being 1:1 with tenant id.
   `QaModuleNameValidationTest`, `QaHealthProbeResilienceTest` and
   `ModulesEnvParsingTest` depending on parallel-worker assignment; the fixed
   count of 12 is the useful invariant to watch, not the specific test names.
+
+Run 2 (review round 1 fix verification): PASS -> PASS. W-1 added (AC-52 row now
+states the T-010 AC-31 withdrawal explicitly). W-3, W-4 and W-5 each
+independently re-verified in this session, not just read from the diff:
+W-3's lock-bracket mutation re-run fresh (revert to plain read-then-write,
+confirmed red, restored, `diff` byte-identical); W-4 proved with a standalone
+script showing equal-row-count-but-different-content inputs give an equal
+row count and an unequal digest; W-5's five organization tables confirmed
+present in the AC-60 test's own printed scan-domain line at runtime, not only
+in the assertion text. Solo `composer check` components run separately
+(`lint`, `stan`, `deptrac`, `test`, `probes:clean`, `engine:clean`) all pass
+or match the known FP-316 shape: test gave 1921 passed / 11 skipped / 14518
+assertions / 12 failed (699.38s), matching the lead's baseline exactly, with
+all 12 failures landing in `QaModuleRegistryContractTest` this run (one of
+the shapes already on file for FP-316). `deptrac` reported 547 uncovered
+against the lead's 546 (0 violations, 0 errors either way) — a one-count
+drift in an advisory metric, not a gate failure, noted but not chased.
