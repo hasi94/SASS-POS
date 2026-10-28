@@ -6,6 +6,8 @@ namespace Flexipos\Organization\Features\CreateWarehouse;
 
 use Flexipos\Contracts\Access\EmployeeDirectory;
 use Flexipos\Contracts\Audit\AuditTrail;
+use Flexipos\Contracts\Platform\LimitKey;
+use Flexipos\Contracts\Platform\PlanLimits;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Flexipos\Organization\Exceptions\OrganizationRefused;
 use Flexipos\Organization\Registry\OrganizationPermissions;
@@ -14,6 +16,7 @@ use Flexipos\Organization\Support\Fields;
 use Flexipos\Organization\Support\Identifier;
 use Flexipos\Organization\Support\LocationLookup;
 use Flexipos\Organization\Support\OrgCode;
+use Flexipos\Organization\Support\PlanCounts;
 use Flexipos\Organization\Support\TenantConnection;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Str;
@@ -47,6 +50,7 @@ final class CreateWarehouseHandler
         private readonly RunnerClock $clock,
         private readonly AuditTrail $audit,
         private readonly EmployeeDirectory $employees,
+        private readonly PlanLimits $planLimits,
     ) {}
 
     /**
@@ -80,9 +84,14 @@ final class CreateWarehouseHandler
             }
         }
 
+        // T-016 AC-2: resolved before the transaction, asserted first inside it.
+        $locationLimit = $this->planLimits->forCurrentTenant(LimitKey::Locations);
+
         $connection = $this->tenant->get();
 
-        return $connection->transaction(function () use ($connection, $command, $fields, $code, $name, $address, $negative, $sellable, $purchasable, $sort, $manager): array {
+        return $connection->transaction(function () use ($connection, $command, $fields, $code, $name, $address, $negative, $sellable, $purchasable, $sort, $manager, $locationLimit): array {
+            $locationLimit->assertRoomFor(PlanCounts::activeLocations($connection));
+
             $branchId = null;
 
             if (($fields['branch_id'] ?? null) !== null) {

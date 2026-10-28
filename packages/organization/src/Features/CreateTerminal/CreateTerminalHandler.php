@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Flexipos\Organization\Features\CreateTerminal;
 
 use Flexipos\Contracts\Audit\AuditTrail;
+use Flexipos\Contracts\Platform\LimitKey;
+use Flexipos\Contracts\Platform\PlanLimits;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Flexipos\Organization\Exceptions\OrganizationRefused;
 use Flexipos\Organization\Registry\OrganizationPermissions;
@@ -12,6 +14,7 @@ use Flexipos\Organization\Support\ActivationIssuer;
 use Flexipos\Organization\Support\BranchGuard;
 use Flexipos\Organization\Support\Fields;
 use Flexipos\Organization\Support\OrgCode;
+use Flexipos\Organization\Support\PlanCounts;
 use Flexipos\Organization\Support\TenantConnection;
 use Flexipos\Organization\Support\TerminalLookup;
 use Flexipos\Organization\Support\TerminalPlacement;
@@ -46,6 +49,7 @@ final class CreateTerminalHandler
         private readonly RunnerClock $clock,
         private readonly AuditTrail $audit,
         private readonly ActivationIssuer $issuer,
+        private readonly PlanLimits $planLimits,
     ) {}
 
     public function handle(CreateTerminal $command): CreateTerminalResult
@@ -59,9 +63,14 @@ final class CreateTerminalHandler
 
         $issued = $this->issuer->issue();
 
+        // T-016 AC-2: resolved before the transaction, asserted first inside it.
+        $terminalLimit = $this->planLimits->forCurrentTenant(LimitKey::Terminals);
+
         $connection = $this->tenant->get();
 
-        return $connection->transaction(function () use ($connection, $command, $fields, $code, $name, $issued): CreateTerminalResult {
+        return $connection->transaction(function () use ($connection, $command, $fields, $code, $name, $issued, $terminalLimit): CreateTerminalResult {
+            $terminalLimit->assertRoomFor(PlanCounts::seatedTerminals($connection));
+
             $branchId = (string) BranchGuard::requireActive($connection, $fields['branch_id'] ?? null)->id;
             $locationId = (string) TerminalPlacement::requireSellingLocation($connection, $fields['location_id'] ?? null, $branchId)->id;
 

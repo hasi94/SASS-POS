@@ -6,9 +6,12 @@ namespace Flexipos\Access\Features\CreateEmployee;
 
 use Flexipos\Access\Exceptions\AccessRefused;
 use Flexipos\Access\Support\AuditWriter;
+use Flexipos\Access\Support\EmployeeSeats;
 use Flexipos\Access\Support\EmployeeStatus;
 use Flexipos\Access\Support\EmployeeView;
 use Flexipos\Access\Support\TenantConnection;
+use Flexipos\Contracts\Platform\LimitKey;
+use Flexipos\Contracts\Platform\PlanLimits;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Support\Str;
 
@@ -45,6 +48,7 @@ final class CreateEmployeeHandler
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
         private readonly AuditWriter $audit,
+        private readonly PlanLimits $planLimits,
     ) {}
 
     public function handle(CreateEmployee $command): EmployeeView
@@ -96,9 +100,20 @@ final class CreateEmployeeHandler
             ? trim($firstName.' '.($lastName ?? ''))
             : $displayName;
 
+        // T-016 AC-1: resolved before the transaction, asserted first inside
+        // it, and only when the new status holds a seat (Ruling 7) - creating
+        // a resigned or terminated employee spends no quota.
+        $employeeLimit = EmployeeSeats::holdsSeat($status)
+            ? $this->planLimits->forCurrentTenant(LimitKey::Employees)
+            : null;
+
         $connection = $this->tenant->get();
 
-        return $connection->transaction(function () use ($connection, $code, $firstName, $lastName, $displayName, $userId, $status, $command): EmployeeView {
+        return $connection->transaction(function () use ($connection, $code, $firstName, $lastName, $displayName, $userId, $status, $command, $employeeLimit): EmployeeView {
+            if ($employeeLimit !== null) {
+                $employeeLimit->assertRoomFor(EmployeeSeats::count($connection));
+            }
+
             if ($connection->table('employees')->where('code', $code)->exists()) {
                 throw AccessRefused::validation("Employee code [{$code}] is already used.");
             }

@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace Flexipos\Organization\Features\ChangeBranchStatus;
 
 use Flexipos\Contracts\Audit\AuditTrail;
+use Flexipos\Contracts\Platform\LimitKey;
+use Flexipos\Contracts\Platform\PlanLimits;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Flexipos\Organization\Exceptions\OrganizationRefused;
 use Flexipos\Organization\Registry\OrganizationPermissions;
 use Flexipos\Organization\Support\BranchLookup;
 use Flexipos\Organization\Support\LastBranch;
+use Flexipos\Organization\Support\PlanCounts;
 use Flexipos\Organization\Support\TenantConnection;
 
 /**
@@ -45,6 +48,7 @@ final class ChangeBranchStatusHandler
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
         private readonly AuditTrail $audit,
+        private readonly PlanLimits $planLimits,
     ) {}
 
     public function handle(ChangeBranchStatus $command): void
@@ -79,6 +83,11 @@ final class ChangeBranchStatusHandler
                 }
 
                 LastBranch::requireAnother($connection, (string) $branch->id);
+            } else {
+                // T-016 AC-2a, D-20: reactivation spends quota exactly as
+                // creation does.
+                $this->planLimits->forCurrentTenant(LimitKey::Branches)
+                    ->assertRoomFor(PlanCounts::activeBranches($connection));
             }
 
             $connection->table('branches')->where('id', (string) $branch->id)->update([

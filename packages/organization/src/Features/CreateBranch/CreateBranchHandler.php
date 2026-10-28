@@ -5,12 +5,15 @@ declare(strict_types=1);
 namespace Flexipos\Organization\Features\CreateBranch;
 
 use Flexipos\Contracts\Audit\AuditTrail;
+use Flexipos\Contracts\Platform\LimitKey;
+use Flexipos\Contracts\Platform\PlanLimits;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Flexipos\Organization\Exceptions\OrganizationRefused;
 use Flexipos\Organization\Registry\OrganizationPermissions;
 use Flexipos\Organization\Support\BranchLookup;
 use Flexipos\Organization\Support\Fields;
 use Flexipos\Organization\Support\OrgCode;
+use Flexipos\Organization\Support\PlanCounts;
 use Flexipos\Organization\Support\TenantConnection;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Str;
@@ -51,6 +54,7 @@ final class CreateBranchHandler
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
         private readonly AuditTrail $audit,
+        private readonly PlanLimits $planLimits,
     ) {}
 
     public function handle(CreateBranch $command): CreateBranchResult
@@ -73,9 +77,19 @@ final class CreateBranchHandler
             'sort_order' => Fields::integer($fields, 'sort_order', 0),
         ];
 
+        // T-016 AC-2, AC-2a, D-20: resolved before the transaction opens
+        // (Ruling 12), asserted first inside it. Creating a branch creates its
+        // `branch_store` location too, so both limits are checked before
+        // either resource is written.
+        $branchLimit = $this->planLimits->forCurrentTenant(LimitKey::Branches);
+        $locationLimit = $this->planLimits->forCurrentTenant(LimitKey::Locations);
+
         $connection = $this->tenant->get();
 
-        return $connection->transaction(function () use ($connection, $command, $code, $name, $values): CreateBranchResult {
+        return $connection->transaction(function () use ($connection, $command, $code, $name, $values, $branchLimit, $locationLimit): CreateBranchResult {
+            $branchLimit->assertRoomFor(PlanCounts::activeBranches($connection));
+            $locationLimit->assertRoomFor(PlanCounts::activeLocations($connection));
+
             // Soft-deleted rows count: a code is held forever (AC-2).
             if ($connection->table('branches')->where('code', $code)->exists()
                 || $connection->table('locations')->where('code', $code)->exists()) {

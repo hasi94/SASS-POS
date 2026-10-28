@@ -7,11 +7,14 @@ namespace Flexipos\Access\Features\ChangeEmployeeStatus;
 use Flexipos\Access\Exceptions\AccessRefused;
 use Flexipos\Access\Support\AuditWriter;
 use Flexipos\Access\Support\EmployeeLookup;
+use Flexipos\Access\Support\EmployeeSeats;
 use Flexipos\Access\Support\EmployeeStatus;
 use Flexipos\Access\Support\Escalation;
 use Flexipos\Access\Support\LastOwner;
 use Flexipos\Access\Support\PermVersion;
 use Flexipos\Access\Support\TenantConnection;
+use Flexipos\Contracts\Platform\LimitKey;
+use Flexipos\Contracts\Platform\PlanLimits;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 
 /**
@@ -62,6 +65,7 @@ final class ChangeEmployeeStatusHandler
         private readonly LastOwner $lastOwner,
         private readonly Escalation $escalation,
         private readonly AuditWriter $audit,
+        private readonly PlanLimits $planLimits,
     ) {}
 
     public function handle(ChangeEmployeeStatus $command): ChangeEmployeeStatusResult
@@ -84,6 +88,15 @@ final class ChangeEmployeeStatusHandler
                 // status somebody already holds, and AC-53 (c) says only
                 // that a change implies a bump.
                 return new ChangeEmployeeStatusResult($command->employeeId, $from, $status, false);
+            }
+
+            // T-016 AC-1, Ruling 7: a move from a non-seat status
+            // (resigned/terminated) into a seat-holding one spends quota
+            // exactly as a creation does, checked after the same-status
+            // no-op and inside the existing transaction.
+            if (! EmployeeSeats::holdsSeat($from) && EmployeeSeats::holdsSeat($status)) {
+                $this->planLimits->forCurrentTenant(LimitKey::Employees)
+                    ->assertRoomFor(EmployeeSeats::count($connection));
             }
 
             $crosses = $this->statuses->isActing($from) !== $this->statuses->isActing($status);

@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "c91d324209fe8f11aff271e5c754e53d",
+    "content-hash": "80768faf0554c100e8895b0fdcdb161d",
     "packages": [
         {
             "name": "brick/math",
@@ -759,6 +759,32 @@
                 "proprietary"
             ],
             "description": "FlexiPOS organization: tenant-local branches, locations and warehouses, terminals and their devices, terminal activation and the settings hierarchy.",
+            "transport-options": {
+                "relative": true
+            }
+        },
+        {
+            "name": "flexipos/platform",
+            "version": "0.1.0",
+            "dist": {
+                "type": "path",
+                "url": "../../packages/platform",
+                "reference": "8f96e66af7a582a09a6522a06f8de4273fd4cd7a"
+            },
+            "require": {
+                "flexipos/contracts": "*",
+                "php": "^8.2"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Flexipos\\Platform\\": "src/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "FlexiPOS platform: plans, subscriptions, licensing and feature flags - the master-only commercial layer other packages ask through published contracts.",
             "transport-options": {
                 "relative": true
             }

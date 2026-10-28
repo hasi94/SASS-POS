@@ -54,6 +54,9 @@ parameters:
         # reason the access package's two lines above are here.
         - ../../packages/organization/src
         - ../../packages/organization/tests
+        # T-016, source and tests.
+        - ../../packages/platform/src
+        - ../../packages/platform/tests
         # Str::studly('plugin-sdk') === 'PluginSdk'; the directory stays kebab-case.
         - ../../packages/plugin-sdk/src
         - ../../packages/testing/src

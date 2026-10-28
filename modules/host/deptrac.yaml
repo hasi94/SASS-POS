@@ -44,6 +44,12 @@ deptrac:
     # Package_Organization_Tests layer below matches them.
     - ../../packages/organization/src
     - ../../packages/organization/tests
+    # T-016. Plans, subscriptions, licensing and feature flags - the master-only
+    # commercial layer. Registered with its test tree, whose files declare
+    # Flexipos\Platform\Tests\..., so the Package_Platform_Tests layer below
+    # matches them.
+    - ../../packages/platform/src
+    - ../../packages/platform/tests
     # Str::studly('plugin-sdk') === 'PluginSdk'; the directory stays kebab-case.
     - ../../packages/plugin-sdk/src
     - ../../packages/testing/src
@@ -158,6 +164,20 @@ deptrac:
           value: ^Flexipos\\Organization\\Tests\\.*
 
     # Str::studly('plugin-sdk') === 'PluginSdk' — see the note above.
+    # T-016. The platform package: plans, subscriptions, licensing and feature
+    # flags, master-only. Two layers, the same shape as organization's, so the
+    # package's tests may import the published contracts and the kernel while
+    # its source stays bound to the same two.
+    - name: Package_Platform
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Platform\\(?!Tests\\).*
+
+    - name: Package_Platform_Tests
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Platform\\Tests\\.*
+
     - name: Package_PluginSdk
       collectors:
         - type: classLike
@@ -180,6 +200,7 @@ deptrac:
       - Package_Kernel
       - Package_Kernel_TenancyStatus
       - Package_Organization
+      - Package_Platform
       - Package_PluginSdk
       - Package_Testing
 
@@ -202,6 +223,8 @@ deptrac:
       - Package_Kernel_TenancyStatus
       - Package_Organization
       - Package_Organization_Tests
+      - Package_Platform
+      - Package_Platform_Tests
       - Package_PluginSdk
       - Package_Testing
 
@@ -267,6 +290,15 @@ deptrac:
     Package_Organization_Tests:
       - Package_Organization
       - Package_Access
+      - Package_Contracts
+      - Package_Kernel
+    # T-016. Source reaches the kernel and the published contracts only, and
+    # never imports organization's or access's internals - the AC-32 seam.
+    Package_Platform:
+      - Package_Kernel
+      - Package_Contracts
+    Package_Platform_Tests:
+      - Package_Platform
       - Package_Contracts
       - Package_Kernel
     Package_PluginSdk: ~

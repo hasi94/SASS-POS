@@ -439,8 +439,9 @@ it('finds the packages this guard is supposed to protect', function () {
             // domain - it is how a reader tells a clean sweep from an empty
             // one - so a new package necessarily edits it, the way a new
             // master table edits masterApplicationTables()'s counts.
-            // 'organization' is T-014's, for the same reason.
-            'access', 'auth', 'contracts', 'eventbus', 'http-client', 'kernel', 'organization', 'plugin-sdk', 'testing',
+            // 'organization' is T-014's, for the same reason. 'platform' is
+            // T-016's.
+            'access', 'auth', 'contracts', 'eventbus', 'http-client', 'kernel', 'organization', 'platform', 'plugin-sdk', 'testing',
         ]);
 });
 

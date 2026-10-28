@@ -38,12 +38,14 @@ namespace Flexipos\Auth\Tenancy;
  * says in its own header why no status list is in it: an access decision an
  * operator can widen from the environment is not an access decision.
  *
- * **This list is not a subscription check, and a later task must not make it
- * one.** FP-210 adds subscription and licence gating. When it does, the right
- * shape is a separate predicate ANDed with this one - `permits($status) && $a
- * ->subscriptionAllows(...)` - and never a second copy of this list with two
- * more values in it. Likewise FP-206 *writes* `tenants.status` during
- * provisioning and must not grow a reading opinion about it.
+ * **This list is not a subscription check, and T-016 did not make it one.**
+ * FP-210/T-016 D-1 kept `tenants.status` as the sole runtime gate: a
+ * subscription or licence change is reconciled into `tenants.status` by the
+ * platform package's own writer, in the same transaction as the triggering
+ * write, and this class stays the only reader - never a second, independent
+ * predicate ANDed onto `permits()`, and never a second copy of this list.
+ * Likewise FP-206 *writes* `tenants.status` during provisioning and must not
+ * grow a reading opinion about it.
  *
  * **Deliberately not here: the tenant-database serving list.** Whether a
  * tenant may be *served* is `Tenancy::enter()`'s decision, from the kernel's

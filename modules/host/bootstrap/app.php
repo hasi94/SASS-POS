@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Responses\PlatformRefusals;
+use Flexipos\Contracts\Platform\PlanLimitReached;
 use Flexipos\Kernel\Tenancy\Exceptions\RequiredSchemaVersionNotConfigured;
 use Flexipos\Kernel\Tenancy\Exceptions\TenantSchemaBehind;
 use Illuminate\Foundation\Application;
@@ -25,6 +27,16 @@ return Application::configure(basePath: dirname(__DIR__))
         //
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // A plan limit is a business refusal, not an error (T-016 Ruling 11):
+        // it is `dontReport`, and it is rendered here rather than by the
+        // controllers it fires inside of, because every one of those
+        // controllers catches only its own package's refusal exception and
+        // a `PlanLimitReached` is deliberately a different type that
+        // propagates straight past that catch to here.
+        $exceptions->dontReport(PlanLimitReached::class);
+
+        $exceptions->render(fn (PlanLimitReached $reached) => PlatformRefusals::planLimitReached($reached));
+
         // A tenant whose schema is behind this code is not a client error and
         // not a server fault: it is a state that passes, and the migration
         // runner is what clears it. 503 with Retry-After is what says that to a

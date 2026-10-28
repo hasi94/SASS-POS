@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace Flexipos\Organization\Features\ChangeLocationStatus;
 
 use Flexipos\Contracts\Audit\AuditTrail;
+use Flexipos\Contracts\Platform\LimitKey;
+use Flexipos\Contracts\Platform\PlanLimits;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Flexipos\Organization\Exceptions\OrganizationRefused;
 use Flexipos\Organization\Registry\OrganizationPermissions;
 use Flexipos\Organization\Support\LocationLookup;
+use Flexipos\Organization\Support\PlanCounts;
 use Flexipos\Organization\Support\TenantConnection;
 
 /**
@@ -36,6 +39,7 @@ final class ChangeLocationStatusHandler
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
         private readonly AuditTrail $audit,
+        private readonly PlanLimits $planLimits,
     ) {}
 
     public function handle(ChangeLocationStatus $command): void
@@ -82,6 +86,13 @@ final class ChangeLocationStatusHandler
                 if (! (bool) $active) {
                     throw OrganizationRefused::branchInactive("The branch of location [{$id}] is not active.");
                 }
+            }
+
+            if ($wanted) {
+                // T-016 AC-2a, D-20: reactivation spends quota exactly as
+                // creation does.
+                $this->planLimits->forCurrentTenant(LimitKey::Locations)
+                    ->assertRoomFor(PlanCounts::activeLocations($connection));
             }
 
             $connection->table('locations')->where('id', $id)->update([
