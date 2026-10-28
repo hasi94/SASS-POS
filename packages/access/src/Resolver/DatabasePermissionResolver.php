@@ -62,6 +62,12 @@ final class DatabasePermissionResolver implements PermissionResolver
 
     public function decide(string $employeeId, string $permissionKey, ?string $branchId): AccessDecision
     {
+        // T-014 AC-61: two spellings of one branch id are one branch. Stored scopes
+        // are upper-case, so the id asked about is folded before it is compared.
+        // Only the case is folded here; a malformed id matches nothing and is
+        // answered like any other scope that is not held.
+        $branchId = $branchId === null ? null : strtoupper($branchId);
+
         $connection = $this->tenant->get();
 
         $permission = $connection->table('permissions')->where('key', $permissionKey)->first();
