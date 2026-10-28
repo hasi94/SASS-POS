@@ -10,3 +10,4 @@
 - [T-009 cross-cutting proofs](project_t009-auth-cross-cutting-proofs.md) — mutating prod via a phpunit bootstrap autoloader, sink-harness through real writers, Pest/router/logger traps, AC-22 reading.
 - [T-009 round 2 blind spots](project_t009-round2-ingress-and-pin-blind-spots.md) — ingress is not a sink, select-star evades column-keyed pins, QA files must pass Stan/Pint.
 - [T-010 mutation survivors and harness](project_t010-mutation-survivors-and-harness.md) — nine kinds of mutant that survived a green suite, the python mutation driver, never overlap gate runs.
+- [T-014 close-out](project_t014-branches-terminals-closeout.md) — diff-base trap on a stale `main`, FP-316's real (rotating) shape, a non-discriminating mutation, overlapping gate runs again.
