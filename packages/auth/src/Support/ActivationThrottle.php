@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Auth\Support;
 
 use Flexipos\Kernel\Schema\Support\RunnerClock;
+use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 
@@ -76,15 +77,33 @@ final class ActivationThrottle
      * Count one failure. A caller never calls this while the key is locked
      * (a refusal while locked is not counted), and a window that has elapsed
      * starts afresh at this failure.
+     *
+     * The read-then-write below is a single atomic step, guarded by the
+     * store's own lock (production is `database`, which can run the same
+     * key's read and write for two concurrent requests interleaved, each
+     * overwriting the other's count): a parallel burst must still land on
+     * the counter one failure at a time (W-3).
      */
     public function recordFailure(string $key): void
     {
-        $entry = $this->entry($key);
+        $write = function () use ($key): void {
+            $entry = $this->entry($key);
 
-        $this->cache->put($key, [
-            'count' => $entry === null ? 1 : $entry['count'] + 1,
-            'first_at' => $entry === null ? $this->clock->now()->getTimestamp() : $entry['first_at'],
-        ], self::JANITOR_SECONDS);
+            $this->cache->put($key, [
+                'count' => $entry === null ? 1 : $entry['count'] + 1,
+                'first_at' => $entry === null ? $this->clock->now()->getTimestamp() : $entry['first_at'],
+            ], self::JANITOR_SECONDS);
+        };
+
+        $store = $this->cache->getStore();
+
+        if ($store instanceof LockProvider) {
+            $store->lock('terminal-activation:lock:'.$key, 10)->block(5, $write);
+
+            return;
+        }
+
+        $write();
     }
 
     /**

@@ -5,6 +5,9 @@ use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Cache\ArrayStore;
 use Illuminate\Cache\Repository;
 use Illuminate\Config\Repository as ConfigRepository;
+use Illuminate\Contracts\Cache\Lock;
+use Illuminate\Contracts\Cache\LockProvider;
+use Illuminate\Contracts\Cache\Store;
 
 /*
 |--------------------------------------------------------------------------
@@ -113,6 +116,22 @@ it('keys an address by a hash, so no address is stored, and treats an absent add
     expect(json_encode($cache->get($key)))->not->toContain('203.0.113.9');
 });
 
+it('records a failure as one bracket - lock, then read-and-write, then release (W-3)', function () {
+    $store = new RecordingLockStore(new ArrayStore);
+    $cache = new Repository($store);
+    $clock = RunnerClock::fixedAt('2026-10-22 10:00:00.000');
+    $config = new ConfigRepository(['authentication' => ['terminal_activation' => ['max_failures' => 10, 'window_minutes' => 15]]]);
+    $throttle = new ActivationThrottle($cache, $clock, $config);
+
+    $key = $throttle->tenantKey('TENANTONE');
+    $throttle->recordFailure($key);
+
+    // One lock acquired, exactly one read and one write of the counter, and
+    // the lock released - all before anything else touches the key, which is
+    // what makes the read-then-write a single atomic step rather than two.
+    expect($store->log)->toBe(['lock-acquired', 'get', 'put', 'lock-released']);
+});
+
 it('keeps two tenants and two addresses apart, and shows a shared key would not (isolation control, AC-31)', function () {
     [$throttle, , $cache] = throttleUnderTest(2);
 
@@ -137,3 +156,142 @@ it('keeps two tenants and two addresses apart, and shows a shared key would not 
     expect($cache->get($shared('B')))->not->toBeNull()
         ->and($cache->get($b))->toBeNull();
 });
+
+/**
+ * A cache store that wraps a real one but records the order its own calls
+ * and its lock's acquire/release happen in, so a test can tell a bracketed
+ * read-then-write apart from two separate, unguarded calls (W-3).
+ */
+final class RecordingLockStore implements LockProvider, Store
+{
+    /** @var list<string> */
+    public array $log = [];
+
+    public function __construct(private readonly ArrayStore $inner) {}
+
+    public function get($key)
+    {
+        $this->log[] = 'get';
+
+        return $this->inner->get($key);
+    }
+
+    /**
+     * @param  array<int, string>  $keys
+     * @return array<string, mixed>
+     */
+    public function many(array $keys)
+    {
+        return $this->inner->many($keys);
+    }
+
+    public function put($key, $value, $seconds)
+    {
+        $this->log[] = 'put';
+
+        return $this->inner->put($key, $value, $seconds);
+    }
+
+    /**
+     * @param  array<string, mixed>  $values
+     */
+    public function putMany(array $values, $seconds)
+    {
+        return $this->inner->putMany($values, $seconds);
+    }
+
+    /**
+     * @return int
+     */
+    public function increment($key, $value = 1)
+    {
+        return $this->inner->increment($key, $value);
+    }
+
+    /**
+     * @return int
+     */
+    public function decrement($key, $value = 1)
+    {
+        return $this->inner->decrement($key, $value);
+    }
+
+    public function forever($key, $value)
+    {
+        return $this->inner->forever($key, $value);
+    }
+
+    public function forget($key)
+    {
+        return $this->inner->forget($key);
+    }
+
+    public function flush()
+    {
+        return $this->inner->flush();
+    }
+
+    public function getPrefix()
+    {
+        return $this->inner->getPrefix();
+    }
+
+    public function lock($name, $seconds = 0, $owner = null)
+    {
+        return new RecordingLock($this, $this->inner->lock($name, $seconds, $owner));
+    }
+
+    public function restoreLock($name, $owner)
+    {
+        return new RecordingLock($this, $this->inner->restoreLock($name, $owner));
+    }
+}
+
+/**
+ * Decorates a real array lock, logging onto its store when the lock is
+ * actually acquired and released, not merely requested.
+ */
+final class RecordingLock implements Lock
+{
+    public function __construct(
+        private readonly RecordingLockStore $store,
+        private readonly Lock $inner,
+    ) {}
+
+    public function get($callback = null)
+    {
+        return $this->inner->get(function () use ($callback) {
+            $this->store->log[] = 'lock-acquired';
+
+            return $callback === null ? true : $callback();
+        });
+    }
+
+    public function block($seconds, $callback = null)
+    {
+        return $this->inner->block($seconds, function () use ($callback) {
+            $this->store->log[] = 'lock-acquired';
+
+            $result = $callback === null ? true : $callback();
+
+            $this->store->log[] = 'lock-released';
+
+            return $result;
+        });
+    }
+
+    public function release()
+    {
+        return $this->inner->release();
+    }
+
+    public function owner()
+    {
+        return $this->inner->owner();
+    }
+
+    public function forceRelease()
+    {
+        $this->inner->forceRelease();
+    }
+}

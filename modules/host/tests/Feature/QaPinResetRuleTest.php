@@ -591,7 +591,7 @@ it('echoes and stores no PIN on the no_escalation and actor_required paths, over
     $domain = 'scanned '.count($scan['tables']).' tables, '.$scan['cells'].' cells: '.implode(', ', $scan['tables']);
 
     expect($scan['tables'])->not->toBe([], $domain)
-        ->and($scan['tables'])->toContain('tenant.employees', 'tenant.audit_logs', 'master.refresh_tokens')
+        ->and($scan['tables'])->toContain('tenant.employees', 'tenant.audit_logs', 'master.refresh_tokens', 'tenant.branches', 'tenant.locations', 'tenant.terminals', 'tenant.devices', 'tenant.terminal_credentials')
         ->and($scan['cells'])->toBeGreaterThan(50, $domain)
         ->and(array_keys($sinks))->toBe(['responses', 'exceptions', 'log']);
 

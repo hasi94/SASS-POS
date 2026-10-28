@@ -28,9 +28,11 @@ use function Pest\Laravel\withServerVariables;
 | `GenericRefusal` produces, and against the absence of a `Retry-After`. The
 | positive control sits in the same test: the right code and a fresh
 | fingerprint succeed, so what is compared is a refusal against a success and
-| not against a route that refuses everything. After each refusal the row
-| count of every table in both databases is compared, which is the "nothing is
-| written" half: the throttle lives in the cache, and nothing else moves.
+| not against a route that refuses everything. After each refusal a content
+| digest of every table in both databases is compared, which is the "nothing
+| is written" half: the throttle lives in the cache, and nothing else moves.
+| A digest, not a count, so an UPDATE that left every row count unchanged
+| would still be caught (W-4).
 |
 | The limit's numbers are configuration, and the lockout cases move the clock,
 | never sleep. Time is the injected `RunnerClock`; a limiter that read Carbon
@@ -52,21 +54,42 @@ afterAll(function () {
 });
 
 /**
- * Every row count of every table of both databases, keyed by database and
+ * A digest of a table's rows that an UPDATE moves as surely as an INSERT or a
+ * DELETE (W-4): a row count alone is unchanged by an UPDATE, so "nothing
+ * written" is judged here by content, not by how many rows there are. The
+ * rows are sorted by their own serialised form before hashing, so storage
+ * order - which this check makes no claim about - cannot flip the digest.
+ *
+ * @param  iterable<int, object>  $rows
+ */
+function activationTableDigest(iterable $rows): string
+{
+    $serialized = array_map(
+        static fn (object $row): string => serialize((array) $row),
+        is_array($rows) ? $rows : iterator_to_array($rows)
+    );
+
+    sort($serialized);
+
+    return md5(implode('|', $serialized));
+}
+
+/**
+ * A content digest of every table of both databases, keyed by database and
  * table.
  *
- * @return array<string, int>
+ * @return array<string, string>
  */
 function activationRowCounts(): array
 {
-    $counts = [];
+    $digests = [];
 
     foreach (['master' => 'master'] as $label => $connection) {
         foreach (Schema::connection($connection)->getTables() as $table) {
             $name = (string) $table['name'];
 
             if (! str_starts_with($name, 'sqlite_')) {
-                $counts[$label.'.'.$name] = DB::connection($connection)->table($name)->count();
+                $digests[$label.'.'.$name] = activationTableDigest(DB::connection($connection)->table($name)->get());
             }
         }
     }
@@ -76,13 +99,13 @@ function activationRowCounts(): array
         Schema::connection(AccessTenantFixture::connectionName())->getTables()
     )) as $name) {
         if (! str_starts_with($name, 'sqlite_')) {
-            $counts['tenant.'.$name] = orgHttpInTenant(static fn (): int => AccessSeed::connection()->table($name)->count());
+            $digests['tenant.'.$name] = orgHttpInTenant(static fn (): string => activationTableDigest(AccessSeed::connection()->table($name)->get()));
         }
     }
 
-    ksort($counts);
+    ksort($digests);
 
-    return $counts;
+    return $digests;
 }
 
 /**
