@@ -9,6 +9,7 @@ use Flexipos\Kernel\Schema\SchemaServiceProvider;
 use Flexipos\Kernel\Tenancy\TenancyServiceProvider;
 use Flexipos\Organization\OrganizationServiceProvider;
 use Flexipos\Platform\PlatformServiceProvider;
+use Flexipos\PluginSdk\PluginSdkServiceProvider;
 
 return [
     AppServiceProvider::class,
@@ -20,4 +21,5 @@ return [
     OrganizationServiceProvider::class,
     PlatformServiceProvider::class,
     EventbusServiceProvider::class,
+    PluginSdkServiceProvider::class,
 ];

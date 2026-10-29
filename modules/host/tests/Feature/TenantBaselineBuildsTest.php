@@ -345,6 +345,8 @@ it('holds exactly the declared foreign keys, and the branch keys of T-014 (AC-3,
         'locations.manager_employee_id -> employees.id',
         'locations.updated_by -> employees.id',
         'number_sequences.branch_id -> branches.id',
+        // T-019 step 4: plugin_settings.updated_by -> employees.id (AC-18).
+        'plugin_settings.updated_by -> employees.id',
         'role_permissions.permission_key -> permissions.key',
         'role_permissions.role_id -> roles.id',
         'settings.key -> settings_registry.key',

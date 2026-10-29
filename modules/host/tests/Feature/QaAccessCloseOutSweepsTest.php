@@ -102,7 +102,11 @@ function closeOutNewTables(): array
     // T-010 table this run never saw a statement against.
     $t017 = ['audit_logs_archive'];
 
-    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017));
+    // T-019's three tables are excluded the same way: this sweep's exercise
+    // never writes a plugin execution log, migration record or setting.
+    $t019 = ['plugin_execution_logs', 'plugin_migrations', 'plugin_settings'];
+
+    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017, $t019));
 }
 
 /**

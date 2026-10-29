@@ -61,7 +61,10 @@ parameters:
         - ../../packages/platform/src
         - ../../packages/platform/tests
         # Str::studly('plugin-sdk') === 'PluginSdk'; the directory stays kebab-case.
+        # T-019, source and tests, for the reason the access package's two
+        # lines above are here.
         - ../../packages/plugin-sdk/src
+        - ../../packages/plugin-sdk/tests
         - ../../packages/testing/src
 
     tmpDir: storage/framework/cache/phpstan

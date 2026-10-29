@@ -266,6 +266,8 @@ Plugin code runs in-process behind a hook gateway with named extension points, e
 
 Plugins may not modify core tables. They extend through custom fields or their own tables keyed by core identifiers.
 
+**As built (T-019).** One dispatch runs `before` (any veto stops it there), then `filter` (chained in registration order), then (`override` or the point's own action) together with `add` and `after` inside one tenant transaction - so an action that rolls back leaves no `after` row either. A failing `before` or `filter` is fail-open: the dispatch still proceeds, because the alternative would let a crashing plugin block a till the same way a badly behaved one would. The timeout that feeds the circuit breaker is measured once a handler's call returns, not enforced while it runs - PHP has no portable way to interrupt a call mid-flight - so a handler that never returns is bounded only by the process's own execution-time limit. `after` never runs in the same request: it writes one outbox row per registration, naming only the hook point in the row's own type and carrying the plugin's identity in the row's actor and payload, and a consumer group drains it through the same outbox mechanism the event bus already provides.
+
 ---
 
 ## 14. Workflow engine

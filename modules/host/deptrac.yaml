@@ -56,7 +56,12 @@ deptrac:
     - ../../packages/platform/src
     - ../../packages/platform/tests
     # Str::studly('plugin-sdk') === 'PluginSdk'; the directory stays kebab-case.
+    # T-019 step 1. The plugin SDK package's tests, registered and collected
+    # for the same reason the access and eventbus packages' are (above):
+    # its files declare Flexipos\PluginSdk\Tests\..., so the
+    # Package_PluginSdk_Tests layer below matches them.
     - ../../packages/plugin-sdk/src
+    - ../../packages/plugin-sdk/tests
     - ../../packages/testing/src
 
   layers:
@@ -191,10 +196,23 @@ deptrac:
         - type: classLike
           value: ^Flexipos\\Platform\\Tests\\.*
 
+    # T-019 step 1. The plugin SDK package: manifest, registry, enablement,
+    # gateway, breaker, runtime and the console commands. Two layers, the
+    # same shape as eventbus's and organization's, so the package's tests
+    # may reach the access fixtures and the eventbus's stand-in bus while
+    # its source stays bound to the kernel, the kernel's tenancy-status
+    # symbols (plan Ruling 6) and the published contracts. The first pattern
+    # excludes `Tests\`, so a class is in exactly one of them and Deptrac
+    # never warns about a double match.
     - name: Package_PluginSdk
       collectors:
         - type: classLike
-          value: ^Flexipos\\PluginSdk\\.*
+          value: ^Flexipos\\PluginSdk\\(?!Tests\\).*
+
+    - name: Package_PluginSdk_Tests
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\PluginSdk\\Tests\\.*
 
     - name: Package_Testing
       collectors:
@@ -239,6 +257,7 @@ deptrac:
       - Package_Platform
       - Package_Platform_Tests
       - Package_PluginSdk
+      - Package_PluginSdk_Tests
       - Package_Testing
 
     # Package_Access is deliberately absent, and the omission is AC-11's
@@ -255,13 +274,18 @@ deptrac:
     # Flexipos\Contracts\Events, never through the transport port or the
     # writer's internals. Measured: nothing in modules/demo referenced
     # Flexipos\Eventbus before this edit.
+    #
+    # T-019 step 1: Package_PluginSdk is now ALSO absent, and the narrowing
+    # is AC-47's instrument - a module may reach the plugin framework only
+    # through Flexipos\Contracts\Plugins, never through plugin-sdk's
+    # internals. Measured: nothing in modules/demo referenced
+    # Flexipos\PluginSdk before this edit.
     Module_Demo:
       - Package_Auth
       - Package_Contracts
       - Package_HttpClient
       - Package_Kernel
       - Package_Kernel_TenancyStatus
-      - Package_PluginSdk
       - Package_Testing
 
     # T-009 step 1. Widened from `~` so authentication may use the kernel
@@ -337,5 +361,30 @@ deptrac:
       - Package_Platform
       - Package_Contracts
       - Package_Kernel
-    Package_PluginSdk: ~
+    # T-019 step 1 (plan Ruling 6, section 5, -> lead). Widened from `~` so
+    # the gateway, the registry and the enablement slices may read the
+    # kernel (RunnerClock, Tenancy, RequestId, SourceRules, MigrationTree,
+    # IdentifierColumn) and the published contracts - the same kind of
+    # allowed edge T-009 added for authentication and T-010 for access.
+    # Package_Kernel_TenancyStatus is a new edge *for a package*: plugin
+    # migrations run DDL against the tenant connection under
+    # TenantConnectionPurpose::Migrating, the same way the kernel's own
+    # runner does. Step 15 narrows the use to two files by a source scan.
+    Package_PluginSdk:
+      - Package_Kernel
+      - Package_Kernel_TenancyStatus
+      - Package_Contracts
+    # This package's tests may additionally reach
+    # Flexipos\Access\Tests\Support\AccessTenantFixture - the same
+    # eventbus-tests precedent (Package_Eventbus_Tests) - because the
+    # fixture tenant it builds on is access's, not a tenant this package
+    # owns one of; and Flexipos\Eventbus, to inspect the stand-in bus in
+    # the proof of pipeline.
+    Package_PluginSdk_Tests:
+      - Package_PluginSdk
+      - Package_Contracts
+      - Package_Kernel
+      - Package_Kernel_TenancyStatus
+      - Package_Access
+      - Package_Eventbus
     Package_Testing: ~

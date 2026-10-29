@@ -234,6 +234,8 @@ Master decides **whether** a plugin may run; the tenant database holds the plugi
 | plugin_tenant_access | plugin_id FK, tenant_id FK, granted_by FK users, `[TS]`; PK (plugin_id, tenant_id). Private plugins only |
 | tenant_plugins | `[ID]` `[TS]`, tenant_id FK, plugin_id FK, plugin_version_id FK, status enum(installing, enabled, disabled, updating, error), **schema_version BIGINT** (how far this plugin's per-tenant migrations have run inside that tenant database), licence_id FK licences NULL, installed_at, enabled_at, disabled_at, installed_by FK users, failure_count, tripped_at, last_error; unique (tenant_id, plugin_id) |
 
+**As built (T-019).** `installed_by` and `granted_by` are nullable - a console action may have no platform user behind it. `latest_version_id` carries no foreign key: it names a `plugin_versions` row created after `plugins`, and the design states none. The breaker columns (`failure_count`, `tripped_at`, `last_error`, and `status` moving to and from `error`) are written by the gateway's circuit breaker alone, per (tenant, plugin) pair, on a consecutive-failure count with a default threshold of five; nothing resets them but a deliberate operator action.
+
 ### 4.4 The mapping — `database_servers` and `tenant_databases`
 
 This is the heart of the architecture. Everything else can be rebuilt; a wrong or lost mapping row means a tenant's data is unreachable.
@@ -1436,8 +1438,10 @@ Master says whether a plugin may run; here is what it stores.
 |---|---|
 | plugin_settings | plugin_name VARCHAR(100), key VARCHAR(120), value TEXT (encrypted when `is_secret`), is_secret BOOL, updated_by FK employees NULL, `[TS]`; PK (plugin_name, key) |
 | plugin_migrations | plugin_name VARCHAR(100), migration VARCHAR(191), batch INT, ran_at; PK (plugin_name, migration). Per tenant database, so a plugin enabled for 40 tenants has 40 independent migration states — tracked in master on `tenant_plugins.schema_version` (§4.3) and run by the same runner as core (§9.6) |
-| plugin_execution_logs | id BIGINT AUTO PK, plugin_name, point VARCHAR(60), mode enum(before, after, filter, override), duration_ms, status enum(ok, veto, error, timeout), error, request_id, created_at. 30-day retention |
+| plugin_execution_logs | id BIGINT AUTO PK, plugin_name, point VARCHAR(60), mode enum(add, before, after, filter, override), duration_ms, status enum(ok, veto, error, timeout), error, request_id, created_at. 30-day retention |
 | `plg_<plugin>_*` | plugin-owned tables. May hold foreign keys **into** core tables (`plg_loyalty_accounts.customer_id` → `customers.id`); core tables never reference them. Dropped when the plugin is uninstalled for that tenant, after an export |
+
+**As built (T-019).** `mode`'s application enum holds all five modes the gateway dispatches, naming `add` alongside the three already listed here; the `status` vocabulary above is unchanged.
 
 ### 6.21 System tables
 
@@ -1636,7 +1640,9 @@ Rules of thumb baked into review: no `ALTER` on a table over 5 M rows without `i
 
 ### 9.6 Plugin migrations
 
-Same runner, different scope: `tenant:migrate --plugin=loyalty` walks tenants where `tenant_plugins.status = enabled` for that plugin, runs the plugin's migrations against the tenant connection, records them in the tenant's `plugin_migrations` and mirrors the version to `tenant_plugins.schema_version` in master. Enabling a plugin for a tenant is itself a one-tenant run of this command. Disabling does **not** drop tables; uninstalling exports then drops them.
+A different command, same shape: `plugin:migrate {plugin} {--tenant=*}` walks tenants where `tenant_plugins.status = enabled` for that plugin, runs the plugin's migrations against the tenant connection, records them in the tenant's `plugin_migrations` and mirrors the version to `tenant_plugins.schema_version` in master. Enabling a plugin for a tenant is itself a one-tenant run of this command. Disabling does **not** drop tables; uninstalling exports then drops them.
+
+**As built (T-019).** The command is `plugin:migrate`, not a `tenant:migrate` flag: it lives in the plugin package, and the kernel's own migration runner may not depend on it.
 
 ---
 

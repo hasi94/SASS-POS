@@ -430,6 +430,12 @@ function masterApplicationTables(): array
         'plans',
         'platform_audit_logs',
         'platform_settings',
+        // T-019 step 3: the master-side plugin registry and enablement model
+        // (docs/database.md section 4.3).
+        'plugin_dependencies',
+        'plugin_tenant_access',
+        'plugin_versions',
+        'plugins',
         'refresh_tokens',
         'schema_versions',
         'security_events',
@@ -439,6 +445,7 @@ function masterApplicationTables(): array
         'tenant_feature_flags',
         'tenant_migration_jobs',
         'tenant_migration_runs',
+        'tenant_plugins',
         'tenant_users',
         'tenants',
         'users',
@@ -517,6 +524,11 @@ function tenantTreeTables(): array
         'employees',
         'locations',
         'permissions',
+        // T-019 step 4: the tenant-side plugin data tables
+        // (docs/database.md section 6.20).
+        'plugin_execution_logs',
+        'plugin_migrations',
+        'plugin_settings',
         'role_permissions',
         'roles',
         'terminal_credentials',

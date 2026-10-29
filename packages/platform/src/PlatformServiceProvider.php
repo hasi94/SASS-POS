@@ -6,6 +6,7 @@ namespace Flexipos\Platform;
 
 use Flexipos\Contracts\Platform\FeatureFlags;
 use Flexipos\Contracts\Platform\PlanLimits;
+use Flexipos\Contracts\Platform\PluginLicences;
 use Flexipos\Contracts\Platform\TenantSeats;
 use Flexipos\Kernel\Http\RequestId;
 use Flexipos\Kernel\Schema\Contracts\RecordsMigrationRuns;
@@ -27,6 +28,7 @@ use Flexipos\Platform\Support\EntitlementSource;
 use Flexipos\Platform\Support\EvictsEntitlements;
 use Flexipos\Platform\Support\MasterConnection;
 use Flexipos\Platform\Support\MasterEntitlementSource;
+use Flexipos\Platform\Support\MasterPluginLicences;
 use Flexipos\Platform\Support\MigrationRunAudit;
 use Flexipos\Platform\Support\PlatformAudit;
 use Flexipos\Platform\Support\TenantStatusSync;
@@ -102,6 +104,11 @@ final class PlatformServiceProvider extends ServiceProvider
         $this->app->singleton(PlanLimits::class, ResolvePlanLimitHandler::class);
         $this->app->singleton(FeatureFlags::class, ResolveFeatureFlagHandler::class);
         $this->app->singleton(TenantSeats::class, CheckSeatAvailabilityHandler::class);
+
+        // T-019 D-3, plan Ruling 9: plugin enablement's one licensing
+        // question, answered by the same `isCurrent()` authority
+        // PlatformLicence uses for its own (unrelated) type='platform' rows.
+        $this->app->singleton(PluginLicences::class, MasterPluginLicences::class);
 
         if ($this->app->runningInConsole()) {
             $this->commands([

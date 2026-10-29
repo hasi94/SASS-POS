@@ -174,5 +174,29 @@
         "checksum": "62d45186b6a6850297865983a324c10b01984bf9da0c0af3a7768e3d4274c8f4",
         "is_destructive": false,
         "requires_offline": false
+    },
+    {
+        "version": 23,
+        "migration": "2026_10_29_000801_create_plugin_settings_table",
+        "phase": "expand",
+        "checksum": "a2900aa9c56d20be8fc46fa15fdd0adfa32b35421aa19a442d0ff0a37f378ad6",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 24,
+        "migration": "2026_10_29_000802_create_plugin_migrations_table",
+        "phase": "expand",
+        "checksum": "bdeb32478a759916622eb94f525ef241ba6bfc2fa296fea99576a432f378cc21",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 25,
+        "migration": "2026_10_29_000803_create_plugin_execution_logs_table",
+        "phase": "expand",
+        "checksum": "df16b6317ec5f79f47c1650ccf6ea98be2e28379c5b7bfddbb70150cbbc0d4a7",
+        "is_destructive": false,
+        "requires_offline": false
     }
 ]

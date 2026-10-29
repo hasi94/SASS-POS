@@ -194,7 +194,10 @@ it('creates the eight tables and nothing else, and the listing check can tell ot
     // is still a claim about T-010's eight, unaffected by a later task's table.
     $t017 = ['audit_logs_archive'];
 
-    $new = array_values(array_diff(qaT10Tables(), tenantBaselineTables(), ['migrations'], $t014, $t017));
+    // T-019's three tables are excluded the same way.
+    $t019 = ['plugin_execution_logs', 'plugin_migrations', 'plugin_settings'];
+
+    $new = array_values(array_diff(qaT10Tables(), tenantBaselineTables(), ['migrations'], $t014, $t017, $t019));
 
     expect($new)->toBe([
         'access_log', 'employee_branches', 'employee_permissions', 'employee_roles',

@@ -30,25 +30,42 @@ final class PlatformLicence
             return self::NONE;
         }
 
-        $nowString = $now->format('Y-m-d H:i:s.v');
-
         foreach ($platformRows as $row) {
-            if ((string) $row->status !== LicenceStatus::ACTIVE) {
-                continue;
+            if (self::isCurrent($row, $now)) {
+                return self::VALID;
             }
-
-            if ($row->valid_from !== null && (string) $row->valid_from > $nowString) {
-                continue;
-            }
-
-            if ($row->valid_until !== null && (string) $row->valid_until <= $nowString) {
-                continue;
-            }
-
-            return self::VALID;
         }
 
         return self::LAPSED;
+    }
+
+    /**
+     * Whether one `licences` row is active right now (T-019 plan Ruling 9,
+     * extracted unchanged from this method's own loop body): `status`
+     * is `active`, `valid_from` is null or not later than now, and
+     * `valid_until` is null or later than now.
+     *
+     * Shared with `Flexipos\Platform\Support\MasterPluginLicences`, so a
+     * plugin licence and a platform licence agree on what "current" means
+     * without a second authority restating this rule (D-3).
+     */
+    public static function isCurrent(object $row, DateTimeInterface $now): bool
+    {
+        if ((string) $row->status !== LicenceStatus::ACTIVE) {
+            return false;
+        }
+
+        $nowString = $now->format('Y-m-d H:i:s.v');
+
+        if ($row->valid_from !== null && (string) $row->valid_from > $nowString) {
+            return false;
+        }
+
+        if ($row->valid_until !== null && (string) $row->valid_until <= $nowString) {
+            return false;
+        }
+
+        return true;
     }
 
     /**

@@ -593,11 +593,11 @@ Each step ends with `composer check` green from `modules/host`, compared against
 - **Vocabulary.** The working tree is swept by `QaVocabularyRenameSweepTest`, and its one case-insensitive token is the three-letter abbreviation of the retired module word. Describe it; never write it.
 - **Basenames.** Every new test file's basename must be unique across the whole repository (`ToolchainGroupBindingTest`). For that reason the pipeline test is `PluginPipelineTest`, not `ProofOfPipelineTest`.
 
-- [ ] **Step 0: baseline.**
+- [x] **Step 0: baseline.**
   - Run `composer check`. Record the passed, failed and skipped counts, the seconds the test step took, the FP-328 headroom line and the process list in the commit message.
   - *(No AC.)*
 
-- [ ] **Step 1: package plumbing.**
+- [x] **Step 1: package plumbing.**
   - Make the edits in section 5 to `deptrac.yaml`, `phpstan.neon.dist` and `composer.json`, then run `dump-autoload`.
   - Create `config/plugins.php` and an empty `PluginSdkServiceProvider`. Register it in `bootstrap/providers.php` after `EventbusServiceProvider`.
   - **Test `tests/Support/PluginSdkProviderTest.php`:**
@@ -607,7 +607,7 @@ Each step ends with `composer check` green from `modules/host`, compared against
   - **Predicted red:** none. `QaToolchainRegistryCoverageTest` already lists `plugin-sdk`.
   - *(AC-47 instrument.)*
 
-- [ ] **Step 2: contracts.**
+- [x] **Step 2: contracts.**
   - Create the Ruling 1 files.
   - **Tests:**
     - `HookModeTest`: exactly five values, in the D-1 order;
@@ -615,7 +615,7 @@ Each step ends with `composer check` green from `modules/host`, compared against
     - `HookOutcomeTest`: `vetoed()`.
   - *(Groundwork for AC-1 to AC-3 and AC-21.)*
 
-- [ ] **Step 3: master migrations.**
+- [x] **Step 3: master migrations.**
   - Create the five files.
   - **Edits:** `Helpers.php` `masterApplicationTables()` gains five names; `MigrationTreeDisciplineTest` 21 becomes 26; `QaSchemaSignatureInstrumentTest` 29 becomes 34.
   - **Test `packages/plugin-sdk/tests/Schema/PluginMasterSchemaTest.php` (AC-7, AC-12):**
@@ -629,7 +629,7 @@ Each step ends with `composer check` green from `modules/host`, compared against
   - **Predicted red:** the two count files above. `MasterSchemaBuildsTest` derives its counts, so it should not go red. Anything else is a stop.
   - *(AC-7, AC-12; AC-48's stand-in half.)*
 
-- [ ] **Step 4: tenant migrations.**
+- [x] **Step 4: tenant migrations.**
   - Create the three files.
   - **Edits:**
     - republish the catalogue with `--write-fixture`;
@@ -645,7 +645,7 @@ Each step ends with `composer check` green from `modules/host`, compared against
   - **Predicted red:** the files above, plus `SchemaCataloguePublishTest`, which the republish fixes without any edit. Anything else is a stop. Memory: the first full run after a tenant migration lands is where the full inventory of affected files is found.
   - *(AC-18 schema, D-4.)*
 
-- [ ] **Step 5: manifest, constraints, point catalogue, and the fixture package.**
+- [x] **Step 5: manifest, constraints, point catalogue, and the fixture package.**
   - Create the `Manifest/*` classes, `HookPointCatalogue`, `ManifestRefused`, `FixtureHookPointProvider`, and the `FixtureEcho` package (manifest, six handlers, two migrations).
   - **`VersionConstraintTest`:**
     - exact, `^`, `~`, ranges, `||`, `*`;
@@ -664,7 +664,7 @@ Each step ends with `composer check` green from `modules/host`, compared against
     - The real `FixtureEcho/plugin.json` validates.
   - *(AC-1 to AC-6, AC-10 part, AC-25 within one manifest.)*
 
-- [ ] **Step 6: plugin licences in platform.**
+- [x] **Step 6: plugin licences in platform.**
   - Extract `PlatformLicence::isCurrent()` and create `MasterPluginLicences` with its binding.
   - **`MasterPluginLicencesTest`, using a matrix:**
     - an active licence with null `valid_until` gives its id;
@@ -679,7 +679,7 @@ Each step ends with `composer check` green from `modules/host`, compared against
   - **Predicted red:** none. Every case in `PlatformLicenceTest` must stay green untouched, and a red one is a stop.
   - *(AC-13 and AC-16 at the source.)*
 
-- [ ] **Step 7: the registry.**
+- [x] **Step 7: the registry.**
   - Create the `RegisterPluginVersion` and `GrantPluginAccess` slices and their commands.
   - **Tests:**
     - **AC-8:** registering `FixtureEcho` gives one `plugins` row and one `plugin_versions` row. The manifest round-trips, `checksum` equals the sha256 of the file, `status` is `available` and `migration_count` is 2. **Registering the same version again** gives `versionAlreadyRegistered`, the row counts are unchanged, and the stored manifest is unchanged.
@@ -690,7 +690,7 @@ Each step ends with `composer check` green from `modules/host`, compared against
     - **Command tests:** exit codes and output.
   - *(AC-8, AC-10, AC-11 data.)*
 
-- [ ] **Step 8: the migration runner and the settings store.**
+- [x] **Step 8: the migration runner and the settings store.**
   - Create `PluginMigrationRules`, `PluginMigrationRunner`, the `MigratePlugin` slice and command, `Connections` and `PluginSettingsStore`.
   - **`PluginMigrationRulesTest` (AC-19).** Each planted source is reported, each with its own control:
     - `Schema::table('employees', …)`;
@@ -714,7 +714,7 @@ Each step ends with `composer check` green from `modules/host`, compared against
     - a value that is not secret is stored as plain text.
   - *(AC-18, AC-19, AC-38, AC-39.)*
 
-- [ ] **Step 9: enablement.**
+- [x] **Step 9: enablement.**
   - Create the `EnablePlugin`, `DisablePlugin` and `UninstallPlugin` slices and commands, plus `PluginDataExporter` and `JsonFilePluginDataExporter`.
   - **`EnablePluginTest`:**
     - **AC-14:** the row passes through `installing` and ends `enabled`. `installed_at`, `enabled_at` and `installed_by` are stamped, and `schema_version` is 2.
@@ -741,7 +741,7 @@ Each step ends with `composer check` green from `modules/host`, compared against
     - **`JsonFilePluginDataExporterTest`:** writes the files into a temporary directory.
   - *(AC-9, AC-11, AC-13 to AC-16, AC-20, AC-25, AC-42.)*
 
-- [ ] **Step 10: the runtime and the gateway's synchronous modes.**
+- [x] **Step 10: the runtime and the gateway's synchronous modes.**
   - Create `PluginRuntime`, `ManifestCache`, `TenantHookTable`, `Registration`, `Gateway`, `HookInvoker` (with the breaker wired as a no-op until step 11), `ExecutionLog`, `HookClock`, `SystemHookClock` and `HookTimedOut`.
   - **`GatewaySyncModesTest`.** `fixture-echo` is enabled for `tenant-a`, the clock is fixed and `FakeHookClock` is bound.
     - **AC-21:** a second temporary plugin enabled later runs after `fixture-echo`, and the order is asserted from a recorded call list. Swapping `enabled_at` swaps the order.
@@ -773,7 +773,7 @@ Each step ends with `composer check` green from `modules/host`, compared against
     - **The runtime race for override:** two plugins forced into `enabled` by a direct insert, both overriding `fixture.echo`. Only the earlier one is loaded, and an `error` is logged.
   - *(AC-17, AC-21 to AC-26, AC-35 to AC-37; AC-30's timeout input.)*
 
-- [ ] **Step 11: the circuit breaker and the operator commands.**
+- [x] **Step 11: the circuit breaker and the operator commands.**
   - Create `CircuitBreaker`, wire it into `HookInvoker`, and create the `ResetPluginBreaker` and `ListTenantPlugins` slices and commands.
   - **`CircuitBreakerTest`.** The threshold is 5 and `ThrowingHook` is enabled for `tenant-a`.
     - **AC-30:**
@@ -798,7 +798,7 @@ Each step ends with `composer check` green from `modules/host`, compared against
   - **Command tests for `plugin:enable` and `plugin:disable`** (AC-42).
   - *(AC-30 to AC-33, AC-40 to AC-42.)*
 
-- [ ] **Step 12: `after` mode.**
+- [x] **Step 12: `after` mode.**
   - Make the gateway write the `after` rows, and create `PluginAfterHookConsumer`, `PluginDispatchRefused` and the provider's `eventConsumers()`.
   - **`GatewayAfterModeTest`:**
     - **AC-27:**
@@ -823,7 +823,7 @@ Each step ends with `composer check` green from `modules/host`, compared against
   - **Predicted red:** possibly an eventbus test that pins the full set of groups or the output of a run without `--group`. The grep in section 9 found none. A red one is a stop.
   - *(AC-27, AC-29, AC-34; AC-28's stand-in half.)*
 
-- [ ] **Step 13: proof of pipeline.**
+- [x] **Step 13: proof of pipeline.**
   - **`tests/Pipeline/PluginPipelineTest.php` (AC-44).** One test, through the commands only, on the stand-in bus:
     1. `plugin:register` the `FixtureEcho` package;
     2. `plugin:enable fixture-echo --tenant=tenant-a`;
@@ -835,7 +835,7 @@ Each step ends with `composer check` green from `modules/host`, compared against
   - A header comment says this is a fixture and not a reference plugin (D-13, AC-45).
   - *(AC-44, AC-28 on the stand-in.)*
 
-- [ ] **Step 14: the engine test, ready to lift (AC-48).**
+- [x] **Step 14: the engine test, ready to lift (AC-48).**
   - **`modules/host/tests/Engine/PluginSchemaEngineTest.php`,** in the shape of `ThreeTenantFixtureTest`:
     - **Under the hold:** creating a reserved database through `EngineDatabase` throws `EngineOnHold`. This case is skipped once the hold is cleared.
     - **Once lifted** (skipped under the hold):
@@ -845,7 +845,7 @@ Each step ends with `composer check` green from `modules/host`, compared against
   - Measure that the skip count rises by exactly one.
   - *(AC-48 stays NOT VERIFIED; the code to verify it is ready.)*
 
-- [ ] **Step 15: close-out sweeps (`qa`-accountable files, written by `dev`).**
+- [x] **Step 15: close-out sweeps (`qa`-accountable files, written by `dev`).**
   - **`QaPluginSourceRulesTest`.** It has its own helpers and calls nothing in another `Qa*` file (FP-164). Its scan set is `packages/*/src`, `modules/*/src` and `modules/host/app`, and it asserts that each scanned directory exists. Every rule has a planted control:
     - **AC-19, core half:** no file in either shipped migration tree names a `plg_` table.
     - **AC-36:** no process-spawning call under `packages/plugin-sdk/src`.
@@ -863,7 +863,7 @@ Each step ends with `composer check` green from `modules/host`, compared against
   - **AC-47:** re-run step 1's deptrac control. Record the pair in the `qa` report; do not commit it as a test.
   - *(AC-19, AC-36, AC-43, AC-45, AC-47.)*
 
-- [ ] **Step 16: docs.** Describe; do not quote retired wording (memory).
+- [x] **Step 16: docs.** Describe; do not quote retired wording (memory).
   - **`docs/database.md`:**
     - **§6.20:** the `plugin_execution_logs.mode` row now names the five values `add, before, after, filter, override` (D-4). It notes that the `status` vocabulary is unchanged.
     - **§4.3:** an "As built (T-019)" note. `installed_by` and `granted_by` are nullable, `latest_version_id` has no key, and the breaker columns follow Ruling 12.

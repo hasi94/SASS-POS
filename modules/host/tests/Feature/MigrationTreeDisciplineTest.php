@@ -114,8 +114,9 @@ it('creates exactly the master tables AC-1 names', function () {
     // Exact equality, not toContain: "and nothing else" is half of AC-1, and it
     // is the half an extra table slips through.
     expect(migrationTreeTables(MigrationTree::Master))->toBe($expected)
-        // Seventeen from T-008 plus T-009 step 3's four (AC-50).
-        ->and(masterApplicationTables())->toHaveCount(21)
+        // Seventeen from T-008 plus T-009 step 3's four (AC-50), plus
+        // T-019 step 3's five plugin-registry tables (AC-7).
+        ->and(masterApplicationTables())->toHaveCount(26)
         ->and(masterSystemTables())->toHaveCount(7);
 });
 
@@ -142,7 +143,8 @@ it('creates exactly the tenant tables the shipped tree declares', function () {
 
     expect(migrationTreeTables(MigrationTree::Tenant))->toBe(tenantTreeTables())
         ->and(tenantBaselineTables())->toHaveCount(6)
-        ->and(tenantTreeTables())->toHaveCount(20)
+        // T-019 step 4 adds the three tenant-side plugin data tables.
+        ->and(tenantTreeTables())->toHaveCount(23)
         ->and(migrationTreeSources(MigrationTree::Tenant))->toHaveCount(tenantMigrationFileCount())
         ->and($tableless)->not->toBe([])
         ->and(tenantMigrationFileCount())->toBe(count(tenantTreeTables()) + count($tableless));

@@ -22,4 +22,7 @@ final class LicenceStatus
 
     /** The one licence type this task enforces (D-6). */
     public const PLATFORM_TYPE = 'platform';
+
+    /** T-019 D-3: the type `MasterPluginLicences` reads. */
+    public const PLUGIN_TYPE = 'plugin';
 }

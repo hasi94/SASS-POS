@@ -1,0 +1,20 @@
+{
+    "name": "fixture-echo",
+    "version": "1.0.0",
+    "core_constraint": "^0.1.0",
+    "display_name": "Fixture Echo",
+    "type": "integration",
+    "visibility": "official",
+    "author": "FlexiPOS",
+    "description": "T-019's one proof-of-pipeline fixture (D-13, AC-44, AC-45). Not a reference plugin.",
+    "requires_licence": false,
+    "permissions": ["fixture.echo.read"],
+    "hooks": [
+        {"point": "fixture.echo", "mode": "add", "handler": "Flexipos\\PluginSdk\\Tests\\Fixtures\\FixtureEcho\\EchoAdd"},
+        {"point": "fixture.echo", "mode": "before", "handler": "Flexipos\\PluginSdk\\Tests\\Fixtures\\FixtureEcho\\EchoBefore"},
+        {"point": "fixture.echo", "mode": "filter", "handler": "Flexipos\\PluginSdk\\Tests\\Fixtures\\FixtureEcho\\EchoUpperFilter"},
+        {"point": "fixture.echo", "mode": "filter", "handler": "Flexipos\\PluginSdk\\Tests\\Fixtures\\FixtureEcho\\EchoSuffixFilter"},
+        {"point": "fixture.echo", "mode": "override", "handler": "Flexipos\\PluginSdk\\Tests\\Fixtures\\FixtureEcho\\EchoOverride"},
+        {"point": "fixture.echo", "mode": "after", "handler": "Flexipos\\PluginSdk\\Tests\\Fixtures\\FixtureEcho\\EchoAfter"}
+    ]
+}
