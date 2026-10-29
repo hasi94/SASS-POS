@@ -33,6 +33,15 @@ use Throwable;
  * connection or from running a command becomes {@see EventBusUnreachable} -
  * there is no catch-and-continue and no fallback (AC-4). The one non-error
  * it swallows is a `BUSYGROUP` reply in {@see self::ensureGroup()}.
+ *
+ * **An error reply is not success, even though neither client throws on
+ * one.** phpredis' `rawCommand()` returns `false` for an error reply
+ * (`READONLY`, `OOM`, `NOAUTH`, `WRONGTYPE`, `NOGROUP`, ...) without
+ * throwing; predis' `executeRaw()` returns the error text and sets its
+ * by-reference `$error` flag, also without throwing. {@see self::raw()}
+ * turns both shapes into a thrown failure, and {@see self::publish()},
+ * {@see self::deadLetter()} and {@see self::replay()} additionally refuse
+ * any reply that is not a well-formed stream id - R-1.
  */
 final class RedisStreamsEventBus implements EventBus
 {
@@ -51,7 +60,7 @@ final class RedisStreamsEventBus implements EventBus
             $args[] = $value;
         }
 
-        return (string) $this->run('publish', $args);
+        return $this->assertStreamId($this->run('publish', $args), 'publish');
     }
 
     public function ensureGroup(string $stream, string $group): void
@@ -132,7 +141,13 @@ final class RedisStreamsEventBus implements EventBus
             $id = (string) $id;
             $fields = self::pairs(is_array($rawFields) ? $rawFields : []);
 
-            $deliveries[] = new Delivery($id, $stream, EnvelopeCodec::decode($fields), $fields, $counts[$id] ?? 1);
+            if (! isset($counts[$id])) {
+                throw EventBusUnreachable::forConnection($this->connection, 'claim', new RuntimeException(
+                    "No delivery count resolved for claimed id [{$id}] on stream [{$stream}] group [{$group}]."
+                ));
+            }
+
+            $deliveries[] = new Delivery($id, $stream, EnvelopeCodec::decode($fields), $fields, $counts[$id]);
         }
 
         return $deliveries;
@@ -159,7 +174,7 @@ final class RedisStreamsEventBus implements EventBus
             $args[] = $value;
         }
 
-        $deadId = (string) $this->run('deadLetter', $args);
+        $deadId = $this->assertStreamId($this->run('deadLetter', $args), 'deadLetter');
 
         $this->acknowledge($delivery->stream, $group, $delivery->messageId);
 
@@ -208,12 +223,12 @@ final class RedisStreamsEventBus implements EventBus
 
         $originalStream = $fields['original_stream'] ?? '';
 
-        $newId = (string) $this->run('replay.publish', [
+        $newId = $this->assertStreamId($this->run('replay.publish', [
             'XADD', $originalStream, '*',
             EnvelopeCodec::FIELD, $fields[EnvelopeCodec::FIELD] ?? '',
             'type', $fields['type'] ?? '',
             'event_id', $fields['event_id'] ?? '',
-        ]);
+        ]), 'replay.publish');
 
         $this->run('replay.delete', ['XDEL', $deadStream, $deadId]);
 
@@ -259,27 +274,31 @@ final class RedisStreamsEventBus implements EventBus
     }
 
     /**
+     * One `XPENDING stream group <id> <id> 1` per claimed id - never the
+     * group-wide `XPENDING stream group - + n`, which returns the oldest
+     * `n` pending entries of the *whole group*, not the ids just claimed
+     * (R-2). A claimed id with no pending entry fails loudly rather than
+     * silently defaulting to a delivery count of 1.
+     *
      * @param  list<string>  $ids
      * @return array<string, int>
      */
     private function deliveryCounts(string $stream, string $group, array $ids): array
     {
-        $reply = $this->run('pending', ['XPENDING', $stream, $group, '-', '+', (string) max(count($ids), 1)]);
-
         $counts = [];
 
-        if (! is_array($reply)) {
-            return $counts;
-        }
+        foreach ($ids as $id) {
+            $reply = $this->run('pending', ['XPENDING', $stream, $group, $id, $id, '1']);
 
-        foreach ($reply as $entry) {
-            if (! is_array($entry) || count($entry) < 4) {
-                continue;
+            if (! is_array($reply) || ! isset($reply[0]) || ! is_array($reply[0]) || count($reply[0]) < 4) {
+                throw EventBusUnreachable::forConnection($this->connection, 'pending', new RuntimeException(
+                    "XPENDING returned no pending entry for claimed id [{$id}] on stream [{$stream}] group [{$group}]."
+                ));
             }
 
-            [$id, , , $deliveryCount] = $entry;
+            [, , , $deliveryCount] = $reply[0];
 
-            $counts[(string) $id] = (int) $deliveryCount;
+            $counts[$id] = (int) $deliveryCount;
         }
 
         return $counts;
@@ -344,6 +363,13 @@ final class RedisStreamsEventBus implements EventBus
     }
 
     /**
+     * Neither client throws on an error reply (R-1): phpredis' `rawCommand`
+     * returns `false`, predis' `executeRaw` returns the error text and sets
+     * `$error` by reference. Both shapes become a thrown `RuntimeException`
+     * here, which {@see self::run()} wraps in {@see EventBusUnreachable} -
+     * so a `READONLY`/`OOM`/`NOAUTH`/`WRONGTYPE`/`NOGROUP`/`BUSYGROUP`
+     * reply is never mistaken for a successful command.
+     *
      * @param  list<string>  $args
      */
     private function raw(RedisConnection $connection, array $args): mixed
@@ -351,13 +377,73 @@ final class RedisStreamsEventBus implements EventBus
         $client = $connection->client();
 
         if (method_exists($client, 'rawCommand')) {
-            return $client->rawCommand(...$args);
+            $reply = $client->rawCommand(...$args);
+
+            if ($reply === false) {
+                $error = method_exists($client, 'getLastError') ? $client->getLastError() : null;
+
+                if (method_exists($client, 'clearLastError')) {
+                    $client->clearLastError();
+                }
+
+                throw new RuntimeException(
+                    $error !== null && $error !== '' ? (string) $error : 'Redis returned an error reply for '.$args[0]
+                );
+            }
+
+            return $reply;
         }
 
         if (method_exists($client, 'executeRaw')) {
-            return $client->executeRaw($args);
+            return $this->callExecuteRaw($client, $args);
         }
 
         throw new RuntimeException('The Redis client exposes neither rawCommand() nor executeRaw().');
+    }
+
+    /**
+     * Split out of {@see self::raw()} so `$client` can be narrowed to
+     * {@see PredisRawClient} in a `@param` docblock one call frame away
+     * from the `method_exists()` guard that justifies it (PHPStan would
+     * otherwise report that guard as always true, since a native type
+     * hint here would make PHPStan treat every caller as already proven).
+     * That real type boundary is also what lets PHPStan track `$error`'s
+     * by-reference mutation at all: against the untyped `object` this
+     * method is declared to accept, `$error`'s inferred type never changes
+     * through an opaque call, which is the bug this split exists to avoid
+     * re-introducing.
+     *
+     * @param  PredisRawClient  $client
+     * @param  list<string>  $args
+     */
+    private function callExecuteRaw(object $client, array $args): mixed
+    {
+        $error = false;
+        $reply = $client->executeRaw($args, $error);
+
+        if ($error) {
+            throw new RuntimeException((string) $reply);
+        }
+
+        return $reply;
+    }
+
+    /**
+     * Refuses any reply that is not a well-formed Redis stream id
+     * (`<ms>-<seq>`), where `publish()`, `deadLetter()` and `replay()`
+     * expect one (R-1) - a malformed reply is exactly as untrustworthy as
+     * an error reply `raw()` already catches.
+     */
+    private function assertStreamId(mixed $reply, string $operation): string
+    {
+        $id = (string) $reply;
+
+        if (preg_match('/^\d+-\d+$/', $id) !== 1) {
+            throw EventBusUnreachable::forConnection($this->connection, $operation, new RuntimeException(
+                "Redis returned a malformed stream id [{$id}] for [{$operation}]."
+            ));
+        }
+
+        return $id;
     }
 }

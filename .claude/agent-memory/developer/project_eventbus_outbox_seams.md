@@ -62,6 +62,26 @@ Five things measured building the event bus/outbox package (T-018), each cost a 
     reusing a shared, tightly-typed fixture provider - threading a bad value through a
     provider typed to match the interface exactly reopens the same fight at the call site.
 
+- **A third PHPStan friction, found fixing review round 1's R-1 (an error reply from a
+  dynamically-typed Redis client must become a thrown failure):** calling a by-reference
+  out-parameter method (`predis`' `executeRaw(array $args, &$error)`) on a `mixed`/`object`
+  receiver leaves PHPStan treating the out-parameter's type as unchanged after the call - an
+  `if ($error)` right after `$error = false; $client->executeRaw($args, $error);` is reported
+  `if.alwaysFalse`, because PHPStan has no declared signature to model the mutation through.
+  Typing the receiver parameter natively as the real interface does not help (still
+  `alwaysFalse`) and is a runtime risk anyway (the real client never implements a
+  project-local interface, so a native type hint on it would throw `TypeError`). The fix
+  that is neither a suppression nor a risk: declare a never-instantiated interface
+  documenting the method's real by-ref signature, split the by-ref call into its own
+  private method whose native parameter stays untyped (`object`) but whose **docblock**
+  narrows it to that interface (`@param PredisRawClient $client`) - a real type boundary one
+  call frame away from the `method_exists()` guard. PHPStan then models the mutation and the
+  `alwaysFalse` report disappears. Narrowing the *same* method's parameter instead of a
+  split-off one reproduces the `function.alreadyNarrowedType` friction already on file here
+  (the `method_exists()` guard in that same method becomes "always true") - the split is
+  what keeps the guard and the mutation tracking in two different frames, each legitimate in
+  its own.
+
 **Why:** every one of these was found by a red run, not by reading - the tenant-fixture one
 especially, because its only symptom was "SELECT finds nothing" with every other signal
 (file size, mtime, no exception) looking normal.

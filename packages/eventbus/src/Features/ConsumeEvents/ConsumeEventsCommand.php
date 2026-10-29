@@ -30,7 +30,7 @@ final class ConsumeEventsCommand extends Command
         {--consumer= : Consumer name, defaulting to <hostname>-<pid>}
         {--once : Run exactly one pass over each group, then exit}
         {--max-passes=0 : Stop after this many passes (0 means unlimited)}
-        {--sleep=1 : Seconds to sleep between passes}';
+        {--sleep= : Seconds to sleep between passes, defaulting to eventbus.consumer.poll_seconds (W-5)}';
 
     protected $description = 'Consume declared event consumer groups from the shared event stream, with native redelivery and dead-lettering';
 
@@ -52,7 +52,11 @@ final class ConsumeEventsCommand extends Command
 
         $once = (bool) $this->option('once');
         $maxPasses = (int) $this->option('max-passes');
-        $sleepSeconds = (int) $this->option('sleep');
+
+        $sleepOption = $this->option('sleep');
+        $sleepSeconds = $sleepOption !== null
+            ? (int) $sleepOption
+            : (int) $config->get('eventbus.consumer.poll_seconds', 1);
 
         $stream = (string) $config->get('eventbus.stream', 'flexipos:events');
 

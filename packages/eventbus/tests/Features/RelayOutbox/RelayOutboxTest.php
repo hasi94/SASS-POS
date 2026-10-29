@@ -6,13 +6,18 @@ namespace Flexipos\Eventbus\Tests\Features\RelayOutbox;
 
 use Flexipos\Access\Tests\Support\AccessTenantFixture;
 use Flexipos\Eventbus\Bus\InMemoryEventBus;
+use Flexipos\Eventbus\Bus\RedisStreamsEventBus;
 use Flexipos\Eventbus\Contracts\EventBus;
 use Flexipos\Eventbus\Features\RelayOutbox\RelayOutbox;
 use Flexipos\Eventbus\Features\RelayOutbox\RelayOutboxHandler;
 use Flexipos\Eventbus\Features\RelayOutbox\RelayOutboxResult;
 use Flexipos\Eventbus\Tests\Support\FailingEventBus;
+use Flexipos\Eventbus\Tests\Support\FakePhpRedisRawErrorClient;
+use Flexipos\Eventbus\Tests\Support\FakeRedisConnection;
+use Illuminate\Contracts\Redis\Factory as RedisFactory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use LogicException;
 use Tests\TestCase;
 
 /*
@@ -244,3 +249,44 @@ it('AC-4 through the relay: EventBusUnreachable counts as an attempt and the row
         ->and($row['status'])->toBe('pending');
     expect((string) $row['last_error'])->toContain('FailingEventBus');
 });
+
+it('R-1 through the relay: a Redis error reply on publish is EventBusUnreachable, not success - the row stays pending with attempts 1', function () {
+    eventbusClockAt('2026-01-01 00:00:00');
+    $id = eventbusInsertOutboxRow();
+
+    // The same shape a failover-induced READONLY, an OOM or a NOAUTH reply
+    // takes: phpredis' rawCommand() returns false without throwing. Before
+    // R-1's fix, raw() returned that false straight through, publish() cast
+    // it to the string '', and the relay marked this row published even
+    // though Redis never accepted it.
+    $client = new FakePhpRedisRawErrorClient('READONLY You can\'t write against a read only replica.');
+    $factory = new class($client) implements RedisFactory
+    {
+        public function __construct(private readonly FakePhpRedisRawErrorClient $client) {}
+
+        public function connection($name = null)
+        {
+            return new FakeRedisConnection($this->client);
+        }
+    };
+
+    app()->instance(EventBus::class, new RedisStreamsEventBus($factory, 'fixture-connection', 100000));
+
+    eventbusRelayPass();
+
+    $row = eventbusOutboxEventRow($id);
+    expect((int) $row['attempts'])->toBe(1)
+        ->and($row['status'])->toBe('pending')
+        ->and((string) $row['last_error'])->toContain('READONLY');
+});
+
+it('W-4: a non-positive relay config value throws LogicException rather than being silently clamped up to 1', function (string $key, int $value) {
+    config([$key => $value]);
+
+    expect(fn () => eventbusRelayPass())->toThrow(LogicException::class);
+})->with([
+    'batch_size' => ['eventbus.relay.batch_size', 0],
+    'max_attempts' => ['eventbus.relay.max_attempts', -1],
+    'backoff_base_seconds' => ['eventbus.relay.backoff_base_seconds', 0],
+    'backoff_cap_seconds' => ['eventbus.relay.backoff_cap_seconds', -5],
+]);

@@ -133,7 +133,7 @@ it('never redelivers an acknowledged message (AC-22)', function (string $driver)
     expect($claimed)->toBe([]);
 })->with($drivers);
 
-it('is not claimable before minIdle and is claimable at minIdle, with delivery count 2 (AC-24, AC-25 on the stand-in)', function (string $driver) {
+it('is not claimable before minIdle and is claimable at minIdle, with delivery count 2 (AC-24, AC-25 on the stand-in; minIdleMs=0 on redis, W-1)', function (string $driver) {
     $clock = RunnerClock::fixedAt('2026-01-01 00:00:00');
     $bus = eventbusContractBus($this, $driver, $clock);
 
@@ -144,6 +144,21 @@ it('is not claimable before minIdle and is claimable at minIdle, with delivery c
     $delivered = $bus->read($stream, 'g1', 'c1', 10);
     $messageId = $delivered[0]->messageId;
 
+    if ($driver === 'redis') {
+        // Real Redis measures idle time on its own wall clock, never on
+        // RunnerClock, so the "not claimable before minIdle" half of this
+        // case is memory-only (W-1): advancing RunnerClock proves nothing
+        // against it. minIdleMs=0 is already satisfied the instant the
+        // message is pending, true on both drivers, and still proves
+        // AC-24/AC-25's claim-and-increment behaviour on this row.
+        $claimed = $bus->claim($stream, 'g1', 'c2', [$messageId], 0);
+
+        expect($claimed)->toHaveCount(1);
+        expect($claimed[0]->deliveryCount)->toBe(2);
+
+        return;
+    }
+
     $clock->advanceSeconds(59);
     expect($bus->claim($stream, 'g1', 'c2', [$messageId], 60_000))->toBe([]);
 
@@ -152,6 +167,42 @@ it('is not claimable before minIdle and is claimable at minIdle, with delivery c
 
     expect($claimed)->toHaveCount(1);
     expect($claimed[0]->deliveryCount)->toBe(2);
+})->with($drivers);
+
+it('claiming a non-oldest pending message gives it its own delivery count, never the group-wide oldest pending entry\'s (R-2)', function (string $driver) {
+    $clock = RunnerClock::fixedAt('2026-01-01 00:00:00');
+    $bus = eventbusContractBus($this, $driver, $clock);
+
+    $stream = 'contract-'.uniqid('', true);
+    $bus->ensureGroup($stream, 'g1');
+    $bus->publish($stream, eventbusContractEnvelope('e1'));
+    $bus->publish($stream, eventbusContractEnvelope('e2'));
+
+    $delivered = $bus->read($stream, 'g1', 'c1', 10);
+    expect($delivered)->toHaveCount(2);
+
+    // e1's message id sorts first - it is the group's oldest pending
+    // entry for as long as both stay pending.
+    $oldestId = $delivered[0]->messageId;
+    $newestId = $delivered[1]->messageId;
+
+    $clock->advanceMinutes(2);
+
+    // Claim the newer id three times - its own delivery count climbs
+    // 1 -> 4 - while the older id is claimed only once - 1 -> 2. A
+    // group-wide "oldest N pending entries" query (the R-2 bug) would
+    // report the older id's count for every claim of the newer one,
+    // because it never asks XPENDING for the claimed id specifically.
+    $bus->claim($stream, 'g1', 'c2', [$newestId], 0);
+    $bus->claim($stream, 'g1', 'c2', [$newestId], 0);
+    $claimedNewest = $bus->claim($stream, 'g1', 'c2', [$newestId], 0);
+
+    $claimedOldest = $bus->claim($stream, 'g1', 'c2', [$oldestId], 0);
+
+    expect($claimedNewest)->toHaveCount(1);
+    expect($claimedNewest[0]->deliveryCount)->toBe(4);
+    expect($claimedOldest)->toHaveCount(1);
+    expect($claimedOldest[0]->deliveryCount)->toBe(2);
 })->with($drivers);
 
 it('does not let a group see a publish that happened before it was created, but does see one after', function (string $driver) {

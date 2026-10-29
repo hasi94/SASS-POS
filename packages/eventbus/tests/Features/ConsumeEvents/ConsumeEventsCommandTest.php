@@ -107,3 +107,14 @@ it('sleeps poll_seconds between passes with --max-passes, and never with --once'
     Artisan::call('eventbus:consume', ['--group' => [PingedConsumer::GROUP], '--max-passes' => 2, '--sleep' => 1]);
     Sleep::assertSlept(fn (CarbonInterval $duration): bool => $duration->equalTo(CarbonInterval::second(1)), times: 1);
 });
+
+it('W-5: defaults --sleep from eventbus.consumer.poll_seconds when --sleep is not given', function () {
+    FixtureEventConsumerProvider::declaring(app(), [PingedConsumer::class]);
+    config(['eventbus.consumer.poll_seconds' => 9]);
+
+    Sleep::fake();
+
+    Artisan::call('eventbus:consume', ['--group' => [PingedConsumer::GROUP], '--max-passes' => 2]);
+
+    Sleep::assertSlept(fn (CarbonInterval $duration): bool => $duration->equalTo(CarbonInterval::second(9)), times: 1);
+});

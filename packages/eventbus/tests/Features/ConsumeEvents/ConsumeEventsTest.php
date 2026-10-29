@@ -9,12 +9,16 @@ use Flexipos\Contracts\Events\EventActor;
 use Flexipos\Contracts\Events\EventEnvelope;
 use Flexipos\Eventbus\Bus\Delivery;
 use Flexipos\Eventbus\Bus\InMemoryEventBus;
+use Flexipos\Eventbus\Contracts\EventBus;
+use Flexipos\Eventbus\Exceptions\EventBusUnreachable;
 use Flexipos\Eventbus\Features\ConsumeEvents\ConsumeEvents;
 use Flexipos\Eventbus\Features\ConsumeEvents\ConsumeEventsHandler;
 use Flexipos\Eventbus\Features\ConsumeEvents\ConsumeEventsResult;
+use Flexipos\Eventbus\Tests\Support\FailingAcknowledgeEventBus;
 use Flexipos\Eventbus\Tests\Support\FixtureEventConsumerProvider;
 use Flexipos\Eventbus\Tests\Support\PingedConsumer;
 use Illuminate\Support\Facades\DB;
+use LogicException;
 use ReflectionMethod;
 use Tests\TestCase;
 
@@ -139,6 +143,34 @@ it('control: without the idempotency check, the identical redelivery applies the
     eventbusConsumePass(PingedConsumer::GROUP, 'c2');
 
     expect(PingedConsumer::$effectsApplied)->toBe(2);
+});
+
+it('W-2: a failed acknowledge() after a successful handle() propagates uncaught, is never logged as a consumer failure, and never dead-letters', function () {
+    FixtureEventConsumerProvider::declaring(app(), [PingedConsumer::class]);
+
+    $bus = new FailingAcknowledgeEventBus(app(InMemoryEventBus::class));
+    app()->instance(EventBus::class, $bus);
+
+    $stream = (string) config('eventbus.stream');
+    $deadStream = (string) config('eventbus.dead_letter_stream');
+    $bus->ensureGroup($stream, PingedConsumer::GROUP);
+    $bus->publish($stream, eventbusPingedEnvelope('01ARZ3NDEKTSV4RRFFQ69G5FAV'));
+
+    $logger = eventbusRecordingLogger();
+
+    expect(fn () => eventbusConsumePass(PingedConsumer::GROUP, 'c1'))->toThrow(EventBusUnreachable::class);
+
+    // handle() ran and applied its effect before acknowledge() failed -
+    // the opposite of "the consumer failed to handle the event".
+    expect(DB::connection(AccessTenantFixture::connectionName())->table('fixture_pings')->count())->toBe(1);
+    expect(PingedConsumer::$callCount)->toBe(1);
+
+    // Before the fix, this exact scenario logged a "consumer failed"
+    // warning and, on the 5th such delivery, dead-lettered a message that
+    // was in fact handled every time.
+    expect($logger->atLevel('warning'))->toBe([]);
+    expect($logger->atLevel('critical'))->toBe([]);
+    expect($bus->deadLetters($deadStream, 10, false))->toBe([]);
 });
 
 it('AC-24: reclaims at 60, then 120, then 240 seconds of idle, not before, with delivery counts 2, 3, 4', function () {
@@ -310,3 +342,15 @@ it('AC-28: a relay-side failed outbox row and a consumer-side dead letter are tw
     expect($deadLetters)->toHaveCount(1);
     expect($deadLetters[0]->eventId)->toBe('01ARZ3NDEKTSV4RRFFQ69G5FDD');
 });
+
+it('W-4: a non-positive consumer config value throws LogicException rather than being silently clamped up to 1', function (string $key, int $value) {
+    FixtureEventConsumerProvider::declaring(app(), [PingedConsumer::class]);
+    config([$key => $value]);
+
+    expect(fn () => eventbusConsumePass(PingedConsumer::GROUP, 'c1'))->toThrow(LogicException::class);
+})->with([
+    'max_deliveries' => ['eventbus.consumer.max_deliveries', 0],
+    'claim_timeout_seconds' => ['eventbus.consumer.claim_timeout_seconds', -1],
+    'backoff_cap_seconds' => ['eventbus.consumer.backoff_cap_seconds', 0],
+    'batch_size' => ['eventbus.consumer.batch_size', -10],
+]);

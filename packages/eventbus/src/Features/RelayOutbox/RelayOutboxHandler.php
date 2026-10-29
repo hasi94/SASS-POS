@@ -14,6 +14,7 @@ use Flexipos\Eventbus\Support\TenantConnection;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Flexipos\Kernel\Tenancy\TenantContext;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
+use LogicException;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
@@ -61,14 +62,14 @@ final class RelayOutboxHandler
         $connection = $this->tenant->get();
         $stream = (string) $this->config->get('eventbus.stream', 'flexipos:events');
 
-        $batchSize = max(1, min(
-            (int) $this->config->get('eventbus.relay.batch_size', self::DEFAULT_BATCH_SIZE),
+        $batchSize = min(
+            $this->positiveInt('eventbus.relay.batch_size', self::DEFAULT_BATCH_SIZE),
             self::MAX_BATCH_SIZE
-        ));
+        );
 
-        $maxAttempts = max(1, (int) $this->config->get('eventbus.relay.max_attempts', self::DEFAULT_MAX_ATTEMPTS));
-        $base = max(1, (int) $this->config->get('eventbus.relay.backoff_base_seconds', self::DEFAULT_BACKOFF_BASE_SECONDS));
-        $cap = max($base, (int) $this->config->get('eventbus.relay.backoff_cap_seconds', self::DEFAULT_BACKOFF_CAP_SECONDS));
+        $maxAttempts = $this->positiveInt('eventbus.relay.max_attempts', self::DEFAULT_MAX_ATTEMPTS);
+        $base = $this->positiveInt('eventbus.relay.backoff_base_seconds', self::DEFAULT_BACKOFF_BASE_SECONDS);
+        $cap = max($base, $this->positiveInt('eventbus.relay.backoff_cap_seconds', self::DEFAULT_BACKOFF_CAP_SECONDS));
 
         // order by occurred_at, id limit :batch - id is only a deterministic
         // tie-break inside this one ORDER BY, never a resume cursor
@@ -97,17 +98,6 @@ final class RelayOutboxHandler
             try {
                 $envelope = self::toEnvelope($row, $tenantId);
                 $this->bus->publish($stream, $envelope);
-
-                $connection->table(self::TABLE)
-                    ->where('id', $rowId)
-                    ->where('status', 'pending')
-                    ->update([
-                        'status' => 'published',
-                        'published_at' => $this->clock->timestamp(),
-                    ]);
-
-                $this->pacing->forget($tenantId, $rowId);
-                $published++;
             } catch (Throwable $exception) {
                 $attempts = (int) $row->attempts + 1;
                 $message = mb_substr($exception->getMessage(), 0, self::MAX_ERROR_LENGTH);
@@ -134,10 +124,48 @@ final class RelayOutboxHandler
                     $this->pacing->markDueAfter($tenantId, $rowId, Backoff::delaySeconds($attempts, $base, $cap));
                     $retried++;
                 }
+
+                continue;
             }
+
+            // Deliberately uncaught (W-3, review round 1): the bus
+            // already has this event by the time we reach here, so a
+            // failure marking the row published is a tenant-level failure
+            // for the command to log, never a publish failure - counting
+            // it as one would back the row off and republish it, even
+            // though the bus received it every time.
+            $connection->table(self::TABLE)
+                ->where('id', $rowId)
+                ->where('status', 'pending')
+                ->update([
+                    'status' => 'published',
+                    'published_at' => $this->clock->timestamp(),
+                ]);
+
+            $this->pacing->forget($tenantId, $rowId);
+            $published++;
         }
 
         return new RelayOutboxResult($published, $retried, $exhausted, $skipped);
+    }
+
+    /**
+     * Every number this config file promises is validated here where it is
+     * used (W-4, review round 1: plan Ruling 11): a non-positive value
+     * throws loudly rather than being silently clamped up to 1, which would
+     * produce a silently different schedule from a typo'd config value.
+     *
+     * @throws LogicException
+     */
+    private function positiveInt(string $key, int $default): int
+    {
+        $value = (int) $this->config->get($key, $default);
+
+        if ($value < 1) {
+            throw new LogicException("Configuration [{$key}] must be a positive integer, got [{$value}].");
+        }
+
+        return $value;
     }
 
     private static function toEnvelope(object $row, string $tenantId): EventEnvelope

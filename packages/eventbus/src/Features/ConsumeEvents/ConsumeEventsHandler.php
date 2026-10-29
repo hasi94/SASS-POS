@@ -11,6 +11,7 @@ use Flexipos\Eventbus\Support\Backoff;
 use Flexipos\Eventbus\Support\ConsumerRegistry;
 use Flexipos\Kernel\Tenancy\Tenancy;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
+use LogicException;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
@@ -49,10 +50,10 @@ final class ConsumeEventsHandler
     {
         $stream = (string) $this->config->get('eventbus.stream', 'flexipos:events');
         $deadStream = (string) $this->config->get('eventbus.dead_letter_stream', 'flexipos:events:dead');
-        $maxDeliveries = max(1, (int) $this->config->get('eventbus.consumer.max_deliveries', self::DEFAULT_MAX_DELIVERIES));
-        $claimTimeout = max(1, (int) $this->config->get('eventbus.consumer.claim_timeout_seconds', self::DEFAULT_CLAIM_TIMEOUT_SECONDS));
-        $cap = max($claimTimeout, (int) $this->config->get('eventbus.consumer.backoff_cap_seconds', self::DEFAULT_BACKOFF_CAP_SECONDS));
-        $batchSize = max(1, (int) $this->config->get('eventbus.consumer.batch_size', self::DEFAULT_BATCH_SIZE));
+        $maxDeliveries = $this->positiveInt('eventbus.consumer.max_deliveries', self::DEFAULT_MAX_DELIVERIES);
+        $claimTimeout = $this->positiveInt('eventbus.consumer.claim_timeout_seconds', self::DEFAULT_CLAIM_TIMEOUT_SECONDS);
+        $cap = max($claimTimeout, $this->positiveInt('eventbus.consumer.backoff_cap_seconds', self::DEFAULT_BACKOFF_CAP_SECONDS));
+        $batchSize = $this->positiveInt('eventbus.consumer.batch_size', self::DEFAULT_BATCH_SIZE);
 
         $consumer = $this->registry->resolve($command->group);
 
@@ -132,10 +133,6 @@ final class ConsumeEventsHandler
 
         try {
             $this->tenancy->run($envelope->tenantId, static fn () => $consumer->handle($envelope));
-
-            $this->bus->acknowledge($stream, $group, $delivery->messageId);
-
-            return 'handled';
         } catch (Throwable $exception) {
             if ($delivery->deliveryCount >= $maxDeliveries) {
                 $this->moveToDeadLetter($delivery, $deadStream, $group, $exception::class.': '.$exception->getMessage());
@@ -152,6 +149,36 @@ final class ConsumeEventsHandler
 
             return 'retry';
         }
+
+        // A failed acknowledge() after a successful handle() is not the
+        // consumer's own failure (W-2): it is outside the try above, so
+        // EventBusUnreachable propagates to the command loop uncaught,
+        // rather than being logged as "a consumer failed to handle an
+        // event" and risking a needless dead-letter replay of a message
+        // that was in fact handled every time (idempotency already keeps
+        // that safe, but the alert and the replay would both be false).
+        $this->bus->acknowledge($stream, $group, $delivery->messageId);
+
+        return 'handled';
+    }
+
+    /**
+     * Every number this config file promises is validated here where it is
+     * used (W-4, review round 1: plan Ruling 11): a non-positive value
+     * throws loudly rather than being silently clamped up to 1, which would
+     * produce a silently different schedule from a typo'd config value.
+     *
+     * @throws LogicException
+     */
+    private function positiveInt(string $key, int $default): int
+    {
+        $value = (int) $this->config->get($key, $default);
+
+        if ($value < 1) {
+            throw new LogicException("Configuration [{$key}] must be a positive integer, got [{$value}].");
+        }
+
+        return $value;
     }
 
     private function moveToDeadLetter(Delivery $delivery, string $deadStream, string $group, string $reason): void

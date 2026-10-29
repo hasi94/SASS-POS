@@ -31,6 +31,17 @@ afterEach(function () {
     AccessTenantFixture::forget();
 });
 
+/**
+ * A test-local rollback signal (W-7, review round 1). qa's mutation testing
+ * found that catching every `RuntimeException` let a SQLite "database is
+ * locked" `QueryException` - which also extends `RuntimeException` - pass
+ * this test for the wrong reason, with only a separate control test
+ * actually going red. Production code never throws this type, so catching
+ * it exactly is the whole guard: an unrelated lock error now surfaces
+ * instead of being swallowed.
+ */
+final class ForcedRollback extends RuntimeException {}
+
 it('rolls back the outbox row together with the business change that caused it', function () {
     $connection = DB::connection(AccessTenantFixture::connectionName());
 
@@ -38,11 +49,20 @@ it('rolls back the outbox row together with the business change that caused it',
         $connection->transaction(function () use ($connection) {
             $connection->table('eventbus_marker')->insert(['value' => 'written']);
 
+            $connectionsBeforeWrite = array_keys(DB::getConnections());
+
             app(Outbox::class)->record(new NewEvent('fixture.pinged', 'fixture', '01ARZ3NDEKTSV4RRFFQ69G5FAV'));
 
-            throw new RuntimeException('forced rollback');
+            // OutboxWriter opens no transaction of its own (AC-6): still
+            // depth 1, this closure's own transaction(). It also resolves
+            // no connection beyond whatever was already resolved before
+            // the write - the row landed on the caller's own connection.
+            expect($connection->transactionLevel())->toBe(1);
+            expect(array_keys(DB::getConnections()))->toBe($connectionsBeforeWrite);
+
+            throw new ForcedRollback('forced rollback');
         });
-    } catch (RuntimeException) {
+    } catch (ForcedRollback) {
         // expected
     }
 

@@ -164,3 +164,12 @@ it('sleeps poll_seconds between passes with --max-passes, and never with --once'
     Artisan::call('eventbus:relay', ['--tenant' => [], '--max-passes' => 2, '--sleep' => 1]);
     Sleep::assertSlept(fn (CarbonInterval $duration): bool => $duration->equalTo(CarbonInterval::second(1)), times: 1);
 });
+
+it('W-5: defaults --sleep from eventbus.relay.poll_seconds when --sleep is not given', function () {
+    config(['eventbus.relay.poll_seconds' => 7]);
+    Sleep::fake();
+
+    Artisan::call('eventbus:relay', ['--tenant' => [], '--max-passes' => 2]);
+
+    Sleep::assertSlept(fn (CarbonInterval $duration): bool => $duration->equalTo(CarbonInterval::second(7)), times: 1);
+});

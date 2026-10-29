@@ -92,6 +92,25 @@ function qaEventbusPlantedPath(string $directory): string
     return (string) realpath($directory.'/Planted.php');
 }
 
+function qaEventbusOutboxWriterRelativePath(): string
+{
+    return 'packages/eventbus/src/Support/OutboxWriter.php';
+}
+
+/**
+ * `$path` relative to the repository root, with `/` separators regardless
+ * of platform - so an exemption or an allow-list entry names one exact
+ * file by its full location, never merely a basename any file anywhere
+ * could share (W-6, review round 1).
+ */
+function qaEventbusRepoRelativePath(string $path): string
+{
+    $root = str_replace('\\', '/', dirname(__DIR__, 4)).'/';
+    $normalised = str_replace('\\', '/', $path);
+
+    return str_starts_with($normalised, $root) ? substr($normalised, strlen($root)) : $normalised;
+}
+
 /**
  * The text immediately following each `table('<table>')` call, up to the
  * next statement terminator - so a caller can ask "what is chained
@@ -124,15 +143,27 @@ function qaEventbusTableCallWindows(string $contents, string $table): array
 /**
  * Files, other than the one named, that insert into the exact table named.
  *
+ * `$exceptRepoRelativePath` is matched against the file's own full
+ * repo-relative path, never its basename (W-6, review round 1): a basename
+ * match would exempt any file merely *named* the same, anywhere in the
+ * scanned tree.
+ *
+ * **Stated limit, unchanged by this fix (W-6):** `table(Foo::TABLE)` -
+ * a class constant, the shape this package's own handlers actually use -
+ * is invisible to this scan, which only recognises a quoted literal
+ * chained onto `table()`. {@see qaEventbusOutboxEventsLiteralFiles()} is
+ * the complementary, allow-listed check that catches a second inserter
+ * written that way instead.
+ *
  * @param  list<string>|null  $directories
  * @return list<string>
  */
-function qaEventbusInsertOffenders(string $table, string $exceptBasename, ?array $directories = null): array
+function qaEventbusInsertOffenders(string $table, string $exceptRepoRelativePath, ?array $directories = null): array
 {
     $found = [];
 
     foreach (qaEventbusSourceFiles($directories ?? qaEventbusSourceDirectories()) as $path => $contents) {
-        if (basename($path) === $exceptBasename) {
+        if (qaEventbusRepoRelativePath($path) === $exceptRepoRelativePath) {
             continue;
         }
 
@@ -146,12 +177,53 @@ function qaEventbusInsertOffenders(string $table, string $exceptBasename, ?array
             }
         }
 
-        $rawInsert = preg_match('/\binsert\s+into\s+[`\'"]'.preg_quote($table, '/').'[`\'"]/i', $contents) === 1;
+        // The quote characters around the table name are optional (W-6):
+        // an unquoted raw `insert into outbox_events ...` is valid SQL and
+        // was invisible to the original, quote-only pattern. The trailing
+        // word boundary still keeps `outbox_events_backup` from matching.
+        $rawInsert = preg_match(
+            '/\binsert\s+into\s+[`\'"]?'.preg_quote($table, '/').'[`\'"]?\b/i',
+            $contents
+        ) === 1;
 
         if ($chained || $rawInsert) {
             $found[] = $path;
         }
     }
+
+    return $found;
+}
+
+/**
+ * Every file under `packages/eventbus/src` containing the exact quoted
+ * string literal `'outbox_events'` (or `"outbox_events"`) - never a mere
+ * textual mention inside a docblock sentence or a command description,
+ * both of which read naturally with no quote immediately around the table
+ * name (W-6, review round 1).
+ *
+ * The complementary half of `qaEventbusInsertOffenders()`'s stated limit:
+ * a second inserter written as `table(Foo::TABLE)->insert(...)` is
+ * invisible to that scan, but every existing writer and reader of this
+ * table declares its own `TABLE` constant as a quoted literal exactly this
+ * shape - `public const TABLE = 'outbox_events';` - so a second one
+ * written the same way is caught here instead.
+ *
+ * @param  list<string>|null  $directories
+ * @return list<string> repo-relative paths, sorted
+ */
+function qaEventbusOutboxEventsLiteralFiles(?array $directories = null): array
+{
+    $directories ??= [dirname(__DIR__, 4).'/packages/eventbus/src'];
+
+    $found = [];
+
+    foreach (qaEventbusSourceFiles($directories) as $path => $contents) {
+        if (preg_match('/[\'"]outbox_events[\'"]/', $contents) === 1) {
+            $found[] = qaEventbusRepoRelativePath($path);
+        }
+    }
+
+    sort($found);
 
     return $found;
 }
@@ -205,13 +277,15 @@ it('every scanned directory actually exists, so an absent one cannot silently em
 });
 
 it('AC-5: the only file inserting into outbox_events is OutboxWriter', function () {
-    expect(qaEventbusInsertOffenders('outbox_events', 'OutboxWriter.php'))->toBe([]);
+    $outboxWriter = qaEventbusOutboxWriterRelativePath();
+
+    expect(qaEventbusInsertOffenders('outbox_events', $outboxWriter))->toBe([]);
 
     $directory = qaEventbusFreshTempDirectory();
     File::put($directory.'/Planted.php', "<?php\n\$x->table('outbox_events')->insert(['a' => 1]);\n");
 
     try {
-        expect(qaEventbusInsertOffenders('outbox_events', 'OutboxWriter.php', [$directory]))->toBe([qaEventbusPlantedPath($directory)]);
+        expect(qaEventbusInsertOffenders('outbox_events', $outboxWriter, [$directory]))->toBe([qaEventbusPlantedPath($directory)]);
     } finally {
         File::deleteDirectory($directory);
     }
@@ -220,10 +294,85 @@ it('AC-5: the only file inserting into outbox_events is OutboxWriter', function 
     File::put($otherTable.'/Planted.php', "<?php\n\$x->table('some_other_table')->insert(['a' => 1]);\n");
 
     try {
-        expect(qaEventbusInsertOffenders('outbox_events', 'OutboxWriter.php', [$otherTable]))->toBe([]);
+        expect(qaEventbusInsertOffenders('outbox_events', $outboxWriter, [$otherTable]))->toBe([]);
     } finally {
         File::deleteDirectory($otherTable);
     }
+});
+
+it('W-6: the exemption matches by full repo-relative path, never by basename - a file merely named OutboxWriter.php elsewhere is not exempt', function () {
+    $directory = qaEventbusFreshTempDirectory();
+    File::put($directory.'/OutboxWriter.php', "<?php\n\$x->table('outbox_events')->insert(['a' => 1]);\n");
+
+    try {
+        // Same basename as the real writer, wrong directory: still
+        // reported, because the exemption is matched by full path.
+        expect(qaEventbusInsertOffenders('outbox_events', qaEventbusOutboxWriterRelativePath(), [$directory]))
+            ->toBe([(string) realpath($directory.'/OutboxWriter.php')]);
+    } finally {
+        File::deleteDirectory($directory);
+    }
+});
+
+it('W-6: an unquoted raw insert into outbox_events is reported, and outbox_events_backup never matches the outbox_events rule', function () {
+    $directory = qaEventbusFreshTempDirectory();
+    File::put(
+        $directory.'/Planted.php',
+        "<?php\n\$pdo->exec('insert into outbox_events (id) values (1)');\n"
+    );
+
+    try {
+        expect(qaEventbusInsertOffenders('outbox_events', qaEventbusOutboxWriterRelativePath(), [$directory]))
+            ->toBe([qaEventbusPlantedPath($directory)]);
+    } finally {
+        File::deleteDirectory($directory);
+    }
+
+    $backup = qaEventbusFreshTempDirectory();
+    File::put(
+        $backup.'/Planted.php',
+        "<?php\n\$pdo->exec('insert into outbox_events_backup (id) values (1)');\n"
+    );
+
+    try {
+        expect(qaEventbusInsertOffenders('outbox_events', qaEventbusOutboxWriterRelativePath(), [$backup]))->toBe([]);
+    } finally {
+        File::deleteDirectory($backup);
+    }
+});
+
+it('W-6: the literal "outbox_events" appears in packages/eventbus/src only inside its known writers and readers', function () {
+    expect(qaEventbusOutboxEventsLiteralFiles())->toBe([
+        'packages/eventbus/src/Features/ListFailedOutboxEvents/ListFailedOutboxEventsHandler.php',
+        'packages/eventbus/src/Features/RelayOutbox/RelayOutboxHandler.php',
+        'packages/eventbus/src/Features/ReportOutboxAge/ReportOutboxAgeHandler.php',
+        'packages/eventbus/src/Features/RetryFailedOutboxEvent/RetryFailedOutboxEventHandler.php',
+        'packages/eventbus/src/Support/OutboxWriter.php',
+    ]);
+
+    // The gap qaEventbusInsertOffenders() cannot close (its own docblock
+    // states it): a second inserter written as table(Foo::TABLE)->insert,
+    // the shape this package's own handlers actually use, declares its
+    // own quoted TABLE constant literal exactly like every existing one
+    // does - which this allow-list check catches instead.
+    $directory = qaEventbusFreshTempDirectory();
+    File::put(
+        $directory.'/Planted.php',
+        "<?php\nfinal class Foo\n{\n    public const TABLE = 'outbox_events';\n}\n\$x->table(Foo::TABLE)->insert(['a' => 1]);\n"
+    );
+
+    try {
+        expect(qaEventbusInsertOffenders('outbox_events', qaEventbusOutboxWriterRelativePath(), [$directory]))
+            ->toBe([]);
+
+        expect(qaEventbusOutboxEventsLiteralFiles([$directory]))
+            ->toBe([str_replace('\\', '/', qaEventbusPlantedPath($directory))]);
+    } finally {
+        File::deleteDirectory($directory);
+    }
+
+    // Green again once the scratch file is gone.
+    expect(qaEventbusOutboxEventsLiteralFiles())->toHaveCount(5);
 });
 
 it('AC-2: outside packages/eventbus/src, no file references Redis directly', function () {

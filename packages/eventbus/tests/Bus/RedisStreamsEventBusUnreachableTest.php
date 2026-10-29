@@ -9,7 +9,11 @@ use Flexipos\Contracts\Events\EventEnvelope;
 use Flexipos\Eventbus\Bus\InMemoryEventBus;
 use Flexipos\Eventbus\Bus\RedisStreamsEventBus;
 use Flexipos\Eventbus\Exceptions\EventBusUnreachable;
+use Flexipos\Eventbus\Tests\Support\FakePhpRedisRawErrorClient;
+use Flexipos\Eventbus\Tests\Support\FakePredisRawErrorClient;
+use Flexipos\Eventbus\Tests\Support\FakeRedisConnection;
 use Illuminate\Contracts\Redis\Factory as RedisFactory;
+use Illuminate\Redis\Connections\Connection as RedisConnection;
 use Illuminate\Redis\RedisManager;
 use RuntimeException;
 use Tests\TestCase;
@@ -18,7 +22,8 @@ use Throwable;
 /*
 |--------------------------------------------------------------------------
 | T-018 step 4 - the Redis adapter fails loudly and never falls back
-| (AC-4)
+| (AC-4). Review round 1, R-1: an error reply from either client library
+| is not success, even though neither one throws on it.
 |--------------------------------------------------------------------------
 */
 
@@ -40,6 +45,23 @@ function eventbusFixtureEnvelope(): EventEnvelope
         null,
         EventActor::system(),
     );
+}
+
+/**
+ * A `RedisFactory` whose `connection()` always hands back the given
+ * connection, regardless of name.
+ */
+function eventbusFixedConnectionFactory(RedisConnection $connection): RedisFactory
+{
+    return new class($connection) implements RedisFactory
+    {
+        public function __construct(private readonly RedisConnection $connection) {}
+
+        public function connection($name = null)
+        {
+            return $this->connection;
+        }
+    };
 }
 
 it('turns a connection resolution failure into EventBusUnreachable, naming the connection and keeping the previous exception', function () {
@@ -105,4 +127,77 @@ it('never falls back to the in-memory bus after either failure', function () {
     $memory->ensureGroup('flexipos:events', 'g1');
 
     expect($memory->read('flexipos:events', 'g1', 'c1', 10))->toBe([]);
+});
+
+it('R-1: a phpredis error reply (rawCommand returns false) is EventBusUnreachable, never success', function () {
+    $client = new FakePhpRedisRawErrorClient('READONLY You can\'t write against a read only replica.');
+    $factory = eventbusFixedConnectionFactory(new FakeRedisConnection($client));
+
+    $bus = new RedisStreamsEventBus($factory, 'fixture-connection', 100000);
+
+    try {
+        $bus->publish('flexipos:events', eventbusFixtureEnvelope());
+        $this->fail('Expected EventBusUnreachable.');
+    } catch (Throwable $exception) {
+        expect($exception)->toBeInstanceOf(EventBusUnreachable::class)
+            ->and($exception->getPrevious())->toBeInstanceOf(RuntimeException::class)
+            ->and($exception->getPrevious()?->getMessage())->toBe('READONLY You can\'t write against a read only replica.');
+    }
+
+    expect($client->rawCommandCalls)->toBe(1)
+        ->and($client->lastErrorCleared)->toBeTrue();
+});
+
+it('R-1: a predis error reply (executeRaw sets $error) is EventBusUnreachable, never success', function () {
+    $client = new FakePredisRawErrorClient('OOM command not allowed when used memory > \'maxmemory\'.');
+    $factory = eventbusFixedConnectionFactory(new FakeRedisConnection($client));
+
+    $bus = new RedisStreamsEventBus($factory, 'fixture-connection', 100000);
+
+    try {
+        $bus->publish('flexipos:events', eventbusFixtureEnvelope());
+        $this->fail('Expected EventBusUnreachable.');
+    } catch (Throwable $exception) {
+        expect($exception)->toBeInstanceOf(EventBusUnreachable::class)
+            ->and($exception->getPrevious())->toBeInstanceOf(RuntimeException::class)
+            ->and($exception->getPrevious()?->getMessage())->toBe('OOM command not allowed when used memory > \'maxmemory\'.');
+    }
+
+    expect($client->executeRawCalls)->toBe(1);
+});
+
+it('R-1: ensureGroup() still treats a BUSYGROUP error reply as idempotent success after the raw() fix', function () {
+    $client = new FakePhpRedisRawErrorClient('BUSYGROUP Consumer Group name already exists');
+    $factory = eventbusFixedConnectionFactory(new FakeRedisConnection($client));
+
+    $bus = new RedisStreamsEventBus($factory, 'fixture-connection', 100000);
+
+    // No exception: ensureGroup() reads the wrapped EventBusUnreachable's
+    // previous exception message for "BUSYGROUP" and swallows it.
+    $bus->ensureGroup('flexipos:events', 'g1');
+
+    expect($client->rawCommandCalls)->toBe(1);
+});
+
+it('R-1: a malformed reply where a stream id is expected is EventBusUnreachable, never treated as the id', function () {
+    // Not an error reply - rawCommand() returns a non-false, non-error
+    // value - but not a well-formed `<ms>-<seq>` stream id either, which
+    // is the shape a corrupted or unexpected server reply would take.
+    $client = new class
+    {
+        public function rawCommand(string ...$args): string
+        {
+            return '';
+        }
+    };
+
+    $bus = new RedisStreamsEventBus(eventbusFixedConnectionFactory(new FakeRedisConnection($client)), 'fixture-connection', 100000);
+
+    try {
+        $bus->publish('flexipos:events', eventbusFixtureEnvelope());
+        $this->fail('Expected EventBusUnreachable.');
+    } catch (Throwable $exception) {
+        expect($exception)->toBeInstanceOf(EventBusUnreachable::class)
+            ->and($exception->getMessage())->toContain('malformed stream id');
+    }
 });

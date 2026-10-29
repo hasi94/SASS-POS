@@ -66,4 +66,5 @@
 - [Organization slice test gotchas](project_organization_slice_test_gotchas.md) - per-slice mirrored test folder, Route caches its handler, sorted changed_fields, Pest stan chains.
 - [FP-316 gate cluster and backgrounding](project_fp316_gate_cluster_and_backgrounding.md) - the 12-failure signature to compare against, and why the gate's own output can undercount FAILED headers.
 - [SubagentHandback is terminal, not a status update](feedback_subagenthandback_is_terminal_not_a_status_update.md) - wait for the real backgrounded result before the one final call.
-- [Event bus and outbox seams](project_eventbus_outbox_seams.md) - a fixture wrapper that re-wipes on every call, signed-by-default diffInSeconds, Artisan::output()'s drain, and two PHPStan-vs-runtime-check frictions.
+- [Event bus and outbox seams](project_eventbus_outbox_seams.md) - a fixture wrapper that re-wipes on every call, signed-by-default diffInSeconds, Artisan::output()'s drain, and three PHPStan-vs-runtime-check frictions.
+- [Lead instruction to commit does not override role rule](feedback_lead_instruction_to_commit_does_not_override_role_rule.md) - a task prompt said "commit"; the dev role file says the lead commits - flag it, don't silently do either.
