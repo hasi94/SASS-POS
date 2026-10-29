@@ -2,7 +2,10 @@
 
 Backlog: FP-213, "Manifest, registry in the master, licensing and per-tenant enablement, hook gateway
 with the five modes, runtime, circuit breaker" (dependency FP-212, done in T-018). Decisions D-1 to
-D-13 are in `docs/decisions/T-019-plugin-framework.md`. **No BLOCKING questions** — this is
+D-15 are in `docs/decisions/T-019-plugin-framework.md` (D-14 and D-15 resolve two conflicts `architect`
+flagged between this spec's first draft and established codebase facts: AC-48's wording against T-008
+D-8's forward-only convention, and AC-27's wording against T-018's outbox `type`-matching and column
+limit). **No BLOCKING questions** — this is
 autonomous/team-mode work; every open design question below was decided and logged rather than left
 for the human.
 
@@ -205,10 +208,15 @@ Re-derived from the files, not assumed:
 ### F. The hook gateway — asynchronous mode (after)
 
 - AC-27: An `after` handler is never called in-process; the gateway instead writes one outbox row per
-  enabled plugin registered at that point (via T-018's single outbox writer, AC-5 of T-018), with
-  `type` naming the hook point and plugin, `actor_type='plugin'` (reusing `ActorType::Plugin`), inside
-  the same transaction as the point's own action — a rolled-back action leaves no `after` row (mirroring
-  T-018 AC-6).
+  enabled plugin registered at that point (via T-018's single outbox writer, AC-5 of T-018), inside the
+  same transaction as the point's own action — a rolled-back action leaves no `after` row (mirroring
+  T-018 AC-6). `type` is a fixed string naming only the hook point (`plugin.<point>`), matching T-018's
+  exact-list `eventTypes()` matching (`ConsumeEventsHandler.php:126`) and staying inside the 80-character
+  `type` column; the plugin's identity travels in `aggregate_id`, `actor` (`actor_type='plugin'`,
+  reusing `ActorType::Plugin`), and `payload` instead. The row must still unambiguously identify, for
+  any reader (operator, consumer, or test), both which hook point fired and which plugin it fired for —
+  that traceability is what this criterion actually guarantees, not the literal shape of the `type`
+  string (D-15).
 - AC-28 [ENGINE — Redis]: An `after` hook's outbox row, relayed and consumed end-to-end against a real
   Redis connection, is NOT VERIFIED in this environment (T-018 D-1, inherited unchanged); the stand-in
   bus proves the same write/relay/consume contract deterministically in the meantime.
@@ -293,10 +301,15 @@ Re-derived from the files, not assumed:
   dispatch, if split out) gains a dependency on the plugin framework's internals — only on its
   published contract in `packages/contracts` — enforced by the existing boundary check with no new
   exemption added.
-- AC-48 [ENGINE — MySQL/MariaDB]: Every migration this task ships (master and tenant) runs cleanly
-  against a real MySQL/MariaDB connection and is reversible (`down()` undoes exactly what `up()` did).
-  NOT VERIFIED while `ENGINE_HOLD`/gate G-1 is in force; provable against the deterministic test engine
-  stand-in in the meantime, following the unchanged convention every prior task has used.
+- AC-48 [ENGINE — MySQL/MariaDB]: Every migration this task ships (master and tenant) is forward-only,
+  with no `down()` method, matching the project-wide convention T-008 D-8 established (no shipped
+  migration anywhere in the repository has one, and `BranchForeignKeysMigrationTest` asserts this
+  project-wide). Every migration runs cleanly, in order, against a real MySQL/MariaDB connection, and
+  running the full set twice is a safe no-op (nothing errors, nothing is double-applied) — the same
+  forward-only "mistakes are corrected by a new migration, never a rollback" discipline every other
+  task's migrations already follow. NOT VERIFIED while `ENGINE_HOLD`/gate G-1 is in force; provable
+  against the deterministic test engine stand-in in the meantime, following the unchanged convention
+  every prior task has used (D-14).
 
 ## Out of scope
 
@@ -359,4 +372,7 @@ Re-derived from the files, not assumed:
 ## Open questions
 
 None. Every design question this task's own scoping raised was decided and logged in
-`docs/decisions/T-019-plugin-framework.md` (D-1 to D-13), per the autonomous team protocol.
+`docs/decisions/T-019-plugin-framework.md` (D-1 to D-15), per the autonomous team protocol. D-14 and
+D-15 were added after `architect`'s plan flagged AC-48 and AC-27 as worded in a way that conflicted
+with established codebase facts; both are resolved in favour of the established convention, and the
+AC text above already reflects the resolution.
