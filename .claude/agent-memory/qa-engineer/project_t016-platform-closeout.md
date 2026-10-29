@@ -118,5 +118,22 @@ handlers already followed - a real pre-existing defect, not something the review
 for by name. Skimming diffs for "does this look like what the message says" rather than only
 running the tests is what catches a bundled fix nobody flagged as a finding.
 
+**Reviewer round 2 found a gap inside round 1's own fix (R-2), one level deeper than the
+original finding.** W-8's fix (round 1) added a branch that overwrites `suspension_reason`
+whenever the computed trigger differs from the current sentinel reason - but never checked
+whether the computed trigger was itself null. `CommercialStatus::target()`'s decision table has
+exactly one row that returns `['status' => $currentStatus, 'trigger' => null]` for an
+already-suspended-on-a-sentinel tenant: "no subscription row at all". Reaching it needs the
+rare combination of a sentinel-suspended tenant with zero rows in `subscriptions` - a shape no
+test had planted and `dev`'s own fix never enumerated by hand. **When a fix adds a guard
+condition in response to a review finding, re-walk every row of the pure function's own
+decision table against the new condition before trusting it - not just the row the reviewer
+named.** Confirmed this one by hand: a function with 9 explicit return points, cross-checked
+against `SubscriptionStatus::ALL`'s 6 values mapping 1:1 onto 6 of those rows (proving the
+"null trigger" row is reachable only one way), closed the question of whether any other
+null-trigger combination needed the same guard. Mutation-tested the fix by removing the new
+clause and confirming the new test (and only the new test) went red with the exact predicted
+message, not a different one.
+
 Related: [[negative-control-every-guard]], [[gate-split-and-shared-state]],
 [[t014-branches-terminals-closeout]].

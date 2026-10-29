@@ -55,6 +55,26 @@ it('is a no-op once the reason already matches the live cause', function () {
         ->and(PlatformSeed::auditRows('tenant_status_synced'))->toHaveCount(0);
 });
 
+it('review R-2: never nulls out a sentinel reason on a null-trigger row (no subscription at all)', function () {
+    // Ruling 4 row 8, "no subscription row", returns a null trigger with the
+    // status unchanged - that is "nothing to say", not "clear the reason".
+    // A tenant with no subscription at all, suspended for a lapsed licence,
+    // whose licence later becomes valid again: the licence row (3) no longer
+    // fires, nothing else applies, and row 8 is reached with a null trigger.
+    $tenantId = PlatformSeed::tenant('tenant-a', 'suspended', ['suspension_reason' => 'licence_lapsed']);
+    PlatformSeed::licence($tenantId, 'platform', 'active');
+
+    $trigger = app(TenantStatusSync::class)->reconcile(PlatformSeed::connection(), $tenantId, null);
+
+    expect($trigger)->toBeNull();
+
+    $tenant = PlatformSeed::tenantRow($tenantId);
+
+    expect($tenant['status'])->toBe('suspended')
+        ->and($tenant['suspension_reason'])->toBe('licence_lapsed')
+        ->and(PlatformSeed::auditRows('tenant_status_synced'))->toHaveCount(0);
+});
+
 it('never touches a manually-suspended tenant, even when a sentinel cause is also present', function () {
     $tenantId = PlatformSeed::tenant('tenant-a', 'suspended', ['suspension_reason' => 'operator_decision']);
     $planId = PlatformSeed::plan();

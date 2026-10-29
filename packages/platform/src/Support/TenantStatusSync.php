@@ -84,7 +84,15 @@ class TenantStatusSync
             // hides which cause an operator should actually act on (AC-25's
             // "not left guessing"). The status write is skipped - nothing
             // about it changed - but the reason and the audit row still are.
+            // Review R-2: row 8 of Ruling 4's table ("no subscription row")
+            // returns a null trigger with the status unchanged - that is
+            // "nothing to say", never "clear the reason". Without this guard
+            // a tenant suspended for `licence_lapsed` with no subscription
+            // at all had its reason nulled the moment anything else
+            // reconciled it, and a null reason reads as "not ours" (D-16),
+            // so the suspension could then never be lifted automatically.
             if ($target['status'] === TenantCommercialStatus::SUSPENDED
+                && $target['trigger'] !== null
                 && in_array($currentSuspensionReason, TenantCommercialStatus::SENTINELS, true)
                 && $target['trigger'] !== $currentSuspensionReason) {
                 return $this->updateSuspensionReason($master, $tenantId, $actorUserId, $currentStatus, $currentSuspensionReason, $target['trigger']);
