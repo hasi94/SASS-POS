@@ -113,6 +113,21 @@ it('names the tenant for a one-tenant named run, and names none for a two-tenant
         ->and($rows[1]['tenant_id'])->toBeNull();
 });
 
+it('S-1: a duplicate --tenant still names that one tenant, not null', function () {
+    $set = runFixtureSet(1);
+    runFixturePublish($set);
+
+    $server = masterMappingServer('dup-server');
+    $tenant = runFixtureTenant('dup-tenant', $server, 'active', 0, 1_000);
+
+    app(PlanMigrationRunHandler::class)->handle(new PlanMigrationRun(set: $set, tenantIds: [$tenant, $tenant]));
+
+    $rows = migrationRunAuditRows();
+
+    expect($rows)->toHaveCount(1)
+        ->and($rows[0]['tenant_id'])->toBe($tenant);
+});
+
 it('AC-14: gives actor_type user, the actor id and the email snapshot when initiatedBy names a seeded user', function () {
     $set = runFixtureSet(1);
     runFixturePublish($set);

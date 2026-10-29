@@ -30,10 +30,14 @@ final class MigrationRunAudit implements RecordsMigrationRuns
         ?string $initiatedBy,
     ): void {
         // The run row's own tenant_id rule (Ruling 7): named when the mode
-        // is `tenant` and exactly one tenant was named, null otherwise - a
-        // bulk run and a multi-tenant named run are both "not one tenant".
-        $tenantId = $mode === 'tenant' && $tenantIds !== null && count($tenantIds) === 1
-            ? $tenantIds[0]
+        // is `tenant` and exactly one distinct tenant was named, null
+        // otherwise - a bulk run and a multi-tenant named run are both "not
+        // one tenant", and a duplicate (`--tenant=A --tenant=A`) is still
+        // one tenant, not two.
+        $uniqueTenantIds = $tenantIds === null ? [] : array_values(array_unique($tenantIds));
+
+        $tenantId = $mode === 'tenant' && count($uniqueTenantIds) === 1
+            ? $uniqueTenantIds[0]
             : null;
 
         $this->audit->write(

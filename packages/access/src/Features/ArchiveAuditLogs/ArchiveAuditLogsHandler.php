@@ -84,16 +84,21 @@ final class ArchiveAuditLogsHandler
                 break;
             }
 
-            $connection->transaction(function () use ($connection, $ids): void {
+            $deleted = $connection->transaction(function () use ($connection, $ids): int {
                 $connection->table('audit_logs_archive')->insertUsing(
                     AuditColumns::ALL,
                     $connection->table('audit_logs')->whereIn('id', $ids)->select(AuditColumns::ALL)
                 );
 
-                $connection->table('audit_logs')->whereIn('id', $ids)->delete();
+                return $connection->table('audit_logs')->whereIn('id', $ids)->delete();
             });
 
-            $moved += count($ids);
+            // The delete statement's own affected-row count (S-2), not
+            // count($ids): a manual `audit:archive --tenant=X` run that
+            // overlaps the scheduled one can find some of these ids already
+            // moved, and the report must say how many rows this chunk
+            // actually deleted, not how many it asked for.
+            $moved += $deleted;
             $chunks++;
         }
 

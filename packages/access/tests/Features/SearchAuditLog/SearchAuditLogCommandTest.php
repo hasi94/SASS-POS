@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flexipos\Access\Tests\Features\SearchAuditLog;
 
+use Flexipos\Access\Support\AccessLogWriter;
 use Flexipos\Access\Tests\Support\AccessSeed;
 use Flexipos\Access\Tests\Support\AccessTenantFixture;
 use Illuminate\Support\Facades\Artisan;
@@ -84,6 +85,100 @@ function searchCommandSeedRows(int $count): string
 
     return $actor;
 }
+
+function searchCommandSeedRowWithIp(string $ip): string
+{
+    AccessTenantFixture::switchTo('tenant-a');
+
+    $key = AccessSeed::permission('audit.read');
+    $actor = AccessSeed::actorHolding('cli-reader', [$key]);
+
+    AccessSeed::connection()->table('audit_logs')->insert([
+        'actor_type' => 'employee',
+        'actor_id' => null,
+        'actor_name' => null,
+        'branch_id' => null,
+        'module' => 'access',
+        'action' => 'role_created',
+        'subject_type' => 'role',
+        'subject_id' => 'SUBJECT0000000000000000001',
+        'before' => null,
+        'after' => null,
+        'changed_fields' => null,
+        'ip' => AccessLogWriter::packIp($ip),
+        'user_agent' => null,
+        'request_id' => null,
+        'created_at' => '2026-06-01 00:00:00.000',
+    ]);
+
+    tenancy()->leave();
+
+    return $actor;
+}
+
+it('exports a row with a real IPv4 address as JSON, printable rather than packed bytes (R-1)', function () {
+    $actor = searchCommandSeedRowWithIp('192.168.1.10');
+
+    $path = searchCommandFreshPath('ipv4.json');
+
+    $exitCode = Artisan::call('audit:search', [
+        '--tenant' => 'tenant-a',
+        '--as' => $actor,
+        '--output' => $path,
+        '--format' => 'json',
+    ]);
+
+    expect($exitCode)->toBe(0)
+        ->and((string) file_get_contents($path))->toContain('192.168.1.10');
+});
+
+it('exports a row with a real IPv4 address as CSV, printable rather than packed bytes (R-1)', function () {
+    $actor = searchCommandSeedRowWithIp('192.168.1.10');
+
+    $path = searchCommandFreshPath('ipv4.csv');
+
+    $exitCode = Artisan::call('audit:search', [
+        '--tenant' => 'tenant-a',
+        '--as' => $actor,
+        '--output' => $path,
+        '--format' => 'csv',
+    ]);
+
+    expect($exitCode)->toBe(0)
+        ->and((string) file_get_contents($path))->toContain('192.168.1.10');
+});
+
+it('exports a row with a real IPv6 address as JSON, printable rather than packed bytes (R-1)', function () {
+    $actor = searchCommandSeedRowWithIp('2001:db8::1');
+
+    $path = searchCommandFreshPath('ipv6.json');
+
+    $exitCode = Artisan::call('audit:search', [
+        '--tenant' => 'tenant-a',
+        '--as' => $actor,
+        '--output' => $path,
+        '--format' => 'json',
+    ]);
+
+    expect($exitCode)->toBe(0)
+        ->and((string) file_get_contents($path))->toContain('2001:db8::1');
+});
+
+it('exports a row with a real IPv6 address as CSV, printable rather than packed bytes (R-1)', function () {
+    $actor = searchCommandSeedRowWithIp('2001:db8::1');
+
+    $path = searchCommandFreshPath('ipv6.csv');
+
+    $exitCode = Artisan::call('audit:search', [
+        '--tenant' => 'tenant-a',
+        '--as' => $actor,
+        '--output' => $path,
+        '--format' => 'csv',
+    ]);
+
+    expect($exitCode)->toBe(0)
+        ->and((string) file_get_contents($path))->toContain('2001:db8::1');
+});
 
 it('exports the same rows the handler returns, as CSV', function () {
     $actor = searchCommandSeedRows(2);

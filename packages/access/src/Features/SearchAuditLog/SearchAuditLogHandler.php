@@ -7,6 +7,7 @@ namespace Flexipos\Access\Features\SearchAuditLog;
 use DateTimeImmutable;
 use Exception as DateParseException;
 use Flexipos\Access\Exceptions\AccessRefused;
+use Flexipos\Access\Support\AccessLogWriter;
 use Flexipos\Access\Support\AuditCatalogue;
 use Flexipos\Access\Support\AuditColumns;
 use Flexipos\Access\Support\TenantConnection;
@@ -94,9 +95,26 @@ final class SearchAuditLogHandler
 
         return new AuditPage(
             AuditColumns::ALL,
-            array_map(static fn (object $row): array => (array) $row, $rows),
+            array_map(static fn (object $row): array => self::renderIp((array) $row), $rows),
             $nextBeforeId,
         );
+    }
+
+    /**
+     * `ip` as a printed address, never the packed bytes the column stores
+     * (Ruling 11: "`ip` is printable on the tenant side"). Unlike the
+     * platform side, this package already owns {@see AccessLogWriter}, so
+     * the one unpacker it ships is reused rather than a second `inet_ntop`
+     * home invented here.
+     *
+     * @param  array<string, mixed>  $row
+     * @return array<string, mixed>
+     */
+    private static function renderIp(array $row): array
+    {
+        $row['ip'] = AccessLogWriter::unpackIp($row['ip'] === null ? null : (string) $row['ip']);
+
+        return $row;
     }
 
     private function applyFilters(Builder $builder, SearchAuditLog $query, ?DateTimeImmutable $from, ?DateTimeImmutable $to): void

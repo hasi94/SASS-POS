@@ -192,6 +192,41 @@ it('atomic chunk: a fault on the delete leaves that chunk in neither table corre
         ->and($connection->table('audit_logs')->where('id', $id)->exists())->toBeTrue();
 });
 
+it('S-2: an overlapping manual run that already removed one id is not double-counted as moved', function () {
+    $ids = [
+        archiveSeedRow('2025-01-01 00:00:00.000'),
+        archiveSeedRow('2025-01-02 00:00:00.000'),
+        archiveSeedRow('2025-01-03 00:00:00.000'),
+    ];
+
+    $connection = archiveConnection();
+    $already = false;
+
+    // Simulate a manual `audit:archive --tenant=X` run that overlapped the
+    // scheduled one: by the time this chunk's own delete fires, one of its
+    // ids is already gone from `audit_logs` (archived and removed by the
+    // other run). The guard flag stops the manual delete below - itself a
+    // `delete from "audit_logs"` statement - from re-entering this hook.
+    $connection->beforeExecuting(function (string $query) use ($connection, $ids, &$already): void {
+        if (
+            ! $already
+            && str_contains(strtolower($query), 'delete from "audit_logs"')
+            && ! str_contains(strtolower($query), 'archive')
+        ) {
+            $already = true;
+
+            $connection->table('audit_logs')->where('id', $ids[0])->delete();
+        }
+    });
+
+    $result = archiveRun();
+
+    expect($result->moved)->toBe(2)
+        ->and($result->chunks)->toBe(1)
+        ->and(archiveConnection()->table('audit_logs')->count())->toBe(0)
+        ->and(archiveConnection()->table('audit_logs_archive')->count())->toBe(3);
+});
+
 it('refuses a non-positive retention_days', function () {
     config()->set('audit.retention_days', 0);
 
