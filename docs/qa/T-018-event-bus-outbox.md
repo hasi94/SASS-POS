@@ -207,6 +207,190 @@ None found. Zero `BUG-n` filed this round.
 - No new HTTP surface, no new tenant-schema migration, no new Composer dependency —
   confirmed by reading the diff and by the gate's own deptrac/PHPStan paths.
 
+## Run 2: review round 1 fix verification
+
+Reviewer found two Criticals (R-1, R-2) in round 1 of code review, both in
+`RedisStreamsEventBus`; `dev` fixed both plus seven Warnings (W-1 to W-7) in
+`94d895b`. This run independently re-verifies that fix commit rather than trusting
+`dev`'s own report.
+
+### Diff scope check
+
+`git show --stat 94d895b`: 23 files, 1050 insertions / 57 deletions. Every file matches
+a named R/W item: `RedisStreamsEventBus.php` (R-1, R-2), the new `PredisRawClient.php`
+(R-1's PHPStan-only interface), `ConsumeEventsHandler.php`/`ConsumeEventsCommand.php`
+(W-2, W-4, W-5), `RelayOutboxHandler.php`/`RelayOutboxCommand.php` (W-3, W-4, W-5), the
+new test fixtures (`FakePhpRedisRawErrorClient`, `FakePredisRawErrorClient`,
+`FakeRedisConnection`, `FakeXClaimRedisClient`, `FailingAcknowledgeEventBus`), the
+updated test files for every R/W item, `QaEventbusSourceRulesTest.php` (W-6),
+`OutboxTransactionTest.php` (W-7), and two `dev`-owned agent-memory files (not
+production/test code, no concern). Nothing extraneous. Confirmed by reading every
+diff, not just the stat line.
+
+### R-1 — independently re-verified
+
+Read the new fake fixtures: `FakePhpRedisRawErrorClient::rawCommand()` returns `false`
+without throwing and carries the error text through `getLastError()`/`clearLastError()`
+— genuinely mimics phpredis' real error-reply shape, not a pre-caught exception.
+`FakePredisRawErrorClient::executeRaw()` returns the error text and sets its by-ref
+`$error` — genuinely mimics predis' shape.
+
+Mutation-tested myself, two ways:
+
+1. **Reverted only `raw()`'s error-reply check** (restored the pre-fix body: plain
+   `return $client->rawCommand(...$args);` / `return $client->executeRaw($args);`, no
+   `assertStreamId` change). Result: the two low-level unit tests and the
+   through-the-relay test still went red, but **not for the clean "wrong error
+   message" reason** — `assertStreamId()` (the second, independent half of R-1's fix)
+   caught the resulting malformed/empty id first, so the failure read "malformed stream
+   id" rather than the real Redis error text. This is a legitimate defense-in-depth
+   red, not a false pass, but it meant this partial revert alone did not reproduce the
+   *original* review-round-1 symptom cleanly.
+2. **Reverted the whole file to the pre-fix commit** (`raw()` and `assertStreamId`
+   both gone — exactly the code reviewer read). Re-ran the through-the-relay test with
+   a temporary debug line added to print the row: confirmed the **exact original
+   defect** — `"status":"published"`, `"attempts":0`, `"last_error":null`. The row was
+   marked published with no error recorded, on a Redis `READONLY` reply, which is
+   precisely "the relay would mark the row published even though the event was never
+   written" from the review finding. Removed the debug line before restoring. All four
+   low-level unit tests and the through-the-relay test failed in this state.
+
+Restored `RedisStreamsEventBus.php` via `git checkout --`, re-ran the full R-1/R-2 set:
+green (`git status --porcelain` empty both before and after).
+
+### R-2 — independently re-verified
+
+Read `RedisStreamsEventBusClaimTest.php` and `FakeXClaimRedisClient`: the script gives
+the group's oldest pending id the *larger* delivery count (7) and the newer, claimed id
+the *smaller* one (3) — deliberately the opposite of what a silent fallback-to-1 or a
+mixed-up-with-the-oldest-entry bug would produce by coincidence, so a pass is
+discriminating, not accidental. `FakeXClaimRedisClient::rawCommand()` for `XPENDING`
+keys its reply strictly off `$args[3]` (the specific id slot in `XPENDING stream group
+<id> <id> 1`), so it can tell a per-id query from a group-wide one.
+
+Mutation-tested: reverted `deliveryCounts()` to the pre-fix group-wide
+`XPENDING stream group - + n` query (kept `claim()`'s strict `isset()` check as part of
+the committed fix). Result: RED — the fake's `args[3]` for a group-wide call is the
+literal `'-'`, which matches no key in `$deliveryCountsById`, so `XPENDING` returns `[]`
+and `claim()` now throws `EventBusUnreachable` ("No delivery count resolved") instead of
+returning delivery count 3. This proves the query shape changed and the test catches it,
+though via the fix's own "fails loudly" guard rather than a silently-wrong-value
+mismatch — the fake does not model real Redis's actual "return the oldest N entries"
+semantics for an unmatched id, so a value-mismatch (returning 7 instead of 3) was not
+separately reproduced here. Noted as a minor **Suggestion**, not a defect: the real
+production fix (ask `XPENDING` per claimed id, never the group-wide range) is correct
+and well covered by the positive test's discriminating 7-vs-3 scenario; only the
+revert-to-prove-the-exact-wrong-value path depends on a fake that is not quite a full
+Redis simulator.
+
+Restored via `git checkout --`, re-ran: green (2 passed, 5 assertions).
+
+### W-1, W-2, W-3, W-4, W-5 — spot-checked by reading and running
+
+Read the diffs for `ConsumeEventsHandler.php` and `RelayOutboxHandler.php`: `W-2`
+(`acknowledge()` moved outside the `try` around `handle()`), `W-3` (the relay's catch
+boundary narrowed to wrap only build-and-publish, with the "mark published" block now
+outside it), and `W-4` (`positiveInt()` throwing `LogicException`, used identically in
+both handlers, matching `config/eventbus.php`'s header comment) match the review
+description exactly, with no unrelated changes. `W-5`'s `--sleep` default now reads
+`eventbus.consumer.poll_seconds` / `eventbus.relay.poll_seconds` when the option is
+omitted — read and confirmed in both command files. `W-1`'s `EventBusContractTest`
+change branches the minIdle case by driver, proving only the `minIdleMs=0` positive half
+on `redis` and keeping the full 59s/60s `RunnerClock` boundary proof on `memory` — read
+and matches.
+
+Ran all twenty committed R/W-named tests plus `W-4`'s four-case dataset for each
+handler, isolated (`vendor/bin/pest ../../packages/eventbus/tests --filter
+"R-1|R-2|W-1|W-2|W-3|W-4|W-5|W-6|W-7"`): 20 passed, 2 skipped (the `redis` dataset rows,
+expected under D-1). Confirmed `W-4` genuinely throws `LogicException` (not silently
+clamped) for both the consumer and the relay handler, across all eight non-positive
+config-value cases (four keys each) — all eight passed.
+
+### W-6 — mutation-tested with a real planted file
+
+Planted `packages/eventbus/src/QaScratchW6SecondInserter.php` (a real file in the real
+scanned directory, not a test's own temp fixture) with a class constant
+`TABLE = 'outbox_events'` and a method calling `$connection->table(self::TABLE)
+->insert(...)` — the exact "second inserter written as `table(Foo::TABLE)->insert`"
+shape the review flagged as out of reach for the original scan. Ran
+`QaEventbusSourceRulesTest`:
+
+- **AC-5's original scan (`qaEventbusInsertOffenders`) still did not see it** — passed
+  green, confirming the stated, deliberately-unfixed limitation is real, not
+  accidentally already fixed.
+- **The new W-6 allow-list literal scan (`qaEventbusOutboxEventsLiteralFiles`) caught it
+  by its real path** — failed with the planted file listed in the diff
+  (`packages/eventbus/src/QaScratchW6SecondInserter.php`), exactly as the fix's own test
+  predicts.
+
+Deleted the scratch file; re-ran: 7 passed, green again; `git status --porcelain`
+confirmed empty.
+
+### W-7 — mutation-tested, reproducing the original trap
+
+Applied mutation 6 from the original close-out (`OutboxWriter::record()` rewritten to
+insert on a fresh, separately-resolved connection to the same SQLite file inside its own
+`transaction()`) together with reverting `OutboxTransactionTest.php`'s catch back to
+plain `RuntimeException` (the pre-W-7 shape). Result: **the exact trap recurred** — "it
+rolls back the outbox row..." passed (66.15s) for the wrong reason (the SQLite
+`SQLSTATE[HY000]: database is locked` `QueryException`, which extends `RuntimeException`,
+was silently swallowed), while the separate, uncaught committed-twin control failed
+loudly with the same lock error (64.88s). This reproduces the exact finding recorded in
+this task's own prior mutation-6 note, confirming the trap was real before W-7.
+
+Restored the test to the committed `ForcedRollback`-based catch, kept the `OutboxWriter`
+mutation: both cases now **failed loudly** with the lock error (66.41s and 65.86s) — the
+specific-exception catch no longer swallows an unrelated lock failure, which is exactly
+W-7's fix. Restored `OutboxWriter.php` via `git checkout --`; re-ran: 2 passed, green
+(0.56s — the fast path, since the pre-fix-identical mutation is gone).
+
+### Full gate, independently re-run
+
+`cd modules/host && composer check` from a confirmed-clean tree (`git status
+--porcelain` empty before and after). Took considerably longer than dev's reported
+462.10s under this session's machine load (confirmed via `Get-CimInstance Win32_Process`
+that the gate's own `pest` process was the only one progressing, not stalled, and not
+overlapping a second gate run) — real elapsed 444.20s for the test step alone, consistent
+with the historical range.
+
+- **Lint:** `{"tool":"pint","result":"passed"}`.
+- **PHPStan:** `[OK] No errors`.
+- **Deptrac:** `Violations 0`, `Skipped violations 0`.
+- **Tests: 2300 passed / 12 failed / 20 skipped (16747 assertions)**, test step
+  444.20s, `ratio=2.03` (above the 2.0 `FLEXIPOS-GATE-LOW-HEADROOM` trigger — no
+  low-headroom warning).
+- **The 12 failures, enumerated in full from the untruncated log:**
+  `QaModuleRegistryContractTest` (6), `QaModuleNameValidationTest` (3),
+  `QaHealthProbeResilienceTest` (2), `ModulesEnvParsingTest` (1) — exactly FP-316's
+  known, rotating-by-name, stable-by-count cluster, identical to both of my Run 1
+  numbers and to `dev`'s own report this round. No failure outside this cluster.
+  **Not a T-018 defect.**
+- **The 20 skips**, independently broken down by re-running `EventBusContractTest`
+  alone (9 skipped, 9 passed, confirmed directly): 9 `redis`-row contract-dataset
+  skips (up from 8 in Run 1, exactly the one new R-2 dataset case) + 11 pre-existing
+  engine-group skips (T-017's count, unchanged). Matches `dev`'s claimed breakdown
+  exactly.
+- `dev`'s own numbers this round (2300/12/20, 16747 assertions) are confirmed
+  identical.
+
+### Verdict
+
+**PASS.** Both Criticals (R-1, R-2) are correctly fixed and independently
+mutation-confirmed, including reproducing the exact original failure shapes (a
+silently-published row with no error for R-1; a swallowed lock exception masking a
+broken transaction guarantee for W-7, read together with R-2's discriminating
+7-vs-3 proof). All seven Warnings (W-1 to W-7) are implemented as described, with
+W-6 and W-7 independently mutation-tested per the task's instruction and W-1 through
+W-5 spot-checked by reading the diff and running the committed tests. No defect filed
+this round. One non-blocking **Suggestion**: `FakeXClaimRedisClient`'s R-2 mutation
+test proves the query-shape change via a "fails loudly" guard rather than a
+silently-wrong-value mismatch, because the fake does not model real Redis's exact
+group-wide `XPENDING` reply semantics for an unmatched id — not a gap in the shipped
+fix, only in how cleanly a future revert-and-prove exercise can reproduce the *original*
+symptom's value (as opposed to its failure).
+
 ## Run history
 
 Run 1: PASS (first and only QA cycle — no defects found, no `dev` round-trip needed).
+Run 2: PASS (review round 1 fix verification — R-1, R-2, W-1 to W-7 all independently
+confirmed; 2300/12/20 gate numbers re-measured and matched; no defects filed).
