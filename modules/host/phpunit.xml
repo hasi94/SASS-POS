@@ -152,6 +152,14 @@
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
+        <!--
+            T-018 Ruling 8. The suite's event bus driver is the deterministic
+            in-memory stand-in, never the Redis adapter: no test may reach a
+            real Redis connection by accident. EventBusContractTest's `redis`
+            dataset row is a separate, explicit opt-in gated by
+            EVENTBUS_REDIS_TEST_CONNECTION (Ruling 9), unaffected by this.
+        -->
+        <env name="EVENTBUS_DRIVER" value="memory"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>

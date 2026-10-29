@@ -54,6 +54,7 @@
     "autoload-dev": {
         "psr-4": {
             "Flexipos\\Access\\Tests\\": "../../packages/access/tests/",
+            "Flexipos\\Eventbus\\Tests\\": "../../packages/eventbus/tests/",
             "Flexipos\\Organization\\Tests\\": "../../packages/organization/tests/",
             "Flexipos\\Platform\\Tests\\": "../../packages/platform/tests/",
             "Tests\\": "tests/"

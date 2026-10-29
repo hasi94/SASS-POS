@@ -4,6 +4,7 @@ use App\Providers\AppServiceProvider;
 use App\Providers\ModuleHostServiceProvider;
 use Flexipos\Access\AccessServiceProvider;
 use Flexipos\Auth\AuthServiceProvider;
+use Flexipos\Eventbus\EventbusServiceProvider;
 use Flexipos\Kernel\Schema\SchemaServiceProvider;
 use Flexipos\Kernel\Tenancy\TenancyServiceProvider;
 use Flexipos\Organization\OrganizationServiceProvider;
@@ -18,4 +19,5 @@ return [
     AccessServiceProvider::class,
     OrganizationServiceProvider::class,
     PlatformServiceProvider::class,
+    EventbusServiceProvider::class,
 ];

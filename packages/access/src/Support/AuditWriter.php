@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flexipos\Access\Support;
 
+use Flexipos\Contracts\Audit\ActorType;
 use Flexipos\Contracts\Audit\AuditTrail;
 use Flexipos\Kernel\Http\RequestId;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
@@ -55,8 +56,15 @@ final class AuditWriter implements AuditTrail
      * The access tables know only employees. When a master-side user or a
      * background job needs an audit row, that is a different value and a
      * decision somebody makes, not a default that happens.
+     *
+     * **Points at the one shared vocabulary (T-018 Ruling 4).** Before T-018
+     * this was the one and only place that five-value set existed in code;
+     * it is now `Flexipos\Contracts\Audit\ActorType`, also read by
+     * `packages/eventbus` for `outbox_events.actor`. The stored value is
+     * unchanged - PHP 8.2 permits an enum property fetch in a constant
+     * expression, so this is a one-line edit, not a behaviour change.
      */
-    public const ACTOR_TYPE = 'employee';
+    public const ACTOR_TYPE = ActorType::Employee->value;
 
     public function __construct(
         private readonly RunnerClock $clock,

@@ -58,6 +58,21 @@ final class RunnerClock
         $this->fixed = $this->fixed->addMinutes($minutes);
     }
 
+    /**
+     * Move a fixed clock forward by seconds (T-018, beside
+     * {@see self::advanceMinutes()}): the event bus's exponential back-off
+     * is configured in seconds, and a test proving "skips just before the
+     * due instant, fires just at it" needs a finer step than a minute.
+     */
+    public function advanceSeconds(int $seconds): void
+    {
+        if (! $this->fixed instanceof CarbonImmutable) {
+            return;
+        }
+
+        $this->fixed = $this->fixed->addSeconds($seconds);
+    }
+
     public function now(): CarbonImmutable
     {
         return $this->fixed ?? CarbonImmutable::now();

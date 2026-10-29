@@ -435,7 +435,7 @@ Each step ends with `composer check` green from `modules/host`, with a zero-delt
   - Run `composer check` and record the passed, failed and skipped counts, the test-step seconds, the FP-328 headroom line and the process list in the commit message.
   - *(No AC.)*
 
-- [ ] **Step 1: package plumbing.**
+- [x] **Step 1: package plumbing.**
   - The deptrac, PHPStan and composer edits from section 5, and `dump-autoload`.
   - Create `config/eventbus.php`, and an `EventbusServiceProvider` with no bindings yet.
   - Register the provider in `bootstrap/providers.php` after `PlatformServiceProvider`.
@@ -450,7 +450,7 @@ Each step ends with `composer check` green from `modules/host`, with a zero-delt
     - A red `ConfigCacheGuardTest` or `QaVocabularyRenameSweepTest` is a stop.
   - *(AC-37 instrument.)*
 
-- [ ] **Step 2: contracts.**
+- [x] **Step 2: contracts.**
   - Create the Ruling 2 files, `ActorType`, and the `AuditWriter::ACTOR_TYPE` edit.
   - **Tests:**
     - `ActorTypeTest`: exactly the five values, in the `docs/database.md` order.
@@ -459,7 +459,7 @@ Each step ends with `composer check` green from `modules/host`, with a zero-delt
   - **Predicted red:** none. `AuditWriterTest` still sees `employee`; a red one is a stop.
   - *(AC-8 vocabulary half.)*
 
-- [ ] **Step 3: the port and the stand-in.**
+- [x] **Step 3: the port and the stand-in.**
   - Create `EventBus`, `InMemoryEventBus`, `Delivery`, `PendingDelivery`, `DeadLetter`, `EnvelopeCodec`, `EventBusDriver` and `EventBusDriverNotPermitted`, plus the binding.
   - **`EventBusContractTest`, `memory` row.** Fixed clock throughout. The cases:
     - publish, then read: the identical envelope (payload compared with `toBe` after decode) (AC-3 on the stand-in);
@@ -477,7 +477,7 @@ Each step ends with `composer check` green from `modules/host`, with a zero-delt
   - **`EnvelopeCodecTest`:** round trip; unicode and nested payloads survive; a corrupt field decodes to null, never a throw.
   - *(AC-1, AC-21, AC-22, AC-24, AC-26 by construction.)*
 
-- [ ] **Step 4: the Redis adapter.**
+- [x] **Step 4: the Redis adapter.**
   - Create `RedisStreamsEventBus` and `EventBusUnreachable`, and add the `redis` row to the contract dataset (Ruling 9).
   - **`RedisStreamsEventBusUnreachableTest` (AC-4):**
     - a fake `Redis\Factory` whose `connection()` throws makes `publish` throw `EventBusUnreachable`. The message names the connection and `getPrevious()` is the original;
@@ -486,7 +486,7 @@ Each step ends with `composer check` green from `modules/host`, with a zero-delt
   - **Measure** that the `redis` row reports skipped with the D-1 reason. Record the skip delta.
   - *(AC-4; AC-3, AC-20, AC-25 and AC-30 stay NOT VERIFIED, and are coded.)*
 
-- [ ] **Step 5: the writer.**
+- [x] **Step 5: the writer.**
   - Create `OutboxWriter` and `TenantConnection`, and the `Outbox` binding.
   - **`OutboxWriterTest`,** on `AccessTenantFixture` tenant-a with a fixed clock:
     - **AC-7:** writing only `type`, `aggregate_type`, `aggregate_id` and `payload` gives a whole-row comparison with `status` `pending`, `attempts` 0, `published_at` null, `version` 1 and `occurred_at` equal to the clock.
@@ -516,7 +516,7 @@ Each step ends with `composer check` green from `modules/host`, with a zero-delt
     - an `Artisan::call` command that writes stores null.
   - *Done when:* green. *(AC-6 to AC-13.)*
 
-- [ ] **Step 6: the relay.**
+- [x] **Step 6: the relay.**
   - Add `RunnerClock::advanceSeconds()`, and create `Backoff`, `RelayPacing` and the `RelayOutbox` slice and command.
   - **`BackoffTest`:** `delay(1..6)` with base 30 and cap 600 is `30, 60, 120, 240, 480, 600`, and the arguments move it (no literals).
   - **`RelayOutboxTest`,** with tenant-a, a fixed clock and the `memory` bus:
@@ -542,7 +542,7 @@ Each step ends with `composer check` green from `modules/host`, with a zero-delt
     - groups are ensured before the first publish.
   - *(AC-12, AC-14 to AC-19.)*
 
-- [ ] **Step 7: consumers and dead letter.**
+- [x] **Step 7: consumers and dead letter.**
   - Create `ConsumerRegistry`, the `ConsumeEvents` slice and command, and the fixtures `FixtureEventConsumerProvider` and `PingedConsumer`. `PingedConsumer` has a configurable "throw N times" and a counter of effects applied.
   - **`ConsumerRegistryTest`:**
     - a fixture provider's consumer is seen with no memo;
@@ -561,7 +561,7 @@ Each step ends with `composer check` green from `modules/host`, with a zero-delt
   - **`ConsumeEventsCommandTest`:** `--group=` limits the run; `--once`; and `Sleep::fake()` as in step 6.
   - *(AC-21 to AC-24 and AC-27 end-to-end on the stand-in, and AC-28.)*
 
-- [ ] **Step 8: operator commands.**
+- [x] **Step 8: operator commands.**
   - The 5 slices of Ruling 10.
   - **`ListFailedOutboxEvents`** (AC-29):
     - with mixed statuses, only `failed` rows are shown;
@@ -583,7 +583,7 @@ Each step ends with `composer check` green from `modules/host`, with a zero-delt
     - with no option, the fleet.
   - *(AC-29 to AC-32.)*
 
-- [ ] **Step 9: proof of pipeline.**
+- [x] **Step 9: proof of pipeline.**
   - **`tests/Pipeline/ProofOfPipelineTest.php` (AC-34).** One test, on the stand-in:
     1. register `FixtureEventConsumerProvider`;
     2. in one tenant transaction, a `marker` update plus `Outbox::record(fixture.pinged)`;
@@ -593,7 +593,7 @@ Each step ends with `composer check` green from `modules/host`, with a zero-delt
   - A header comment states that this is a fixture, not business scope (D-10, AC-35).
   - *(AC-34.)*
 
-- [ ] **Step 10: close-out sweeps (`qa`-accountable files, written by `dev`).**
+- [x] **Step 10: close-out sweeps (`qa`-accountable files, written by `dev`).**
   - **`QaEventbusSourceRulesTest`.** It has its own helpers and calls nothing from `QaAuditSourceRulesTest`: those functions are namespaced in that file, and cross-file reliance is the FP-164 load-order defect.
     - **Scan set:** `packages/*/src`, `modules/*/src` and `modules/host/app`. It asserts every scanned directory exists. **Test trees are excluded on purpose:** `TenantBaselineBuildsTest` and `QaTenantBaselineStandInShapeTest` insert into `outbox_events` as T-008 schema fixtures.
     - **AC-5:** the only file inserting into `outbox_events` (chained `->insert*` after `table('outbox_events')`, or raw `insert into`) is `OutboxWriter.php`.
@@ -611,7 +611,7 @@ Each step ends with `composer check` green from `modules/host`, with a zero-delt
   - **AC-37:** a recorded, re-run copy of step 1's demo negative control (deptrac red on the internal import, green on the contract import) goes in the `qa` report, not a committed test. Committing a deptrac probe test would join the `toolchain` group for one assertion.
   - *(AC-2, AC-5, AC-33, AC-37.)*
 
-- [ ] **Step 11: docs.** Describe; do not quote retired wording.
+- [x] **Step 11: docs.** Describe; do not quote retired wording.
   - **`docs/database.md` §6.21, the `outbox_events` row.** Add:
     - the actor JSON shape `{type,id,name}` over the `audit_logs` vocabulary;
     - that `failed` means relay-exhausted;
