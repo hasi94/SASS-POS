@@ -110,6 +110,26 @@ it('AC-14: changing a historical row does not react, changing the current one do
     expect(PlatformSeed::tenantRow($tenantId)['status'])->toBe('suspended');
 });
 
+it('review S-4: reactivating a cancelled subscription clears cancelled_at and the reason', function () {
+    $tenantId = PlatformSeed::tenant('tenant-a', 'active');
+    $planId = PlatformSeed::plan();
+    $subscriptionId = PlatformSeed::subscription($tenantId, $planId, 'active');
+
+    changeStatusHandler()->handle(new ChangeSubscriptionStatus($subscriptionId, 'cancelled', 'owner request'));
+
+    $row = (array) PlatformSeed::connection()->table('subscriptions')->where('id', $subscriptionId)->first();
+
+    expect($row['cancelled_at'])->not->toBeNull()
+        ->and($row['cancellation_reason'])->toBe('owner request');
+
+    changeStatusHandler()->handle(new ChangeSubscriptionStatus($subscriptionId, 'active'));
+
+    $row = (array) PlatformSeed::connection()->table('subscriptions')->where('id', $subscriptionId)->first();
+
+    expect($row['cancelled_at'])->toBeNull()
+        ->and($row['cancellation_reason'])->toBeNull();
+});
+
 it('refuses a move to the same status', function () {
     $tenantId = PlatformSeed::tenant();
     $planId = PlatformSeed::plan();

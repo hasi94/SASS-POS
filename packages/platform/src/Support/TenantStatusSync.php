@@ -75,6 +75,21 @@ class TenantStatusSync
         );
 
         if ($target['status'] === $currentStatus) {
+            // Review W-8: the status itself is unchanged, but a tenant
+            // already suspended for one of this task's own sentinels can
+            // still be suspended for a *different* one a moment later (e.g.
+            // licence_lapsed, then its subscription is also cancelled). Left
+            // alone, the stale reason either keeps re-triggering the sweep's
+            // candidate (c) for a cause that is no longer the live one, or
+            // hides which cause an operator should actually act on (AC-25's
+            // "not left guessing"). The status write is skipped - nothing
+            // about it changed - but the reason and the audit row still are.
+            if ($target['status'] === TenantCommercialStatus::SUSPENDED
+                && in_array($currentSuspensionReason, TenantCommercialStatus::SENTINELS, true)
+                && $target['trigger'] !== $currentSuspensionReason) {
+                return $this->updateSuspensionReason($master, $tenantId, $actorUserId, $currentStatus, $currentSuspensionReason, $target['trigger']);
+            }
+
             return null;
         }
 
@@ -103,5 +118,36 @@ class TenantStatusSync
         );
 
         return $target['trigger'];
+    }
+
+    /**
+     * Review W-8: the suspension_reason-only write, when the status stays
+     * `suspended` but the cause has changed from one sentinel to another.
+     */
+    private function updateSuspensionReason(
+        Connection $master,
+        string $tenantId,
+        ?string $actorUserId,
+        string $status,
+        ?string $previousReason,
+        ?string $newReason,
+    ): ?string {
+        $master->table('tenants')->where('id', $tenantId)->update([
+            'suspension_reason' => $newReason,
+            'updated_at' => $this->clock->timestamp(),
+        ]);
+
+        $this->audit->write(
+            $master,
+            'tenant_status_synced',
+            'tenant',
+            $tenantId,
+            $tenantId,
+            $actorUserId,
+            ['status' => $status, 'suspension_reason' => $previousReason],
+            ['status' => $status, 'suspension_reason' => $newReason, 'trigger' => $newReason],
+        );
+
+        return $newReason;
     }
 }

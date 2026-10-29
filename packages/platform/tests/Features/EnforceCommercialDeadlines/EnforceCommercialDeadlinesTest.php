@@ -61,15 +61,27 @@ it('a configured grace period moves the boundary', function () {
 });
 
 it('AC-16: a current_period_end twenty days ago does not move the grace clock, only past_due_at does', function () {
+    // Review W-2: `past_due_at` alone decides this - it is 3 days old at a
+    // 7-day grace, so the correct answer is "stays past_due". A handler that
+    // measured from `current_period_end` instead (20 days old) would
+    // suspend it, which is exactly the mutation this proves red: the sweep's
+    // own candidate query would never even pick this tenant up (past_due_at
+    // is inside the grace window), so `TenantStatusSync::reconcile()` is
+    // called directly rather than through `runSweep()`.
     $tenantId = PlatformSeed::tenant('tenant-a', 'past_due');
     $planId = PlatformSeed::plan();
     PlatformSeed::subscription($tenantId, $planId, 'past_due', [
-        'current_period_end' => '2025-12-08 00:00:00.000',
-        'past_due_at' => '2026-01-07 00:00:00.000',
+        'current_period_end' => '2026-01-08 00:00:00.000',
+        'past_due_at' => '2026-01-25 00:00:00.000',
     ]);
 
-    app()->instance(RunnerClock::class, RunnerClock::fixedAt('2026-01-08 00:00:00.000'));
-    runSweep();
+    app()->instance(RunnerClock::class, RunnerClock::fixedAt('2026-01-28 00:00:00.000'));
+
+    app(TenantStatusSync::class)->reconcile(
+        PlatformSeed::connection(),
+        $tenantId,
+        null,
+    );
 
     expect(PlatformSeed::tenantRow($tenantId)['status'])->toBe('past_due');
 });
@@ -117,6 +129,32 @@ it('is idempotent: a second run against nothing new reports zero changed', funct
     $second = runSweep();
 
     expect($second->changed)->toBe(0);
+});
+
+it('review W-5: a protected tenant with an old past_due subscription is never a candidate', function () {
+    $tenantId = PlatformSeed::tenant('tenant-a', 'closed');
+    $planId = PlatformSeed::plan();
+    PlatformSeed::subscription($tenantId, $planId, 'past_due', ['past_due_at' => '2026-01-01 00:00:00.000']);
+
+    app()->instance(RunnerClock::class, RunnerClock::fixedAt('2026-01-08 00:00:00.000'));
+    $result = runSweep();
+
+    expect($result->examined)->toBe(0)
+        ->and(PlatformSeed::tenantRow($tenantId)['status'])->toBe('closed');
+});
+
+it('review W-5: a tenant whose expired licence a currently-valid one has already superseded is never a candidate', function () {
+    $tenantId = PlatformSeed::tenant('tenant-a', 'active');
+    $planId = PlatformSeed::plan();
+    PlatformSeed::subscription($tenantId, $planId, 'active');
+    PlatformSeed::licence($tenantId, 'platform', 'active', ['valid_until' => '2020-01-01 00:00:00.000']);
+    PlatformSeed::licence($tenantId, 'platform', 'active', ['valid_until' => '2030-01-01 00:00:00.000']);
+
+    app()->instance(RunnerClock::class, RunnerClock::fixedAt('2026-01-08 00:00:00.000'));
+    $result = runSweep();
+
+    expect($result->examined)->toBe(0)
+        ->and(PlatformSeed::tenantRow($tenantId)['status'])->toBe('active');
 });
 
 it('isolates one tenant failure: the other still changes and the failure count is 1', function () {

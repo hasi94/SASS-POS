@@ -159,55 +159,58 @@ it('AC-5 liveness: the master log is non-empty on a cold cache, and empty on a w
         ->and($secondLimit->value)->toBe(5);
 });
 
-it('AC-32 source half: platform never names the tenant connection key, and organization/access never name tenancy.master_connection', function () {
-    $platformFiles = [];
-
-    foreach ((new Finder)->files()->in(dirname(__DIR__, 4).'/packages/platform/src')->name('*.php') as $file) {
-        $platformFiles[$file->getRealPath()] = (string) file_get_contents($file->getRealPath());
-    }
-
+/**
+ * Files under the given directory whose code matches a connection-literal
+ * pattern - the engine behind both halves of the AC-32 source scan.
+ *
+ * @return list<string>
+ */
+function qaPlatformConnectionLiteralOffenders(string $directory, string $pattern): array
+{
     $offenders = [];
 
-    foreach ($platformFiles as $path => $contents) {
-        if (preg_match('/connection\s*\(\s*[\'"]tenant[\'"]\s*\)/i', $contents) === 1
-            || str_contains($contents, "'tenancy.tenant_connection'")) {
-            $offenders[] = $path;
+    if (! is_dir($directory)) {
+        return $offenders;
+    }
+
+    foreach ((new Finder)->files()->in($directory)->name('*.php') as $file) {
+        $contents = (string) file_get_contents($file->getRealPath());
+
+        if (preg_match($pattern, $contents) === 1) {
+            $offenders[] = $file->getRealPath();
         }
     }
 
-    expect($offenders)->toBe([]);
+    return $offenders;
+}
 
-    $otherFiles = [];
+it('AC-32 source half: platform never names the tenant connection key, and organization/access never name tenancy.master_connection', function () {
+    $tenantConnectionPattern = '/connection\s*\(\s*[\'"]tenant[\'"]\s*\)|[\'"]tenancy\.tenant_connection[\'"]/i';
+    $masterConnectionPattern = '/tenancy\.master_connection/';
+
+    expect(qaPlatformConnectionLiteralOffenders(dirname(__DIR__, 4).'/packages/platform/src', $tenantConnectionPattern))->toBe([]);
 
     foreach (['organization', 'access'] as $package) {
-        $directory = dirname(__DIR__, 4)."/packages/{$package}/src";
-
-        if (! is_dir($directory)) {
-            continue;
-        }
-
-        foreach ((new Finder)->files()->in($directory)->name('*.php') as $file) {
-            $otherFiles[$file->getRealPath()] = (string) file_get_contents($file->getRealPath());
-        }
+        expect(qaPlatformConnectionLiteralOffenders(dirname(__DIR__, 4)."/packages/{$package}/src", $masterConnectionPattern))->toBe([]);
     }
 
-    $masterConnectionOffenders = [];
+    // Positive controls: the scan, run over a fresh directory holding each
+    // planted reference, finds it - so each empty result above is "nothing
+    // found", not "nothing scanned" (T-016 reviewer round 1, W-1: a control
+    // that only asserts str_contains() against the planted file's own
+    // contents never calls the scanner, and so cannot catch the scanner
+    // reading the wrong directory).
+    $tenantDirectory = qaPlatformFreshTempDirectory();
+    File::put($tenantDirectory.'/Planted.php', "<?php\nconfig('tenancy.tenant_connection');\n");
 
-    foreach ($otherFiles as $path => $contents) {
-        if (str_contains($contents, 'tenancy.master_connection')) {
-            $masterConnectionOffenders[] = $path;
-        }
-    }
-
-    expect($masterConnectionOffenders)->toBe([]);
-
-    // Positive control: the scan can detect the planted reference.
-    $planted = sys_get_temp_dir().'/qa_platform_planted_'.bin2hex(random_bytes(6)).'.php';
-    File::put($planted, "<?php\nconfig('tenancy.master_connection');\n");
+    $masterDirectory = qaPlatformFreshTempDirectory();
+    File::put($masterDirectory.'/Planted.php', "<?php\nconfig('tenancy.master_connection');\n");
 
     try {
-        expect(str_contains((string) file_get_contents($planted), 'tenancy.master_connection'))->toBeTrue();
+        expect(qaPlatformConnectionLiteralOffenders($tenantDirectory, $tenantConnectionPattern))->toBe([qaPlatformPlantedPath($tenantDirectory)]);
+        expect(qaPlatformConnectionLiteralOffenders($masterDirectory, $masterConnectionPattern))->toBe([qaPlatformPlantedPath($masterDirectory)]);
     } finally {
-        File::delete($planted);
+        File::deleteDirectory($tenantDirectory);
+        File::deleteDirectory($masterDirectory);
     }
 });

@@ -103,9 +103,14 @@ final class PlatformServiceProvider extends ServiceProvider
             /** @var Schedule $schedule */
             $schedule = $this->app->make(Schedule::class);
 
+            // 5 minutes, not the framework's 1440-minute default (review
+            // W-4): the sweep runs every minute, so a mutex that survives a
+            // killed run (OOM, deploy, container stop) for a whole day would
+            // silently stop grace/licence enforcement for that long with no
+            // error anywhere. Five missed minutes is the worst case instead.
             $schedule->command(EnforceCommercialDeadlinesCommand::class)
                 ->everyMinute()
-                ->withoutOverlapping();
+                ->withoutOverlapping(5);
         });
     }
 }

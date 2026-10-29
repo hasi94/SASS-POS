@@ -49,9 +49,14 @@ final class ChangeLocationStatusHandler
         }
 
         $wanted = $command->isActive;
+
+        // Review W-6: resolved before the transaction opens, the same as a
+        // create handler (Ruling 12).
+        $locationLimit = $wanted ? $this->planLimits->forCurrentTenant(LimitKey::Locations) : null;
+
         $connection = $this->tenant->get();
 
-        $connection->transaction(function () use ($connection, $command, $wanted): void {
+        $connection->transaction(function () use ($connection, $command, $wanted, $locationLimit): void {
             $location = LocationLookup::find($connection, $command->locationId, lock: true);
             $id = (string) $location->id;
 
@@ -91,8 +96,7 @@ final class ChangeLocationStatusHandler
             if ($wanted) {
                 // T-016 AC-2a, D-20: reactivation spends quota exactly as
                 // creation does.
-                $this->planLimits->forCurrentTenant(LimitKey::Locations)
-                    ->assertRoomFor(PlanCounts::activeLocations($connection));
+                $locationLimit->assertRoomFor(PlanCounts::activeLocations($connection));
             }
 
             $connection->table('locations')->where('id', $id)->update([

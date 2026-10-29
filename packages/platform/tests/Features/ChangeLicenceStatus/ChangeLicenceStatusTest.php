@@ -48,11 +48,22 @@ it('reactivating a licence lifts the suspension it caused', function () {
     PlatformSeed::subscription($tenantId, $planId, 'active');
     $licenceId = PlatformSeed::licence($tenantId, 'platform', 'active');
 
-    app(ChangeLicenceStatusHandler::class)->handle(new ChangeLicenceStatus($licenceId, 'revoked'));
+    app(ChangeLicenceStatusHandler::class)->handle(new ChangeLicenceStatus($licenceId, 'revoked', 'owner request'));
     expect(PlatformSeed::tenantRow($tenantId)['status'])->toBe('suspended');
+
+    $revoked = (array) PlatformSeed::connection()->table('licences')->where('id', $licenceId)->first();
+
+    expect($revoked['revoked_at'])->not->toBeNull()
+        ->and($revoked['revoked_reason'])->toBe('owner request');
 
     app(ChangeLicenceStatusHandler::class)->handle(new ChangeLicenceStatus($licenceId, 'active'));
     expect(PlatformSeed::tenantRow($tenantId)['status'])->toBe('active');
+
+    // Review S-4: leaving `revoked` clears the record of why it was revoked.
+    $reactivated = (array) PlatformSeed::connection()->table('licences')->where('id', $licenceId)->first();
+
+    expect($reactivated['revoked_at'])->toBeNull()
+        ->and($reactivated['revoked_reason'])->toBeNull();
 });
 
 it('AC-25 control: an unexpired licence plus a lapsed subscription suspends for the subscription reason only', function () {

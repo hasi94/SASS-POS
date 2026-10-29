@@ -56,6 +56,12 @@ final class ChangeSubscriptionStatusHandler
             if ($command->status === SubscriptionStatus::CANCELLED) {
                 $updates['cancelled_at'] = $now;
                 $updates['cancellation_reason'] = $command->cancellationReason;
+            } elseif ((string) $subscription->status === SubscriptionStatus::CANCELLED) {
+                // Review S-4: leaving `cancelled` clears the record of why it
+                // was cancelled - a reactivated subscription is not still
+                // bearing a cancellation.
+                $updates['cancelled_at'] = null;
+                $updates['cancellation_reason'] = null;
             }
 
             if ($command->status === SubscriptionStatus::PAST_DUE && (string) $subscription->status !== SubscriptionStatus::PAST_DUE) {

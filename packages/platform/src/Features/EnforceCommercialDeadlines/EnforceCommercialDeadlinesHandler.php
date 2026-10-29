@@ -47,12 +47,21 @@ final class EnforceCommercialDeadlinesHandler
         $graceDays = GracePeriod::days($connection, $this->configuredGraceDays);
         $cutoff = $this->clock->now()->modify("-{$graceDays} days")->format('Y-m-d H:i:s.v');
 
+        // Review W-5: a tenant the reconciler never touches (Ruling 3 - the
+        // protected set, in addition to the ones already suspended) is
+        // excluded from both candidate queries. Without this, a closed or
+        // archived tenant with an old past_due subscription, or an expired
+        // licence now replaced by a valid one, would be re-examined and
+        // locked (`for update`) forever, once a minute, for no possible
+        // outcome.
+        $excludedStatuses = array_merge([TenantCommercialStatus::SUSPENDED], TenantCommercialStatus::PROTECTED);
+
         $candidatesA = $connection->table('subscriptions')
             ->join('tenants', 'tenants.id', '=', 'subscriptions.tenant_id')
             ->where('subscriptions.status', SubscriptionStatus::PAST_DUE)
             ->whereNotNull('subscriptions.past_due_at')
             ->where('subscriptions.past_due_at', '<=', $cutoff)
-            ->where('tenants.status', '!=', TenantCommercialStatus::SUSPENDED)
+            ->whereNotIn('tenants.status', $excludedStatuses)
             ->pluck('subscriptions.tenant_id');
 
         $candidatesB = $connection->table('licences')
@@ -60,7 +69,27 @@ final class EnforceCommercialDeadlinesHandler
             ->where('licences.type', LicenceStatus::PLATFORM_TYPE)
             ->whereNotNull('licences.valid_until')
             ->where('licences.valid_until', '<=', $now)
-            ->where('tenants.status', '!=', TenantCommercialStatus::SUSPENDED)
+            ->whereNotIn('tenants.status', $excludedStatuses)
+            // Excludes a tenant a later, currently-valid platform licence has
+            // already superseded: picking it up here would cost a lock every
+            // minute for a reconcile that can never change anything, because
+            // PlatformLicence::verdict() reads the valid row and answers
+            // VALID regardless of the expired one this query found.
+            ->whereNotExists(function ($query) use ($now): void {
+                $query->select('id')
+                    ->from('licences as current_licences')
+                    ->whereColumn('current_licences.tenant_id', 'licences.tenant_id')
+                    ->where('current_licences.type', LicenceStatus::PLATFORM_TYPE)
+                    ->where('current_licences.status', LicenceStatus::ACTIVE)
+                    ->where(function ($inner) use ($now): void {
+                        $inner->whereNull('current_licences.valid_from')
+                            ->orWhere('current_licences.valid_from', '<=', $now);
+                    })
+                    ->where(function ($inner) use ($now): void {
+                        $inner->whereNull('current_licences.valid_until')
+                            ->orWhere('current_licences.valid_until', '>', $now);
+                    });
+            })
             ->pluck('licences.tenant_id');
 
         $candidatesC = $connection->table('tenants')

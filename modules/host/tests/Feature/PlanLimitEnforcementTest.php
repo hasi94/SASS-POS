@@ -179,15 +179,34 @@ it('AC-2a: reactivating a location at capacity is refused the same way a creatio
 });
 
 it('AC-6: a plan change to a lower limit never touches existing rows, refuses a create, and accepts only once strictly below', function () {
-    setStandInLimits('tenant-a', ['branches' => 10]);
+    // T-016 reviewer round 1, W-7: the old version of this test lowered the
+    // limit by calling config()->set() directly, which writes nothing to
+    // any table, so "existing rows untouched across the change" was
+    // trivially true whether or not the production code ever touched a row
+    // - it proved nothing about ChangeSubscriptionPlanHandler itself. This
+    // version lowers the limit through a real plan change, on the master
+    // source, exactly as AC-6's own wording ("a plan change") describes.
+    PlatformSeed::migrate();
+    PlatformSeed::bindMasterSource();
+
+    $tenantId = 'tenant-a';
+    $oldPlan = PlatformSeed::plan();
+    $newPlan = PlatformSeed::plan();
+    PlatformSeed::planLimit($oldPlan, 'branches', 10);
+    PlatformSeed::planLimit($newPlan, 'branches', 5);
+    $subscriptionId = PlatformSeed::subscription($tenantId, $oldPlan, 'active');
 
     for ($i = 0; $i < 7; $i++) {
-        OrganizationSeed::branch();
+        app(CreateBranchHandler::class)->handle(new CreateBranch([
+            'code' => "SEVEN{$i}", 'name' => "Seven {$i}", 'timezone' => 'Asia/Colombo', 'currency' => 'LKR',
+        ]));
     }
+
+    expect(OrganizationSeed::connection()->table('branches')->count())->toBe(7);
 
     $before = OrganizationSeed::connection()->table('branches')->orderBy('id')->get()->toArray();
 
-    setStandInLimits('tenant-a', ['branches' => 5]);
+    app(ChangeSubscriptionPlanHandler::class)->handle(new ChangeSubscriptionPlan($subscriptionId, $newPlan));
 
     $after = OrganizationSeed::connection()->table('branches')->orderBy('id')->get()->toArray();
 
@@ -210,7 +229,10 @@ it('AC-6: a plan change to a lower limit never touches existing rows, refuses a 
 
     app(CreateBranchHandler::class)->handle(new CreateBranch(['code' => 'EIGHT', 'name' => 'Eight', 'timezone' => 'Asia/Colombo', 'currency' => 'LKR']));
 
-    expect(true)->toBeTrue();
+    // 7 original minus 3 deactivated plus the new one just accepted: 5
+    // active branches, exactly at the (now lower) limit - a real, checkable
+    // outcome rather than a tautology.
+    expect(OrganizationSeed::connection()->table('branches')->where('is_active', true)->count())->toBe(5);
 });
 
 it('AC-1: refuses the sixth employee at a five-seat limit with no row, four is accepted', function () {

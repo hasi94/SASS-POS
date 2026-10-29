@@ -58,9 +58,17 @@ final class ChangeBranchStatusHandler
         }
 
         $wanted = $command->isActive;
+
+        // Review W-6: resolved before the transaction opens, the same as a
+        // create handler (Ruling 12) - a cold-cache read or a master
+        // round-trip must not happen while this handler already holds the
+        // branch row (and, below, the last-branch lock) inside the
+        // transaction.
+        $branchLimit = $wanted ? $this->planLimits->forCurrentTenant(LimitKey::Branches) : null;
+
         $connection = $this->tenant->get();
 
-        $connection->transaction(function () use ($connection, $command, $wanted): void {
+        $connection->transaction(function () use ($connection, $command, $wanted, $branchLimit): void {
             $branch = BranchLookup::find($connection, $command->branchId, lock: true);
 
             if ((bool) $branch->is_active === $wanted) {
@@ -86,8 +94,7 @@ final class ChangeBranchStatusHandler
             } else {
                 // T-016 AC-2a, D-20: reactivation spends quota exactly as
                 // creation does.
-                $this->planLimits->forCurrentTenant(LimitKey::Branches)
-                    ->assertRoomFor(PlanCounts::activeBranches($connection));
+                $branchLimit->assertRoomFor(PlanCounts::activeBranches($connection));
             }
 
             $connection->table('branches')->where('id', (string) $branch->id)->update([

@@ -16,7 +16,7 @@ use Tests\TestCase;
 
 uses(TestCase::class);
 
-it('schedules platform:enforce-deadlines every minute, without overlapping', function () {
+it('schedules platform:enforce-deadlines every minute, without overlapping, with a 5-minute mutex (review W-4)', function () {
     $schedule = app(Schedule::class);
 
     $events = array_values(array_filter(
@@ -30,5 +30,8 @@ it('schedules platform:enforce-deadlines every minute, without overlapping', fun
     $event = $events[0];
 
     expect($event->expression)->toBe('* * * * *')
-        ->and($event->withoutOverlapping)->toBeTrue();
+        ->and($event->withoutOverlapping)->toBeTrue()
+        // Not the framework's 1440-minute default: a killed run must not
+        // leave the mutex locked for a day.
+        ->and($event->expiresAt)->toBe(5);
 });

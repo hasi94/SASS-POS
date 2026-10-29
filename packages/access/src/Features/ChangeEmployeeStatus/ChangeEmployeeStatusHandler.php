@@ -76,9 +76,19 @@ final class ChangeEmployeeStatusHandler
             throw AccessRefused::validation("Employee status [{$status}] is not one of the declared statuses.");
         }
 
+        // Review W-6: resolved before the transaction opens, the same as a
+        // create handler (Ruling 12) - whenever the *target* status holds a
+        // seat, because that is the only fact needed to know a check might
+        // apply. Whether it actually does still depends on `$from`, which is
+        // only known once the employee row is read inside the transaction;
+        // that part stays where it was.
+        $employeeLimit = EmployeeSeats::holdsSeat($status)
+            ? $this->planLimits->forCurrentTenant(LimitKey::Employees)
+            : null;
+
         $connection = $this->tenant->get();
 
-        return $connection->transaction(function () use ($connection, $command, $status): ChangeEmployeeStatusResult {
+        return $connection->transaction(function () use ($connection, $command, $status, $employeeLimit): ChangeEmployeeStatusResult {
             $employee = EmployeeLookup::findLive($connection, $command->employeeId);
 
             $from = (string) $employee->status;
@@ -94,9 +104,8 @@ final class ChangeEmployeeStatusHandler
             // (resigned/terminated) into a seat-holding one spends quota
             // exactly as a creation does, checked after the same-status
             // no-op and inside the existing transaction.
-            if (! EmployeeSeats::holdsSeat($from) && EmployeeSeats::holdsSeat($status)) {
-                $this->planLimits->forCurrentTenant(LimitKey::Employees)
-                    ->assertRoomFor(EmployeeSeats::count($connection));
+            if ($employeeLimit !== null && ! EmployeeSeats::holdsSeat($from)) {
+                $employeeLimit->assertRoomFor(EmployeeSeats::count($connection));
             }
 
             $crosses = $this->statuses->isActing($from) !== $this->statuses->isActing($status);
