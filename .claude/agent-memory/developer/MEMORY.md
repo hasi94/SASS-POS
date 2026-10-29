@@ -64,3 +64,5 @@
 - [SQLite rebuild, measured for T-014](project_sqlite_rebuild_measured_t014.md) - nine contract keys rebuild cleanly on the stand-in; the transaction trap is real.
 - [Stage files during a gate run](feedback_stage_files_during_a_gate_run.md) - draft the next step in a scratchpad stage tree plus an installer; never write into the repo mid-gate.
 - [Organization slice test gotchas](project_organization_slice_test_gotchas.md) - per-slice mirrored test folder, Route caches its handler, sorted changed_fields, Pest stan chains.
+- [FP-316 gate cluster and backgrounding](project_fp316_gate_cluster_and_backgrounding.md) - the 12-failure signature to compare against, and why the gate's own output can undercount FAILED headers.
+- [SubagentHandback is terminal, not a status update](feedback_subagenthandback_is_terminal_not_a_status_update.md) - wait for the real backgrounded result before the one final call.
