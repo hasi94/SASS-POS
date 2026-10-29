@@ -65,11 +65,25 @@ afterEach(function () {
  * A bare tenant_plugins row at `enabled`, for direct CircuitBreaker unit
  * assertions - no manifest, no handler, no gateway involved.
  *
+ * By default registers a freshly-named plugin so unrelated test cases
+ * never collide. Pass `$pluginName` to reuse an *already-registered*
+ * plugin under a second tenant instead - this is what the AC-32
+ * same-plugin cross-tenant isolation case needs, since two calls with a
+ * random name per call could never actually share one (tenant, plugin)
+ * identity to isolate.
+ *
  * @return array{tenant: string, pluginId: string, name: string}
  */
-function breakerRow(string $tenantId = 'tenant-a'): array
+function breakerRow(string $tenantId = 'tenant-a', ?string $pluginName = null): array
 {
     $tenant = pluginRegisterFixtureTenant($tenantId);
+
+    if ($pluginName !== null) {
+        $plugin = PluginSeed::pluginRow($pluginName);
+        app(EnablePluginHandler::class)->handle(new EnablePlugin($pluginName, $tenant));
+
+        return ['tenant' => $tenant, 'pluginId' => (string) $plugin['id'], 'name' => $pluginName];
+    }
 
     $tmp = sys_get_temp_dir().'/plugin-sdk-breaker-'.bin2hex(random_bytes(6));
     File::ensureDirectoryExists($tmp.'/migrations');
@@ -136,7 +150,12 @@ it('logs exactly one critical entry for the trip', function () {
 it('isolates one tripped (tenant, plugin) pair from another plugin and another tenant (AC-32)', function () {
     $rowA = breakerRow('tenant-a');
     $rowOther = breakerRow('tenant-a');
-    $rowB = breakerRow('tenant-b');
+    // rowB shares rowA's exact plugin identity under a different tenant,
+    // so this is the one case that can tell "isolated per tenant" apart
+    // from "these just never shared a (tenant, plugin) pair" - if the
+    // breaker keyed its trip state by plugin alone, this row would trip
+    // too.
+    $rowB = breakerRow('tenant-b', $rowA['name']);
     $breaker = app(CircuitBreaker::class);
 
     for ($i = 1; $i <= 5; $i++) {

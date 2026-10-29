@@ -111,6 +111,14 @@ it('is idempotent by event id, and the control without the check gives two (AC-2
     expect(DB::connection(AccessTenantFixture::connectionName())->table('plg_fixture_echo_after_effects')->count())->toBe(1);
     tenancy()->leave();
 
+    // The row count above cannot tell "the app-level check suppressed the
+    // second call" apart from "the effect table's event_id primary key
+    // silently ignored a duplicate insert regardless of any app check" -
+    // both would land on the same count. $applyAttempts only increments
+    // when execution gets past the check, so it is what actually proves
+    // the app-level check ran and caught the duplicate.
+    expect(EchoAfter::$applyAttempts)->toBe(1);
+
     EchoAfter::$skipIdempotencyCheck = true;
 
     $second = pluginAfterEnvelope('evt-2', pluginRegisterFixtureTenant('tenant-a'), $pluginId, 'fixture-echo', 'fixture.echo');
@@ -119,6 +127,12 @@ it('is idempotent by event id, and the control without the check gives two (AC-2
 
     pluginEnterTenant('tenant-a');
     expect(DB::connection(AccessTenantFixture::connectionName())->table('plg_fixture_echo_after_effects')->count())->toBe(2);
+    tenancy()->leave();
+
+    // With the check skipped, both calls reach the marker - a count the
+    // event_id primary key alone can never produce, since it would mask
+    // this the same way it masks a removed app-level check.
+    expect(EchoAfter::$applyAttempts)->toBe(3);
 });
 
 it('feeds the same breaker as synchronous failures, with no synchronous failure at all (AC-34)', function () {
