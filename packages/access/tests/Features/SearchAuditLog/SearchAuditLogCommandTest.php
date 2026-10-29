@@ -180,6 +180,42 @@ it('exports a row with a real IPv6 address as CSV, printable rather than packed 
         ->and((string) file_get_contents($path))->toContain('2001:db8::1');
 });
 
+it('exports a row with a leading-zero-byte IPv4 address as JSON, printable rather than packed bytes (R-1, QA)', function () {
+    // 10.0.0.1 packs to the byte sequence 0x0A 0x00 0x00 0x01 - a naive
+    // unpack that treats the packed column as a C string (stops at the
+    // first NUL byte, or trims trailing NULs) silently truncates or
+    // mangles this one even though plain 192.168.1.10 round-trips fine.
+    $actor = searchCommandSeedRowWithIp('10.0.0.1');
+
+    $path = searchCommandFreshPath('ipv4-leading-zero.json');
+
+    $exitCode = Artisan::call('audit:search', [
+        '--tenant' => 'tenant-a',
+        '--as' => $actor,
+        '--output' => $path,
+        '--format' => 'json',
+    ]);
+
+    expect($exitCode)->toBe(0)
+        ->and((string) file_get_contents($path))->toContain('10.0.0.1');
+});
+
+it('exports a row with a leading-zero-byte IPv4 address as CSV, printable rather than packed bytes (R-1, QA)', function () {
+    $actor = searchCommandSeedRowWithIp('10.0.0.1');
+
+    $path = searchCommandFreshPath('ipv4-leading-zero.csv');
+
+    $exitCode = Artisan::call('audit:search', [
+        '--tenant' => 'tenant-a',
+        '--as' => $actor,
+        '--output' => $path,
+        '--format' => 'csv',
+    ]);
+
+    expect($exitCode)->toBe(0)
+        ->and((string) file_get_contents($path))->toContain('10.0.0.1');
+});
+
 it('exports the same rows the handler returns, as CSV', function () {
     $actor = searchCommandSeedRows(2);
 

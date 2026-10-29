@@ -46,6 +46,13 @@ x2, `ModulesEnvParsingTest` x1), nothing audit-related. See [[t014-branches-term
 the original "rotating names, same count" finding - this run did not even need the rotation check,
 the exact same six/three/two/one split as T-016/T-014 appeared verbatim.
 
+**Round 2 (review-fix verification) found the count itself is not perfectly stable, only the file set
+is.** An isolated-clone re-run (see [[project_isolated-clone-technique-for-contaminated-worktrees]])
+measured 6/3/**1**/1=11, not 6/3/2/1=12 - `QaHealthProbeResilienceTest` passed one of its usual two
+failing cases this run. Same four files, nothing new, nothing audit-related, so still not this task's
+defect, but the "verbatim every time" framing from round 1 needed a caveat: the file set is stable,
+the exact per-file count within the probe-resilience/readiness file is not guaranteed to be.
+
 **Toolchain group's single historical flake (`HostTestAnalysisEnforcementTest`) did not reproduce.**
 Ran `--group=toolchain` independently (70/70 green) after dev reported the same test flaking once and
 not reproducing on their own isolated re-run. Two independent clean runs of the same test on the same

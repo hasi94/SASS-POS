@@ -1,6 +1,6 @@
 # QA Report: T-017 Audit framework
 
-## Verdict: PASS
+## Verdict: PASS (run 2 stands; see "Run 2" section below for the review round-1 fix verification)
 
 ## Acceptance criteria coverage
 
@@ -74,3 +74,167 @@ None found. Zero bugs filed this round.
 - Added memory entry for this task's close-out (mutation technique on text-scan QA tests via a real scratch file in the actual scanned directory, rather than only a temp-directory control) — see agent memory.
 
 **Run 1: PASS** (no defects found; full AC sweep, independent mutation testing, and independent gate re-run all conducted in one pass).
+
+---
+
+## Run 2: review round 1 fix verification (R-1, S-1, S-2)
+
+Scope: `reviewer` filed one Critical (R-1) in round 1 of code review — `SearchAuditLogHandler.php` returned
+`audit_logs.ip` as raw packed binary, so `audit:search --output=x.json` threw `JsonException` on any row with
+a real IP, and CSV wrote binary into the cell, violating plan Ruling 11. Two trivial suggestions (S-1, S-2) were
+fixed in the same commit. `dev` fixed all three in `200e731` ("T-017: review round 1 fix (R-1, S-1, S-2)"),
+reported full gate 552.49s, 2173 passed / 12 failed (FP-316 cluster) / 11 skipped / 16382 assertions. This round
+independently re-verifies that commit.
+
+### 1. Diff read (`git show 200e731`)
+
+Exactly 6 files touched, matching dev's own description precisely — no unrelated edit:
+
+| File | Change |
+|---|---|
+| `packages/access/src/Features/SearchAuditLog/SearchAuditLogHandler.php` | R-1 fix: new private `renderIp()` unpacks `ip` via `AccessLogWriter::unpackIp()` before the row enters `AuditPage` |
+| `packages/access/tests/Features/SearchAuditLog/SearchAuditLogCommandTest.php` | 4 new cases: IPv4/IPv6 × JSON/CSV |
+| `packages/platform/src/Support/MigrationRunAudit.php` | S-1 fix: `array_unique($tenantIds)` before the one-tenant count check |
+| `packages/platform/tests/Support/MigrationRunAuditTest.php` | 1 new case: duplicate `--tenant=A --tenant=A` |
+| `packages/access/src/Features/ArchiveAuditLogs/ArchiveAuditLogsHandler.php` | S-2 fix: `$moved += $deleted` (the delete statement's own affected-row count) instead of `$moved += count($ids)` |
+| `packages/access/tests/Features/ArchiveAuditLogs/ArchiveAuditLogsTest.php` | 1 new case: an overlapping manual run that already removed one id |
+
+`AccessLogWriter::packIp()`/`unpackIp()` (the unpacker the R-1 fix reuses) were already shipped and unchanged —
+confirmed by reading `packages/access/src/Support/AccessLogWriter.php:200-237`; both wrap `inet_pton`/`inet_ntop`
+and throw `InvalidArgumentException` on failure rather than silently truncating.
+
+### 2. R-1 independently verified beyond the 4 shipped tests
+
+Read the 4 new cases in `SearchAuditLogCommandTest.php`: they seed one row each with `AccessLogWriter::packIp('192.168.1.10')`
+and `packIp('2001:db8::1')`, run the real `audit:search` artisan command end to end (not the handler directly),
+and assert the literal dotted/colon string appears in the exported file — genuinely exercising packed IPv4 **and**
+IPv6 round-tripping through **both** JSON and CSV export, not a tautology.
+
+Added my own 2 cases (kept in the tree, uncommitted pending dev/lead review) for the specific case named in my
+task brief as most likely to break a naive unpack — a leading-zero-byte IPv4 address:
+- `10.0.0.1` packs to `0x0A 0x00 0x00 0x01` (embedded NUL byte, second byte). A naive unpack that treats the
+  packed column as a C string (stops at the first NUL, or `rtrim`s trailing NULs) would truncate or mangle this
+  even though `192.168.1.10` round-trips fine.
+- Verified with a throwaway PHP script first (`inet_pton('10.0.0.1')` → `0a000001`, `inet_ntop()` round-trips to
+  `10.0.0.1` exactly — PHP's `inet_ntop` takes the fixed 4/16-byte length, not NUL-terminated, so this was always
+  safe for this unpacker specifically), then added two real Pest cases exercising it through the actual
+  `audit:search --format=json|csv` export path. Both pass against the fix:
+  `packages/access/tests/Features/SearchAuditLog/SearchAuditLogCommandTest.php` — "exports a row with a
+  leading-zero-byte IPv4 address as JSON/CSV... (R-1, QA)", 2 passed / 4 assertions.
+
+**Mutation-tested all 6 R-1 cases (4 shipped + my 2) against the reverted fix.** Backed up
+`SearchAuditLogHandler.php` to the scratchpad, `sed`-reverted line 98 back to
+`array_map(static fn (object $row): array => (array) $row, $rows)` (the pre-fix shape), ran
+`vendor/bin/pest --filter="R-1"`: **all 4 shipped cases went red** — the two JSON cases threw the exact
+`JsonException: Malformed UTF-8 characters, possibly incorrectly encoded` bug report describes, the two CSV
+cases failed `toContain()` against the raw packed binary string (visible in the failure diff as a hex blob).
+Restored from backup, confirmed `git status`/`git diff` byte-identical, reran green.
+
+### 3. S-1 and S-2 mutation-tested (red-first, then reverted)
+
+Both production fixes temporarily reverted via direct file edit (not the Edit tool, backed up first), confirmed
+red, restored, confirmed `git status` clean:
+
+- **S-1**: reverted `$uniqueTenantIds = $tenantIds === null ? [] : array_values(array_unique($tenantIds));` to
+  `$uniqueTenantIds = $tenantIds ?? [];` (drops the dedupe). `MigrationRunAuditTest`'s new case went red:
+  `Failed asserting that null is identical to 'dup-tenant...'`. Restored, reran green.
+- **S-2**: reverted `$moved += $deleted;` to `$moved += count($ids);`. `ArchiveAuditLogsTest`'s new case went
+  red: `Failed asserting that 3 is identical to 2.` (the over-count the bug described, caught exactly). Restored,
+  reran green.
+
+All three fixes (R-1, S-1, S-2) are proven by a test that cannot pass against the pre-fix code, not merely by a
+test that happens to pass against the post-fix code.
+
+### 4. Full gate — a materially harder re-run than usual
+
+The first two full-suite attempts in this worktree were contaminated by processes outside my control and are
+**not** trusted as measurements (see Defects/BUG-1 below for the full account). The trustworthy number comes
+from a third attempt, run inside a fully isolated `git clone --local` copy of this worktree (own `vendor/`, own
+`.env`/`APP_KEY`, own SQLite tenancy fixtures — no file sharing with the worktree or with whatever else was
+running in it):
+
+- `composer check` (isolated clone, HEAD `5701c3a`, Composer local-path-repo symlinks restored as Windows
+  junctions after `cp -r` had dereferenced them into real copies — see BUG-1b) →
+  **2174 passed, 11 failed, 11 skipped, 16383 assertions, test step 453.89s.**
+- All 11 failures are confined to exactly the 4 historically-known FP-316 files, with no 5th file and nothing
+  audit-related: `QaModuleRegistryContractTest` ×6, `QaModuleNameValidationTest` ×3,
+  `QaHealthProbeResilienceTest` ×1, `ModulesEnvParsingTest` ×1.
+- This is a 1-test deviation from the previously-stable 6/3/2/1=12 split dev reported and my own run-1 memory
+  recorded (`QaHealthProbeResilienceTest` showed 1 of its usual 2 failures this time — "it answers readiness
+  with an empty list while the database is unreachable and no module is booted" passed instead of failing).
+  Given FP-316 is itself a readiness/timing-sensitive probe cluster (already pre-existing, already tracked, and
+  explicitly out of this task's scope per run 1), one case flipping pass/fail between runs reads as this
+  cluster's own documented non-determinism, not a new regression — it is still the same 4 files, same
+  mechanism, nothing audit-related, and the delta from dev's reported 2173/12/16382 to my 2174/11/16383 is
+  exactly one test's worth (+1 passed, −1 failed, +1 assertion).
+- `composer lint`/`composer stan`/`composer deptrac` all passed in the isolated clone before the test step
+  (`{"tool":"pint","result":"passed"}`, `[OK] No errors`, `Violations 0`).
+- My 2 added R-1 leading-zero-byte cases are not part of this clone (it is a `git clone` of the committed
+  HEAD, and my addition is uncommitted in the worktree) — verified separately, in isolation, as noted above.
+
+### Defects
+
+#### BUG-1 (informational — environment, not a product defect; not routed to `dev`)
+
+- **What happened**: my first full-gate attempt in this worktree (`composer check`, backgrounded) returned
+  **48 failed** (`2139 passed, 11 skipped, 15104 assertions`), scattered across unrelated feature areas —
+  `OrganizationTerminalHttpTest`, `PlanLimitEnforcementTest`, `PlanLimitHttpTest`, `QaAccessCloseOutSweepsTest`,
+  `QaAccessGuardIsolationHttpTest`, `QaAccessHttpSurfaceTest`, `QaActivationCodeSecrecyTest`,
+  `QaAuditDatabaseSeparationTest`, `QaBranchIdFoldTest`, plus the usual FP-316 files. Every failing block was
+  immediately preceded by `PHP Warning: unlink(...tenant-a.sqlite): Resource temporarily unavailable` /
+  `rmdir(...tenancy-fixture): Directory not empty` — a Windows file-lock signature, not an assertion failure.
+- **Root cause, confirmed via `Get-CimInstance Win32_Process`**: a `composer.phar test` → `tools/gate-step.php
+  test -- vendor/bin/pest` → `vendor/bin/pest` process chain was running directly against this exact worktree
+  path, writing to `t017-suite.txt` then `t017-suite2.txt` in **my own** session scratchpad directory under a
+  process chain I never issued (none of my own commands used those filenames). Its window
+  (~14:54–15:01 local) overlapped my own gate's test step (~14:57–15:05 local) for about 4 minutes — two full
+  suites hammering the same `modules/host/storage/app/tenancy-fixture/tenant-a.sqlite` file at once. This
+  matches this project's known "two shared files turn one mistake into a hundred meaningless failures" /
+  "serialise every suite run" hazard (own agent memory), but at a larger scale than previously measured, and
+  with an unidentified second actor in a worktree the task description said was mine alone.
+- **Not filed as a dev-facing bug**: nothing in the 48-failure list reproduced once contention was removed (see
+  "Full gate" above); this is a shared-worktree process-isolation issue, not a code defect, so there is no
+  production fix for `dev` to make. Recorded here, and in agent memory, as a process hazard for whoever
+  schedules concurrent agents into this worktree next.
+
+#### BUG-1b (informational — my own tooling artifact, self-corrected, not routed to `dev`)
+
+- **What happened**: to escape BUG-1's contention I built a `git clone --local` of the worktree and
+  `cp -r`'d `modules/host/vendor` into it. That produced a *second*, different spurious failure:
+  `QaSuspendedMappingGateTest` > "it attributes the refusal to the kernel..." — `Failed asserting that false is
+  true`, trace naming `vendor\flexipos\kernel\src\Tenancy\Tenancy.php`.
+- **Root cause**: in the real worktree, `vendor/flexipos/{access,auth,contracts,eventbus,http-client,kernel,
+  organization,platform,plugin-sdk,testing,module-demo}` are Composer local-path-repository **symlinks** into
+  `packages/*` / `modules/demo` (confirmed `ls -la`, `lrwxrwxrwx`). `cp -r` on Git Bash/Windows dereferences
+  symlinks by default, turning them into real, separate directory copies under `vendor/`. The test computes
+  `$kernelRoot` from `packages/kernel`'s own canonical path and asserts a stack-trace frame's `realpath()`
+  starts with it; with a dereferenced copy, the executing code's `realpath()` resolves to the `vendor/` copy
+  instead, so the assertion legitimately fails against **my clone's own setup defect**, not against the
+  codebase.
+- **Fixed before trusting any number from the clone**: replaced every dereferenced `vendor/flexipos/*` copy
+  with a Windows junction (`New-Item -ItemType Junction`, since plain `ln -s` silently created an empty
+  directory rather than a symlink or an error in this sandboxed Bash — no `SeCreateSymbolicLinkPrivilege`)
+  pointing at the clone's own `packages/*`. Reran `QaSuspendedMappingGateTest` alone — 6/6 passed. Reran the
+  full gate with the fix in place — this is the number reported above (11 failed, all FP-316).
+
+### Regression risks / notes
+
+- All run-1 notes still apply (FP-319, `ActivateTerminalHandler::issuerOf()`, FP-316 pre-existing scope).
+- **FP-316's cluster held across all three files/counts seen this round**, with one case's pass/fail flipping
+  within the cluster (see BUG-1 discussion) — worth a one-line addition to the standing FP-316 memory entry
+  rather than a new backlog row, since the lead's own run-1 "6/3/2/1 is exactly stable" note needed a caveat.
+- **Process hazard for whoever assigns the next task to this worktree**: confirm no other agent/process is
+  mid-run in `D:\Flexiata\NEW-FLEXIPOS\.claude\worktrees\progress-check-1913d7` before trusting a `composer
+  check` number taken directly in it; the isolated-clone technique (clone + copy `vendor/` + regenerate
+  `.env`/`APP_KEY` + **restore Composer path-repo symlinks as junctions, not plain copies**) is the reliable
+  fallback and is now in agent memory.
+- My added leading-zero-byte IPv4 QA cases are left in the tree, uncommitted
+  (`packages/access/tests/Features/SearchAuditLog/SearchAuditLogCommandTest.php`, +36 lines) for `dev`/`lead`
+  to fold into the commit history; they are pure test-file additions, pass against the fix, and were
+  mutation-tested in the same way as the shipped R-1 cases (not re-shown above to avoid duplication — see
+  section 2).
+
+**Run 2: PASS** — R-1, S-1 and S-2 all independently confirmed correct by mutation testing (red-first, then
+green on restore); full gate shape confirmed (same FP-316 cluster, zero audit-related failures) once two
+environment-level contamination sources (an unidentified concurrent suite run in the shared worktree; my own
+clone's dereferenced Composer path-repo symlinks) were found, explained, and removed. Verdict stands: **PASS**.
