@@ -79,3 +79,35 @@ it('R-2: a claimed id with no XPENDING entry fails loudly instead of defaulting 
     expect(fn () => $bus->claim('flexipos:events', 'g1', 'c2', ['1700000000000-0'], 0))
         ->toThrow(EventBusUnreachable::class);
 });
+
+/*
+|--------------------------------------------------------------------------
+| T-018 review round 2, R-3 - XCLAIM legitimately returning fewer ids than
+| requested (including zero) is normal Redis behaviour, not an error; only
+| ids XCLAIM actually returned may ever reach deliveryCounts()/XPENDING
+|--------------------------------------------------------------------------
+*/
+
+it('R-3: an id requested but not actually claimed by XCLAIM returns no deliveries and never reaches XPENDING', function () {
+    $client = new FakeXClaimRedisClient(deliveryCountsById: [], claimedIds: []);
+
+    $factory = new class($client) implements RedisFactory
+    {
+        public function __construct(private readonly FakeXClaimRedisClient $client) {}
+
+        public function connection($name = null)
+        {
+            return new FakeRedisConnection($this->client);
+        }
+    };
+
+    $bus = new RedisStreamsEventBus($factory, 'fixture-connection', 100000);
+
+    $claimed = $bus->claim('flexipos:events', 'g1', 'c2', ['1700000000000-0'], 0);
+
+    expect($claimed)->toBe([]);
+    // No XPENDING lookup was even attempted for an id that was never
+    // actually claimed - distinct from the R-2 case, where the id was
+    // claimed by XCLAIM but XPENDING had nothing for it.
+    expect($client->xpendingCallsById)->toBe([]);
+});

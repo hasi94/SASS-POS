@@ -18,6 +18,7 @@ use Illuminate\Contracts\Redis\Factory as RedisFactory;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use LogicException;
+use RuntimeException;
 use Tests\TestCase;
 
 /*
@@ -278,6 +279,31 @@ it('R-1 through the relay: a Redis error reply on publish is EventBusUnreachable
     expect((int) $row['attempts'])->toBe(1)
         ->and($row['status'])->toBe('pending')
         ->and((string) $row['last_error'])->toContain('READONLY');
+});
+
+it('W-3/W-8: a DB failure marking the row published propagates instead of being mis-counted as a publish failure', function () {
+    eventbusClockAt('2026-01-01 00:00:00');
+    $id = eventbusInsertOutboxRow();
+
+    $connection = DB::connection(AccessTenantFixture::connectionName());
+
+    // The bus already has this event by the time the "mark published"
+    // update runs (it is the very next statement after a successful
+    // publish()), so a fault here must surface as-is - never be caught
+    // and recorded as a publish attempt, which would back the row off
+    // and republish an event the bus already received.
+    $connection->beforeExecuting(function (string $query): void {
+        if (str_contains($query, 'published_at')) {
+            throw new RuntimeException('injected DB fault marking published');
+        }
+    });
+
+    expect(fn () => eventbusRelayPass())->toThrow(RuntimeException::class, 'injected DB fault marking published');
+
+    $row = eventbusOutboxEventRow($id);
+    expect((int) $row['attempts'])->toBe(0)
+        ->and($row['status'])->toBe('pending')
+        ->and($row['last_error'])->toBeNull();
 });
 
 it('W-4: a non-positive relay config value throws LogicException rather than being silently clamped up to 1', function (string $key, int $value) {

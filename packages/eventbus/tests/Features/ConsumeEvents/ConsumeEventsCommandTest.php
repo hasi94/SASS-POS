@@ -14,6 +14,7 @@ use Flexipos\Eventbus\Tests\Support\PingedConsumer;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Sleep;
+use LogicException;
 use Tests\TestCase;
 
 /**
@@ -117,4 +118,16 @@ it('W-5: defaults --sleep from eventbus.consumer.poll_seconds when --sleep is no
     Artisan::call('eventbus:consume', ['--group' => [PingedConsumer::GROUP], '--max-passes' => 2]);
 
     Sleep::assertSlept(fn (CarbonInterval $duration): bool => $duration->equalTo(CarbonInterval::second(9)), times: 1);
+});
+
+it('S-5: a non-positive --sleep option throws rather than reaching Sleep::for()', function () {
+    expect(fn () => Artisan::call('eventbus:consume', ['--group' => [PingedConsumer::GROUP], '--sleep' => -1]))
+        ->toThrow(LogicException::class);
+});
+
+it('S-5: a non-positive eventbus.consumer.poll_seconds throws when --sleep is not given', function () {
+    config(['eventbus.consumer.poll_seconds' => 0]);
+
+    expect(fn () => Artisan::call('eventbus:consume', ['--group' => [PingedConsumer::GROUP]]))
+        ->toThrow(LogicException::class);
 });

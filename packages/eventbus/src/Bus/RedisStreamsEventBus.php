@@ -127,18 +127,32 @@ final class RedisStreamsEventBus implements EventBus
             return $deliveries;
         }
 
-        // XCLAIM's own reply carries ids and fields, not the new delivery
-        // count; XPENDING is the authority this adapter re-reads it from
-        // immediately afterwards, with no extra state kept here.
-        $counts = $this->deliveryCounts($stream, $group, $ids);
+        // XCLAIM can legitimately return fewer ids than requested (even
+        // zero) when another consumer already acknowledged the message or
+        // it was trimmed by XADD MAXLEN ~ between the earlier pending()
+        // call and this claim(). Only ids XCLAIM actually returned are
+        // looked up in deliveryCounts(); a requested-but-not-claimed id
+        // must never reach XPENDING.
+        $entries = [];
 
         foreach ($reply as $entry) {
             if (! is_array($entry) || count($entry) < 2) {
                 continue;
             }
 
-            [$id, $rawFields] = $entry;
-            $id = (string) $id;
+            $entries[] = [(string) $entry[0], $entry[1]];
+        }
+
+        if ($entries === []) {
+            return $deliveries;
+        }
+
+        // XCLAIM's own reply carries ids and fields, not the new delivery
+        // count; XPENDING is the authority this adapter re-reads it from
+        // immediately afterwards, with no extra state kept here.
+        $counts = $this->deliveryCounts($stream, $group, array_column($entries, 0));
+
+        foreach ($entries as [$id, $rawFields]) {
             $fields = self::pairs(is_array($rawFields) ? $rawFields : []);
 
             if (! isset($counts[$id])) {

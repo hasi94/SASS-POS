@@ -1,6 +1,6 @@
 ---
 name: project_eventbus_outbox_seams
-description: T-018's fixture trap (a wrapper that re-wipes a tenant on every call), a signed-by-default Carbon method, Artisan::output()'s drain semantics, and two PHPStan-vs-runtime-check frictions found building packages/eventbus
+description: T-018's fixture trap (a wrapper that re-wipes a tenant on every call), a signed-by-default Carbon method, Artisan::output()'s drain semantics, two PHPStan-vs-runtime-check frictions, and XCLAIM's requested-vs-claimed id distinction, all found building packages/eventbus
 metadata:
   type: project
 ---
@@ -81,6 +81,22 @@ Five things measured building the event bus/outbox package (T-018), each cost a 
   (the `method_exists()` guard in that same method becomes "always true") - the split is
   what keeps the guard and the mutation tracking in two different frames, each legitimate in
   its own.
+
+- **XCLAIM's "requested ids" and "actually claimed ids" are two different lists, and only
+  the second may ever reach a per-id `XPENDING` lookup.** Review round 2's R-3: `claim()`
+  was calling `deliveryCounts($stream, $group, $ids)` with the ids the caller *asked for*,
+  not the ids the XCLAIM reply actually returned. XCLAIM legitimately returns fewer ids than
+  requested (including `[]`) whenever another consumer in the group already acknowledged the
+  message, or `XADD MAXLEN ~` trimmed it between an earlier `pending()` call and this
+  `claim()` call - both are normal operation, not an error. Querying XPENDING for an id that
+  was never actually claimed finds nothing and (after R-2's "fail loudly" fix) throws
+  `EventBusUnreachable`; `ConsumeEventsHandler` claims one id at a time in a loop, so that
+  throw aborts the whole consumer group's pass. Fix: parse XCLAIM's own reply into
+  `[id, rawFields]` pairs first, short-circuit to `[]` if that list is empty, and only then
+  call `deliveryCounts()` with `array_column($entries, 0)` - never the originally requested
+  `$ids`. A claimed id with no XPENDING entry (the race the *original* slow consumer
+  acknowledges it between XCLAIM and XPENDING) is a different, accepted case and still throws
+  by design; only "requested but not actually claimed" gets the empty-array treatment.
 
 **Why:** every one of these was found by a red run, not by reading - the tenant-fixture one
 especially, because its only symptom was "SELECT finds nothing" with every other signal

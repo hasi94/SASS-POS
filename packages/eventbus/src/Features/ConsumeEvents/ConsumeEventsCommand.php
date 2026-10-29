@@ -9,6 +9,7 @@ use Flexipos\Eventbus\Support\ConsumerRegistry;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Support\Sleep;
+use LogicException;
 use Psr\Log\LoggerInterface;
 use Throwable;
 
@@ -53,10 +54,20 @@ final class ConsumeEventsCommand extends Command
         $once = (bool) $this->option('once');
         $maxPasses = (int) $this->option('max-passes');
 
+        // A negative or zero value here goes straight to Sleep::for() (S-5,
+        // review round 2); validated the same way as every other number
+        // this package reads from config, instead of trusting it silently.
         $sleepOption = $this->option('sleep');
-        $sleepSeconds = $sleepOption !== null
-            ? (int) $sleepOption
-            : (int) $config->get('eventbus.consumer.poll_seconds', 1);
+
+        if ($sleepOption !== null) {
+            $sleepSeconds = (int) $sleepOption;
+
+            if ($sleepSeconds < 1) {
+                throw new LogicException("The --sleep option must be a positive integer, got [{$sleepSeconds}].");
+            }
+        } else {
+            $sleepSeconds = $this->positiveInt($config, 'eventbus.consumer.poll_seconds', 1);
+        }
 
         $stream = (string) $config->get('eventbus.stream', 'flexipos:events');
 
@@ -103,5 +114,23 @@ final class ConsumeEventsCommand extends Command
         }
 
         return $anyFailure ? self::FAILURE : self::SUCCESS;
+    }
+
+    /**
+     * Same rule as {@see ConsumeEventsHandler::positiveInt()} (W-4, review
+     * round 1: plan Ruling 11) - a non-positive value throws loudly rather
+     * than being silently clamped up to 1.
+     *
+     * @throws LogicException
+     */
+    private function positiveInt(ConfigRepository $config, string $key, int $default): int
+    {
+        $value = (int) $config->get($key, $default);
+
+        if ($value < 1) {
+            throw new LogicException("Configuration [{$key}] must be a positive integer, got [{$value}].");
+        }
+
+        return $value;
     }
 }
