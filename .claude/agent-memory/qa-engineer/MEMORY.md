@@ -12,3 +12,4 @@
 - [T-010 mutation survivors and harness](project_t010-mutation-survivors-and-harness.md) — nine kinds of mutant that survived a green suite, the python mutation driver, never overlap gate runs.
 - [T-014 close-out](project_t014-branches-terminals-closeout.md) — diff-base trap on a stale `main`, FP-316's real (rotating) shape, a non-discriminating mutation, overlapping gate runs again.
 - [T-016 platform close-out](project_t016-platform-closeout.md) — concurrent gate-vs-ad-hoc-pest contention looks like real bugs, a console-command-existence gap, full 10/10 mutation verification.
+- [T-017 audit framework close-out](project_t017-audit-framework-closeout.md) — mutation-test a text-scan QA test via a real scratch file in the real scanned dir, mutate a handler temporarily for a query-log test, file-count reconciliation technique.
