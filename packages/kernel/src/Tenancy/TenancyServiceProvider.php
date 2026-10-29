@@ -2,7 +2,9 @@
 
 namespace Flexipos\Kernel\Tenancy;
 
+use Flexipos\Kernel\Http\RequestId;
 use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
+use Flexipos\Kernel\Tenancy\Contracts\TenantFleet;
 use Flexipos\Kernel\Tenancy\Contracts\TenantMigrationTargetRepository;
 use Flexipos\Kernel\Tenancy\Exceptions\TenancyException;
 use Flexipos\Kernel\Tenancy\Secrets\ConnectionPassword;
@@ -15,6 +17,7 @@ use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\Connectors\ConnectionFactory;
+use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\ServiceProvider;
 use Symfony\Component\VarDumper\Caster\Caster;
 use Symfony\Component\VarDumper\Cloner\AbstractCloner;
@@ -146,6 +149,29 @@ final class TenancyServiceProvider extends ServiceProvider
                 }
 
                 return $app->make(MasterTenantMigrationTargetRepository::class);
+            }
+        );
+
+        // T-017 Ruling 1. A singleton holding a closure, never a captured
+        // request, for ClientIp's reason (packages/access): the id is read
+        // at write time, so one container serving many requests reports
+        // each request's own id. A test that needs a chosen id binds
+        // RequestId::fixed() over this.
+        $this->app->singleton(RequestId::class, static fn ($app): RequestId => RequestId::fromRequests($app));
+
+        // T-017 Ruling 6. The same MappingSource switch as the serving
+        // repository above, so a fixture that got one of each would be
+        // proving nothing about either.
+        $this->app->singleton(
+            TenantFleet::class,
+            static function (Application $app): TenantFleet {
+                $config = $app->make(ConfigRepository::class);
+
+                if (MappingSource::isConfigStandIn($config, $app)) {
+                    return new InMemoryTenantFleet($config);
+                }
+
+                return new MasterTenantFleet($app->make(DatabaseManager::class), $config);
             }
         );
 

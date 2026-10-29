@@ -96,7 +96,13 @@ function closeOutNewTables(): array
     // tenant-isolation test.
     $t014 = ['branches', 'devices', 'locations', 'terminal_credentials', 'terminals'];
 
-    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014));
+    // T-017's one table (audit_logs_archive) is excluded the same way: this
+    // sweep's exercise never touches it (nothing archives inside
+    // closeOutExerciseEveryTable()), so it would otherwise be reported as a
+    // T-010 table this run never saw a statement against.
+    $t017 = ['audit_logs_archive'];
+
+    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017));
 }
 
 /**

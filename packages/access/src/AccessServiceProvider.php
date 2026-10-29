@@ -4,13 +4,18 @@ declare(strict_types=1);
 
 namespace Flexipos\Access;
 
+use Flexipos\Access\Features\ArchiveAuditLogs\ArchiveAuditLogsCommand;
 use Flexipos\Access\Features\BuildEmployeeClaims\BuildEmployeeClaimsHandler;
+use Flexipos\Access\Features\SearchAuditLog\SearchAuditLogCommand;
 use Flexipos\Access\Registry\AccessPermissions;
+use Flexipos\Access\Registry\AuditPermissions;
 use Flexipos\Access\Registry\PermissionRegistry;
 use Flexipos\Access\Resolver\DatabaseEmployeeStalenessCheck;
 use Flexipos\Access\Resolver\DatabasePermissionResolver;
+use Flexipos\Access\Support\AccessAuditActions;
 use Flexipos\Access\Support\AuditWriter;
 use Flexipos\Access\Support\ClientIp;
+use Flexipos\Access\Support\ClientUserAgent;
 use Flexipos\Access\Support\DatabaseEmployeeDirectory;
 use Flexipos\Access\Support\EmployeeStatus;
 use Flexipos\Access\Support\PinPolicy;
@@ -23,6 +28,8 @@ use Flexipos\Contracts\Access\PermissionDeclaration;
 use Flexipos\Contracts\Access\PermissionResolver;
 use Flexipos\Contracts\Access\TerminalLoginLog;
 use Flexipos\Contracts\Audit\AuditTrail;
+use Flexipos\Contracts\Audit\DeclaresAuditActions;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -50,7 +57,7 @@ use Illuminate\Support\ServiceProvider;
  * a guard: the registry answers "which keys exist", not "may this person do
  * it", so binding it breaks none of the red-first rule above.
  */
-final class AccessServiceProvider extends ServiceProvider implements DeclaresPermissions
+final class AccessServiceProvider extends ServiceProvider implements DeclaresAuditActions, DeclaresPermissions
 {
     /**
      * Register this package's bindings.
@@ -108,6 +115,10 @@ final class AccessServiceProvider extends ServiceProvider implements DeclaresPer
         // a chosen address binds `ClientIp::fixed()` over this.
         $this->app->singleton(ClientIp::class, static fn ($app): ClientIp => ClientIp::fromRequests($app));
 
+        // T-017 Ruling 2. ClientIp's sibling, for `audit_logs.user_agent`,
+        // bound beside it for the same reason.
+        $this->app->singleton(ClientUserAgent::class, static fn ($app): ClientUserAgent => ClientUserAgent::fromRequests($app));
+
         // T-014. What organization asks of access through the published
         // contracts: the one audit writer, and whether an employee exists.
         // Both are readers or writers of access's own tables, so organization
@@ -115,6 +126,15 @@ final class AccessServiceProvider extends ServiceProvider implements DeclaresPer
         $this->app->singleton(AuditTrail::class, AuditWriter::class);
         $this->app->singleton(EmployeeDirectory::class, DatabaseEmployeeDirectory::class);
         $this->app->singleton(TerminalLoginLog::class, TerminalLoginLogWriter::class);
+
+        // T-017 step 8/11: console-only entry points, since neither audit
+        // search nor archival has an HTTP route (D-7).
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                ArchiveAuditLogsCommand::class,
+                SearchAuditLogCommand::class,
+            ]);
+        }
     }
 
     /**
@@ -130,20 +150,53 @@ final class AccessServiceProvider extends ServiceProvider implements DeclaresPer
     public function boot(): void
     {
         $this->loadRoutesFrom(__DIR__.'/../routes/api.php');
+
+        // T-017 Ruling 6, AC-8. The archival job runs daily, over the whole
+        // serving fleet, without overlapping a still-running invocation.
+        // This inherits FP-319 (no scheduler runs in production yet),
+        // exactly as T-016's own scheduled job already does; it is not
+        // re-solved here.
+        $this->app->booted(function (): void {
+            /** @var Schedule $schedule */
+            $schedule = $this->app->make(Schedule::class);
+
+            $schedule->command(ArchiveAuditLogsCommand::class)
+                ->dailyAt('03:00')
+                ->withoutOverlapping();
+        });
     }
 
     /**
-     * This package's own six keys (AC-14, D-13).
+     * This package's own six keys, plus T-017's `audit.read` (AC-14, D-13).
      *
      * Declared the same way any module declares its own - by implementing
      * the published interface on the provider - so the access package is not
      * a special case in its own registry, and removing this method would
-     * remove six keys from the sweep exactly as it would for a module.
+     * remove these keys from the sweep exactly as it would for a module.
+     *
+     * **`AccessPermissions` keeps its own "six keys" contract.** `AuditPermissions`
+     * is a separate class for exactly that reason (Ruling 9); merging here is
+     * the only place the two combine.
      *
      * @return list<PermissionDeclaration>
      */
     public function permissionDeclarations(): array
     {
-        return AccessPermissions::declarations();
+        return array_merge(AccessPermissions::declarations(), AuditPermissions::declarations());
+    }
+
+    /**
+     * This package's fifteen declared audit actions (T-017 Ruling 3).
+     *
+     * Declared the same way any module declares its own, by implementing
+     * the published interface on the provider, so {@see AuditWriter}'s
+     * catalogue enforcement has something to enforce from this process's
+     * first boot.
+     *
+     * @return array<string, list<string>>
+     */
+    public function auditActions(): array
+    {
+        return [AccessAuditActions::MODULE => AccessAuditActions::ALL];
     }
 }

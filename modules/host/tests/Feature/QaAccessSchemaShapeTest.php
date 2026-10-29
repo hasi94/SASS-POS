@@ -189,7 +189,12 @@ it('creates the eight tables and nothing else, and the listing check can tell ot
     // T-014's five tables are excluded by name, stated here and not derived:
     // the claim is about T-010's set, which they do not change.
     $t014 = ['branches', 'devices', 'locations', 'terminal_credentials', 'terminals'];
-    $new = array_values(array_diff(qaT10Tables(), tenantBaselineTables(), ['migrations'], $t014));
+
+    // T-017's one table (audit_logs_archive) is excluded the same way: this
+    // is still a claim about T-010's eight, unaffected by a later task's table.
+    $t017 = ['audit_logs_archive'];
+
+    $new = array_values(array_diff(qaT10Tables(), tenantBaselineTables(), ['migrations'], $t014, $t017));
 
     expect($new)->toBe([
         'access_log', 'employee_branches', 'employee_permissions', 'employee_roles',

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Flexipos\Access\Tests\Support;
 
+use Flexipos\Access\Features\ArchiveAuditLogs\ArchiveAuditLogs;
+use Flexipos\Access\Features\ArchiveAuditLogs\ArchiveAuditLogsHandler;
 use Flexipos\Access\Features\AssignRole\AssignRole;
 use Flexipos\Access\Features\AssignRole\AssignRoleHandler;
 use Flexipos\Access\Features\AttachBranch\AttachBranch;
@@ -38,6 +40,8 @@ use Flexipos\Access\Features\RemoveRoleAssignment\RemoveRoleAssignment;
 use Flexipos\Access\Features\RemoveRoleAssignment\RemoveRoleAssignmentHandler;
 use Flexipos\Access\Features\RenameRole\RenameRole;
 use Flexipos\Access\Features\RenameRole\RenameRoleHandler;
+use Flexipos\Access\Features\SearchAuditLog\SearchAuditLog;
+use Flexipos\Access\Features\SearchAuditLog\SearchAuditLogHandler;
 use Flexipos\Access\Features\SetEmployeePermission\SetEmployeePermission;
 use Flexipos\Access\Features\SetEmployeePermission\SetEmployeePermissionHandler;
 use Flexipos\Access\Features\SetPin\SetPin;
@@ -277,6 +281,19 @@ function bumpSweepOperations(array $ids): array
         // operation the sweep must not demand a bump from.
         'SyncPermissionRegistry' => static function (): void {
             app(SyncPermissionRegistryHandler::class)->handle(new SyncPermissionRegistry);
+        },
+        // T-017: neither of the audit slices below touches employee_roles,
+        // employee_permissions or employee_branches, so neither one can
+        // move a resolver answer - the same AC-53 (c) shape as the sync
+        // above, measured rather than assumed.
+        'ArchiveAuditLogs' => static function (): void {
+            app(ArchiveAuditLogsHandler::class)->handle(new ArchiveAuditLogs);
+        },
+        'SearchAuditLog' => static function () use ($ids): void {
+            // bumpSweepKeys() includes every registry key, audit.read among
+            // them, and the actor is granted all of them - see
+            // bumpSweepWorld().
+            app(SearchAuditLogHandler::class)->handle(new SearchAuditLog($ids['actor']));
         },
         'CreateRole' => static function () use ($ids, &$created): void {
             $created['role'] = app(CreateRoleHandler::class)

@@ -166,5 +166,13 @@
         "checksum": "b6e4e78dbe37ab5bf70bda0bf1b4b31cbe5e834eabb5a5e5472fba222b45b29e",
         "is_destructive": false,
         "requires_offline": false
+    },
+    {
+        "version": 22,
+        "migration": "2026_10_29_000701_create_audit_logs_archive_table",
+        "phase": "expand",
+        "checksum": "62d45186b6a6850297865983a324c10b01984bf9da0c0af3a7768e3d4274c8f4",
+        "is_destructive": false,
+        "requires_offline": false
     }
 ]

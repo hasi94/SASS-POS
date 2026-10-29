@@ -121,6 +121,12 @@ function activationWire($response): array
 
     unset($headers['date']);
 
+    // T-017 AC-1: every response now carries its own request's X-Request-Id
+    // (bootstrap/app.php's AssignRequestId, prepended), which varies the
+    // same way `date` already does - per request, not per the uniform
+    // refusal contract this test is about.
+    unset($headers['x-request-id']);
+
     ksort($headers);
 
     return ['status' => $response->getStatusCode(), 'body' => (string) $response->getContent(), 'headers' => $headers];

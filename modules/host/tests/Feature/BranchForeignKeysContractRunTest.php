@@ -63,6 +63,18 @@ function bfkRunV(): int
     return $version;
 }
 
+/**
+ * The shipped tree's actual top version, derived - never assumed to equal
+ * {@see bfkRunV()}. T-017 added one expand migration after the branch
+ * foreign keys contract step, so "run with no explicit target" now reaches
+ * a version past V; this is the number that moves when the next task adds
+ * another file, and bfkRunV() must not be made to carry that meaning too.
+ */
+function bfkRunTop(): int
+{
+    return bfkRunSet()->highestVersion();
+}
+
 /** T-011's top: the version of its settings.updated_by contract step. */
 function bfkRunT011Top(): int
 {
@@ -292,7 +304,7 @@ it('takes a tenant at T-011s top carrying T-010 data to the top in exactly two r
     $second = bfkRunExecute([$tenant], null)['result'];
 
     expect($second->jobs[0]->succeeded)->toBeTrue()
-        ->and((int) migrateFixtureMappingRow($tenant)['schema_version'])->toBe(bfkRunV())
+        ->and((int) migrateFixtureMappingRow($tenant)['schema_version'])->toBe(bfkRunTop())
         ->and(bfkRunKeys('tenant-a', 'employee_roles'))->toContain('branch_id -> branches.id')
         ->and(bfkRunKeys('tenant-a', 'employee_branches'))->toContain('branch_id -> branches.id')
         ->and(bfkRunKeys('tenant-a', 'number_sequences'))->toContain('branch_id -> branches.id');
@@ -320,7 +332,7 @@ it('takes a fresh tenant at version 0 to the top, in three runs because the prev
         expect($result->jobs[0]->succeeded)->toBeTrue();
     }
 
-    expect((int) migrateFixtureMappingRow($tenant)['schema_version'])->toBe(bfkRunV())
+    expect((int) migrateFixtureMappingRow($tenant)['schema_version'])->toBe(bfkRunTop())
         ->and(bfkRunKeys('tenant-a', 'terminals'))->toContain('current_device_id -> devices.id');
 
     // And one run straight to the top is refused for the same fleet at 0.

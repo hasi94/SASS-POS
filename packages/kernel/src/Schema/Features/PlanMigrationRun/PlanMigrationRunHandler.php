@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flexipos\Kernel\Schema\Features\PlanMigrationRun;
 
+use Flexipos\Kernel\Schema\Contracts\RecordsMigrationRuns;
 use Flexipos\Kernel\Schema\Exceptions\MigrationRunRefused;
 use Flexipos\Kernel\Schema\Support\MigrationCatalogue;
 use Flexipos\Kernel\Schema\Support\MigrationPhase;
@@ -11,6 +12,7 @@ use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Flexipos\Kernel\Tenancy\TenantConnectionPurpose;
 use Flexipos\Kernel\Tenancy\TenantStatusPolicy;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
+use Illuminate\Database\Connection;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Str;
@@ -51,7 +53,11 @@ use Illuminate\Support\Str;
  *    back and an archived one is restored. Exactly one status does not block,
  *    `provisioning`, because it holds nothing yet.
  * 5. **Only then the writes**, run row first, then the job rows in ascending
- *    `size_bytes`.
+ *    `size_bytes`, then the platform-audit row (T-017 AC-14) - all three in
+ *    **one master transaction**, so a run is audited or it does not exist.
+ *    Until T-017 the inserts were un-wrapped; every refusal above still
+ *    fires before the first of them, so this does not change what gets
+ *    planned, only what happens if the last of the three writes fails.
  *
  * **Status rules (D-11), and the one reading this handler had to choose.**
  * AC-40 says an `archived` tenant "is not planned" by a bulk run, and AC-51
@@ -97,6 +103,7 @@ final class PlanMigrationRunHandler
         private readonly ConfigRepository $config,
         private readonly RunnerClock $clock,
         private readonly TenantStatusPolicy $statusPolicy,
+        private readonly RecordsMigrationRuns $recorder,
     ) {}
 
     /**
@@ -378,81 +385,104 @@ final class PlanMigrationRunHandler
     }
 
     /**
-     * The run row and the job rows, in that order.
+     * The run row, the job rows and the platform-audit row, in that order,
+     * in one master transaction (T-017 AC-14).
+     *
+     * **Atomicity is the point.** A fault between the three writes - the
+     * recorder throwing, say - leaves no run row and no job row either: the
+     * transaction this method opens is what makes "one row per run" an
+     * invariant rather than a best effort.
      *
      * @param  list<array{tenant_id: string, server_id: string, schema_version: int}>  $selected
      */
     private function write(PlanMigrationRun $command, int $target, array $selected): PlanMigrationRunResult
     {
-        $runId = (string) Str::ulid();
-        $now = $this->clock->timestamp();
-        $total = count($selected);
+        $connection = $this->masterConnection();
 
-        $this->table('tenant_migration_runs')->insert([
-            'id' => $runId,
-            'target_version' => $target,
-            'initiated_by' => $command->initiatedBy,
-            'mode' => $command->mode(),
-            'selector' => (string) json_encode([
-                'mode' => $command->mode(),
-                'tenants' => $command->tenantIds,
+        return $connection->transaction(function () use ($connection, $command, $target, $selected): PlanMigrationRunResult {
+            $runId = (string) Str::ulid();
+            $now = $this->clock->timestamp();
+            $total = count($selected);
+
+            $connection->table('tenant_migration_runs')->insert([
+                'id' => $runId,
                 'target_version' => $target,
-                'set' => $command->set->name,
-            ]),
-            'concurrency' => $command->concurrency,
-            'status' => 'planned',
-            'total' => $total,
-            'pending' => $total,
-            'running' => 0,
-            'done' => 0,
-            'failed' => 0,
-            'skipped' => 0,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
+                'initiated_by' => $command->initiatedBy,
+                'mode' => $command->mode(),
+                'selector' => (string) json_encode([
+                    'mode' => $command->mode(),
+                    'tenants' => $command->tenantIds,
+                    'target_version' => $target,
+                    'set' => $command->set->name,
+                ]),
+                'concurrency' => $command->concurrency,
+                'status' => 'planned',
+                'total' => $total,
+                'pending' => $total,
+                'running' => 0,
+                'done' => 0,
+                'failed' => 0,
+                'skipped' => 0,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
 
-        $jobs = [];
-        $rows = [];
+            $jobs = [];
+            $rows = [];
 
-        foreach ($selected as $tenant) {
-            $jobId = (string) Str::ulid();
+            foreach ($selected as $tenant) {
+                $jobId = (string) Str::ulid();
 
-            $jobs[] = [
-                'job_id' => $jobId,
-                'tenant_id' => $tenant['tenant_id'],
-                'server_id' => $tenant['server_id'],
-                'from_version' => $tenant['schema_version'],
-                'to_version' => $target,
-            ];
+                $jobs[] = [
+                    'job_id' => $jobId,
+                    'tenant_id' => $tenant['tenant_id'],
+                    'server_id' => $tenant['server_id'],
+                    'from_version' => $tenant['schema_version'],
+                    'to_version' => $target,
+                ];
 
-            $rows[] = [
-                'id' => $jobId,
-                'run_id' => $runId,
-                'tenant_id' => $tenant['tenant_id'],
-                'server_id' => $tenant['server_id'],
-                'from_version' => $tenant['schema_version'],
-                'to_version' => $target,
-                'status' => 'pending',
-                'attempts' => 0,
-            ];
-        }
+                $rows[] = [
+                    'id' => $jobId,
+                    'run_id' => $runId,
+                    'tenant_id' => $tenant['tenant_id'],
+                    'server_id' => $tenant['server_id'],
+                    'from_version' => $tenant['schema_version'],
+                    'to_version' => $target,
+                    'status' => 'pending',
+                    'attempts' => 0,
+                ];
+            }
 
-        if ($rows !== []) {
-            $this->table('tenant_migration_jobs')->insert($rows);
-        }
+            if ($rows !== []) {
+                $connection->table('tenant_migration_jobs')->insert($rows);
+            }
 
-        return new PlanMigrationRunResult(
-            runId: $runId,
-            targetVersion: $target,
-            mode: $command->mode(),
-            jobs: $jobs,
-        );
+            $this->recorder->recordPlanned(
+                $connection,
+                $runId,
+                $target,
+                $command->mode(),
+                $command->tenantIds,
+                $command->set->name,
+                $command->initiatedBy,
+            );
+
+            return new PlanMigrationRunResult(
+                runId: $runId,
+                targetVersion: $target,
+                mode: $command->mode(),
+                jobs: $jobs,
+            );
+        });
+    }
+
+    private function masterConnection(): Connection
+    {
+        return $this->database->connection((string) $this->config->get('tenancy.master_connection', 'master'));
     }
 
     private function table(string $table): Builder
     {
-        return $this->database
-            ->connection((string) $this->config->get('tenancy.master_connection', 'master'))
-            ->table($table);
+        return $this->masterConnection()->table($table);
     }
 }

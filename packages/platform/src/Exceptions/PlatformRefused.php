@@ -10,8 +10,8 @@ use RuntimeException;
  * The one exception this package throws when it refuses to do something that
  * is not a plan-limit refusal (that is `Flexipos\Contracts\Platform\PlanLimitReached`).
  *
- * Closed reasons only: `validation`, `not_found`, `not_current`. Never
- * constructed without one.
+ * Closed reasons only: `validation`, `not_found`, `not_current`, `forbidden`
+ * (T-017 AC-17, Ruling 10). Never constructed without one.
  */
 final class PlatformRefused extends RuntimeException
 {
@@ -35,5 +35,16 @@ final class PlatformRefused extends RuntimeException
     public static function notCurrent(string $message): self
     {
         return new self('not_current', $message);
+    }
+
+    /**
+     * The caller may not read platform audit records (T-017 AC-17): not a
+     * platform staff member, a soft-deleted or non-active staff user, or an
+     * id naming nobody. One reason for all four, deliberately - telling a
+     * caller *which* discloses which user ids exist.
+     */
+    public static function forbidden(string $message): self
+    {
+        return new self('forbidden', $message);
     }
 }

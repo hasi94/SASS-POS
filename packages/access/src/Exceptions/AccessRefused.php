@@ -9,6 +9,7 @@ use Flexipos\Access\Support\Escalation;
 use Flexipos\Access\Support\LastOwner;
 use Flexipos\Access\Support\RoleLookup;
 use Flexipos\Access\Support\SelfChange;
+use Flexipos\Contracts\Access\AccessDecision;
 use Flexipos\Contracts\Access\AccessRefusal;
 use Flexipos\Contracts\Access\PermissionDeclaration;
 use Flexipos\Contracts\Access\RefusalReason;
@@ -231,5 +232,22 @@ final class AccessRefused extends RuntimeException implements AccessRefusal
     public static function branchInactive(string $message): self
     {
         return new self(RefusalReason::BranchInactive, $message);
+    }
+
+    /**
+     * A resolver decision refused the operation (T-017 Ruling 9, AC-5).
+     *
+     * **Carries the decision's own reason, not a fixed one.** `decide()` can
+     * refuse `audit.read` with `NotPermitted` (the ordinary case) or with
+     * `BranchRequired` (a branch-scoped key asked about with no branch) -
+     * the caller does not decide which; the decision already knows.
+     */
+    public static function notPermitted(AccessDecision $decision): self
+    {
+        $reason = $decision->reason ?? RefusalReason::NotPermitted;
+
+        $message = "The actor may not perform this operation [{$reason->value}].";
+
+        return new self($reason, $message);
     }
 }

@@ -6,10 +6,12 @@ namespace Flexipos\Organization;
 
 use Flexipos\Contracts\Access\DeclaresPermissions;
 use Flexipos\Contracts\Access\PermissionDeclaration;
+use Flexipos\Contracts\Audit\DeclaresAuditActions;
 use Flexipos\Contracts\Organization\BranchDirectory;
 use Flexipos\Contracts\Organization\TerminalActivation;
 use Flexipos\Contracts\Organization\TerminalAuthority;
 use Flexipos\Organization\Features\ActivateTerminal\ActivateTerminalHandler;
+use Flexipos\Organization\Registry\OrganizationAuditActions;
 use Flexipos\Organization\Registry\OrganizationPermissions;
 use Flexipos\Organization\Support\DatabaseBranchDirectory;
 use Flexipos\Organization\Support\DatabaseTerminalAuthority;
@@ -31,7 +33,7 @@ use Illuminate\Support\ServiceProvider;
  * to a stub: a contract with no implementation resolves to a binding error,
  * which is a refusal to answer and never a permissive answer.
  */
-final class OrganizationServiceProvider extends ServiceProvider implements DeclaresPermissions
+final class OrganizationServiceProvider extends ServiceProvider implements DeclaresAuditActions, DeclaresPermissions
 {
     public function register(): void
     {
@@ -74,5 +76,15 @@ final class OrganizationServiceProvider extends ServiceProvider implements Decla
     public function permissionDeclarations(): array
     {
         return OrganizationPermissions::declarations();
+    }
+
+    /**
+     * This package's sixteen declared audit actions (T-017 Ruling 3).
+     *
+     * @return array<string, list<string>>
+     */
+    public function auditActions(): array
+    {
+        return [OrganizationAuditActions::MODULE => OrganizationAuditActions::ALL];
     }
 }

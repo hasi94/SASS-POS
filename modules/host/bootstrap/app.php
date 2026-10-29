@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\AssignRequestId;
 use App\Http\Responses\PlatformRefusals;
 use Flexipos\Contracts\Platform\PlanLimitReached;
 use Flexipos\Kernel\Tenancy\Exceptions\RequiredSchemaVersionNotConfigured;
@@ -24,7 +25,11 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        // T-017 Ruling 1: every request gets its own correlation id before
+        // anything else runs, so any audit row a request causes can carry
+        // it. Prepended, not appended: it must run ahead of every handler
+        // that might write one.
+        $middleware->prepend(AssignRequestId::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // A plan limit is a business refusal, not an error (T-016 Ruling 11):

@@ -7,6 +7,7 @@ namespace Flexipos\Access\Tests\Registry;
 use Flexipos\Access\AccessServiceProvider;
 use Flexipos\Access\Exceptions\AccessRefused;
 use Flexipos\Access\Registry\AccessPermissions;
+use Flexipos\Access\Registry\AuditPermissions;
 use Flexipos\Access\Registry\PermissionRegistry;
 use Flexipos\Access\Tests\Support\FixturePermissionProvider;
 use Flexipos\Access\Tests\Support\SecondFixturePermissionProvider;
@@ -135,10 +136,14 @@ it('reaches those six through the booted provider rather than through the class'
     // asking the container which registered providers declare. Reading
     // AccessPermissions directly here would prove the list and not the
     // wiring, and the wiring is what a new module relies on.
+    // T-017 Ruling 9: AccessServiceProvider now also declares AuditPermissions,
+    // so its provider-count line counts both - AccessPermissions keeps its
+    // own, unmoved "six keys" case above.
     expect(registry()->providerNames())->toContain(AccessServiceProvider::class)
         ->and(registry()->keysByProvider()[AccessServiceProvider::class] ?? [])
-        ->toHaveCount(count(AccessPermissions::declarations()))
-        ->and(registry()->keys())->toContain(AccessPermissions::ACCESS_ASSIGN);
+        ->toHaveCount(count(AccessPermissions::declarations()) + count(AuditPermissions::declarations()))
+        ->and(registry()->keys())->toContain(AccessPermissions::ACCESS_ASSIGN)
+        ->and(registry()->keys())->toContain(AuditPermissions::AUDIT_READ);
 });
 
 /*

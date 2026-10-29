@@ -5,17 +5,19 @@ declare(strict_types=1);
 namespace Flexipos\Access\Support;
 
 use Flexipos\Contracts\Audit\AuditTrail;
+use Flexipos\Kernel\Http\RequestId;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Database\Connection;
+use LogicException;
 
 /**
  * The one writer of `audit_logs` in this package (D-20, AC-70).
  *
- * **Minimal on purpose, and replaced later.** D-20 says the audit facility
- * proper is FP-211's; what this task owes is that every administrative
- * operation leaves a row, with the actor, the subject and what changed.
- * There is no retention, no search and no export here, and `qa` must not
- * ask for them.
+ * **Extended by T-017, never replaced.** D-20 said the audit facility proper
+ * is FP-211's; that task closed two gaps on this class rather than
+ * duplicating it (its own D-1): `request_id` and `user_agent` are now filled
+ * (AC-1, AC-2), and an action outside {@see AuditCatalogue}'s declared list is
+ * refused before the insert (AC-4's prerequisite, AC-19).
  *
  * **One writer, so three things cannot drift.** `actor_name` is a snapshot
  * and has to be taken the same way every time; `changed_fields` has to be
@@ -59,7 +61,10 @@ final class AuditWriter implements AuditTrail
     public function __construct(
         private readonly RunnerClock $clock,
         private readonly ClientIp $client,
+        private readonly ClientUserAgent $userAgent,
+        private readonly RequestId $requestId,
         private readonly TenantConnection $tenant,
+        private readonly AuditCatalogue $catalogue,
     ) {}
 
     /**
@@ -109,6 +114,10 @@ final class AuditWriter implements AuditTrail
     /**
      * @param  array<string, mixed>|null  $before
      * @param  array<string, mixed>|null  $after
+     *
+     * @throws LogicException when the catalogue has never declared this
+     *                        (module, action) pair (T-017 Ruling 3, AC-4
+     *                        prerequisite, AC-19)
      */
     private function insert(
         Connection $connection,
@@ -121,6 +130,13 @@ final class AuditWriter implements AuditTrail
         ?array $after,
         ?string $branchId,
     ): void {
+        if (! $this->catalogue->knows($module, $action)) {
+            throw new LogicException(
+                "The audit action [{$action}] is not declared for module [{$module}]."
+                .' A module declares its audit actions by implementing Flexipos\Contracts\Audit\DeclaresAuditActions.'
+            );
+        }
+
         $connection->table('audit_logs')->insert([
             'actor_type' => self::ACTOR_TYPE,
             'actor_id' => $actorId,
@@ -136,13 +152,14 @@ final class AuditWriter implements AuditTrail
             // AC-70 names `ip` among the fields the row carries. It comes
             // from the request the container holds, packed by the one
             // helper inside this package, and is null when there is no
-            // request - see ClientIp. `user_agent` and `request_id` are
-            // columns T-008 created and no criterion of this task names;
-            // they stay null until a task owns them, which is a different
-            // fact from this one having been forgotten.
+            // request - see ClientIp. `user_agent` and `request_id` follow
+            // the identical lazy, per-current-request treatment, through
+            // ClientUserAgent and the kernel's RequestId respectively
+            // (T-017 AC-1, AC-2): both are null outside a request and both
+            // are read fresh on every call, never captured at construction.
             'ip' => $this->client->packed(),
-            'user_agent' => null,
-            'request_id' => null,
+            'user_agent' => $this->userAgent->header(),
+            'request_id' => $this->requestId->current(),
             'created_at' => $this->clock->timestamp(),
         ]);
     }

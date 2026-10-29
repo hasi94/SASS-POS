@@ -7,6 +7,8 @@ namespace Flexipos\Platform;
 use Flexipos\Contracts\Platform\FeatureFlags;
 use Flexipos\Contracts\Platform\PlanLimits;
 use Flexipos\Contracts\Platform\TenantSeats;
+use Flexipos\Kernel\Http\RequestId;
+use Flexipos\Kernel\Schema\Contracts\RecordsMigrationRuns;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Flexipos\Kernel\Tenancy\MappingSource;
 use Flexipos\Platform\Features\ChangeLicenceStatus\ChangeLicenceStatusCommand;
@@ -17,6 +19,7 @@ use Flexipos\Platform\Features\EnforceCommercialDeadlines\EnforceCommercialDeadl
 use Flexipos\Platform\Features\EnforceCommercialDeadlines\EnforceCommercialDeadlinesHandler;
 use Flexipos\Platform\Features\ResolveFeatureFlag\ResolveFeatureFlagHandler;
 use Flexipos\Platform\Features\ResolvePlanLimit\ResolvePlanLimitHandler;
+use Flexipos\Platform\Features\SearchPlatformAuditLog\SearchPlatformAuditLogCommand;
 use Flexipos\Platform\Features\SetTenantFeatureFlag\SetTenantFeatureFlagCommand;
 use Flexipos\Platform\Support\CachingEntitlementSource;
 use Flexipos\Platform\Support\ConfigEntitlementSource;
@@ -24,6 +27,7 @@ use Flexipos\Platform\Support\EntitlementSource;
 use Flexipos\Platform\Support\EvictsEntitlements;
 use Flexipos\Platform\Support\MasterConnection;
 use Flexipos\Platform\Support\MasterEntitlementSource;
+use Flexipos\Platform\Support\MigrationRunAudit;
 use Flexipos\Platform\Support\PlatformAudit;
 use Flexipos\Platform\Support\TenantStatusSync;
 use Illuminate\Console\Scheduling\Schedule;
@@ -51,6 +55,21 @@ final class PlatformServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        // T-017 Ruling 8. Production never takes the double-compatible
+        // default: the live RequestId resolver is wired explicitly, so a
+        // write made while handling a request carries that request's real
+        // id (AC-12) rather than null.
+        $this->app->singleton(PlatformAudit::class, fn (Application $app) => new PlatformAudit(
+            $app->make(RunnerClock::class),
+            $app->make(RequestId::class),
+        ));
+
+        // T-017 Ruling 7. The kernel's migration planner reaches this
+        // through the port it owns; no default binding exists in the
+        // kernel, so a host that boots it without this package fails to
+        // resolve the interface rather than plan an unaudited run.
+        $this->app->singleton(RecordsMigrationRuns::class, MigrationRunAudit::class);
+
         $this->app->singleton(EntitlementSource::class, function (Application $app): EntitlementSource {
             $config = $app->make(ConfigRepository::class);
 
@@ -93,6 +112,8 @@ final class PlatformServiceProvider extends ServiceProvider
                 ChangeSubscriptionStatusCommand::class,
                 ChangeLicenceStatusCommand::class,
                 SetTenantFeatureFlagCommand::class,
+                // T-017 D-7: console only, same precedent.
+                SearchPlatformAuditLogCommand::class,
             ]);
         }
     }
