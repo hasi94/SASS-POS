@@ -40,18 +40,30 @@ final class HookInvoker
     ) {}
 
     /**
+     * A refused plugin (an already-open breaker, or one this very
+     * dispatch just tripped) is logged exactly once here, whether the
+     * caller is {@see Gateway} skipping it
+     * before ever calling {@see invoke()}, or the breaker being open on
+     * entry to {@see invoke()} itself (T-019 AC-31, plan Ruling 10).
+     */
+    public function refuse(Registration $registration, string $point, HookMode $mode): void
+    {
+        $this->log->write($registration->plugin, $point, $mode, 0, 'refused', null);
+
+        $this->logger->warning('Refused dispatching to a plugin whose breaker is open.', [
+            'plugin' => $registration->plugin,
+            'point' => $point,
+            'mode' => $mode->value,
+        ]);
+    }
+
+    /**
      * @param  Closure(object): mixed  $call  given the resolved handler instance
      */
     public function invoke(Registration $registration, string $point, HookMode $mode, Closure $call): InvocationResult
     {
         if ($registration->refused) {
-            $this->log->write($registration->plugin, $point, $mode, 0, 'refused', null);
-
-            $this->logger->warning('Refused dispatching to a plugin whose breaker is open.', [
-                'plugin' => $registration->plugin,
-                'point' => $point,
-                'mode' => $mode->value,
-            ]);
+            $this->refuse($registration, $point, $mode);
 
             return new InvocationResult('refused');
         }
@@ -73,6 +85,16 @@ final class HookInvoker
                     $value = $call($handler);
                 } catch (VetoSignal $signal) {
                     $veto = new Veto($signal->reason);
+
+                    return;
+                }
+
+                // A returned Veto blocks regardless of elapsed time, the
+                // same as a thrown VetoSignal above - a slow approval
+                // plugin that vetoes must never fail open via a timeout
+                // outcome (T-019 W-1).
+                if ($value instanceof Veto) {
+                    $veto = $value;
 
                     return;
                 }

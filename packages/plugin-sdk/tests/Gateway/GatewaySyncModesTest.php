@@ -19,6 +19,7 @@ use Flexipos\PluginSdk\Tests\Support\InsertsThenThrowsAdd;
 use Flexipos\PluginSdk\Tests\Support\PluginSeed;
 use Flexipos\PluginSdk\Tests\Support\SecondPluginAdd;
 use Flexipos\PluginSdk\Tests\Support\SlowHook;
+use Flexipos\PluginSdk\Tests\Support\SlowVetoBeforeHook;
 use Flexipos\PluginSdk\Tests\Support\ThrowingHook;
 use Flexipos\PluginSdk\Tests\Support\ThrowingVetoBeforeHook;
 use Illuminate\Support\Facades\DB;
@@ -341,6 +342,26 @@ it('times out a slow handler, discards its result, and marks it failed', functio
         ->where('plugin_name', $name)->first();
 
     expect($row->status)->toBe('timeout');
+});
+
+it('still blocks on a returned Veto even when the same before handler is also over budget (W-1)', function () {
+    $name = gatewayRegisterVariant(['name' => 'fixture-slow-veto', 'hooks' => [
+        ['point' => 'fixture.echo', 'mode' => 'before', 'handler' => SlowVetoBeforeHook::class],
+    ]]);
+    gatewayEnable($name, 'tenant-a');
+    pluginEnterTenant('tenant-a');
+
+    $outcome = app(HookGateway::class)->dispatch('fixture.echo', ['veto' => false], fn (array $p) => 'action-ran');
+
+    // A fail-open timeout outcome would let the action run instead.
+    expect($outcome->veto)->not->toBeNull()
+        ->and($outcome->veto->plugin)->toBe($name)
+        ->and($outcome->result)->toBeNull();
+
+    $row = DB::connection(AccessTenantFixture::connectionName())->table('plugin_execution_logs')
+        ->where('plugin_name', $name)->first();
+
+    expect($row->status)->toBe('veto');
 });
 
 it('throws NoTenantResolved with no tenant entered, and LogicException for an unknown point', function () {

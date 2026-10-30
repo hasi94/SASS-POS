@@ -1438,10 +1438,10 @@ Master says whether a plugin may run; here is what it stores.
 |---|---|
 | plugin_settings | plugin_name VARCHAR(100), key VARCHAR(120), value TEXT (encrypted when `is_secret`), is_secret BOOL, updated_by FK employees NULL, `[TS]`; PK (plugin_name, key) |
 | plugin_migrations | plugin_name VARCHAR(100), migration VARCHAR(191), batch INT, ran_at; PK (plugin_name, migration). Per tenant database, so a plugin enabled for 40 tenants has 40 independent migration states — tracked in master on `tenant_plugins.schema_version` (§4.3) and run by the same runner as core (§9.6) |
-| plugin_execution_logs | id BIGINT AUTO PK, plugin_name, point VARCHAR(60), mode enum(add, before, after, filter, override), duration_ms, status enum(ok, veto, error, timeout), error, request_id, created_at. 30-day retention |
+| plugin_execution_logs | id BIGINT AUTO PK, plugin_name, point VARCHAR(60), mode enum(add, before, after, filter, override), duration_ms, status enum(ok, veto, error, timeout, refused), error, request_id, created_at. 30-day retention |
 | `plg_<plugin>_*` | plugin-owned tables. May hold foreign keys **into** core tables (`plg_loyalty_accounts.customer_id` → `customers.id`); core tables never reference them. Dropped when the plugin is uninstalled for that tenant, after an export |
 
-**As built (T-019).** `mode`'s application enum holds all five modes the gateway dispatches, naming `add` alongside the three already listed here; the `status` vocabulary above is unchanged.
+**As built (T-019).** `mode`'s application enum holds all five modes the gateway dispatches, naming `add` alongside the three already listed here. `status` gained `refused`: every registration the gateway or `PluginAfterHookConsumer` skips without calling the handler - an already-open breaker, or one this dispatch just tripped - writes one `refused` row and one `warning`-level log line, from `HookInvoker::refuse()` (AC-31, plan Ruling 10).
 
 ### 6.21 System tables
 

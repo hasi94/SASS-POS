@@ -70,7 +70,7 @@ final class Gateway implements HookGateway
             return new HookOutcome($point, $veto, $payload, null, null, [], $skipped, $failed);
         }
 
-        $payload = $this->runFilters($registrations, $point, $payload, $failed, $trippedNow);
+        $payload = $this->runFilters($registrations, $point, $payload, $skipped, $failed, $trippedNow);
 
         $contributions = [];
         $overriddenBy = null;
@@ -105,6 +105,7 @@ final class Gateway implements HookGateway
 
             if ($registration->refused || isset($trippedNow[$registration->plugin])) {
                 $skipped[] = $registration->plugin;
+                $this->invoker->refuse($registration, $point, HookMode::Before);
 
                 continue;
             }
@@ -137,11 +138,12 @@ final class Gateway implements HookGateway
     /**
      * @param  list<Registration>  $registrations
      * @param  array<string, mixed>  $payload
+     * @param  list<string>  $skipped
      * @param  list<string>  $failed
      * @param  array<string, bool>  $trippedNow
      * @return array<string, mixed>
      */
-    private function runFilters(array $registrations, string $point, array $payload, array &$failed, array &$trippedNow): array
+    private function runFilters(array $registrations, string $point, array $payload, array &$skipped, array &$failed, array &$trippedNow): array
     {
         foreach ($registrations as $registration) {
             if ($registration->mode !== HookMode::Filter) {
@@ -149,6 +151,9 @@ final class Gateway implements HookGateway
             }
 
             if ($registration->refused || isset($trippedNow[$registration->plugin])) {
+                $skipped[] = $registration->plugin;
+                $this->invoker->refuse($registration, $point, HookMode::Filter);
+
                 continue;
             }
 
@@ -188,6 +193,7 @@ final class Gateway implements HookGateway
 
                 if ($registration->refused || isset($trippedNow[$registration->plugin])) {
                     $skipped[] = $registration->plugin;
+                    $this->invoker->refuse($registration, $point, HookMode::Override);
 
                     continue;
                 }
@@ -239,6 +245,7 @@ final class Gateway implements HookGateway
 
             if ($registration->refused || isset($trippedNow[$registration->plugin])) {
                 $skipped[] = $registration->plugin;
+                $this->invoker->refuse($registration, $point, HookMode::Add);
 
                 continue;
             }
@@ -281,6 +288,7 @@ final class Gateway implements HookGateway
 
             if ($registration->refused || isset($trippedNow[$registration->plugin])) {
                 $skipped[] = $registration->plugin;
+                $this->invoker->refuse($registration, $point, HookMode::After);
 
                 continue;
             }

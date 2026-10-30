@@ -250,11 +250,24 @@ it('trips end-to-end through the gateway, refuses the next dispatch, and still r
     $pluginId = PluginSeed::pluginRow('fixture-throws-everywhere')['id'];
     expect(PluginSeed::tenantPluginRow($tenant, $pluginId)['status'])->toBe('error');
 
+    $logger = new CircuitBreakerRecordingLogger;
+    app()->instance(LoggerInterface::class, $logger);
+
     $outcome = app(HookGateway::class)->dispatch('fixture.echo', [], fn (array $p) => 'action-still-ran');
 
     expect(ThrowingHook::$callCount)->toBe(5)
         ->and($outcome->skipped)->toContain('fixture-throws-everywhere')
         ->and($outcome->result)->toBe('action-still-ran');
+
+    // R-1: a refused plugin is logged, not merely skipped (AC-31).
+    expect(array_filter($logger->levels, fn (string $l) => $l === 'warning'))->toHaveCount(1);
+
+    $logRow = DB::connection(AccessTenantFixture::connectionName())->table('plugin_execution_logs')
+        ->where('plugin_name', 'fixture-throws-everywhere')
+        ->where('status', 'refused')
+        ->first();
+
+    expect($logRow)->not->toBeNull();
 
     File::deleteDirectory($tmp);
 });

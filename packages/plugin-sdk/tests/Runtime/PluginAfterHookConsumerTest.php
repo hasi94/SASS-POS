@@ -97,7 +97,7 @@ it('runs the handler once and writes the marker row, end to end through the real
     expect(DB::connection(AccessTenantFixture::connectionName())->table('plg_fixture_echo_after_effects')->count())->toBe(1);
 });
 
-it('is idempotent by event id, and the control without the check gives two (AC-29)', function () {
+it('is idempotent by event id; applyAttempts (not row count) proves the check actually ran (AC-29)', function () {
     $pluginId = PluginSeed::pluginRow('fixture-echo')['id'];
     $envelope = pluginAfterEnvelope('evt-1', pluginRegisterFixtureTenant('tenant-a'), $pluginId, 'fixture-echo', 'fixture.echo');
 
@@ -121,6 +121,14 @@ it('is idempotent by event id, and the control without the check gives two (AC-2
 
     EchoAfter::$skipIdempotencyCheck = true;
 
+    // This is a second, distinct event (evt-2, not a redelivery of evt-1):
+    // the effect table's event_id primary key would happily take a second
+    // row for a different id even with the app-level check still on, so
+    // the row count below is not itself proof the check is now skipped -
+    // it would read identically either way. $applyAttempts is: it only
+    // climbs once per call that gets past the check, so 3 (1 from evt-1's
+    // single successful attempt above, plus 2 for evt-2's two calls, both
+    // now unchecked) is what actually shows the check stopped running.
     $second = pluginAfterEnvelope('evt-2', pluginRegisterFixtureTenant('tenant-a'), $pluginId, 'fixture-echo', 'fixture.echo');
     tenancy()->run('tenant-a', fn () => app(PluginAfterHookConsumer::class)->handle($second));
     tenancy()->run('tenant-a', fn () => app(PluginAfterHookConsumer::class)->handle($second));
@@ -129,9 +137,6 @@ it('is idempotent by event id, and the control without the check gives two (AC-2
     expect(DB::connection(AccessTenantFixture::connectionName())->table('plg_fixture_echo_after_effects')->count())->toBe(2);
     tenancy()->leave();
 
-    // With the check skipped, both calls reach the marker - a count the
-    // event_id primary key alone can never produce, since it would mask
-    // this the same way it masks a removed app-level check.
     expect(EchoAfter::$applyAttempts)->toBe(3);
 });
 
