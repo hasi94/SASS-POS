@@ -136,9 +136,21 @@ Re-derived from the files, not assumed:
 ### C. Steps, approvers, quorum
 
 - AC-9: A definition's steps run in `sequence` order; a step's `approver_type` is one of `role,
-  employee, manager_of_requester, department_head, branch_manager, any_of, all_of`, resolved against
+  employee, manager_of_requester, department_head, branch_manager, any_of, all_of` (the full enum
+  `docs/database.md` §6.15 documents, matching AC-1's column-for-column convention), but only **four of
+  the seven are resolvable today**: `role`, `employee`, `any_of` and `all_of` resolve against
   `approver_ref` (role id(s) or employee id(s), per type) at the moment the step becomes active — not
   pre-resolved at definition time, so a role's membership change is reflected on the next instance.
+  The other three — `manager_of_requester`, `department_head`, `branch_manager` — have **no data
+  source anywhere in the shipped schema today** (measured: `employees` carries no manager column, T-014
+  D-14 having deliberately trimmed the table to identity and access; no `departments` table exists,
+  HR being FP-270/Phase 4 and unbuilt; `branches` carries no manager column, and `locations.
+  manager_employee_id` is a different entity and using it would invent an unstated business rule —
+  D-13). A definition naming one of those three is refused at definition-write time with a named error
+  (`approverTypeUnavailable`), and the engine fails closed if one is ever reached at step-activation
+  time regardless (consistent with D-3). This is a schema-forward-compatibility shape, not a broken
+  promise: the three values ship in the enum so a future HR task is an additive resolver, not an expand
+  migration onto a wrong shape.
 - AC-10: A step's `quorum` (`any, all, majority`) decides when that step is satisfied: `any` on the
   first approval, `all` once every resolved approver has approved, `majority` once more than half have
   approved. A single rejection vote on a step whose `quorum` is `any` or `majority` does not, by itself,
@@ -149,7 +161,9 @@ Re-derived from the files, not assumed:
   final step is satisfied, the instance's `status` becomes `approved` and `completed_at` is stamped.
 - AC-12 (negative/edge case): A step whose resolved approver set is empty (e.g. a `role` with no
   employee currently holding it) cannot be satisfied by any vote; this is a named condition the engine
-  reports (not a silent stall), distinct from a step still waiting on a real approver.
+  reports (not a silent stall), distinct from a step still waiting on a real approver. This is the
+  empty-resolution case for one of the four resolvable `approver_type` values (AC-9); the three
+  unresolvable types never reach this path because they are refused at definition-write time first.
 
 ### D. The `WorkflowGate` contract (standalone, fail-closed — D-2/D-3)
 
@@ -266,6 +280,11 @@ Re-derived from the files, not assumed:
   columns' owning tables/modules do not exist yet.
 - **Resolving FP-338** directly (closing/rewording the backlog row) — `ba` has no write access to
   `docs/backlog.md`; D-4 records that this task resolves the underlying concern and flags it for `lead`.
+- **Building a resolver for `manager_of_requester`, `department_head` or `branch_manager`** (D-13,
+  AC-9) — none has a data source in the shipped schema today; this task refuses all three at
+  definition-write time instead of inventing one. A follow-up backlog row (owner: `lead`, `ba` has no
+  write access to `docs/backlog.md`) should track enabling them once HR/departments data ships
+  (FP-270, Phase 4) and a `branches`/`locations` manager rule is actually stated.
 
 ## Non-functional requirements
 
