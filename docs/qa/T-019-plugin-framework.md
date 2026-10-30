@@ -216,3 +216,181 @@ behaviour the AC asks for is actually correct.
   real production code, which is correct in both cases.
 
 Run 1: PASS (2 minor test-coverage defects filed for dev follow-up, not blocking).
+
+## Run 2: review round 1 fix verification
+
+Verifying dev's fix commit `69cf73c` ("T-019: review round 1 fix (R-1, W-1,
+test-wording clarity)") against reviewer's round-1 Critical **R-1** (every
+Gateway dispatch mode skipped a refused plugin before `HookInvoker` ever
+logged the refusal — AC-31's "it logs each refusal" was unmet in all five
+modes) and Warning **W-1** (a slow `before` handler that *returns* a `Veto`
+fell through to the timeout path and could fail open).
+
+Coordinated timing with `reviewer`, who was independently re-checking the
+same commit in this same worktree: found `composer check` running twice
+during this session (PID 69476, then PID 60164) and waited for each to exit
+before touching shared state (config cache, test DB) myself, per the T-018
+lesson on overlapping gate runs. Both times the stale `config:cache` left
+behind a `MODULES` mismatch error that broke my own scoped test runs until I
+ran `php artisan config:clear`.
+
+### 1-2. Diff vs. what R-1/W-1 asked for
+
+`git show --stat 69cf73c` confirmed the claimed file list exactly: `Gateway.php`,
+`HookInvoker.php`, `docs/database.md`, plus `CircuitBreakerTest.php`,
+`GatewaySyncModesTest.php`, `PluginAfterHookConsumerTest.php`, and new fixture
+`SlowVetoBeforeHook.php`. Read every diff line by line:
+
+- **R-1**: `HookInvoker::refuse()` extracted from the old `invoke()` refusal
+  branch; `invoke()` now delegates to it. All five `Gateway` skip branches
+  (`runBefore`, `runFilters`, `runActionOrOverride`'s override check, `runAdds`,
+  `runAfters`) now call `$this->invoker->refuse(...)` before `continue`.
+  `runFilters` also gained a `$skipped[] = $registration->plugin;` line and a
+  new `array &$skipped` parameter it did not have before — matches the stated
+  "`runFilters` also now adds the refused plugin to `$skipped` (previously
+  omitted)".
+- **W-1**: `instanceof Veto` early-return added to `HookInvoker::invoke()`'s
+  handler closure, positioned before the elapsed-time/timeout check — matches
+  "checks `if ($value instanceof Veto)` ... before the timeout check".
+- **Test-wording fix**: `PluginAfterHookConsumerTest.php`'s title changed from
+  "...and the control without the check gives two (AC-29)" to "...applyAttempts
+  (not row count) proves the check actually ran (AC-29)"; a new code comment
+  explaining why `evt-2`'s row count alone doesn't discriminate replaces the
+  old (slightly misleading) comment. No logic change — confirmed by diff.
+
+All three match exactly what was described. No undisclosed changes.
+
+### 3. W-1 mutation test — PASS
+
+Reverted the `instanceof Veto` early-return in `HookInvoker.php` (restored the
+old code path straight to the elapsed-time check). Ran
+`packages/plugin-sdk/tests/Gateway`:
+
+```
+FAILED GatewaySyncModesTest > it still blocks on a returned Veto even when
+the same before handler is also over budget (W-1)
+Expecting null not to be null.
+```
+
+Exactly the expected failure mode (fail-open: action ran, no veto). Restored
+the fix; re-ran the same suite: 27 passed, 148 assertions, clean. `git status`
+confirmed byte-identical after restore.
+
+### 2 & 4. R-1 mutation test — real defect found (BUG-3)
+
+Dev's claim that "all five `Gateway` skip branches now call `refuse()`" is
+**true in production code** (confirmed by direct read, all five call sites
+present) but the claim that this is now *tested* is only true for one of the
+five modes. Removed the `refuse()` call (and, separately, the whole
+`$skipped[]`-plus-`refuse()` pair) from each branch in turn, running
+`packages/plugin-sdk/tests/Gateway` + `.../tests/Breaker` after each (clean
+`config:clear` first; confirmed non-flaky by re-running both green states):
+
+| Branch | Mutation | Result |
+|---|---|---|
+| `runBefore` | removed `refuse()` call | **Caught.** `CircuitBreakerTest`'s e2e trip test goes red (`toHaveCount(1)` on warning-level logs fails). Positive control confirms the harness works. |
+| `runFilters` | removed `refuse()` call only | Not caught. 35 passed, unchanged. |
+| `runFilters` | removed both `$skipped[]` and `refuse()` | Not caught. 35 passed, unchanged — the `$skipped` fix for Filter mode is **also** untested. |
+| `runActionOrOverride` (Override) | removed `refuse()` call | Not caught. 35 passed, unchanged. |
+| `runAdds` (Add) | removed `refuse()` call | Not caught. 35 passed, unchanged. |
+| `runAfters` (After) | removed `refuse()` call | Not caught. 35 passed, unchanged. |
+
+Confirmed by grep across `packages/plugin-sdk/tests` that no test anywhere
+asserts a `'refused'`-status row or a refusal warning log for the filter,
+override, add or after modes — `CircuitBreakerTest`'s one new assertion
+(registered on a `before`-mode fixture) is the only place AC-31's "logs each
+refusal" is actually exercised.
+
+Every mutation reverted individually and confirmed back to green/clean before
+moving to the next; final `git status`/`git diff --stat` on `Gateway.php` and
+`HookInvoker.php` both empty.
+
+### BUG-3 (minor — not blocking, same class as BUG-1/BUG-2)
+
+- **Steps**: remove `$this->invoker->refuse(...)` from any of `runFilters`,
+  `runActionOrOverride`, `runAdds`, or `runAfters` in `Gateway.php` (alone, or
+  together with that branch's `$skipped[] = ...` line for `runFilters`
+  specifically); run the full `packages/plugin-sdk` suite.
+- **Expected**: AC-31 ("it logs each refusal") is claimed to hold across all
+  five dispatch modes per R-1's fix; a regression here should turn a test red.
+- **Actual**: suite stays green. Only the `before` mode's refusal-logging is
+  regression-tested (via `CircuitBreakerTest`'s e2e trip test, itself
+  registered on a `before`-mode fixture).
+- **No production defect**: the shipped code is correct — I read all five
+  call sites directly and they are identical in shape (verified above under
+  §1-2). This is a test-coverage gap in the fix's own verification, the same
+  category as Run 1's BUG-1/BUG-2 (proof gap, not behaviour gap).
+- **Suspected location**: `packages/plugin-sdk/tests/Gateway/GatewaySyncModesTest.php`
+  and `GatewayAfterModeTest.php` — neither asserts a `refused`-status log row
+  or a warning log entry for filter/override/add/after dispatch of a refused
+  plugin. A straightforward fix mirrors `CircuitBreakerTest`'s e2e test, or
+  registers four single-mode fixtures already tripped/refused and asserts
+  `plugin_execution_logs` + a recording logger for each.
+- **Recommendation**: not blocking sign-off (behaviour is correct, verified
+  independently); file as a QA follow-up for the next convenient window,
+  same disposition as BUG-1/BUG-2.
+
+### 5. Full gate — matches dev's numbers
+
+Waited for both of reviewer's concurrent `composer check` runs (PID 69476,
+then PID 60164) to exit before running my own; ran `php artisan config:clear`
+first both times since each left a stale `MODULES` config-cache mismatch.
+
+`cd modules/host && composer check`, solo, no overlap:
+
+- lint (Pint `--test`): passed.
+- stan (PHPStan): `[OK] No errors`.
+- deptrac: `Violations 0, Skipped violations 0, Uncovered 735, Allowed 937,
+  Warnings 0, Errors 0`.
+- **Tests: 2500 passed, 12 failed, 21 skipped, 17723 assertions, 523.09s.**
+  Matches dev's reported 2500/12/21 exactly.
+
+All 12 failures, by name:
+
+1. `QaHealthProbeResilienceTest > it answers readiness with an empty list while the database is...`
+2. `QaModuleNameValidationTest > it refuses a MODULES entry that is not a plain module name`
+3. `QaModuleNameValidationTest > it refuses a MODULES entry whose case does not match the directory on disk`
+4. `QaModuleNameValidationTest > it fails the whole boot rather than dropping one bad entry out of several`
+5. `QaModuleRegistryContractTest > it fails fast when a named directory has no composer.json`
+6. `QaModuleRegistryContractTest > it fails fast when a module manifest is not valid JSON`
+7. `QaModuleRegistryContractTest > it fails fast when a module declares no psr-4 namespace`
+8. `QaModuleRegistryContractTest > it fails fast when a module names no provider class`
+9. `QaModuleRegistryContractTest > it fails fast when the named provider class cannot be autoloaded`
+10. `QaModuleRegistryContractTest > it names the offending module in the exception rather than the...`
+11-12. (two further cases in the same two files, same signature)
+
+All 12 are in the FP-316 module-registry/bootstrap cluster already documented
+at T-014/T-016/T-017/T-018/Run-1 close-out — none touch `packages/plugin-sdk`,
+`HookInvoker.php`, `Gateway.php`, or any file in dev's fix commit. Grepped the
+full gate log for `Gateway|HookInvoker|CircuitBreaker`: every plugin-sdk test
+file (`GatewayAfterModeTest`, `GatewaySyncModesTest`, `HookPointCatalogueTest`,
+`CircuitBreakerTest`) shows `PASS`, including the specific R-1/W-1
+regression tests (`...trips end-to-end through the gateway, refuses the next
+dispatch...` and `...still blocks on a returned Veto even when the same
+before handler is also over budget (W-1)`).
+
+### 4 (doc-vs-code consistency) — confirmed clean
+
+`docs/database.md` §6.20 now lists `status enum(ok, veto, error, timeout,
+refused)` and adds an "As built" sentence naming `HookInvoker::refuse()` as
+the writer. Read `ExecutionLog::write()` (the sole writer of
+`plugin_execution_logs`, enforced by `QaPluginSourceRulesTest`) — it takes a
+raw `string $status` with no enum-level validation in code, and
+`HookInvoker::refuse()` calls it with the literal `'refused'`. The migration's
+`status` column is `$table->string('status', 30)`, a plain VARCHAR, not a DB
+enum, so there is no schema-level constraint to mismatch. Documentation and
+shipped behaviour agree.
+
+### Verdict: PASS
+
+R-1 and W-1 are both correctly fixed in production code, independently
+mutation-verified (W-1 fully; R-1's `before`-branch regression test is a
+genuine red/green pair, but filter/override/add/after are not regression-
+tested — logged as **BUG-3, minor, not blocking**, same disposition as Run 1's
+BUG-1/BUG-2). Full gate matches dev's reported numbers exactly; all 12
+failures are the pre-existing FP-316 cluster, confirmed unrelated to this
+task's files by name and by grep. No regression introduced by this fix
+commit.
+
+Run 2: PASS (R-1 and W-1 fixes confirmed correct; BUG-3 minor test-coverage
+gap filed for follow-up, not blocking — same disposition as BUG-1/BUG-2).
