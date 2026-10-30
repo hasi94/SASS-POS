@@ -272,7 +272,7 @@ Plugins may not modify core tables. They extend through custom fields or their o
 
 ## 14. Workflow engine
 
-Approvals are configuration, not code. A rule names a trigger point, a condition and a sequence of steps, and the engine runs as a hook handler at that point.
+Approvals are configuration, not code. A rule names a trigger point, a condition and a sequence of steps.
 
 ```text
 discount above 20%        → manager approval
@@ -281,6 +281,8 @@ purchase order above 500,000 → manager, then director
 ```
 
 One engine serves discounts, expenses, purchase orders, payroll and leave, rather than each module growing its own approval logic.
+
+**As built (T-020).** The engine is **not** a hook handler and does not run through the plugin gateway's `dispatch()` (D-2, D-3): it is a standalone contract, `Flexipos\Contracts\Workflow\WorkflowGate`, that a module calls directly and synchronously, inside its own transaction. The reason is fail-closed behaviour - the plugin gateway's `before` mode is fail-open by design (a `before` handler that throws or times out is recorded and the dispatch proceeds anyway), and an approval engine that failed open on an error would defeat its own purpose. `evaluate()` instead throws on any error it cannot resolve, and the caller's gated action must not proceed past that exception. Nothing in this task adds a hook point, a `HookMode`, or any change to `packages/plugin-sdk`. The engine itself ships as `packages/workflow`, a shared path package every future module may depend on through the published contract only - never its internals - the same shape `packages/organization` and `packages/platform` already follow. Proven on one labelled fixture (`entity_type='custom'`), not any real business workflow: discounts, expenses, purchase orders, payroll and leave each wire in when the module that owns that entity type ships.
 
 ---
 

@@ -17,6 +17,7 @@ use Flexipos\Access\Support\AuditWriter;
 use Flexipos\Access\Support\ClientIp;
 use Flexipos\Access\Support\ClientUserAgent;
 use Flexipos\Access\Support\DatabaseEmployeeDirectory;
+use Flexipos\Access\Support\DatabaseRoleHolders;
 use Flexipos\Access\Support\EmployeeStatus;
 use Flexipos\Access\Support\PinPolicy;
 use Flexipos\Access\Support\TerminalLoginLogWriter;
@@ -26,6 +27,7 @@ use Flexipos\Contracts\Access\EmployeeDirectory;
 use Flexipos\Contracts\Access\EmployeeStalenessCheck;
 use Flexipos\Contracts\Access\PermissionDeclaration;
 use Flexipos\Contracts\Access\PermissionResolver;
+use Flexipos\Contracts\Access\RoleHolders;
 use Flexipos\Contracts\Access\TerminalLoginLog;
 use Flexipos\Contracts\Audit\AuditTrail;
 use Flexipos\Contracts\Audit\DeclaresAuditActions;
@@ -126,6 +128,11 @@ final class AccessServiceProvider extends ServiceProvider implements DeclaresAud
         $this->app->singleton(AuditTrail::class, AuditWriter::class);
         $this->app->singleton(EmployeeDirectory::class, DatabaseEmployeeDirectory::class);
         $this->app->singleton(TerminalLoginLog::class, TerminalLoginLogWriter::class);
+
+        // T-020 Ruling 6a. What the workflow engine asks of access through
+        // the published contract, rather than querying employee_roles
+        // itself.
+        $this->app->singleton(RoleHolders::class, DatabaseRoleHolders::class);
 
         // T-017 step 8/11: console-only entry points, since neither audit
         // search nor archival has an HTTP route (D-7).

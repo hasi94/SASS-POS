@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "80768faf0554c100e8895b0fdcdb161d",
+    "content-hash": "f465e45372b701668d0020049054c525",
     "packages": [
         {
             "name": "brick/math",
@@ -810,6 +810,32 @@
                 "proprietary"
             ],
             "description": "FlexiPOS plugin SDK: extension gateway, plugin base classes and manifest validation.",
+            "transport-options": {
+                "relative": true
+            }
+        },
+        {
+            "name": "flexipos/workflow",
+            "version": "0.1.0",
+            "dist": {
+                "type": "path",
+                "url": "../../packages/workflow",
+                "reference": "bd93699a4131968666dce232cd3cd6bf6e493201"
+            },
+            "require": {
+                "flexipos/contracts": "*",
+                "php": "^8.2"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Flexipos\\Workflow\\": "src/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "FlexiPOS workflow engine: configurable approval definitions, steps, instances and tasks.",
             "transport-options": {
                 "relative": true
             }

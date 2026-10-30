@@ -106,7 +106,11 @@ function closeOutNewTables(): array
     // never writes a plugin execution log, migration record or setting.
     $t019 = ['plugin_execution_logs', 'plugin_migrations', 'plugin_settings'];
 
-    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017, $t019));
+    // T-020's five tables are excluded the same way: this sweep's exercise
+    // never writes a workflow definition, instance, task or event.
+    $t020 = ['workflow_definitions', 'workflow_events', 'workflow_instances', 'workflow_steps', 'workflow_tasks'];
+
+    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017, $t019, $t020));
 }
 
 /**

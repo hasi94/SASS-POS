@@ -198,5 +198,45 @@
         "checksum": "df16b6317ec5f79f47c1650ccf6ea98be2e28379c5b7bfddbb70150cbbc0d4a7",
         "is_destructive": false,
         "requires_offline": false
+    },
+    {
+        "version": 26,
+        "migration": "2026_10_30_000901_create_workflow_definitions_table",
+        "phase": "expand",
+        "checksum": "af4478cfea3c1e51549eb52353b835f82640ab140394bdccd8f2378dffd51d72",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 27,
+        "migration": "2026_10_30_000902_create_workflow_steps_table",
+        "phase": "expand",
+        "checksum": "37746e8eb265996266ceb34c40d3bfd58434e319966916fb1402a5889bdbd3cd",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 28,
+        "migration": "2026_10_30_000903_create_workflow_instances_table",
+        "phase": "expand",
+        "checksum": "4fc7480535deb8e86b945ecc425559877a4ad2cd59723619961ec712a06fffd8",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 29,
+        "migration": "2026_10_30_000904_create_workflow_tasks_table",
+        "phase": "expand",
+        "checksum": "d4b7daf12aa81ee62304847c4143530cdcf55a651baf66788c950562526dc983",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 30,
+        "migration": "2026_10_30_000905_create_workflow_events_table",
+        "phase": "expand",
+        "checksum": "b5255b1a8a54e71af7b3120ffd7c2c251761696e153bf2b46a6ddda7118264ed",
+        "is_destructive": false,
+        "requires_offline": false
     }
 ]

@@ -63,6 +63,12 @@ deptrac:
     - ../../packages/plugin-sdk/src
     - ../../packages/plugin-sdk/tests
     - ../../packages/testing/src
+    # T-020 step 1. The workflow engine package, registered and collected
+    # for the reason stated above: its files declare
+    # Flexipos\Workflow\Tests\..., so the Package_Workflow_Tests layer
+    # below matches them.
+    - ../../packages/workflow/src
+    - ../../packages/workflow/tests
 
   layers:
     - name: HostApp
@@ -219,6 +225,23 @@ deptrac:
         - type: classLike
           value: ^Flexipos\\Testing\\.*
 
+    # T-020 step 1. The workflow engine: definitions, conditions, approver
+    # resolution, instances, tasks and events. Two layers, the same shape
+    # as eventbus's and organization's: the first pattern excludes
+    # `Tests\`, so a class is in exactly one of them. Its source reaches
+    # only the kernel and the published contracts (Ruling 1) - never
+    # Package_PluginSdk and never Package_Access, which is AC-30's
+    # instrument together with Module_Demo's own omission below.
+    - name: Package_Workflow
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Workflow\\(?!Tests\\).*
+
+    - name: Package_Workflow_Tests
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Workflow\\Tests\\.*
+
   # A module layer may depend only on shared packages/* layers — never on another
   # module layer. packages/* layers depend on nothing (`~`).
   ruleset:
@@ -234,6 +257,7 @@ deptrac:
       - Package_Platform
       - Package_PluginSdk
       - Package_Testing
+      - Package_Workflow
 
     # The host's tests may use the host application and the shared packages.
     # No Module_* layer appears here on purpose: see the layer comment above.
@@ -259,6 +283,8 @@ deptrac:
       - Package_PluginSdk
       - Package_PluginSdk_Tests
       - Package_Testing
+      - Package_Workflow
+      - Package_Workflow_Tests
 
     # Package_Access is deliberately absent, and the omission is AC-11's
     # instrument: a module reaching into the access tables' own classes is a
@@ -280,6 +306,11 @@ deptrac:
     # through Flexipos\Contracts\Plugins, never through plugin-sdk's
     # internals. Measured: nothing in modules/demo referenced
     # Flexipos\PluginSdk before this edit.
+    #
+    # T-020 step 1: Package_Workflow is deliberately NOT granted here
+    # either, and that omission is AC-30's instrument - a module may reach
+    # the workflow engine only through Flexipos\Contracts\Workflow, never
+    # through the engine's internals.
     Module_Demo:
       - Package_Auth
       - Package_Contracts
@@ -388,3 +419,20 @@ deptrac:
       - Package_Access
       - Package_Eventbus
     Package_Testing: ~
+    # T-020 step 1 (plan Ruling 1). Source reaches the kernel and the
+    # published contracts only - never Package_PluginSdk and never
+    # Package_Access (Ruling 6a's RoleHolders contract is how it reaches
+    # access instead).
+    Package_Workflow:
+      - Package_Kernel
+      - Package_Contracts
+    # This package's tests may additionally reach
+    # Flexipos\Access\Tests\Support\AccessTenantFixture and AccessSeed -
+    # the same eventbus-tests/plugin-sdk-tests precedent - because the
+    # fixture tenant it builds on is access's, not a tenant this package
+    # owns one of.
+    Package_Workflow_Tests:
+      - Package_Workflow
+      - Package_Contracts
+      - Package_Kernel
+      - Package_Access

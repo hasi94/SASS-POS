@@ -533,6 +533,13 @@ function tenantTreeTables(): array
         'roles',
         'terminal_credentials',
         'terminals',
+        // T-020 step 3: the five workflow-engine tables (docs/database.md
+        // section 6.15).
+        'workflow_definitions',
+        'workflow_events',
+        'workflow_instances',
+        'workflow_steps',
+        'workflow_tasks',
     ]);
 
     sort($tables);

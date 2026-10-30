@@ -66,5 +66,8 @@ parameters:
         - ../../packages/plugin-sdk/src
         - ../../packages/plugin-sdk/tests
         - ../../packages/testing/src
+        # T-020, source and tests.
+        - ../../packages/workflow/src
+        - ../../packages/workflow/tests
 
     tmpDir: storage/framework/cache/phpstan

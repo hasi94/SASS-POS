@@ -10,6 +10,7 @@ use Flexipos\Kernel\Tenancy\TenancyServiceProvider;
 use Flexipos\Organization\OrganizationServiceProvider;
 use Flexipos\Platform\PlatformServiceProvider;
 use Flexipos\PluginSdk\PluginSdkServiceProvider;
+use Flexipos\Workflow\WorkflowServiceProvider;
 
 return [
     AppServiceProvider::class,
@@ -22,4 +23,5 @@ return [
     PlatformServiceProvider::class,
     EventbusServiceProvider::class,
     PluginSdkServiceProvider::class,
+    WorkflowServiceProvider::class,
 ];

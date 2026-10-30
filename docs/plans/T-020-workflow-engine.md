@@ -535,11 +535,11 @@ The rules carried over from T-019:
 - **Vocabulary.** Describe the retired module word; never write it (`QaVocabularyRenameSweepTest`).
 - **Unique basenames** across the repository (`ToolchainGroupBindingTest`). That is why the files are named `WorkflowPipelineTest` and `WorkflowTenantSchemaTest`.
 
-- [ ] **Step 0: baseline.**
+- [x] **Step 0: baseline.**
   - Run `composer check` and record the passed, failed and skipped counts, the seconds the test step took, the FP-328 headroom line and the process list.
   - *(No AC.)*
 
-- [ ] **Step 1: package plumbing.**
+- [x] **Step 1: package plumbing.**
   - Create `packages/workflow/composer.json` and an empty `WorkflowServiceProvider`.
   - Make the section 5 edits to `deptrac.yaml`, `phpstan.neon.dist` and `composer.json`, then `composer update flexipos/workflow`.
   - Register the provider in `bootstrap/providers.php` after `PluginSdkServiceProvider`.
@@ -549,7 +549,7 @@ The rules carried over from T-019:
   - **Predicted red:** `QaToolchainRegistryCoverageTest`, until its literal is edited. Nothing else.
   - *(AC-30 instrument.)*
 
-- [ ] **Step 2: contracts.**
+- [x] **Step 2: contracts.**
   - Create the Ruling 2 files.
   - **Tests in `packages/workflow/tests/Contracts/`:**
     - `WorkflowEntityTypeTest`: exactly 14 values, in §6.15's order (AC-1 vocabulary);
@@ -557,7 +557,7 @@ The rules carried over from T-019:
     - `WorkflowDecisionTest`: `requiresApproval()` both ways.
   - *(Groundwork for AC-1, AC-5 and AC-13.)*
 
-- [ ] **Step 3: the five tenant migrations.**
+- [x] **Step 3: the five tenant migrations.**
   - Create the Ruling 11 files.
   - **Edits (section 9):**
     - republish the catalogue;
@@ -578,7 +578,7 @@ The rules carried over from T-019:
   - **Predicted red:** the six files above, plus `SchemaCataloguePublishTest`, which the republish fixes. Anything else is a stop.
   - *(AC-1, AC-2 schema half, AC-3, AC-4 stand-in half, AC-22 schema half.)*
 
-- [ ] **Step 4: the `RoleHolders` contract in access.**
+- [x] **Step 4: the `RoleHolders` contract in access.**
   - Create `DatabaseRoleHolders` and bind it in `AccessServiceProvider`.
   - **`DatabaseRoleHoldersTest`, using `AccessSeed`:**
     - holders of one role and of two roles, with the qualifying role being the smallest id;
@@ -591,7 +591,7 @@ The rules carried over from T-019:
   - **Predicted red:** none. Every existing access test stays green untouched.
   - *(AC-9 resolution source.)*
 
-- [ ] **Step 5: the condition model (pure).**
+- [x] **Step 5: the condition model (pure).**
   - Create `Condition`, `ConditionOperator`, `ConditionEvaluator` and `DecimalComparator`.
   - **`DecimalComparatorTest`:**
     - `"1000"` < `"1000.0001"`;
@@ -606,7 +606,7 @@ The rules carried over from T-019:
     - every row of Ruling 4's table, including the type-mismatch throws, and `in` / `not_in` with mixed numeric and string elements.
   - *(AC-5 to AC-7.)*
 
-- [ ] **Step 6: definitions.**
+- [x] **Step 6: definitions.**
   - Create `DefinitionValidator`, `WorkflowDefinitionRefused`, the `RegisterWorkflowDefinition` and `ListWorkflowDefinitions` slices, their commands, and `FixtureApproval`.
   - **`DefinitionValidatorTest`. Every case asserts the named constructor, never just "throws":**
     - one case per required field, through a dataset;
@@ -630,7 +630,7 @@ The rules carried over from T-019:
   - **`ListWorkflowDefinitionsTest` and the command tests (AC-23):** an active row, an inactive row and a soft-deleted row. The first two are listed with their `is_active` value and the soft-deleted one is absent. Exit codes are checked.
   - *(AC-2, AC-3, AC-8, AC-22 write half, AC-23.)*
 
-- [ ] **Step 7: approvers, quorum and step activation.**
+- [x] **Step 7: approvers, quorum and step activation.**
   - Create `ApproverResolver`, `QuorumRule`, `StepState`, `StepActivator`, `WorkflowEventLog`, `WorkflowEventType` and `TaskStatus`.
   - **`QuorumRuleTest` (AC-10):** every row of Ruling 7's table, plus `n=1` for each quorum.
   - **`ApproverResolverTest`:**
@@ -643,7 +643,7 @@ The rules carried over from T-019:
     - **AC-12:** an empty set writes zero tasks and records `unassignable_step` in the activating event's `data`.
   - *(AC-9 resolution, AC-10, AC-12.)*
 
-- [ ] **Step 8: `evaluate()`.**
+- [x] **Step 8: `evaluate()`.**
   - Create the `EvaluateWorkflow` slice, `DefinitionSelector`, `WorkflowEngine::evaluate` and the bindings.
   - **`EvaluateWorkflowTest`**, using `FixtureApproval` defined for `tenant-a` with the threshold 1000:
     - **AC-14, no match:**
@@ -668,7 +668,7 @@ The rules carried over from T-019:
     - **AC-9, membership timing:** instance 1 is created; E5 is then assigned to role one; instance 2's step-1 tasks include E5 and instance 1's are unchanged.
   - *(AC-6, AC-9, AC-14, AC-15, AC-16.)*
 
-- [ ] **Step 9: `decide()`.**
+- [x] **Step 9: `decide()`.**
   - Create the `DecideWorkflowTask` slice and command, and `WorkflowEngine::decide`.
   - **`DecideWorkflowTaskTest`:**
     - **AC-17:** after E1 approves, the task holds `decided_by`, `decided_at` from the fixed clock and the comment. Deciding the same task again, approve or reject, gives `taskNotPending`, and the row is unchanged.
@@ -693,7 +693,7 @@ The rules carried over from T-019:
     - a refusal exits 1 and prints the reason.
   - *(AC-10, AC-11, AC-12, AC-17 to AC-20, AC-25.)*
 
-- [ ] **Step 10: cancelling and the instance read.**
+- [x] **Step 10: cancelling and the instance read.**
   - Create the `CancelWorkflowInstance` slice and command, `InstanceReader`, and `WorkflowEngine::instance` and `cancel`.
   - **`CancelWorkflowInstanceTest` (AC-21):**
     - `cancelled`, `completed_at` stamped, the pending tasks `skipped`, one `cancelled` event with the actor, the comment and the skipped ids;
@@ -702,7 +702,7 @@ The rules carried over from T-019:
   - The `instance()` read of an unknown id gives `WorkflowActionRefused` with the reason `unknownInstance`.
   - *(AC-19 read, AC-21.)*
 
-- [ ] **Step 11: the operator reads.**
+- [x] **Step 11: the operator reads.**
   - Create the `ListPendingWorkflowTasks` and `ShowWorkflowHistory` slices and commands.
   - **`ListPendingWorkflowTasksTest` (AC-24):**
     - every listed column is present;
@@ -712,7 +712,7 @@ The rules carried over from T-019:
   - **`ShowWorkflowHistoryTest`:** the header and every event in order; a stalled instance prints its unassigned step.
   - *(AC-24; operator history.)*
 
-- [ ] **Step 12: proof of pipeline.**
+- [x] **Step 12: proof of pipeline.**
   - **`packages/workflow/tests/Pipeline/WorkflowPipelineTest.php` (AC-27).** The header says this is a proof-of-pipeline fixture, not a business workflow. The test:
     1. seeds the chain;
     2. runs `workflow:define` on a temporary file holding `FixtureApproval::json(...)`;
@@ -727,7 +727,7 @@ The rules carried over from T-019:
     11. **reject path:** a third entity, rejected at step 2 by E3, becomes `rejected`.
   - *(AC-27.)*
 
-- [ ] **Step 13: the engine test, ready to lift (AC-4).**
+- [x] **Step 13: the engine test, ready to lift (AC-4).**
   - **`modules/host/tests/Engine/WorkflowSchemaEngineTest.php`,** in `PluginSchemaEngineTest`'s shape, on the reserved name `flexipos_t8test_t020_tenant`:
     - **Under the hold:** `EngineOnHold`. This case is skipped once the hold is cleared.
     - **Once lifted** (skipped under the hold):
@@ -740,7 +740,7 @@ The rules carried over from T-019:
   - The skip count rises by exactly 1.
   - *(AC-4 stays NOT VERIFIED.)*
 
-- [ ] **Step 14: close-out sweeps (`qa`-accountable files, written by `dev`).**
+- [x] **Step 14: close-out sweeps (`qa`-accountable files, written by `dev`).**
   - **`QaWorkflowSourceRulesTest`.** It has its own helpers and calls nothing in another `Qa*` file. It asserts that each directory it scans exists. **Every rule has a planted control:**
     - **AC-13, AC-31:** no file under `packages/workflow/src` names `Flexipos\Contracts\Plugins`, `HookGateway` or `Flexipos\PluginSdk`, whether in a `use` or a string.
     - **Ruling 3:** `EvaluateWorkflowHandler.php` and `WorkflowEngine.php` contain no `catch` block whose body returns. The planted control is a catch that returns `NotRequired`.
@@ -761,7 +761,7 @@ The rules carried over from T-019:
   - **AC-31:** `qa` records that `git diff --stat main...HEAD -- packages/plugin-sdk packages/contracts/src/Plugins` is empty, and that `HookModeTest` is unchanged and green. This is recorded, not committed as a test, because it would need a child process.
   - *(AC-13, AC-22, AC-26, AC-28, AC-30, AC-31.)*
 
-- [ ] **Step 15: docs.** Describe; do not quote retired wording.
+- [x] **Step 15: docs.** Describe; do not quote retired wording.
   - **`docs/database.md` §6.15:** an "As built (T-020)" note covering:
     - the VARCHAR enums;
     - the `actor_employee_id` foreign key;

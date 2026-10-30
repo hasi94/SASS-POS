@@ -357,6 +357,21 @@ it('holds exactly the declared foreign keys, and the branch keys of T-014 (AC-3,
         'terminals.branch_id -> branches.id',
         'terminals.current_device_id -> devices.id',
         'terminals.location_id -> locations.id',
+        // T-020 step 3: the 14 workflow-engine foreign keys (Ruling 11).
+        'workflow_definitions.created_by -> employees.id',
+        'workflow_definitions.updated_by -> employees.id',
+        'workflow_events.actor_employee_id -> employees.id',
+        'workflow_events.instance_id -> workflow_instances.id',
+        'workflow_events.task_id -> workflow_tasks.id',
+        'workflow_instances.branch_id -> branches.id',
+        'workflow_instances.definition_id -> workflow_definitions.id',
+        'workflow_instances.requested_by -> employees.id',
+        'workflow_steps.definition_id -> workflow_definitions.id',
+        'workflow_tasks.assignee_employee_id -> employees.id',
+        'workflow_tasks.assignee_role_id -> roles.id',
+        'workflow_tasks.decided_by -> employees.id',
+        'workflow_tasks.delegated_to -> employees.id',
+        'workflow_tasks.instance_id -> workflow_instances.id',
     ]);
 
     // AC-3, said as a property rather than as a consequence of the list above:
@@ -373,6 +388,9 @@ it('holds exactly the declared foreign keys, and the branch keys of T-014 (AC-3,
 
     expect($referencing)->toBe([
         'employee_branches', 'employee_permissions', 'employee_roles', 'locations', 'number_sequences', 'terminals',
+        // T-020 step 3: workflow_instances.branch_id joins the list of
+        // tables with a key to branches.
+        'workflow_instances',
     ])->and(tenantStandInTables())->toContain('branches');
 });
 
