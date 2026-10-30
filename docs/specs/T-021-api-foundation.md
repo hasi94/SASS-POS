@@ -1,7 +1,7 @@
 # T-021: API foundation
 
 Backlog: FP-215, "Envelope, error codes, idempotency, rate limits, OpenAPI, health endpoints"
-(dependency FP-201, done). Decisions D-1 to D-15 are in `docs/decisions/T-021-api-foundation.md`.
+(dependency FP-201, done). Decisions D-1 to D-22 are in `docs/decisions/T-021-api-foundation.md`.
 **No BLOCKING questions** — autonomous/team-mode work; every open design question was decided and logged.
 
 Convention, following T-018 to T-020: every criterion is provable on a deterministic fixture while a
@@ -32,7 +32,7 @@ auth, access, organization or platform endpoint bodies (D-1) and invents no busi
   machine-readable error codes to translate, `Retry-After` on throttling, and safe retries.
 - Operators and orchestrators: liveness and readiness probes that report real dependency state.
 - Integrators and testers: a generated, machine-readable description of the API.
-- Not served: no existing endpoint changes behaviour (D-1); no UI is built.
+- Not served: no existing endpoint changes its body or status below the rate limit (D-1, D-16); no UI is built.
 
 ## Current behaviour
 
@@ -94,14 +94,14 @@ Re-derived from the files:
   `X-Request-Id` response header of the same response, and equals the value `RequestId::current()`
   returns during that request.
 - AC-5: Given the envelope helper is used, When a status is chosen, Then it is the status the catalogue
-  holds for the (first) error code; a success uses 200, 201 (created) or 204-equivalent as the caller
-  requests, and the envelope never returns `success: true` with a 4xx or 5xx status or the reverse.
+  holds for the (first) error code; a success uses 200 or 201 (created) as the caller requests (an empty
+  success is 200 with `data: null`, never 204), and the envelope never returns `success: true` with a 4xx or 5xx status or the reverse.
 - AC-6: Given a request to any `api/*` path raises one of: unknown route (404), wrong method (405),
   validation failure (422), unauthenticated (401), forbidden (403), too many requests (429), or an
   uncaught exception (500), When the framework renders it, Then the body is the failure envelope with
   the matching catalogue code and status (see AC-9 for the code list), never the framework default shape.
 - AC-7: Given a 422 validation failure with N invalid fields, When rendered, Then `errors` has one
-  entry per failing rule-set per field, `code` is the validation code, `field` is the input name
+  entry per invalid field carrying its first message, `code` is the validation code, `field` is the input name
   (dot notation for nested input), and `detail` is the human message.
 - AC-8: Given an uncaught exception on an `api/*` path with `APP_DEBUG=false`, When rendered, Then
   status is 500, `errors[0].code` is the server-error code, `detail` is a fixed generic sentence, and
@@ -124,7 +124,7 @@ Re-derived from the files:
 - AC-12: Given the envelope helper is asked to emit a code not in the catalogue, When it runs, Then it
   throws in development/test and, in production, emits `kernel.server_error` and logs the unknown code
   (a typo must not reach a client as an unmapped string).
-- AC-13: Given a module is not booted (`SERVICES` omits it), When the catalogue is read, Then that
+- AC-13: Given a module is not booted (the `MODULES` environment variable omits it), When the catalogue is read, Then that
   module's codes are absent; booting a module registers its codes through the same single entry point.
 - AC-14: Given the catalogue, When a console command (`api:error-codes`) is run, Then it prints every
   code with its module, HTTP status and default message, sorted by code, and the same list is embedded
@@ -217,8 +217,14 @@ Re-derived from the files:
   (the default, D-11), the path answers 404 with the failure envelope, so production does not publish
   its API map.
 - AC-40: Given a route with no per-route request/response schema declared, When documented, Then it is
-  still listed with the envelope as its response shape; declaring detailed body schemas per endpoint is
-  incremental, not required by this task (D-12).
+  still listed; declaring detailed body schemas per endpoint is incremental, not required by this task
+  (D-12). Operations whose handlers still return a legacy body (auth, terminal, access, organization,
+  platform; D-1) carry `x-flexipos-legacy-body: true` and are not described as returning the envelope
+  until FP-369 migrates them. The OpenAPI tag is the first URI segment after `api/v1` (so `terminal`
+  for the terminal routes declared by the auth package); the docs route is tagged `kernel`.
+- AC-40a: Given the catalogue, When listed, Then it also holds `kernel.bad_request` 400 and
+  `kernel.payload_too_large` 413; other 4xx statuses render as 400 and other 5xx statuses except 503
+  render as 500.
 
 ### F. Health endpoints
 
@@ -241,9 +247,11 @@ Re-derived from the files:
 - AC-46: Given the tenant-schema-behind condition of T-003 for some tenants, When `/health/ready` is
   requested, Then readiness is not affected: a single lagging tenant must not drain the whole host
   (D-14); that condition remains reported by `tenant:schema-status`.
-- AC-47: Given the existing health tests (`HealthEndpointTest`, `QaHealthProbeResilienceTest`), When the
-  suite runs, Then they still pass: the `status` and `modules` keys keep their names and the routes
-  stay outside the `web` group.
+- AC-47: Given the existing readiness tests (`HealthEndpointTest`, `QaHealthProbeResilienceTest`,
+  `UnlistedModuleReturns404Test`, `ModuleMakeGeneratedModuleReachableTest`,
+  `ModuleRegistryManifestTrustTest`, `ModulesEnvParsingTest`; nine exact-JSON assertions), When their
+  expected JSON gains the `checks` object, Then they pass: the `status` and `modules` keys keep their
+  names and values and the routes stay outside the `web` group.
 
 ### G. Non-regression
 
@@ -254,7 +262,22 @@ Re-derived from the files:
 - AC-49: Given any non-`api/*` request (web, console), When it fails, Then it renders as it does today;
   the envelope renderer is scoped to paths beginning `api/`.
 - AC-50: Given the demo `api/v1/demo/ping` route, When requested, Then it returns the success envelope
-  (it is the in-repo example of correct usage) and its existing test is updated to the new body.
+  (it is the in-repo example of correct usage). Every test and generator stub that pins the old ping body
+  is updated to the new one: the ping's own test, `ModuleMakeGeneratedModuleReachableTest`,
+  `ModuleRegistryManifestTrustTest`, `QaAtomicGenerationProofTest`, `QaManifestTrustAttackTest`, and the
+  two `module:make` stubs (`ModuleMakeDemoRegenerationTest` requires the stubs to follow the demo).
+- AC-51: Given `QaActivationCodeSecrecyTest`, When the envelope replaces the framework 404 (whose
+  `message` echoed the request path and so an activation code in it), Then the test is strengthened to
+  assert the response body contains no copy of the code; the envelope's 404 never echoes the path.
+- AC-52: Given the limiter now applies to every existing `api/*` route (AC-28 to AC-32), When an existing
+  endpoint is called below its limit, Then its status and body are unchanged and it additionally carries
+  `X-RateLimit-*` headers; `TerminalActivationHttpTest`'s byte-identical header comparison ignores
+  `x-ratelimit-remaining` (as it already ignores `x-request-id`).
+- AC-53: Given a terminal token, When limited, Then it is counted against the tenant and terminal buckets
+  only (no user bucket); given a platform token, Then only a user bucket applies.
+- AC-54: Given the idempotency request hash, When computed, Then it covers method, path, actor and body
+  and excludes the query string; given a claim left in flight (null stored status) for more than 120
+  seconds, Then a new request with that key may take it over.
 
 ## Out of scope
 
