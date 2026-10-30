@@ -1,5 +1,6 @@
 <?php
 
+use Flexipos\Access\Tests\Support\AccessSeed;
 use Flexipos\Access\Tests\Support\AccessTenantFixture;
 use Flexipos\Contracts\Workflow\WorkflowContext;
 use Flexipos\Contracts\Workflow\WorkflowEntityType;
@@ -178,6 +179,56 @@ it('throws ambiguousDefinitions when two definitions match at the same priority'
     } catch (WorkflowEvaluationFailed $e) {
         expect($e->cause)->toBe('ambiguousDefinitions');
     }
+});
+
+it('resolves approvers at step-activation time, not at definition time: a membership change after instance 1 is seen by instance 2 only (AC-9)', function () {
+    $chain = workflowSeedChain();
+    wfDefineFixture($chain['roleOne'], $chain['roleTwo']);
+
+    $first = app(WorkflowGate::class)->evaluate(WorkflowEntityType::Custom, wfContext($chain['requester'], '5000'));
+
+    $e5 = AccessSeed::employee('e5');
+    AccessSeed::assign($e5, $chain['roleOne']);
+
+    $second = app(WorkflowGate::class)->evaluate(WorkflowEntityType::Custom, wfContext($chain['requester'], '5000'));
+
+    $tenant = app(TenantConnection::class)->get();
+
+    $firstAssignees = $tenant->table('workflow_tasks')->where('instance_id', $first->instanceId)->pluck('assignee_employee_id')->all();
+    $secondAssignees = $tenant->table('workflow_tasks')->where('instance_id', $second->instanceId)->pluck('assignee_employee_id')->all();
+
+    expect($firstAssignees)->not->toContain($e5)
+        ->and($secondAssignees)->toContain($e5);
+});
+
+it('fails closed on a branch-scoped definition when the context carries no branch, and matches only the branch named (Ruling 4)', function () {
+    $chain = workflowSeedChain();
+    $branchA = AccessSeed::branch();
+    $branchB = AccessSeed::branch();
+
+    app(RegisterWorkflowDefinitionHandler::class)->handle(new RegisterWorkflowDefinition(
+        json_encode(array_merge(json_decode(FixtureApproval::json($chain['roleOne'], $chain['roleTwo']), true), [
+            'key' => 'fixture-branch-scoped',
+            'branch_ids' => [$branchA],
+        ])),
+    ));
+
+    // Another branch: the definition does not match, no error.
+    $other = app(WorkflowGate::class)->evaluate(WorkflowEntityType::Custom, new WorkflowContext((string) Str::ulid(), $chain['requester'], $branchB, '5000'));
+    expect($other->outcome)->toBe(WorkflowOutcome::NotRequired);
+
+    // No branch at all: fails closed, never a silent non-match.
+    try {
+        app(WorkflowGate::class)->evaluate(WorkflowEntityType::Custom, wfContext($chain['requester'], '5000'));
+        $this->fail('Expected WorkflowEvaluationFailed.');
+    } catch (WorkflowEvaluationFailed $e) {
+        expect($e->cause)->toBe('conditionNotEvaluable');
+    }
+
+    // The named branch: matches.
+    $matched = app(WorkflowGate::class)->evaluate(WorkflowEntityType::Custom, new WorkflowContext((string) Str::ulid(), $chain['requester'], $branchA, '5000'));
+    expect($matched->outcome)->toBe(WorkflowOutcome::Pending)
+        ->and($matched->definitionKey)->toBe('fixture-branch-scoped');
 });
 
 it('refuses a second evaluate while an instance is pending, and allows one after a cancel (Ruling 9)', function () {
