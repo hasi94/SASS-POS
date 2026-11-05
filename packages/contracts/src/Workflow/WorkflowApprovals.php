@@ -18,6 +18,10 @@ interface WorkflowApprovals
      *
      * @throws WorkflowActionRefused `unknownTask`, `instanceClosed`,
      *                               `taskNotPending`, `notAssignee`
+     * @throws WorkflowEvaluationFailed `approverTypeUnavailable`,
+     *                                  `definitionCorrupt` - when a vote
+     *                                  advances to the next step and that
+     *                                  step cannot be resolved or read back
      */
     public function decide(string $taskId, string $actorEmployeeId, WorkflowVerdict $verdict, ?string $comment = null): WorkflowInstanceState;
 }
