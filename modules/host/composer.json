@@ -134,21 +134,22 @@
         },
         "flexipos": {
             "gate": {
-                "cache-cold-slowest-step-seconds": 106,
+                "cache-cold-slowest-step-seconds": 1232,
+                "cache-cold-slowest-step-seconds-provenance": "2026-11-05, lead (ported from T-020's own FP-328 fix, ai/T-020-workflow-engine commits bb52ac3/3e0e9cd/2fb3a2b/b122ffc, before this branch was rebased onto T-020's final tip). The slowest step is no longer a cold-cache toolchain step (the original 106s figure): it is now the `test` step itself, at 1232.06s warm, measured with COMPOSER_PROCESS_TIMEOUT=2400 after the gate's own 900s limit killed the step outright (FLEXIPOS-GATE-TIMEOUT, elapsed=883.42s, no result produced). Test-suite growth across T-016 through T-020 is the cause, not toolchain cache state - this field's name now undersells what it measures, but is kept for continuity with `remeasure-with` below, and with GateStepTimerTest's AC-2 formula (limit >= headroom-factor x machine-cold-factor x this value), which is still read against this field regardless of what actually made it the slowest.",
                 "machine-cold-slowest-step-seconds": null,
                 "machine-cold-factor": 3,
                 "machine-cold-factor-provenance": "D-12, rounded up from the session's first whole-gate run at 240.87s [state: MACHINE-COLD] against 87.34s [state: WARM], 2026-10-07, dev. A whole-gate figure, not a per-process one, which is why it is a factor here and not a duration: machine-cold-slowest-step-seconds stays null until someone measures one step that way.",
                 "headroom-factor": 2,
-                "measured-on": "2026-10-07",
-                "measured-by": "dev, T-007 step 0",
-                "remeasure-with": "in modules/host: delete storage/framework/cache/phpstan and storage/framework/cache/.deptrac.cache, then time each of composer probes:clean, composer lint, composer stan, composer deptrac and composer test, and take the largest wall time"
+                "measured-on": "2026-11-05",
+                "measured-by": "lead, autonomous T-020 close-out (FP-328 escalated from a low-headroom warning to an actual FLEXIPOS-GATE-TIMEOUT); ported onto this branch the same day",
+                "remeasure-with": "in modules/host: delete storage/framework/cache/phpstan and storage/framework/cache/.deptrac.cache, then time each of composer probes:clean, composer lint, composer stan, composer deptrac and composer test, and take the largest wall time. As of 2026-11-05 that is always `test`, and its growth with the suite - not toolchain cache state - is the real constraint; consider splitting the test step (e.g. toolchain group already runs separately) before raising this limit again. The shipped limit must clear headroom-factor x machine-cold-factor x cache-cold-slowest-step-seconds (GateStepTimerTest enforces this as AC-2) - 2 x 3 x 1232 = 7392. GateStepTimerTest actually asserts this against the *budget* (limit minus the reserve of max(2, ceil(limit * 0.02))), not the raw limit, so the limit needs slack to absorb that reserve too - 7500 left a budget of 7350, 42 short; 7600 cleared the budget (7448) but was not a multiple of 300, a separate structural check the same test enforces. 7800 clears all three constraints, leaving a budget of 7644."
             }
         }
     },
     "config": {
         "optimize-autoloader": true,
         "preferred-install": "dist",
-        "process-timeout": 900,
+        "process-timeout": 7800,
         "sort-packages": true,
         "allow-plugins": {
             "pestphp/pest-plugin": true,
