@@ -28,13 +28,12 @@ final class ListWorkflowDefinitionsCommand extends Command
 
         $rows = $tenancy->run((string) $tenantId, fn () => $handler->handle(new ListWorkflowDefinitions));
 
-        foreach ($rows as $row) {
-            $status = $row->is_active ? 'active' : 'inactive';
-
-            $this->components->info(
-                "{$row->key} ({$row->entity_type}, priority {$row->priority}, v{$row->version}): {$status}, {$row->steps} step(s)"
-            );
-        }
+        $this->table(
+            ['Key', 'Name', 'Entity type', 'Active', 'Priority', 'Version', 'Steps'],
+            array_map(static fn (object $row): array => [
+                $row->key, $row->name, $row->entity_type, $row->is_active ? 'yes' : 'no', $row->priority, $row->version, $row->steps,
+            ], $rows)
+        );
 
         return self::SUCCESS;
     }

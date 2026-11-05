@@ -1,6 +1,7 @@
 <?php
 
 use Flexipos\Access\Tests\Support\AccessTenantFixture;
+use Flexipos\Contracts\Workflow\WorkflowApprovals;
 use Flexipos\Contracts\Workflow\WorkflowContext;
 use Flexipos\Contracts\Workflow\WorkflowEntityType;
 use Flexipos\Contracts\Workflow\WorkflowGate;
@@ -135,8 +136,8 @@ it('proves the pipeline end to end: definition, no-match, match, approve chain, 
     $taskE2b = (string) app(TenantConnection::class)->get()->table('workflow_tasks')
         ->where('instance_id', $rejectOne->instanceId)->where('assignee_employee_id', $chain['e2'])->value('id');
 
-    app(WorkflowGate::class)->decide($taskE1b, $chain['e1'], WorkflowVerdict::Reject);
-    $afterReject = app(WorkflowGate::class)->decide($taskE2b, $chain['e2'], WorkflowVerdict::Reject);
+    app(WorkflowApprovals::class)->decide($taskE1b, $chain['e1'], WorkflowVerdict::Reject);
+    $afterReject = app(WorkflowApprovals::class)->decide($taskE2b, $chain['e2'], WorkflowVerdict::Reject);
 
     expect($afterReject->status->value)->toBe('rejected')
         ->and($afterReject->onReject->value)->toBe('stop');
@@ -149,11 +150,11 @@ it('proves the pipeline end to end: definition, no-match, match, approve chain, 
     );
     $taskE1c = (string) app(TenantConnection::class)->get()->table('workflow_tasks')
         ->where('instance_id', $rejectTwo->instanceId)->where('assignee_employee_id', $chain['e1'])->value('id');
-    app(WorkflowGate::class)->decide($taskE1c, $chain['e1'], WorkflowVerdict::Approve);
+    app(WorkflowApprovals::class)->decide($taskE1c, $chain['e1'], WorkflowVerdict::Approve);
 
     $taskE3c = (string) app(TenantConnection::class)->get()->table('workflow_tasks')
         ->where('instance_id', $rejectTwo->instanceId)->where('assignee_employee_id', $chain['e3'])->value('id');
-    $afterStepTwoReject = app(WorkflowGate::class)->decide($taskE3c, $chain['e3'], WorkflowVerdict::Reject);
+    $afterStepTwoReject = app(WorkflowApprovals::class)->decide($taskE3c, $chain['e3'], WorkflowVerdict::Reject);
 
     expect($afterStepTwoReject->status->value)->toBe('rejected');
 

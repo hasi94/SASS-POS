@@ -56,3 +56,18 @@ it('exits 0 from the command', function () {
     workflowEnterTenant();
     expect(Artisan::call('workflow:definitions', ['--tenant' => 'tenant-a']))->toBe(0);
 });
+
+it('prints the name, a column AC-23 requires that the row-per-line format dropped (R-1)', function () {
+    $chain = workflowSeedChain();
+
+    app(RegisterWorkflowDefinitionHandler::class)->handle(new RegisterWorkflowDefinition(
+        FixtureApproval::json($chain['roleOne'], $chain['roleTwo']),
+    ));
+
+    $exitCode = Artisan::call('workflow:definitions', ['--tenant' => 'tenant-a']);
+    $output = Artisan::output();
+
+    expect($exitCode)->toBe(0)
+        ->and($output)->toContain('Proof-of-pipeline fixture - not a business workflow')
+        ->and($output)->toContain('fixture-approval');
+});

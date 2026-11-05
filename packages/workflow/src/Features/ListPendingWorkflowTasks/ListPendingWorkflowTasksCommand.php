@@ -32,11 +32,12 @@ final class ListPendingWorkflowTasksCommand extends Command
             assignee: $assignee === null ? null : (string) $assignee,
         )));
 
-        foreach ($rows as $row) {
-            $this->components->info(
-                "{$row->task} ({$row->definition}, step {$row->step_sequence}): {$row->assignee} [{$row->status}], created {$row->created_at}"
-            );
-        }
+        $this->table(
+            ['Task', 'Instance', 'Definition', 'Step', 'Assignee', 'Status', 'Created'],
+            array_map(static fn (object $row): array => [
+                $row->task, $row->instance_id, $row->definition, $row->step_sequence, $row->assignee, $row->status, $row->created_at,
+            ], $rows)
+        );
 
         return self::SUCCESS;
     }

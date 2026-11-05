@@ -1,6 +1,7 @@
 <?php
 
 use Flexipos\Access\Tests\Support\AccessTenantFixture;
+use Flexipos\Contracts\Workflow\WorkflowApprovals;
 use Flexipos\Contracts\Workflow\WorkflowContext;
 use Flexipos\Contracts\Workflow\WorkflowEntityType;
 use Flexipos\Contracts\Workflow\WorkflowGate;
@@ -11,6 +12,7 @@ use Flexipos\Workflow\Features\RegisterWorkflowDefinition\RegisterWorkflowDefini
 use Flexipos\Workflow\Features\RegisterWorkflowDefinition\RegisterWorkflowDefinitionHandler;
 use Flexipos\Workflow\Support\TenantConnection;
 use Flexipos\Workflow\Tests\Fixtures\FixtureApproval;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -40,7 +42,7 @@ it('lists only pending tasks on pending instances, filters by assignee, and excl
     $taskE1 = (string) app(TenantConnection::class)->get()->table('workflow_tasks')
         ->where('instance_id', $instanceId)->where('assignee_employee_id', $chain['e1'])->value('id');
 
-    app(WorkflowGate::class)->decide($taskE1, $chain['e1'], WorkflowVerdict::Approve);
+    app(WorkflowApprovals::class)->decide($taskE1, $chain['e1'], WorkflowVerdict::Approve);
 
     $rows = app(ListPendingWorkflowTasksHandler::class)->handle(new ListPendingWorkflowTasks);
     $assignees = array_map(static fn (object $r): string => (string) $r->assignee, $rows);
@@ -58,4 +60,21 @@ it('lists only pending tasks on pending instances, filters by assignee, and excl
     $tenantBRows = app(ListPendingWorkflowTasksHandler::class)->handle(new ListPendingWorkflowTasks);
 
     expect($tenantBRows)->toBe([]);
+});
+
+it('prints instance_id, a column AC-24 requires that the row-per-line format dropped (R-1)', function () {
+    workflowEnterTenant('tenant-a');
+    $chain = workflowSeedChain();
+
+    app(RegisterWorkflowDefinitionHandler::class)->handle(new RegisterWorkflowDefinition(
+        FixtureApproval::json($chain['roleOne'], $chain['roleTwo']),
+    ));
+
+    $context = new WorkflowContext((string) Str::ulid(), $chain['requester'], null, '5000');
+    $instanceId = (string) app(WorkflowGate::class)->evaluate(WorkflowEntityType::Custom, $context)->instanceId;
+
+    $exitCode = Artisan::call('workflow:pending', ['--tenant' => 'tenant-a']);
+
+    expect($exitCode)->toBe(0)
+        ->and(Artisan::output())->toContain($instanceId);
 });

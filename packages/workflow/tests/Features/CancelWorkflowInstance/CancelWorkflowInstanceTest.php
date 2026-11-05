@@ -2,6 +2,7 @@
 
 use Flexipos\Access\Tests\Support\AccessTenantFixture;
 use Flexipos\Contracts\Workflow\WorkflowActionRefused;
+use Flexipos\Contracts\Workflow\WorkflowApprovals;
 use Flexipos\Contracts\Workflow\WorkflowContext;
 use Flexipos\Contracts\Workflow\WorkflowEntityType;
 use Flexipos\Contracts\Workflow\WorkflowGate;
@@ -56,7 +57,7 @@ it('cancels a pending instance, skips its pending tasks, and refuses a later dec
 
     try {
         $taskId = (string) $tasks->first()->id;
-        app(WorkflowGate::class)->decide($taskId, $chain['e1'], WorkflowVerdict::Approve);
+        app(WorkflowApprovals::class)->decide($taskId, $chain['e1'], WorkflowVerdict::Approve);
         $this->fail('Expected WorkflowActionRefused.');
     } catch (WorkflowActionRefused $e) {
         expect($e->reason)->toBe('instanceClosed');

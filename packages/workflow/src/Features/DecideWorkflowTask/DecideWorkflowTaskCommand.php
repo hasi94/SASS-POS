@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Workflow\Features\DecideWorkflowTask;
 
 use Flexipos\Contracts\Workflow\WorkflowActionRefused;
+use Flexipos\Contracts\Workflow\WorkflowEvaluationFailed;
 use Flexipos\Contracts\Workflow\WorkflowVerdict;
 use Flexipos\Kernel\Tenancy\Tenancy;
 use Illuminate\Console\Command;
@@ -55,6 +56,10 @@ final class DecideWorkflowTaskCommand extends Command
             )));
         } catch (WorkflowActionRefused $refused) {
             $this->components->error("Refused [{$refused->reason}]: {$refused->getMessage()}");
+
+            return self::FAILURE;
+        } catch (WorkflowEvaluationFailed $failed) {
+            $this->components->error("Refused [{$failed->cause}]: {$failed->getMessage()}");
 
             return self::FAILURE;
         }

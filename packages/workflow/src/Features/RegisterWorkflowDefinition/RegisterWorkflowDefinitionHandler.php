@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flexipos\Workflow\Features\RegisterWorkflowDefinition;
 
+use Flexipos\Contracts\Access\EmployeeDirectory;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Flexipos\Workflow\Definitions\DefinitionValidator;
 use Flexipos\Workflow\Exceptions\WorkflowDefinitionRefused;
@@ -18,6 +19,10 @@ use Illuminate\Support\Str;
  * is the only way any of this handler's writes happen, and
  * `keyAlreadyRegistered` is checked before the insert too - a refusal at
  * any stage writes nothing.
+ *
+ * `--as` (`registeredBy`), when given, is checked with
+ * `EmployeeDirectory::isLive()` and folded to upper case before it is
+ * stored as `created_by`/`updated_by` (Ruling 10).
  */
 final class RegisterWorkflowDefinitionHandler
 {
@@ -25,11 +30,18 @@ final class RegisterWorkflowDefinitionHandler
         private readonly DefinitionValidator $validator,
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
+        private readonly EmployeeDirectory $employees,
     ) {}
 
     public function handle(RegisterWorkflowDefinition $command): RegisterWorkflowDefinitionResult
     {
         $validated = $this->validator->validate($command->json);
+
+        $registeredBy = $command->registeredBy === null ? null : strtoupper($command->registeredBy);
+
+        if ($registeredBy !== null && ! $this->employees->isLive($registeredBy)) {
+            throw WorkflowDefinitionRefused::unknownEmployee($registeredBy);
+        }
 
         // AC-2: counts soft-deleted and inactive rows too.
         $exists = $this->tenant->get()->table('workflow_definitions')
@@ -40,7 +52,7 @@ final class RegisterWorkflowDefinitionHandler
             throw WorkflowDefinitionRefused::keyAlreadyRegistered($validated->key);
         }
 
-        return $this->tenant->get()->transaction(function () use ($validated, $command): RegisterWorkflowDefinitionResult {
+        return $this->tenant->get()->transaction(function () use ($validated, $registeredBy): RegisterWorkflowDefinitionResult {
             $now = $this->clock->timestamp();
             $id = (string) Str::ulid();
 
@@ -49,8 +61,8 @@ final class RegisterWorkflowDefinitionHandler
                 'created_at' => $now,
                 'updated_at' => $now,
                 'deleted_at' => null,
-                'created_by' => $command->registeredBy,
-                'updated_by' => $command->registeredBy,
+                'created_by' => $registeredBy,
+                'updated_by' => $registeredBy,
                 'key' => $validated->key,
                 'name' => $validated->name,
                 'entity_type' => $validated->entityType,

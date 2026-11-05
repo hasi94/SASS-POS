@@ -71,3 +71,70 @@ it('exits 1 and prints the reason on a refusal', function () {
         '--approve' => true,
     ]))->toBe(1);
 });
+
+it('rejects through the command with --comment (S-2 of R-2)', function () {
+    workflowEnterTenant();
+    $chain = workflowSeedChain();
+
+    app(RegisterWorkflowDefinitionHandler::class)->handle(new RegisterWorkflowDefinition(
+        FixtureApproval::json($chain['roleOne'], $chain['roleTwo']),
+    ));
+
+    $context = new WorkflowContext((string) Str::ulid(), $chain['requester'], null, '5000');
+    $instanceId = app(WorkflowGate::class)->evaluate(WorkflowEntityType::Custom, $context)->instanceId;
+
+    $taskId = (string) app(TenantConnection::class)->get()->table('workflow_tasks')
+        ->where('instance_id', $instanceId)->where('assignee_employee_id', $chain['e1'])->value('id');
+
+    tenancy()->leave();
+
+    expect(Artisan::call('workflow:decide', [
+        'task' => $taskId,
+        '--tenant' => 'tenant-a',
+        '--as' => $chain['e1'],
+        '--reject' => true,
+        '--comment' => 'not enough detail',
+    ]))->toBe(0);
+
+    workflowEnterTenant();
+
+    $task = app(TenantConnection::class)->get()->table('workflow_tasks')->where('id', $taskId)->first();
+
+    expect($task->status)->toBe('rejected')
+        ->and($task->comment)->toBe('not enough detail');
+});
+
+it('exits 1 cleanly on a WorkflowEvaluationFailed instead of an uncaught exception (W-4)', function () {
+    workflowEnterTenant();
+    $chain = workflowSeedChain();
+
+    app(RegisterWorkflowDefinitionHandler::class)->handle(new RegisterWorkflowDefinition(
+        FixtureApproval::json($chain['roleOne'], $chain['roleTwo']),
+    ));
+
+    $context = new WorkflowContext((string) Str::ulid(), $chain['requester'], null, '5000');
+    $instanceId = app(WorkflowGate::class)->evaluate(WorkflowEntityType::Custom, $context)->instanceId;
+
+    $tenant = app(TenantConnection::class)->get();
+    $definitionId = (string) $tenant->table('workflow_instances')->where('id', $instanceId)->value('definition_id');
+
+    $tenant->table('workflow_steps')
+        ->where('definition_id', $definitionId)
+        ->where('sequence', 2)
+        ->update(['approver_type' => 'manager_of_requester']);
+
+    $taskId = (string) $tenant->table('workflow_tasks')
+        ->where('instance_id', $instanceId)->where('assignee_employee_id', $chain['e1'])->value('id');
+
+    tenancy()->leave();
+
+    $exitCode = Artisan::call('workflow:decide', [
+        'task' => $taskId,
+        '--tenant' => 'tenant-a',
+        '--as' => $chain['e1'],
+        '--approve' => true,
+    ]);
+
+    expect($exitCode)->toBe(1)
+        ->and(Artisan::output())->toContain('approverTypeUnavailable');
+});

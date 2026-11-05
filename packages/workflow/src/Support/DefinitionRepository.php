@@ -16,8 +16,16 @@ use ValueError;
 
 /**
  * Reads `workflow_definitions`/`workflow_steps` back into the same value
- * types a fresh `DefinitionValidator::validate()` would build, re-validated
- * on read (T-008/T-019 precedent, T-020 Ruling 3's `definitionCorrupt`).
+ * types a fresh `DefinitionValidator::validate()` would build.
+ *
+ * **This decodes and enum-checks on read; it does not re-run the
+ * validator.** `approver_type`, `quorum`, `operator` and `on_reject` are
+ * checked against their enums, and `conditions` is checked to be valid
+ * JSON - any failure throws `definitionCorrupt` (T-020 Ruling 3). The
+ * validator's value rules, the `approver_ref` shape checks, and the
+ * `branch_ids` list-shape check are **not** re-run here; those stay
+ * write-time-only, via `DefinitionValidator`, which is fine because
+ * nothing else writes these tables (T-008/T-019 precedent).
  */
 final class DefinitionRepository
 {

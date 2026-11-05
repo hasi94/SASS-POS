@@ -6,6 +6,7 @@ use Flexipos\Workflow\Features\RegisterWorkflowDefinition\RegisterWorkflowDefini
 use Flexipos\Workflow\Features\RegisterWorkflowDefinition\RegisterWorkflowDefinitionHandler;
 use Flexipos\Workflow\Support\TenantConnection;
 use Flexipos\Workflow\Tests\Fixtures\FixtureApproval;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 uses(TestCase::class);
@@ -106,6 +107,36 @@ it('stores sla_hours and escalate_to given in the file (AC-22)', function () {
 
     expect((int) $step->sla_hours)->toBe(48)
         ->and(json_decode((string) $step->escalate_to, true))->toBe(['roles' => [$chain['roleTwo']]]);
+});
+
+it('folds a lower-case --as to upper case before it is stored (Ruling 10)', function () {
+    $chain = workflowSeedChain();
+
+    $result = app(RegisterWorkflowDefinitionHandler::class)->handle(new RegisterWorkflowDefinition(
+        FixtureApproval::json($chain['roleOne'], $chain['roleTwo']),
+        registeredBy: strtolower($chain['requester']),
+    ));
+
+    $row = app(TenantConnection::class)->get()->table('workflow_definitions')->where('id', $result->id)->first();
+
+    expect($row->created_by)->toBe(strtoupper($chain['requester']))
+        ->and($row->updated_by)->toBe(strtoupper($chain['requester']));
+});
+
+it('refuses an unknown or not-live --as with a clean refusal, not a raw QueryException (W-6)', function () {
+    $chain = workflowSeedChain();
+
+    try {
+        app(RegisterWorkflowDefinitionHandler::class)->handle(new RegisterWorkflowDefinition(
+            FixtureApproval::json($chain['roleOne'], $chain['roleTwo']),
+            registeredBy: (string) Str::ulid(),
+        ));
+        $this->fail('Expected WorkflowDefinitionRefused.');
+    } catch (WorkflowDefinitionRefused $e) {
+        expect($e->reason)->toBe('unknownEmployee');
+    }
+
+    expect(app(TenantConnection::class)->get()->table('workflow_definitions')->count())->toBe(0);
 });
 
 it('writes nothing when the definition is refused at any stage', function () {
