@@ -127,6 +127,12 @@ function activationWire($response): array
     // refusal contract this test is about.
     unset($headers['x-request-id']);
 
+    // T-021 D-16, AC-52: the limiter now applies to every existing api/*
+    // route, including this one, and x-ratelimit-remaining varies per
+    // request - the same reason x-request-id is unset above.
+    // x-ratelimit-limit stays compared: it does not vary across these cases.
+    unset($headers['x-ratelimit-remaining']);
+
     ksort($headers);
 
     return ['status' => $response->getStatusCode(), 'body' => (string) $response->getContent(), 'headers' => $headers];

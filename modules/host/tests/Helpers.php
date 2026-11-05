@@ -522,6 +522,8 @@ function tenantTreeTables(): array
         'employee_permissions',
         'employee_roles',
         'employees',
+        // T-021 AC-26: the idempotency store (docs/database.md section 6.21).
+        'idempotency_keys',
         'locations',
         'permissions',
         // T-019 step 4: the tenant-side plugin data tables

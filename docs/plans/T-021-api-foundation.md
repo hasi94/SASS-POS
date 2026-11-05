@@ -411,7 +411,7 @@ Section 9 lists every edited file with its cause.
 
 Run every command from `modules/host`. Section 7 has the full commands. **Red-list rule:** after each step, run the step's own tests plus every test file section 9 names for that step. Stop on any red file that section 9 does not predict.
 
-- [ ] **Step 1: workspace and baseline.**
+- [x] **Step 1: workspace and baseline.**
   - **`vendor/` is absent in this worktree** (measured). Run `composer install`, then `php artisan config:clear`.
   - Record a baseline. Run these files alone, because they are in FP-316's rotating cluster, so a red one in the full run is not automatically this task's:
     - `QaHealthProbeResilienceTest`;
@@ -420,7 +420,7 @@ Run every command from `modules/host`. Section 7 has the full commands. **Red-li
     - `QaModuleNameValidationTest`.
   - Note the T-020 round-1 fix commits on the parent branch. Do not merge them; that is for the lead.
 
-- [ ] **Step 2: the catalogue and the envelope.** Covers AC-1 to AC-5, AC-9 to AC-13 and AC-15.
+- [x] **Step 2: the catalogue and the envelope.** Covers AC-1 to AC-5, AC-9 to AC-13 and AC-15.
   - Create every `src/Api/*.php` file in section 3 except the `Idempotency/` and `Features/` ones.
   - Register `Flexipos\Kernel\Api\ApiServiceProvider::class` in `bootstrap/providers.php`, after `SchemaServiceProvider`.
   - **Test `packages/kernel/tests/Api/ErrorCatalogueTest.php`** (with `uses(TestCase::class)`). It covers:
@@ -439,7 +439,7 @@ Run every command from `modules/host`. Section 7 has the full commands. **Red-li
     - one `info` log line on failure, with no detail in it.
   - **Gate slice:** `composer stan` and `composer deptrac`.
 
-- [ ] **Step 3: configuration and limits.** Covers AC-33.
+- [x] **Step 3: configuration and limits.** Covers AC-33.
   - Create `config/api.php`, `ApiLimits` and `InvalidApiConfiguration`. Wire `AppServiceProvider::boot()`.
   - Edit `.env.example` and `phpunit.xml` as in section 4.
   - **Test `tests/Feature/ApiLimitsConfigurationTest.php`:**
@@ -448,7 +448,7 @@ Run every command from `modules/host`. Section 7 has the full commands. **Red-li
     - `0`, `-1`, `1.5`, `"abc"`, `""` and `"07"` are each refused with the key named;
     - re-running `AppServiceProvider::boot()` with a bad value throws.
 
-- [ ] **Step 4: the generic renderer.** Covers AC-4, AC-6, AC-7, AC-8, AC-48 and AC-49.
+- [x] **Step 4: the generic renderer.** Covers AC-4, AC-6, AC-7, AC-8, AC-48 and AC-49.
   - Create `ApiFailureRenderer`.
   - In `bootstrap/app.php`, register the callback last and add `$exceptions->context(...)`.
   - **Test `tests/Feature/ApiFailureRenderingTest.php`.** It uses test-only routes under `api/v1/qa-render/*`, registered in the test.
@@ -464,7 +464,7 @@ Run every command from `modules/host`. Section 7 has the full commands. **Red-li
     - `PlanLimitHttpTest`, `OrganizationBranchHttpTest`, `OrganizationTerminalHttpTest`, `TerminalRevocationHttpTest`, `TerminalActivationHttpTest`;
     - `QaSuspendedMappingGateTest`, `QaAuthHttpSurfaceTest`, `UnlistedModuleReturns404Test`, `QaAccessHttpSurfaceTest`.
 
-- [ ] **Step 5: the demo ping.** Covers AC-50 and Ruling 9.
+- [x] **Step 5: the demo ping.** Covers AC-50 and Ruling 9.
   - Edit `PingController`, `PingRouteTest` and both stubs, character-identical apart from the placeholders.
   - Edit the four tests in Ruling 9.
   - **Run:**
@@ -476,14 +476,14 @@ Run every command from `modules/host`. Section 7 has the full commands. **Red-li
     - `data` equals `{module: demo, status: ok}`;
     - `meta.request_id` equals the header.
 
-- [ ] **Step 6: `api:error-codes`.** Covers AC-14.
+- [x] **Step 6: `api:error-codes`.** Covers AC-14.
   - Create the `ListErrorCodes` slice.
   - **Test `packages/kernel/tests/Api/Features/ListErrorCodes/ListErrorCodesTest.php`:**
     - the command output lists every code with its module, status and message, sorted;
     - a declared fixture module's code appears;
     - the handler's rows equal `ErrorCatalogue::all()`.
 
-- [ ] **Step 7: the rate limiter.** Covers AC-28 to AC-33b and Ruling 5.
+- [x] **Step 7: the rate limiter.** Covers AC-28 to AC-33b and Ruling 5.
   - Create `ApiActor` and `ThrottleApi`.
   - In `bootstrap/app.php`: the `api(append: ...)` call and the priority appends. Add `RequireIdempotencyKey` to the priority list in step 10, when its class exists.
   - **Edit `TerminalActivationHttpTest::activationWire()`** (section 9).
@@ -501,7 +501,7 @@ Run every command from `modules/host`. Section 7 has the full commands. **Red-li
     - **Ordering:** `Router::gatherRouteMiddleware()` on a real access route and on a test route places `RequireTenantToken` before `ThrottleApi`, and `SubstituteBindings` first.
   - **Run:** `TerminalActivationHttpTest`, `QaActivationCodeSecrecyTest`, `HttpAuthEndpointsTest`, `QaAccessGuardIsolationHttpTest`, `OrganizationSettingsHttpTest`, `QaPinSinkCaptureTest`.
 
-- [ ] **Step 8: the migration.** Covers AC-26.
+- [x] **Step 8: the migration.** Covers AC-26.
   - Create the migration and republish the catalogue.
   - Change `.env.example` from 30 to 31.
   - Make the test edits in section 9: `Helpers.php`, `MigrationTreeDisciplineTest`, `QaAccessCloseOutSweepsTest`, `QaAccessSchemaShapeTest`.
@@ -517,7 +517,7 @@ Run every command from `modules/host`. Section 7 has the full commands. **Red-li
     - `QaDatetimePrecisionSourceTest`, `MigrationSourceRulesTest`, `QaSchemaSignatureInstrumentTest`;
     - the kernel `PlanMigrationRun` tests.
 
-- [ ] **Step 9: the store.** Groundwork for AC-18 to AC-23 and AC-25.
+- [x] **Step 9: the store.** Groundwork for AC-18 to AC-23 and AC-25.
   - Create `IdempotencyKey`, `IdempotencyFingerprint`, `IdempotencyStore` and `IdempotencyClaim`.
   - **Test `packages/kernel/tests/Api/Idempotency/IdempotencyStoreTest.php`.** It runs in a fixture tenant entered through `tenancy-fixture.php` / `AccessTenantFixture`, with the clock set by `RunnerClock`. It covers:
     - claim, complete, then claim again gives a replay;
@@ -529,7 +529,7 @@ Run every command from `modules/host`. Section 7 has the full commands. **Red-li
     - `complete` with the wrong hash updates nothing;
     - the key format: 80 characters pass and 81 fail, as do the empty string, a space and `é`.
 
-- [ ] **Step 10: the middleware.** Covers AC-16 to AC-22, AC-24, AC-25 and AC-27.
+- [x] **Step 10: the middleware.** Covers AC-16 to AC-22, AC-24, AC-25 and AC-27.
   - Create `RequireIdempotencyKey` and add it to the priority list.
   - **Test `tests/Feature/IdempotencyHttpTest.php`.** It registers test-only routes `POST api/v1/qa-idem/*` behind `RequireTenantToken` and `RequireIdempotencyKey`. The handler spy counts calls and returns `ApiResponse::created([...])`, or a 422, or throws, according to a header.
     - AC-16: no key gives 400 and the spy at 0.
@@ -543,7 +543,7 @@ Run every command from `modules/host`. Section 7 has the full commands. **Red-li
     - AC-25: tenant A's database and tenant B's database run once each with the same key, and each table holds one row. The two databases must be really separate: follow `QaOrganizationTenantIsolationTest`'s two-fixture-database setup, because `orgHttpWorld()` maps every shop to `tenant-a`.
     - AC-27: user limit 2, then a request and a replay, then a third request gives 429.
 
-- [ ] **Step 11: `idempotency:prune`.** Covers AC-23.
+- [x] **Step 11: `idempotency:prune`.** Covers AC-23.
   - Create the slice, register the command and the schedule.
   - **Test `packages/kernel/tests/Api/Features/PruneIdempotencyKeys/PruneIdempotencyKeysTest.php`:**
     - rows aged 25 h and 23 h, deleted and kept;
@@ -553,7 +553,7 @@ Run every command from `modules/host`. Section 7 has the full commands. **Red-li
     - the schedule entry exists, the `AccessServiceProvider` precedent;
     - an over-age key on HTTP is treated as new: the spy rises to 2. That one belongs in `IdempotencyHttpTest`.
 
-- [ ] **Step 12: readiness.** Covers AC-41 to AC-47.
+- [x] **Step 12: readiness.** Covers AC-41 to AC-47.
   - Create the health support classes, and edit `HealthController::ready()`. `live()` is unchanged.
   - Make the nine `assertExactJson` edits (section 9).
   - **Test `tests/Feature/HealthReadinessTest.php`:**
@@ -569,7 +569,7 @@ Run every command from `modules/host`. Section 7 has the full commands. **Red-li
     - `QaModuleNameValidationTest`, `QaModuleRegistryContractTest`, `QaAtomicGenerationProofTest`;
     - `modules/demo/tests`.
 
-- [ ] **Step 13: OpenAPI.** Covers AC-34 to AC-40.
+- [x] **Step 13: OpenAPI.** Covers AC-34 to AC-40.
   - Create `OpenApiDocument`, `OpenApiCommand`, `OpenApiController` and `routes/api.php`, and add the `require` to the `then:` callback.
   - Generate and commit `docs/api/openapi.v1.json`:
 
@@ -593,7 +593,7 @@ Run every command from `modules/host`. Section 7 has the full commands. **Red-li
   - **Test `tests/Feature/OpenApiCompletenessTest.php` (AC-37),** with the control from Ruling 8.
   - **Run:** `RouteCachingTest`, `QaAuditNoHttpSurfaceTest`, `QaPluginNoHttpSurfaceTest`, `QaEventbusNoHttpSurfaceTest`, `QaWorkflowNoHttpSurfaceTest`, `HttpAuthEndpointsTest`. The new URI holds none of their words.
 
-- [ ] **Step 14: documents.**
+- [x] **Step 14: documents.**
   - `docs/database.md` §6.21 `idempotency_keys`: an "As built (T-021)" note:
     - a null `response_code` means in flight;
     - the index on `created_at`;
@@ -607,7 +607,7 @@ Run every command from `modules/host`. Section 7 has the full commands. **Red-li
     - the legacy bodies until FP-369.
   - Describe, never quote, the old module vocabulary (memory: the gate sweeps the working tree).
 
-- [ ] **Step 15: the full gate.**
+- [x] **Step 15: the full gate.**
   - Run `composer check` in `modules/host` and report real numbers.
   - The expected failures are the FP-316 cluster of 12, against the baseline from step 1.
   - Report the gate-step margin: FP-328 measured the ratio at 1.46 before this task, and this task adds roughly 120 tests.

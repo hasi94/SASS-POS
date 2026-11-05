@@ -58,9 +58,9 @@ it('makes a generated package reachable purely by naming it', function () {
 
     get('/api/v1/reachablefixture/ping')
         ->assertOk()
-        ->assertJson(['module' => 'reachablefixture', 'status' => 'ok']);
+        ->assertJson(['success' => true, 'data' => ['module' => 'reachablefixture', 'status' => 'ok']]);
 
     get('/health/ready')
         ->assertOk()
-        ->assertExactJson(['status' => 'ok', 'modules' => ['demo', 'reachablefixture']]);
+        ->assertExactJson(['status' => 'ok', 'modules' => ['demo', 'reachablefixture'], 'checks' => ['master_database' => 'ok', 'redis' => 'skipped']]);
 });

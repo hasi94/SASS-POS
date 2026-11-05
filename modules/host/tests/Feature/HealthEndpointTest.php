@@ -20,7 +20,7 @@ it('reports exactly the booted module identifiers', function () {
 
     $response = get('/health/ready')->assertOk();
 
-    $response->assertExactJson(['status' => 'ok', 'modules' => ['demo']]);
+    $response->assertExactJson(['status' => 'ok', 'modules' => ['demo'], 'checks' => ['master_database' => 'ok', 'redis' => 'skipped']]);
 
     expect($response->json('modules'))->toBe(['demo']);
 });
@@ -31,7 +31,7 @@ it('reports an empty module list when the host booted with no modules', function
 
     $response = get('/health/ready')->assertOk();
 
-    $response->assertExactJson(['status' => 'ok', 'modules' => []]);
+    $response->assertExactJson(['status' => 'ok', 'modules' => [], 'checks' => ['master_database' => 'ok', 'redis' => 'skipped']]);
 
     expect($response->json('modules'))->toBe([]);
 });
@@ -70,7 +70,7 @@ it('answers readiness without touching the session store', function () {
 
     get('/health/ready')
         ->assertOk()
-        ->assertExactJson(['status' => 'ok', 'modules' => ['demo']]);
+        ->assertExactJson(['status' => 'ok', 'modules' => ['demo'], 'checks' => ['master_database' => 'ok', 'redis' => 'skipped']]);
 });
 
 it('registers both probes outside every middleware group', function (string $name) {

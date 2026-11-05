@@ -164,5 +164,17 @@
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
         <env name="MODULES" value="demo" force="true"/>
+        <!--
+            T-021: a test about something else must not meet a 429. Many
+            existing tests make dozens of calls from one address or token
+            inside a single test; the production defaults (D-9) are asserted
+            separately from App\Support\Api\ApiLimits's own constants, and the
+            rate-limiter tests set their own small limits through
+            config()->set().
+        -->
+        <env name="API_RATE_LIMIT_TENANT" value="100000"/>
+        <env name="API_RATE_LIMIT_USER" value="100000"/>
+        <env name="API_RATE_LIMIT_TERMINAL" value="100000"/>
+        <env name="API_RATE_LIMIT_UNAUTHENTICATED" value="100000"/>
     </php>
 </phpunit>

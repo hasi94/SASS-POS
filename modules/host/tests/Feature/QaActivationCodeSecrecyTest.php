@@ -98,19 +98,16 @@ it('keeps every form of an issued activation code out of both databases, the log
     $fingerprint = orgHttpFingerprint('act-secrecy');
     $viaQuery = json('POST', '/api/v1/terminal/activate?code='.urlencode($live).'&fingerprint='.$fingerprint, []);
     $viaWrong = orgHttpActivate(['code' => 'SHOP-A-ZZZZ-ZZZZ', 'fingerprint' => $fingerprint], '203.0.113.9');
-    // A code in the path is not a route (404). **Measured finding:** the framework's 404
-    // body repeats the requested path to the caller who sent it, in production settings
-    // as well as debug ones (`The route <path> could not be found.`). The caller already
-    // holds the code and the body goes only to them, so it is not a leak to a third
-    // party; but it is a copy of the code in a response, so it is pinned EXACTLY here and
-    // kept out of the response sink, and any other byte of that body still fails the sweep.
+    // A code in the path is not a route (404). **T-021 AC-6/AC-51, D-19:** the
+    // envelope renderer now answers every api/* 404, and it never echoes the
+    // path - so, unlike the bare framework shape this test once pinned, the
+    // body carries no copy of the code at all.
     config()->set('app.debug', false);
     $viaPath = json('POST', '/api/v1/terminal/activate/'.urlencode($live), ['fingerprint' => $fingerprint]);
-    $echo = 'The route api/v1/terminal/activate/'.urlencode($live).' could not be found.';
 
     fwrite(STDOUT, PHP_EOL.'AC-27 finding: the 404 for a code in the path echoes the path to its sender: '.(str_contains((string) $viaPath->getContent(), $live) ? 'yes' : 'no').PHP_EOL);
-    expect($viaPath->json('message'))->toBe($echo);
-    expect(str_replace($echo, '', (string) $viaPath->getContent()))->not->toContain($live);
+    expect($viaPath->json('errors.0.code'))->toBe('kernel.not_found');
+    expect((string) $viaPath->getContent())->not->toContain($live);
 
     expect($viaQuery->getStatusCode())->toBe($viaWrong->getStatusCode());
     expect((string) $viaQuery->getContent())->toBe((string) $viaWrong->getContent());

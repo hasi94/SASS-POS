@@ -238,5 +238,13 @@
         "checksum": "b5255b1a8a54e71af7b3120ffd7c2c251761696e153bf2b46a6ddda7118264ed",
         "is_destructive": false,
         "requires_offline": false
+    },
+    {
+        "version": 31,
+        "migration": "2026_10_30_001001_create_idempotency_keys_table",
+        "phase": "expand",
+        "checksum": "3ad62ef433e64bc2eee7cc84157937431756865436396e7889090ba84eece481",
+        "is_destructive": false,
+        "requires_offline": false
     }
 ]

@@ -88,7 +88,7 @@ it('answers readiness with the booted modules while the database is unreachable'
 
     get('/health/ready')
         ->assertOk()
-        ->assertExactJson(['status' => 'ok', 'modules' => ['demo']]);
+        ->assertExactJson(['status' => 'ok', 'modules' => ['demo'], 'checks' => ['master_database' => 'ok', 'redis' => 'skipped']]);
 });
 
 it('answers readiness with an empty list while the database is unreachable and no module is booted', function () {
@@ -99,7 +99,7 @@ it('answers readiness with an empty list while the database is unreachable and n
 
     get('/health/ready')
         ->assertOk()
-        ->assertExactJson(['status' => 'ok', 'modules' => []]);
+        ->assertExactJson(['status' => 'ok', 'modules' => [], 'checks' => ['master_database' => 'ok', 'redis' => 'skipped']]);
 });
 
 it('sets no session cookie on either probe, so nothing can reintroduce the dependency', function () {

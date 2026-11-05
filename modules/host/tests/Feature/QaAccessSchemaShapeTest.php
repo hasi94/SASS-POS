@@ -200,7 +200,10 @@ it('creates the eight tables and nothing else, and the listing check can tell ot
     // T-020's five tables are excluded the same way.
     $t020 = ['workflow_definitions', 'workflow_events', 'workflow_instances', 'workflow_steps', 'workflow_tasks'];
 
-    $new = array_values(array_diff(qaT10Tables(), tenantBaselineTables(), ['migrations'], $t014, $t017, $t019, $t020));
+    // T-021's one table (idempotency_keys) is excluded the same way.
+    $t021 = ['idempotency_keys'];
+
+    $new = array_values(array_diff(qaT10Tables(), tenantBaselineTables(), ['migrations'], $t014, $t017, $t019, $t020, $t021));
 
     expect($new)->toBe([
         'access_log', 'employee_branches', 'employee_permissions', 'employee_roles',

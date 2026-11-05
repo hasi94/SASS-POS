@@ -110,7 +110,11 @@ function closeOutNewTables(): array
     // never writes a workflow definition, instance, task or event.
     $t020 = ['workflow_definitions', 'workflow_events', 'workflow_instances', 'workflow_steps', 'workflow_tasks'];
 
-    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017, $t019, $t020));
+    // T-021's one table (idempotency_keys) is excluded the same way: this
+    // sweep's exercise never writes an idempotency row.
+    $t021 = ['idempotency_keys'];
+
+    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017, $t019, $t020, $t021));
 }
 
 /**

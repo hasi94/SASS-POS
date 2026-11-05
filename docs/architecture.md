@@ -193,6 +193,8 @@ The single largest operational cost of this architecture, and therefore foundati
 - Rate limits per tenant, per user and per terminal.
 - Route groups: `platform/*` for platform administrators against the master, `tenant/*` for back office, `pos/*` for tills, `sync/*`, `plugins/*`, `agent/*`.
 
+**As built (T-021).** The envelope, the error-code catalogue, the opt-in idempotency middleware, the limiter's three buckets and `api:openapi` are now shipped machinery in the kernel and the host, proved on the demo ping and on fixtures; the auth, access, organization, terminal and platform endpoints still answer their pre-existing bodies until FP-369 migrates them (D-1). A module calls `Flexipos\Kernel\Api\ApiResponse` instead of hand-writing a body, declares its error codes through `Flexipos\Kernel\Api\DeclaresErrorCodes`, and opts an individual route into idempotency with `App\Http\Middleware\RequireIdempotencyKey`. Rate limits (tenant, user, terminal, or one IP bucket when unauthenticated) are configuration in `config/api.php`, read from `App\Support\Api\ApiLimits`, and fail open on a limiter-store outage. `GET /api/v1/openapi.json` publishes the generated document only when `API_DOCS_ENABLED` is set.
+
 ---
 
 ## 9. Events, queues and background work

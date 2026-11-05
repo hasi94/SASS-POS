@@ -29,5 +29,5 @@ it('does not route a module that exists but is not listed in MODULES', function 
 
     get('/health/ready')
         ->assertOk()
-        ->assertExactJson(['status' => 'ok', 'modules' => ['demo']]);
+        ->assertExactJson(['status' => 'ok', 'modules' => ['demo'], 'checks' => ['master_database' => 'ok', 'redis' => 'skipped']]);
 });
