@@ -34,6 +34,38 @@ function ciWorkflowPath(): string
 }
 
 /**
+ * The register-tenant SQL file both migration jobs source (AC-8, AC-12,
+ * D-13) - the file itself, not merely the workflow step name that invokes
+ * it.
+ */
+function ciRegisterTenantSqlPath(): string
+{
+    return dirname(base_path(), 2).'/.github/ci/register-ci-tenant.sql';
+}
+
+function ciRegisterTenantSqlRaw(): string
+{
+    return (string) file_get_contents(ciRegisterTenantSqlPath());
+}
+
+/**
+ * The file's executable SQL only, with every `--`-prefixed line comment
+ * stripped. The file's own header prose talks *about* DROP and IF NOT
+ * EXISTS (explaining why neither is used), so a raw-text search for either
+ * would be fooled by the comment that disclaims it; this is what the
+ * DROP/IF-NOT-EXISTS assertions below are checked against instead.
+ */
+function ciRegisterTenantSqlExecutable(): string
+{
+    $lines = array_filter(
+        explode("\n", ciRegisterTenantSqlRaw()),
+        fn (string $line): bool => ! str_starts_with(ltrim($line), '--')
+    );
+
+    return implode("\n", $lines);
+}
+
+/**
  * The raw, uninterpreted file text - what a handful of ACs (no `secrets.`
  * anywhere, no `docker compose` reference, no `test:fast`) are checked
  * against directly, because they are claims about every byte of the file,
@@ -323,6 +355,30 @@ it('gives each migration job its own independent mysql:8.4 service with no volum
 
         expect($mysql['image'] ?? null)->toBe('mysql:8.4', "job {$name} does not pin mysql:8.4")
             ->and($mysql)->not->toHaveKey('volumes');
+
+        // AC-17: the ephemeral, container-side-only port mapping - a bare
+        // list containing the single int 3306. A fixed `3306:3306` mapping
+        // (Symfony\Component\Yaml\Yaml parses that shape as the string
+        // '3306:3306', not the int 3306) would put the shared engine's own
+        // conventional address into job env, which AC-17 forbids.
+        expect($mysql['ports'] ?? null)->toBe([3306], "job {$name} does not map an ephemeral, container-only mysql port");
+
+        // T-023's lessons, still applied: `--password=` as one argv token,
+        // never a space-split `-p`, and a real credential check after the
+        // ping (mysqladmin ping exits 0 even on "Access denied").
+        $options = (string) ($mysql['options'] ?? '');
+
+        expect($options)->toContain('--password=')
+            ->and($options)->not->toMatch('/\s-p\s/');
+
+        $runs = ciJobStepRuns($job);
+        $versionCheck = ciIndexOfRunContaining($runs, 'SELECT VERSION()');
+        $firstMigrate = ciIndexOfRunContaining($runs, 'php artisan tenant:migrate');
+
+        expect($versionCheck)->not->toBe(-1, "job {$name} has no run step checking SELECT VERSION()")
+            ->and($runs[$versionCheck] ?? '')->toContain('8.4')
+            ->and($firstMigrate)->not->toBe(-1)
+            ->and($versionCheck)->toBeLessThan($firstMigrate);
     }
 
     // Independent containers by construction: two distinct job keys.
@@ -358,6 +414,18 @@ it('runs the fresh-database job to head with no --to flag, after registering the
 
     // No --to flag anywhere in this job at all.
     expect(ciAnyRunContains($runs, '--to'))->toBeFalse();
+
+    // AC-8: the master schema is migrated and the catalogue published before
+    // the tenant is registered, so the register step's own foreign-keyed
+    // inserts and the catalogue read that follows it both have something to
+    // read.
+    $migrateMaster = ciIndexOfRunContaining($runs, 'migrate --database=master');
+    $publishSchema = ciIndexOfRunContaining($runs, 'schema:publish');
+
+    expect($migrateMaster)->not->toBe(-1)
+        ->and($publishSchema)->not->toBe(-1)
+        ->and($migrateMaster)->toBeLessThan($register)
+        ->and($publishSchema)->toBeLessThan($register);
 });
 
 it('runs the existing-database job to head-1 then to head as two separate tenant:migrate invocations (AC-12)', function () {
@@ -393,6 +461,15 @@ it('runs the existing-database job to head-1 then to head as two separate tenant
     expect($registerIndex)->not->toBe(-1)
         ->and($firstMigrateIndex)->not->toBe(-1)
         ->and($registerIndex)->toBeLessThan($firstMigrateIndex);
+
+    // AC-12: same ordering requirement as the fresh-database job above.
+    $migrateMasterIndex = ciIndexOfRunContaining($allRuns, 'migrate --database=master');
+    $publishSchemaIndex = ciIndexOfRunContaining($allRuns, 'schema:publish');
+
+    expect($migrateMasterIndex)->not->toBe(-1)
+        ->and($publishSchemaIndex)->not->toBe(-1)
+        ->and($migrateMasterIndex)->toBeLessThan($registerIndex)
+        ->and($publishSchemaIndex)->toBeLessThan($registerIndex);
 });
 
 it('uses inline dev-only placeholder credentials, never secrets.* (AC-16, D-10)', function () {
@@ -432,4 +509,18 @@ it('sets no continue-on-error anywhere and no if: on a quality step, with bash a
     foreach ((array) (ciQualityJob()['steps'] ?? []) as $step) {
         expect($step)->not->toHaveKey('if');
     }
+});
+
+it('registers the CI tenant with a fresh CREATE DATABASE, no DROP and the provisioning status both rows require (AC-8, AC-12, D-13)', function () {
+    $executable = ciRegisterTenantSqlExecutable();
+
+    expect($executable)->toContain('CREATE DATABASE flx_t_ci')
+        ->and($executable)->not->toContain('IF NOT EXISTS')
+        ->and($executable)->not->toMatch('/\bDROP\b/i');
+
+    // D-13: `provisioning` is both the tenants row's status and the
+    // tenant_databases row's status - the one value that is simultaneously
+    // exempt from PlanMigrationRunHandler's contract-step block and gated to
+    // only a run that names this tenant explicitly.
+    expect(substr_count($executable, 'provisioning'))->toBe(2);
 });
