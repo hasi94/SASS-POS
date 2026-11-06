@@ -1,0 +1,19 @@
+<header class="bar">
+  <strong>{{ auth.tenant()?.name }}</strong>
+  <span class="fp-muted">{{ auth.branch()?.name }}</span>
+  <span class="spacer"></span>
+  <span class="fp-muted">{{ auth.user()?.name }}</span>
+  <button type="button" (click)="switchBranch()">Switch</button>
+  <button type="button" (click)="signOut()">Sign out</button>
+</header>
+
+<main class="sale">
+  <section class="grid" aria-label="Products">
+    <p class="fp-muted">Product grid and scanning arrive with the catalog API (FP-230, FP-236).</p>
+  </section>
+  <aside class="cart" aria-label="Cart">
+    <h2>Cart</h2>
+    <p class="fp-muted">No items yet.</p>
+    <button type="button" class="fp-primary" disabled>Pay</button>
+  </aside>
+</main>
