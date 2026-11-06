@@ -55,14 +55,23 @@ Re-derived from the files (T-022 reconnaissance, 2026-11-06):
   (`RelayOutboxCommand` and consumers reading `ConsumerRegistry`), each already scoped to one tenant's own
   outbox table and already covered by T-018's own tests — not a Laravel queue job, and out of this task's
   "jobs" category (D-5).
-- **Cache keys**: exactly two call sites construct a cache/limiter key anywhere in `packages/*/src` or
+- **Cache keys**: exactly four call sites construct a cache/limiter key anywhere in `packages/*/src` or
   `modules/*/src`: `Flexipos\Kernel\Tenancy\CachingTenantDatabaseRepository` (`tenant:conn:<tenant_id>`,
-  a master-side mapping cache, one entry per tenant id) and `App\Http\Requests\ApiActor` building the four
+  a master-side mapping cache, one entry per tenant id); `App\Http\Requests\ApiActor` building the four
   `RateLimiter` bucket names `t:{tenantId}`, `u:{tenantId}:{userId}`, `d:{terminalTenantId}:{terminalId}`,
-  `ip:{ip}` consumed by `App\Http\Middleware\ThrottleApi` (T-021). Both already embed a tenant (or IP, for
-  the deliberately tenant-agnostic unauthenticated bucket) token in the key by construction. No test
-  enumerates cache-key construction sites as a class and asserts this generically; a new site added later
-  is invisible to today's suite.
+  `ip:{ip}` consumed by `App\Http\Middleware\ThrottleApi` (T-021), **plus** a fifth bucket from the same
+  class, `u:platform:{platformUserId}` (`ApiActor::fromRequest()`), built for a platform-token actor who
+  by design carries no tenant at all (its own docblock: "a platform token has no tenant, so it never gets
+  a tenant bucket"); `Flexipos\Platform\Support\CachingEntitlementSource` (`platform:entitlements:<tenant_id>`,
+  T-016's 300-second entitlement cache); and `Flexipos\Auth\Support\ActivationThrottle` (two keys per call
+  site, `terminal-activation:tenant:<tenant_id>` and `terminal-activation:ip:<sha256(ip)>`, T-014's
+  activation-guessing limiter). Corrected 2026-11-06 from an original undercount of two (D-8): the original
+  reconnaissance missed `CachingEntitlementSource` and `ActivationThrottle` entirely. All five bucket names
+  across the four sites embed a tenant id, terminal id or client-IP hash by construction, **except** the
+  platform-user bucket, which is deliberately tenant-agnostic by design (a platform token has no tenant to
+  embed) and is the one entry the allow-list in AC-13 starts with on day one, not empty. No test enumerates
+  cache-key construction sites as a class and asserts this generically; a new site added later is invisible
+  to today's suite.
 - **Plugin hooks**: `Flexipos\PluginSdk\Gateway\HookPointCatalogue` enumerates every declared hook point
   from booted providers; `HookInvoker` (T-019) runs a registered plugin handler "inside the tenant
   connection's own context" per its own docblock, keyed by `$registration->tenantId`, with per-tenant
@@ -72,10 +81,16 @@ Re-derived from the files (T-022 reconnaissance, 2026-11-06):
   under, or is visible to, tenant B's connection.
 - **Fixtures available to build on**: `Flexipos\Access\Tests\Support\AccessTenantFixture` (two real,
   separately-connected SQLite tenant databases, `boot()`/`switchTo()`/`forget()`/`deleteRoot()`), already
-  imported across package boundaries by T-014's and T-016's isolation tests, needs no real engine.
+  imported across package boundaries by T-014's and T-016's isolation tests, needs no real engine — but is
+  tenant-side only (mapped via `tenancy.databases` config), so it cannot stand in for anything that reads
+  the master's own `database_servers`/`tenant_databases` tables. `packages/kernel/tests/Support/
+  migrate-tenant-fixture.php` (T-008) provides exactly that: two SQLite tenant databases *plus* real
+  master-side mapping/server rows and a faked `TenantMigrationApplier`, needs no real engine either, and is
+  the correct fixture for AC-9's deterministic variant because `MigrateTenantQueueJob`'s handler resolves
+  its tenant id and connection from the master mapping, which only this fixture provides.
   `Flexipos\Testing\Engine\ThreeTenantFixture` (T-008) is engine-gated (`ENGINE_HOLD`) and built for
   schema-version scenarios; reserved in this task for the one case that is inherently about a real worker
-  process (the job category).
+  process against a real engine (AC-9's `[ENGINE]`-tagged real-migration proof).
 
 ## User stories
 
@@ -131,8 +146,12 @@ Re-derived from the files (T-022 reconnaissance, 2026-11-06):
   worker recycled between jobs would have), Then the job's own effect (the migration write) lands only in
   tenant A's database, tenant B's database is untouched, and the job never silently succeeds against B.
   **[ENGINE]** for the real migration-write proof (needs the real migrator); a deterministic variant using
-  `AccessTenantFixture`'s two tenants proves the job resolves tenant A's connection name, not the ambient
-  one, without running a real migration.
+  the kernel's own `packages/kernel/tests/Support/migrate-tenant-fixture.php` (two SQLite tenants mapped
+  through real master-side `database_servers`/`tenant_databases` rows, with `TenantMigrationApplier` faked)
+  proves the job resolves tenant A's connection name, not the ambient one, without running a real
+  migration — `AccessTenantFixture` cannot carry this case: it is tenant-side only (its tenant databases are
+  mapped via `tenancy.databases` config, not a master `tenant_databases` table), and `MigrateTenantQueueJob`'s
+  handler reads its own tenant id and the tenant-to-database mapping from the master database.
 - AC-10: Given the job's serialized payload (as queued, before `handle()` runs), When inspected, Then it
   carries the tenant id and no connection credential, username, password or credential reference — so a
   queue store compromise discloses which tenant, never how to reach any tenant's database.
@@ -146,20 +165,24 @@ Re-derived from the files (T-022 reconnaissance, 2026-11-06):
 
 - AC-12: Given every `*.php` file under `packages/*/src`, `modules/*/src` and `modules/host/app`, When the
   sweep scans for `Cache::`, an injected `Illuminate\Contracts\Cache\Repository`, or an injected
-  `Illuminate\Cache\RateLimiter` used to build a key/bucket name, Then it finds exactly the two known
-  construction sites (`CachingTenantDatabaseRepository::keyFor()`, `ApiActor`'s four bucket builders) and
+  `Illuminate\Cache\RateLimiter` used to build a key/bucket name, Then it finds exactly the four known
+  construction sites (`CachingTenantDatabaseRepository::keyFor()`, `ApiActor`'s five bucket builders,
+  `CachingEntitlementSource::keyFor()`, `ActivationThrottle`'s `tenantKey()`/`addressKey()` pair) and
   asserts the count, so a new site is automatically added to what AC-13 checks.
 - AC-13: Given each construction site AC-12 finds, When its key-building expression is inspected, Then it
-  either interpolates a tenant id, terminal id or client IP into the key (as `CachingTenantDatabaseRepository`
-  and `ApiActor` already do) or is listed on a short, named, in-file allow-list of deliberately
-  tenant-agnostic keys (empty today, with a one-line reason required for any future entry); a site that is
-  neither fails the sweep, naming the file and line.
+  either interpolates a tenant id, terminal id or client IP into the key (as `CachingTenantDatabaseRepository`,
+  `CachingEntitlementSource` and `ActivationThrottle` do, and as three of `ApiActor`'s five buckets do) or is
+  listed on a short, named, in-file allow-list of deliberately tenant-agnostic keys — starting with exactly
+  one entry on day one, `ApiActor`'s `u:platform:{platformUserId}` bucket, with its one-line reason ("a
+  platform token carries no tenant") already true today, not added later — and any future entry needs its
+  own one-line reason; a site that is on neither the tenant-token list nor the allow-list fails the sweep,
+  naming the file and line.
 - AC-14: Given a planted file (written only by the sweep's own test, under a temp directory, never
   committed) that builds a cache key or `RateLimiter` bucket name with no tenant/terminal/IP token and is
   not on the allow-list, When the sweep scans it, Then it is reported as a hit, proving the scan can fail;
   removing the plant returns the sweep to green.
-- AC-15: Given the two known sites' actual runtime behaviour (not just their source text), When tenant A
-  and tenant B each resolve their own mapping through `CachingTenantDatabaseRepository::find()`, Then each
+- AC-15: Given `CachingTenantDatabaseRepository`'s actual runtime behaviour (not just its source text), When
+  tenant A and tenant B each resolve their own mapping through `CachingTenantDatabaseRepository::find()`, Then each
   tenant's cache entry is stored and read under its own key only, and `evict()` for tenant A never removes
   or returns tenant B's entry (reusing the two-tenant fixture, no real engine needed).
 - AC-16: Given tenant A and tenant B as two authenticated actors, When both send requests up to each
@@ -193,12 +216,16 @@ Re-derived from the files (T-022 reconnaissance, 2026-11-06):
 
 ### E. Suite integrity and gate
 
-- AC-22: Given the four sweeps (A to D), When placed, Then they live under `modules/host/tests/Feature/`
+- AC-22: Given the four sweeps (A to D), When placed, Then the three that are deterministic (routes, cache
+  keys, plugin hooks) and the deterministic variant of the job sweep live under `modules/host/tests/Feature/`
   named `Qa*CrossTenantSweepTest.php` (one file per category), follow the established `Qa*SourceRulesTest`
   discipline (each file's own helper functions, namespaced to that file, nothing shared by requiring
-  another `Qa*` file), and run inside `composer test:fast` except the one `[ENGINE]`-tagged case in AC-9,
-  which runs under `composer test:slow`/the `toolchain` group alongside the rest of this repository's
-  `[ENGINE]` tests.
+  another `Qa*` file), and run inside `composer test:fast`; the one `[ENGINE]`-tagged case in AC-9 (the
+  real-migration proof, which spawns no child process and so cannot be the `toolchain` group — enforced by
+  `ToolchainGroupCoverageTest`'s registry-equals-spawners check) instead lives under
+  `modules/host/tests/Engine/`, this repository's established home for `ENGINE_HOLD`-gated tests (e.g.
+  `WorkflowSchemaEngineTest.php`, `MigrateTenantEngineTest.php`), and is gated by `ENGINE_HOLD`/G-1 the same
+  way every other file there is, not by a `--group`/`--exclude-group` flag.
 - AC-23: Given `composer check`, When run with any of AC-3, AC-4, AC-5, AC-9 (the deterministic variant),
   AC-13, AC-16, AC-19 or AC-20 reverted to a leaking implementation (planted via a mutation, same technique
   as the negative controls above), Then the gate fails and the failure message names the offending
@@ -229,8 +256,10 @@ Re-derived from the files (T-022 reconnaissance, 2026-11-06):
   against another tenant by construction (AC-6); their own correctness is each one's existing task's
   concern (T-009, T-016).
 - Performance/load testing of the rate limiter or the cache; this suite proves isolation, not throughput.
-- Building a new shared "N-tenant fixture" package; this task reuses `AccessTenantFixture` and, for the
-  one engine-gated case, `ThreeTenantFixture` as they exist (D-3).
+- Building a new shared "N-tenant fixture" package; this task reuses `AccessTenantFixture` for the route,
+  cache-key and hook sweeps, `migrate-tenant-fixture.php` for AC-9's deterministic job variant (the one
+  case needing a master-side mapping, not tenant-side config), and, for the one engine-gated case,
+  `ThreeTenantFixture` as they exist (D-3, corrected by D-10).
 - WebSocket, print-agent or any non-HTTP/non-queue transport; none exists yet to sweep.
 
 ## Non-functional requirements
@@ -256,9 +285,10 @@ None blocking. Items for the lead, for visibility only:
 
 - "Generated attempts" means a programmatically-generated test matrix over real registries, not a
   hand-written list of attack scenarios (D-1).
-- The two-tenant SQLite fixture (`AccessTenantFixture`) is an acceptable stand-in for "real" tenant
-  isolation proofs wherever the claim is about connection/key separation, not about the real migrator or
-  a real MySQL/MariaDB server; only AC-9's full proof needs the real engine (D-3).
+- The two-tenant SQLite fixtures (`AccessTenantFixture` for tenant-side claims, `migrate-tenant-fixture.php`
+  for AC-9's master-mapping claim) are an acceptable stand-in for "real" tenant isolation proofs wherever
+  the claim is about connection/key separation, not about the real migrator or a real MySQL/MariaDB server;
+  only AC-9's `[ENGINE]`-tagged full proof needs the real engine (D-3, D-10).
 - No production code changes are expected to ship with this task; every AC is written to pass against
   the codebase as it exists today, because reconnaissance found every current route, the one job, both
   cache-key sites and hook dispatch already resolving the tenant explicitly rather than ambiently (D-6).
