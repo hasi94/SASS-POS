@@ -1,6 +1,10 @@
 # QA Report: T-024 CI pipeline (FP-218)
 
-## Verdict: FAIL
+## Verdict: PASS
+
+Round 1 verdict: FAIL -> Round 2 verdict: PASS (lead's fix commit `fa0a52c` reworded both
+`docs/backlog.md` and qa's own agent-memory note to describe, not quote, the forbidden
+fragment; independently re-verified below).
 
 One major defect: dev's own `IN_QA` status-update commit (`c267880`, to `docs/backlog.md`)
 introduces a new, reproducible `QaVocabularyRenameSweepTest` failure. That test is part of
@@ -68,8 +72,50 @@ spot-checks, the diff scope — held up under independent re-verification. See b
 - **Suspected location / fix**: `docs/backlog.md` line 51 — reword the T-024 backlog row to *describe* the near-miss rather than quote it (e.g. "a quoted plural literal" instead of `` `'services'` ``), per this project's own established convention for this exact trap. This is a documentation fix, not a workflow/SQL/test-file change — none of the 4 shipped CI-pipeline artefacts are implicated.
 - **Not independently re-verified by QA**: whether `docs/decisions/T-024-ci-pipeline.md` or `docs/specs/T-024-ci-pipeline.md` (also touched by this commit range) carry the same or a related trap — the sweep's own report names only one surviving location (`docs/backlog.md:51`), so no further search was needed to confirm this specific finding, but a broader re-sweep after the backlog fix is still the correct re-verification step.
 
+## Round 2 (fix verification)
+
+Scope of the fix: lead's commit `fa0a52c` ("T-024: fix BUG-1 — a committed vocabulary-sweep
+violation in prose"), the only change since the round-1 FAIL at `c267880`.
+
+1. **Diff-scope check.** `git diff c267880..fa0a52c --stat` →
+   ```
+    .claude/agent-memory/qa-engineer/MEMORY.md         |  1 +
+    .../project_t024-ci-pipeline-closeout.md           | 42 ++++++++++++
+    docs/backlog.md                                    |  2 +-
+    docs/qa/T-024-ci-pipeline.md                       | 75 ++++++++++++++++++++++
+    4 files changed, 119 insertions(+), 1 deletion(-)
+   ```
+   Only doc/agent-memory files touched. No production, workflow, or SQL file implicated — matches
+   `git show fa0a52c --stat` exactly.
+2. **`docs/backlog.md` re-read directly** (not trusted from the commit message): the T-024 row
+   (line 51) now reads "...dev fixed two near-misses — a quoted occurrence of the current GitHub
+   Actions job-dependencies key, and a doc-comment spelling out the forbidden fragment" — the fix
+   describes rather than quotes the fragment. Confirmed with a targeted grep for the literal quoted
+   form (`'services'`) against `docs/backlog.md` — no match.
+3. **`QaVocabularyRenameSweepTest` re-run solo**:
+   `cd modules/host && "E:\xampp\php\php.exe" vendor/bin/pest --filter QaVocabularyRenameSweepTest`
+   → **5 passed (35 assertions)**, 7.78s. Round 1 was 1 failed / 4 passed on this same test. The
+   regression is gone.
+4. **`CiWorkflowShapeTest` re-run solo**:
+   `cd modules/host && "E:\xampp\php\php.exe" vendor/bin/pest --filter CiWorkflowShapeTest` →
+   **12 passed (75 assertions)**, 6.80s — unchanged from round 1, confirming the fix commit (doc/memory
+   only) didn't touch the shipped CI-pipeline artefacts.
+5. **Full gate, `composer check` from `modules/host`**: **12 failed, 23 skipped, 2762 passed
+   (19308 assertions)**, 1367.36s (ratio 5.70, well inside the manifest's margin). This now matches
+   dev's originally reported numbers exactly (2762 passed / 12 failed / 23 skipped) — the one case
+   that had shifted from passed to failed in round 1 (`QaVocabularyRenameSweepTest`) is back to
+   passing; the remaining 12 failures are all `QaModuleRegistryContractTest` cases by name
+   (`it fails fast when a module declares no psr-4 namespace`, `it fails fast when a module names
+   no provider class`, `it fails fast when the named provider class cannot be autoloaded`, `it
+   names the offending module in the exception rather than the whole chain`) — the same
+   long-documented, cross-task, full-suite-only state-pollution cluster (15/15 green standalone)
+   seen in T-021/T-022/T-023's own QA and dev reports. Nothing in this task's diff touches that
+   test, its subject (`App\Support\ModuleHost`), or `MODULES`/`.env`.
+
+No new defects found in round 2. BUG-1 is closed.
+
 ## Regression risks / notes
 
-- The `QaModuleRegistryContractTest` cluster (12 failures in this run) is the same long-documented, cross-task, state-pollution-under-full-suite-only baseline gap (15/15 green standalone) that has appeared in T-021/T-022/T-023's own QA and dev reports; nothing in this task's diff touches that test, its subject (`App\Support\ModuleHost`), or `MODULES`/`.env`. Not re-litigated here beyond confirming the failure names match the known cluster signature.
-- Everything in the 4 CI-pipeline artefacts themselves (`ci.yml`, `register-ci-tenant.sql`, `assert-tenant-state.sh`, `CiWorkflowShapeTest.php`) held up under independent re-reading against real migration/handler source, with no engine ever contacted (per the task's hard constraint and `ENGINE_HOLD`/D-1).
-- Once BUG-1 is fixed (a `docs/backlog.md` wording-only change), re-run should be a fast re-verification: re-run `QaVocabularyRenameSweepTest` solo for 5/5, then re-run the full gate once to confirm it returns to 12 failed / 2762 passed / 23 skipped (or whatever the `QaModuleRegistryContractTest` cluster's current flaky count is) with no other change.
+- The `QaModuleRegistryContractTest` cluster (12 failures in both runs) is the same long-documented, cross-task, state-pollution-under-full-suite-only baseline gap (15/15 green standalone) that has appeared in T-021/T-022/T-023's own QA and dev reports; nothing in this task's diff touches that test, its subject (`App\Support\ModuleHost`), or `MODULES`/`.env`.
+- Everything in the 4 CI-pipeline artefacts themselves (`ci.yml`, `register-ci-tenant.sql`, `assert-tenant-state.sh`, `CiWorkflowShapeTest.php`) held up under independent re-reading against real migration/handler source, with no engine ever contacted (per the task's hard constraint and `ENGINE_HOLD`/D-1), in both rounds.
+- AC-9/AC-10/AC-13 to AC-15 and AC-19's runtime half remain correctly fenced NOT VERIFIABLE until a real GitHub Actions run — unchanged from round 1, not re-litigated here since the fix touched no workflow file.

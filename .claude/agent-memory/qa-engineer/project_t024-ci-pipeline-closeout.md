@@ -40,3 +40,14 @@ exactly one case, don't average it away as "probably the known flaky cluster" �
 case shifted and check whether it's inside the known cluster's signature or a new name. Re-running
 the specific named test solo (not just trusting the aggregate number) is what separates a real
 regression from noise here. Full evidence: `docs/qa/T-024-ci-pipeline.md`.
+
+**Round 2 (fix verification): PASS.** Lead's `fa0a52c` reworded both `docs/backlog.md` and this
+same agent-memory file's own prior note (it had the identical quoting trap — a real instance of
+the "needle in my own memory file" risk) to describe rather than quote the fragment.
+`git diff c267880..fa0a52c --stat` confirmed doc/memory-only. Solo re-run:
+`QaVocabularyRenameSweepTest` 5/5 (was 1 failed/4 passed), `CiWorkflowShapeTest` unchanged 12/12.
+Full gate: 2762 passed / 12 failed / 23 skipped — the exact pre-fix baseline, confirming the
+regression (not the pre-existing `QaModuleRegistryContractTest` cluster) was the only thing that
+moved. A composer-check full run on this machine took 1367s this time vs. 1072s in round 1 — real
+machine-load variance, not a gate-step concern since it stayed well inside the manifest's margin
+(ratio 5.70).
