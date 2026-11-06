@@ -111,19 +111,24 @@ final class IdempotencyStore
 
             // The holder died without completing or releasing; take the
             // claim over rather than leave the key stuck for the rest of
-            // the retention window (AC-54, D-22).
-            $connection->table('idempotency_keys')
+            // the retention window (AC-54, D-22). Compare-and-set on the
+            // exact `created_at` we just read: two competing retries both
+            // land here on the same stale row, and only the one whose
+            // `UPDATE` actually changes a row may proceed - the loser sees
+            // the row as merely in progress again (R-1).
+            $taken = $connection->table('idempotency_keys')
                 ->where('key', $key)
                 ->where('request_hash', $hash)
                 ->whereNull('response_code')
+                ->where('created_at', $row->created_at)
                 ->update(['created_at' => $this->clock->timestamp()]);
 
-            return IdempotencyOutcome::claimed();
+            return $taken === 1 ? IdempotencyOutcome::claimed() : IdempotencyOutcome::inProgress();
         }
 
         return IdempotencyOutcome::replay(
             (int) $row->response_code,
-            json_decode((string) $row->response_body, true)
+            json_decode((string) $row->response_body)
         );
     }
 

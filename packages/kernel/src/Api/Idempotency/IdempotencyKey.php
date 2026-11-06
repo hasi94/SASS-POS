@@ -10,7 +10,9 @@ namespace Flexipos\Kernel\Api\Idempotency;
  */
 final class IdempotencyKey
 {
-    public const PATTERN = '/^[A-Za-z0-9_\-:.]{1,80}$/';
+    // `\z` rather than `$`: in PCRE, `$` also matches just before a
+    // trailing `\n`, which would let "abc\n" through as valid (S-2).
+    public const PATTERN = '/^[A-Za-z0-9_\-:.]{1,80}\z/';
 
     public static function isValid(string $key): bool
     {

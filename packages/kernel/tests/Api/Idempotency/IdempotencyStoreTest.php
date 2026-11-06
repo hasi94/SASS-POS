@@ -69,7 +69,10 @@ it('claims, completes, then replays the same key', function () {
         $replay = $store->claim('k1', $hash);
         expect($replay->outcome)->toBe(IdempotencyClaim::Replay)
             ->and($replay->responseCode)->toBe(201)
-            ->and($replay->responseBody)->toBe(['ok' => true]);
+            // Decoded without `true` (S-9), so a JSON object comes back as
+            // `stdClass`, not an array - see the dedicated S-9 test below
+            // for why that distinction matters.
+            ->and($replay->responseBody)->toEqual((object) ['ok' => true]);
     });
 });
 
@@ -115,6 +118,46 @@ it('takes over a stale in-flight row after the claim timeout', function () {
 
         $result = $store->claim('k4', $hash);
         expect($result->outcome)->toBe(IdempotencyClaim::Claimed);
+    });
+});
+
+it('loses the stale-claim takeover race to a competing request, as in progress rather than claimed twice (R-1)', function () {
+    tenancy()->run('tenant-a', function () {
+        idempotencyStoreCreateTable();
+
+        $store = app(IdempotencyStore::class);
+        $hash = IdempotencyFingerprint::of('POST', 'api/v1/qa', 'user:1', '{"a":1}');
+
+        $store->claim('k4b', $hash);
+
+        app(RunnerClock::class)->advanceSeconds(121);
+
+        $connection = DB::connection('tenant');
+        $wonAlready = false;
+
+        // Stands in for a second, concurrent request winning the takeover
+        // race first: the moment our own code is about to run its
+        // compare-and-set `UPDATE`, a competitor's `UPDATE` runs ahead of
+        // it and changes the very `created_at` our `WHERE` is keyed on.
+        $connection->beforeExecuting(function (string $sql, array $bindings, $conn) use (&$wonAlready) {
+            if ($wonAlready) {
+                return;
+            }
+
+            if (! str_starts_with(trim($sql), 'update') || ! str_contains($sql, 'idempotency_keys')) {
+                return;
+            }
+
+            $wonAlready = true;
+
+            $conn->table('idempotency_keys')
+                ->where('key', 'k4b')
+                ->update(['created_at' => app(RunnerClock::class)->timestamp()]);
+        });
+
+        $result = $store->claim('k4b', $hash);
+
+        expect($result->outcome)->toBe(IdempotencyClaim::InProgress);
     });
 });
 
@@ -178,4 +221,27 @@ it('accepts an 80 character key and refuses 81, empty, a space and a non-ascii l
         ->and(IdempotencyKey::isValid(''))->toBeFalse()
         ->and(IdempotencyKey::isValid('a b'))->toBeFalse()
         ->and(IdempotencyKey::isValid('é'))->toBeFalse();
+});
+
+it('refuses a key with a trailing newline (S-2)', function () {
+    expect(IdempotencyKey::isValid("abc\n"))->toBeFalse();
+});
+
+it('replays an empty JSON object as an object, not an array (S-9)', function () {
+    tenancy()->run('tenant-a', function () {
+        idempotencyStoreCreateTable();
+
+        $store = app(IdempotencyStore::class);
+        $hash = IdempotencyFingerprint::of('POST', 'api/v1/qa', 'user:1', '{"a":1}');
+
+        $store->claim('k9', $hash);
+        // An empty object nested in the stored body - an assoc-array
+        // round-trip cannot tell it apart from an empty array.
+        $store->complete('k9', $hash, 201, ['data' => (object) []]);
+
+        $replay = $store->claim('k9', $hash);
+
+        expect($replay->outcome)->toBe(IdempotencyClaim::Replay)
+            ->and($replay->responseBody->data)->toEqual((object) []);
+    });
 });

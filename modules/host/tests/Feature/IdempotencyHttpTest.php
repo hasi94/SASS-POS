@@ -365,6 +365,29 @@ it('each tenant executes once and neither sees the others row (AC-25)', function
     expect(idemSpyCalls())->toBe(2);
 });
 
+it('replays an empty JSON object in the body as "{}", not "[]" (S-9)', function () {
+    $world = orgHttpWorld('l');
+    $token = orgHttpToken($world, $world['owner']);
+
+    Route::middleware(['api', RequireTenantToken::class, RequireIdempotencyKey::class])
+        ->post('/api/v1/qa-idem/empty-object', fn () => ApiResponse::created(['extra' => (object) []]));
+    app('router')->getRoutes()->refreshNameLookups();
+
+    $first = postJson('/api/v1/qa-idem/empty-object', [], [
+        'Authorization' => 'Bearer '.$token,
+        'Idempotency-Key' => 'qa-key-12',
+    ]);
+
+    $replay = postJson('/api/v1/qa-idem/empty-object', [], [
+        'Authorization' => 'Bearer '.$token,
+        'Idempotency-Key' => 'qa-key-12',
+    ]);
+
+    expect($replay->headers->get('Idempotent-Replayed'))->toBe('true')
+        ->and((string) $first->getContent())->toContain('"extra":{}')
+        ->and((string) $replay->getContent())->toContain('"extra":{}');
+});
+
 it('a replay still counts against the rate limits (AC-27)', function () {
     $world = orgHttpWorld('k');
     $token = orgHttpToken($world, $world['owner']);

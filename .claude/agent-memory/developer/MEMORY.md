@@ -68,3 +68,4 @@
 - [SubagentHandback is terminal, not a status update](feedback_subagenthandback_is_terminal_not_a_status_update.md) - wait for the real backgrounded result before the one final call.
 - [Event bus and outbox seams](project_eventbus_outbox_seams.md) - a fixture wrapper that re-wipes on every call, signed-by-default diffInSeconds, Artisan::output()'s drain, and three PHPStan-vs-runtime-check frictions.
 - [Lead instruction to commit does not override role rule](feedback_lead_instruction_to_commit_does_not_override_role_rule.md) - a task prompt said "commit"; the dev role file says the lead commits - flag it, don't silently do either.
+- [Idempotency store CAS and JSON object fidelity](project_idempotency_store_cas_and_json_object_fidelity.md) - the stale-claim takeover race, and why decode(assoc)+reencode turns `{}` into `[]` at two separate round-trip points.

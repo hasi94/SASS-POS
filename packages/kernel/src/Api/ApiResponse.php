@@ -59,6 +59,10 @@ final class ApiResponse
      */
     public static function failures(array $errors, array $headers = []): JsonResponse
     {
+        if ($errors === []) {
+            throw new InvalidArgumentException('ApiResponse::failures() requires at least one error.');
+        }
+
         $catalogue = self::catalogue();
         $first = $catalogue->resolve($errors[0]->code);
 

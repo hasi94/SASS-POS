@@ -77,10 +77,15 @@ final class RequireIdempotencyKey
 
     private function replay(int $status, mixed $body): Response
     {
-        if (is_array($body)) {
-            if (array_key_exists('meta', $body) && is_array($body['meta'])) {
-                $body['meta']['request_id'] = app(RequestId::class)->current();
-            }
+        // Decoded without `true` on the storage side (S-9), so an envelope's
+        // `meta` is a `stdClass`, not an array; only patch whichever shape
+        // actually shows up, so an empty JSON object elsewhere in the body
+        // is never forced through an assoc-array round-trip that would turn
+        // it into `[]`.
+        if (is_object($body) && isset($body->meta) && is_object($body->meta)) {
+            $body->meta->request_id = app(RequestId::class)->current();
+        } elseif (is_array($body) && array_key_exists('meta', $body) && is_array($body['meta'])) {
+            $body['meta']['request_id'] = app(RequestId::class)->current();
         }
 
         return response()->json($body, $status)->withHeaders(['Idempotent-Replayed' => 'true']);
@@ -107,7 +112,11 @@ final class RequireIdempotencyKey
             return $response;
         }
 
-        $decoded = json_decode((string) $response->getContent(), true);
+        // Decoded without `true` (S-9): an assoc-array round-trip cannot
+        // tell an empty JSON object from an empty JSON array, so it would
+        // silently turn a stored `{}` into `[]` the next time this gets
+        // replayed.
+        $decoded = json_decode((string) $response->getContent());
 
         if (json_last_error() !== JSON_ERROR_NONE) {
             Log::warning('Idempotent handler answered a 2xx with a non-JSON body; nothing was stored.');

@@ -85,6 +85,10 @@ it('logs one info line on failure with no detail text in it', function () {
     ApiResponse::failure(KernelErrorCodes::NOT_FOUND, 'a secret path /api/v1/x/abc123');
 });
 
+it('failures() refuses an empty error list instead of an undefined-index error (S-1)', function () {
+    expect(fn () => ApiResponse::failures([]))->toThrow(InvalidArgumentException::class);
+});
+
 it('failures() uses the first code for the status and lists every error', function () {
     $response = ApiResponse::failures([
         new ApiError(KernelErrorCodes::VALIDATION_FAILED, 'first', 'a'),
