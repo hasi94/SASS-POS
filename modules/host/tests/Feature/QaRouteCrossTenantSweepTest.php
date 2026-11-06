@@ -161,7 +161,12 @@ function qaRouteSweepRecipes(): array
 }
 
 /**
- * The 6 by-id GET routes this sweep attacks (AC-3).
+ * A regression FLOOR, not the attack list itself (R-1): the 6 by-id GET
+ * routes measured at plan step 0. `qaRouteSweepDerivedReads()` derives the
+ * real attack list from the live route registry on every run; this table
+ * is only asserted to still be a subset of that derived set
+ * (`qaRouteSweepAssertReadFloors()`), so a route silently reclassified away
+ * from `tenant`/`terminal` fails loudly instead of just shrinking the sweep.
  *
  * @var list<string>
  */
@@ -171,8 +176,8 @@ const QA_ROUTE_SWEEP_BY_ID_READS = [
 ];
 
 /**
- * The 8 collection GET routes this sweep attacks (AC-4): no path parameter,
- * tenant or terminal gated.
+ * A regression FLOOR, not the attack list itself (R-1): the 8 collection
+ * GET routes measured at plan step 0. See QA_ROUTE_SWEEP_BY_ID_READS.
  *
  * @var list<string>
  */
@@ -181,6 +186,186 @@ const QA_ROUTE_SWEEP_COLLECTIONS = [
     'organization.settings.list', 'access.me.permissions', 'access.roles.list', 'access.employees.list',
     'terminal.settings',
 ];
+
+/**
+ * AC-1, AC-3, AC-4: every live tenant/terminal-gated GET route, derived from
+ * the registry and split into by-id (a path parameter) and collection
+ * (none) - never a hand-maintained list of route names (R-1).
+ *
+ * @param  list<array{name: string, methods: list<string>, uri: string, class: string}>  $routes
+ * @return array{byId: list<array{name: string, methods: list<string>, uri: string, class: string}>, collections: list<array{name: string, methods: list<string>, uri: string, class: string}>}
+ */
+function qaRouteSweepDerivedReads(array $routes): array
+{
+    $reads = array_values(array_filter(
+        $routes,
+        static fn (array $r): bool => in_array($r['class'], ['tenant', 'terminal'], true) && $r['methods'][0] === 'GET'
+    ));
+
+    $byId = array_values(array_filter($reads, static fn (array $r): bool => str_contains($r['uri'], '{')));
+    $collections = array_values(array_filter($reads, static fn (array $r): bool => ! str_contains($r['uri'], '{')));
+
+    return ['byId' => $byId, 'collections' => $collections];
+}
+
+/**
+ * The FLOOR check for both derived read lists (R-1): every name in
+ * QA_ROUTE_SWEEP_BY_ID_READS/QA_ROUTE_SWEEP_COLLECTIONS must still be
+ * present in the derived set this run found.
+ *
+ * @param  array{byId: list<array<string, mixed>>, collections: list<array<string, mixed>>}  $derived
+ */
+function qaRouteSweepAssertReadFloors(array $derived): void
+{
+    $byIdNames = array_column($derived['byId'], 'name');
+    $collectionNames = array_column($derived['collections'], 'name');
+
+    foreach (QA_ROUTE_SWEEP_BY_ID_READS as $name) {
+        expect(in_array($name, $byIdNames, true))->toBeTrue("Floor by-id read [{$name}] is no longer in the derived read set.");
+    }
+
+    foreach (QA_ROUTE_SWEEP_COLLECTIONS as $name) {
+        expect(in_array($name, $collectionNames, true))->toBeTrue("Floor collection read [{$name}] is no longer in the derived read set.");
+    }
+}
+
+/**
+ * AC-3: the cross/reverse attempt against one by-id GET route, returned as
+ * findings rather than asserted inline (R-2), so AC-7 can drive the exact
+ * same detector against a planted route and prove it actually fires.
+ *
+ * @param  array{name: string, methods: list<string>, uri: string, class: string}  $row
+ * @param  array{a: array<string, mixed>, b: array<string, mixed>}  $world
+ * @return list<string>
+ */
+function qaRouteSweepByIdAttempt(array $row, array $world): array
+{
+    $findings = [];
+    $uri = $row['uri'];
+    $method = $row['methods'][0];
+    $name = $row['name'];
+
+    // Cross: B's token, A's ids.
+    $ownPath = qaRouteSweepPath($uri, $world['a']['ids']);
+    $crossResponse = json($method, $ownPath, [], ['Authorization' => 'Bearer '.$world['b']['ownerToken']]);
+
+    if (! in_array($crossResponse->getStatusCode(), [404, 422], true)) {
+        $findings[] = "{$name}: cross attempt returned {$crossResponse->getStatusCode()}, not refused";
+    }
+
+    foreach (qaRouteSweepLeaks($crossResponse, $world['a']['tokens'], []) as $leak) {
+        $findings[] = "{$name}: cross attempt leaked [{$leak}]";
+    }
+
+    // Reverse: A's token, B's ids.
+    $reversePath = qaRouteSweepPath($uri, $world['b']['ids']);
+    $reverseResponse = json($method, $reversePath, [], ['Authorization' => 'Bearer '.$world['a']['ownerToken']]);
+
+    if (! in_array($reverseResponse->getStatusCode(), [404, 422], true)) {
+        $findings[] = "{$name}: reverse attempt returned {$reverseResponse->getStatusCode()}, not refused";
+    }
+
+    foreach (qaRouteSweepLeaks($reverseResponse, $world['b']['tokens'], []) as $leak) {
+        $findings[] = "{$name}: reverse attempt leaked [{$leak}]";
+    }
+
+    return $findings;
+}
+
+/**
+ * AC-4: the cross-tenant check against one collection GET route, returned
+ * as findings rather than asserted inline (R-2). The actor is chosen by the
+ * route's own classification - a terminal token for `terminal`, an owner
+ * token for `tenant` - never hand-picked per route name.
+ *
+ * @param  array{name: string, methods: list<string>, uri: string, class: string}  $row
+ * @param  array{a: array<string, mixed>, b: array<string, mixed>}  $world
+ * @return list<string>
+ */
+function qaRouteSweepCollectionAttempt(array $row, array $world): array
+{
+    $findings = [];
+    $uri = $row['uri'];
+    $method = $row['methods'][0];
+    $name = $row['name'];
+    $terminalGated = $row['class'] === 'terminal';
+
+    $tokenA = $terminalGated ? $world['a']['terminalToken'] : $world['a']['ownerToken'];
+    $tokenB = $terminalGated ? $world['b']['terminalToken'] : $world['b']['ownerToken'];
+
+    $responseA = json($method, '/'.$uri, [], ['Authorization' => 'Bearer '.$tokenA]);
+    $responseB = json($method, '/'.$uri, [], ['Authorization' => 'Bearer '.$tokenB]);
+
+    foreach (qaRouteSweepLeaks($responseB, $world['a']['tokens'], []) as $leak) {
+        $findings[] = "{$name}: tenant B's response leaked tenant A's data [{$leak}]";
+    }
+
+    foreach (qaRouteSweepLeaks($responseA, $world['b']['tokens'], []) as $leak) {
+        $findings[] = "{$name}: tenant A's response leaked tenant B's data [{$leak}]";
+    }
+
+    return $findings;
+}
+
+/**
+ * AC-5, N-9: the cross-tenant write attempt against one non-GET tenant
+ * route, returned as findings rather than asserted inline (R-2), so AC-7
+ * can drive the exact same detector against a planted write route.
+ *
+ * An id-bearing route is attacked with the victim's own id and the
+ * attacker's token, and must be refused with no database changed. A
+ * non-id-bearing route is called once with the caller's own token and must
+ * both succeed and leave tenant B untouched.
+ *
+ * @param  array{name: string, methods: list<string>, uri: string, class: string, params?: array<string, string>}  $row
+ * @param  \Closure(array<string, string>): array<string, mixed>  $bodyFor
+ * @param  array{a: array<string, mixed>, b: array<string, mixed>}  $world
+ * @return list<string>
+ */
+function qaRouteSweepWriteAttempt(array $row, \Closure $bodyFor, array $world): array
+{
+    $findings = [];
+    $uri = $row['uri'];
+    $method = $row['methods'][0];
+    $name = $row['name'];
+    $idBearing = str_contains($uri, '{');
+
+    if ($idBearing) {
+        $params = $row['params'] ?? [];
+        $aPath = qaRouteSweepPath($uri, $world['a']['ids'], $params);
+
+        $crossBefore = snapshotBothTenantDatabases();
+        $cross = json($method, $aPath, $bodyFor($world['a']['ids']), [
+            'Authorization' => 'Bearer '.$world['b']['ownerToken'], 'Idempotency-Key' => (string) Str::ulid(),
+        ]);
+
+        if (! in_array($cross->getStatusCode(), [404, 422], true)) {
+            $findings[] = "{$name}: cross write returned {$cross->getStatusCode()}, not refused";
+        }
+
+        if (snapshotBothTenantDatabases() !== $crossBefore) {
+            $findings[] = "{$name}: cross write changed a database";
+        }
+    } else {
+        $bBefore = qaRouteSweepTenantState('tenant-b');
+
+        $own = json($method, '/'.$uri, $bodyFor($world['a']['ids']), [
+            'Authorization' => 'Bearer '.$world['a']['ownerToken'], 'Idempotency-Key' => (string) Str::ulid(),
+        ]);
+
+        if ($own->getStatusCode() >= 300) {
+            $findings[] = "{$name}: write must succeed, got {$own->getStatusCode()} / ".$own->getContent();
+        }
+
+        $bAfter = qaRouteSweepTenantState('tenant-b');
+
+        if ($bAfter !== $bBefore) {
+            $findings[] = "{$name}: a non-id write changed tenant B";
+        }
+    }
+
+    return $findings;
+}
 
 /**
  * Every live route whose URI starts with `api/v1/`, classified by its own
@@ -590,19 +775,16 @@ it('AC-6: every master-only/unauthenticated route is named, with a reason, fail-
 
 it('AC-3: a by-id GET route refuses the other tenant`s id, not-found or validation, and leaks nothing', function () {
     $world = qaRouteSweepTwoTenantWorld();
-    $routes = qaRouteSweepRoutes();
-    $byName = [];
-    foreach ($routes as $row) {
-        $byName[$row['name']] = $row;
-    }
+    $derived = qaRouteSweepDerivedReads(qaRouteSweepRoutes());
+
+    qaRouteSweepAssertReadFloors($derived);
 
     $report = [];
 
-    foreach (QA_ROUTE_SWEEP_BY_ID_READS as $name) {
-        expect(isset($byName[$name]))->toBeTrue("Route [{$name}] no longer exists.");
-
-        $uri = $byName[$name]['uri'];
-        $method = $byName[$name]['methods'][0];
+    foreach ($derived['byId'] as $row) {
+        $name = $row['name'];
+        $uri = $row['uri'];
+        $method = $row['methods'][0];
 
         // Own control.
         $ownPath = qaRouteSweepPath($uri, $world['a']['ids']);
@@ -627,20 +809,7 @@ it('AC-3: a by-id GET route refuses the other tenant`s id, not-found or validati
             expect($ownHasToken)->toBeTrue("[{$name}] own control must contain at least one of A's tokens");
         }
 
-        // Cross: B's token, A's ids.
-        $crossResponse = json($method, $ownPath, [], ['Authorization' => 'Bearer '.$world['b']['ownerToken']]);
-
-        expect(in_array($crossResponse->getStatusCode(), [404, 422], true))
-            ->toBeTrue("[{$name}] cross attempt must be 404/422, got {$crossResponse->getStatusCode()}");
-        expect(qaRouteSweepLeaks($crossResponse, $world['a']['tokens'], []))->toBe([], "[{$name}] cross attempt leaked A's data");
-
-        // Reverse: A's token, B's ids.
-        $reversePath = qaRouteSweepPath($uri, $world['b']['ids']);
-        $reverseResponse = json($method, $reversePath, [], ['Authorization' => 'Bearer '.$world['a']['ownerToken']]);
-
-        expect(in_array($reverseResponse->getStatusCode(), [404, 422], true))
-            ->toBeTrue("[{$name}] reverse attempt must be 404/422, got {$reverseResponse->getStatusCode()}");
-        expect(qaRouteSweepLeaks($reverseResponse, $world['b']['tokens'], []))->toBe([], "[{$name}] reverse attempt leaked B's data");
+        expect(qaRouteSweepByIdAttempt($row, $world))->toBe([], "[{$name}] cross-tenant finding on a by-id GET route");
 
         $report[] = $name.': ok';
     }
@@ -650,29 +819,26 @@ it('AC-3: a by-id GET route refuses the other tenant`s id, not-found or validati
 
 it('AC-4: a collection GET route carries no other tenant`s distinguishing value', function () {
     $world = qaRouteSweepTwoTenantWorld();
-    $routes = qaRouteSweepRoutes();
-    $byName = [];
-    foreach ($routes as $row) {
-        $byName[$row['name']] = $row;
-    }
+    $derived = qaRouteSweepDerivedReads(qaRouteSweepRoutes());
+
+    qaRouteSweepAssertReadFloors($derived);
 
     $noTenantData = [];
     $report = [];
 
     $queries = ['organization.settings.list' => '?scope_type=company'];
 
-    foreach (QA_ROUTE_SWEEP_COLLECTIONS as $name) {
-        expect(isset($byName[$name]))->toBeTrue("Route [{$name}] no longer exists.");
-
-        $uri = '/'.$byName[$name]['uri'].($queries[$name] ?? '');
-        $method = $byName[$name]['methods'][0];
-        $terminalGated = $byName[$name]['class'] === 'terminal';
+    foreach ($derived['collections'] as $row) {
+        $name = $row['name'];
+        $uri = $row['uri'].($queries[$name] ?? '');
+        $method = $row['methods'][0];
+        $terminalGated = $row['class'] === 'terminal';
 
         $tokenA = $terminalGated ? $world['a']['terminalToken'] : $world['a']['ownerToken'];
         $tokenB = $terminalGated ? $world['b']['terminalToken'] : $world['b']['ownerToken'];
 
-        $responseA = json($method, $uri, [], ['Authorization' => 'Bearer '.$tokenA]);
-        $responseB = json($method, $uri, [], ['Authorization' => 'Bearer '.$tokenB]);
+        $responseA = json($method, '/'.$uri, [], ['Authorization' => 'Bearer '.$tokenA]);
+        $responseB = json($method, '/'.$uri, [], ['Authorization' => 'Bearer '.$tokenB]);
 
         expect($responseA->getStatusCode())->toBeLessThan(300, "[{$name}] own-tenant control must succeed");
         expect($responseB->getStatusCode())->toBeLessThan(300, "[{$name}] own-tenant control must succeed");
@@ -690,8 +856,7 @@ it('AC-4: a collection GET route carries no other tenant`s distinguishing value'
             $noTenantData[] = $name;
         }
 
-        expect(qaRouteSweepLeaks($responseB, $world['a']['tokens'], []))->toBe([], "[{$name}] tenant B's response leaked tenant A's data");
-        expect(qaRouteSweepLeaks($responseA, $world['b']['tokens'], []))->toBe([], "[{$name}] tenant A's response leaked tenant B's data");
+        expect(qaRouteSweepCollectionAttempt(['uri' => $uri] + $row, $world))->toBe([], "[{$name}] cross-tenant finding on a collection GET route");
 
         $report[] = $name.': ok';
     }
@@ -723,30 +888,17 @@ it('AC-5, N-9: every non-GET tenant route has a recipe, fail-closed, and a write
         $method = $route['methods'][0];
         $params = $recipe['params'] ?? [];
         $idBearing = str_contains($uri, '{');
+        $row = $route + ['params' => $params];
 
         if ($idBearing) {
-            $world = qaRouteSweepTwoTenantWorld();
-            $aPath = qaRouteSweepPath($uri, $world['a']['ids'], $params);
-            $bPath = qaRouteSweepPath($uri, $world['b']['ids'], $params);
-
             // Cross.
-            $crossBefore = snapshotBothTenantDatabases();
-            $cross = json($method, $aPath, $recipe['body']($world['a']['ids']), [
-                'Authorization' => 'Bearer '.$world['b']['ownerToken'], 'Idempotency-Key' => (string) Str::ulid(),
-            ]);
-            expect(in_array($cross->getStatusCode(), [404, 422], true))
-                ->toBeTrue("[{$route['name']}] cross write must be 404/422, got {$cross->getStatusCode()}");
-            expect(snapshotBothTenantDatabases())->toBe($crossBefore, "[{$route['name']}] cross write changed a database");
-
-            // Reverse.
             $world = qaRouteSweepTwoTenantWorld();
-            $reverseBefore = snapshotBothTenantDatabases();
-            $reverse = json($method, $bPath, $recipe['body']($world['b']['ids']), [
-                'Authorization' => 'Bearer '.$world['a']['ownerToken'], 'Idempotency-Key' => (string) Str::ulid(),
-            ]);
-            expect(in_array($reverse->getStatusCode(), [404, 422], true))
-                ->toBeTrue("[{$route['name']}] reverse write must be 404/422, got {$reverse->getStatusCode()}");
-            expect(snapshotBothTenantDatabases())->toBe($reverseBefore, "[{$route['name']}] reverse write changed a database");
+            expect(qaRouteSweepWriteAttempt($row, $recipe['body'], $world))->toBe([], "[{$route['name']}] cross write finding");
+
+            // Reverse: same attack, worlds swapped.
+            $world = qaRouteSweepTwoTenantWorld();
+            $reversed = ['a' => $world['b'], 'b' => $world['a']];
+            expect(qaRouteSweepWriteAttempt($row, $recipe['body'], $reversed))->toBe([], "[{$route['name']}] reverse write finding");
 
             // Own control, last.
             $world = qaRouteSweepTwoTenantWorld();
@@ -757,15 +909,7 @@ it('AC-5, N-9: every non-GET tenant route has a recipe, fail-closed, and a write
             expect($own->getStatusCode())->toBeLessThan(300, "[{$route['name']}] own-tenant write must succeed, got {$own->getStatusCode()} / ".$own->getContent());
         } else {
             $world = qaRouteSweepTwoTenantWorld();
-            $bBefore = qaRouteSweepTenantState('tenant-b');
-
-            $own = json($method, '/'.$uri, $recipe['body']($world['a']['ids']), [
-                'Authorization' => 'Bearer '.$world['a']['ownerToken'], 'Idempotency-Key' => (string) Str::ulid(),
-            ]);
-            expect($own->getStatusCode())->toBeLessThan(300, "[{$route['name']}] write must succeed, got {$own->getStatusCode()} / ".$own->getContent());
-
-            $bAfter = qaRouteSweepTenantState('tenant-b');
-            expect($bAfter)->toBe($bBefore, "[{$route['name']}] a non-id write changed tenant B");
+            expect(qaRouteSweepWriteAttempt($row, $recipe['body'], $world))->toBe([], "[{$route['name']}] non-id write finding");
         }
 
         $report[] = $route['name'].': ok';
@@ -776,6 +920,14 @@ it('AC-5, N-9: every non-GET tenant route has a recipe, fail-closed, and a write
 
 /**
  * Every row of every table in one fixture tenant, as JSON.
+ *
+ * `JSON_INVALID_UTF8_SUBSTITUTE`: some tenant-tree tables (`access_log`,
+ * `audit_logs`) carry a binary hash column, which `json_encode()` without
+ * this flag refuses outright - silently turning the whole snapshot into an
+ * empty string (R-2: discovered because that collapse made two genuinely
+ * different snapshots compare equal). Substituting the invalid bytes still
+ * yields a byte-for-byte-sensitive string for every column this suite
+ * actually compares; it only changes a refusal into a completed diff.
  */
 function qaRouteSweepTenantState(string $fixtureTenant): string
 {
@@ -788,7 +940,7 @@ function qaRouteSweepTenantState(string $fixtureTenant): string
             $state[$table] = DB::connection(AccessTenantFixture::connectionName())->table($table)->get()->all();
         }
 
-        return (string) json_encode($state);
+        return (string) json_encode($state, JSON_INVALID_UTF8_SUBSTITUTE);
     } finally {
         tenancy()->leave();
     }
@@ -843,7 +995,12 @@ if (! class_exists('QaRouteSweepPlantedWriteController', false)) {
             tenancy()->enter('tenant-b');
 
             try {
-                DB::connection(AccessTenantFixture::connectionName())->table('marker')->insert(['value' => 'planted-cross-write']);
+                // A real tenant-tree table (`branches`), not the fixture-only
+                // `marker` table: qaRouteSweepWriteAttempt()'s "non-id write"
+                // branch diffs tenantTreeTables() (R-2), which never watches
+                // `marker` by design (it is not production schema), so the
+                // plant has to touch a table that detector can actually see.
+                AccessSeed::branch();
             } finally {
                 tenancy()->leave();
             }
@@ -853,7 +1010,7 @@ if (! class_exists('QaRouteSweepPlantedWriteController', false)) {
     }
 }
 
-it('AC-7: the planted read, list and write routes are reported as leaks by the same attempt', function () {
+it('AC-7, R-2: the planted read, list and write routes are reported as findings by the real sweep detectors', function () {
     Route::middleware(['api', RequireTenantToken::class])
         ->get('/api/v1/qa-route-sweep/planted/{branch}', QaRouteSweepPlantedReadController::class)
         ->name('qa.route.sweep.planted.read');
@@ -875,27 +1032,31 @@ it('AC-7: the planted read, list and write routes are reported as leaks by the s
     QaRouteSweepPlantedReadController::$marker = $world['a']['ids']['branch'];
     QaRouteSweepPlantedListController::$marker = $world['a']['ids']['branch'];
 
-    $read = json('GET', '/api/v1/qa-route-sweep/planted/'.$world['a']['ids']['branch'], [], [
-        'Authorization' => 'Bearer '.$world['b']['ownerToken'],
-    ]);
-    expect($read->getContent())->toContain($world['a']['ids']['branch']);
+    // The same registry enumeration the real AC-1/AC-3/AC-4/AC-5 tests use
+    // (R-2) - the plants are attacked through qaRouteSweepByIdAttempt(),
+    // qaRouteSweepCollectionAttempt() and qaRouteSweepWriteAttempt()
+    // themselves, never a direct assertion on the plants' own responses.
+    // That is the proof the detectors catch a leak, not just that the
+    // plants leak.
+    $routes = qaRouteSweepRoutes();
+    $byName = [];
+    foreach ($routes as $row) {
+        $byName[$row['name']] = $row;
+    }
 
-    $list = json('GET', '/api/v1/qa-route-sweep/planted-list', [], [
-        'Authorization' => 'Bearer '.$world['b']['ownerToken'],
-    ]);
-    expect($list->getContent())->toContain($world['a']['ids']['branch']);
-
-    AccessTenantFixture::switchTo('tenant-b');
-    $bMarkersBefore = DB::connection(AccessTenantFixture::connectionName())->table('marker')->count();
-    tenancy()->leave();
-
-    json('POST', '/api/v1/qa-route-sweep/planted-write', [], [
-        'Authorization' => 'Bearer '.$world['a']['ownerToken'], 'Idempotency-Key' => (string) Str::ulid(),
+    expect($byName)->toHaveKeys([
+        'qa.route.sweep.planted.read', 'qa.route.sweep.planted.list', 'qa.route.sweep.planted.write',
     ]);
 
-    AccessTenantFixture::switchTo('tenant-b');
-    $bMarkersAfter = DB::connection(AccessTenantFixture::connectionName())->table('marker')->count();
-    tenancy()->leave();
+    $readFindings = qaRouteSweepByIdAttempt($byName['qa.route.sweep.planted.read'], $world);
+    expect($readFindings)->not->toBe([]);
+    expect(implode(' | ', $readFindings))->toContain('qa.route.sweep.planted.read');
 
-    expect($bMarkersAfter)->toBeGreaterThan($bMarkersBefore, 'the planted write did not reach tenant B at all');
+    $listFindings = qaRouteSweepCollectionAttempt($byName['qa.route.sweep.planted.list'], $world);
+    expect($listFindings)->not->toBe([]);
+    expect(implode(' | ', $listFindings))->toContain('qa.route.sweep.planted.list');
+
+    $writeFindings = qaRouteSweepWriteAttempt($byName['qa.route.sweep.planted.write'], fn (array $ids): array => [], $world);
+    expect($writeFindings)->not->toBe([]);
+    expect(implode(' | ', $writeFindings))->toContain('qa.route.sweep.planted.write');
 });

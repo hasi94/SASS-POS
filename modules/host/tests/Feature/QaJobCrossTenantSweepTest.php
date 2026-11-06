@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature;
 
 use Flexipos\Kernel\Schema\Features\MigrateTenant\MigrateTenantQueueJob;
+use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
@@ -167,6 +168,47 @@ function qaJobSweepQueuedClasses(array $directories): array
 }
 
 /**
+ * W-2: every declared class this scan's own file-name/namespace parsing
+ * found that does not autoload under the FQCN it derived - a finding, not
+ * a silent `continue` (plan step 1). `qaJobSweepQueuedClasses()` itself
+ * stays fail-closed on `ShouldQueue` membership; this is the companion
+ * check that nothing it looked at was quietly dropped first.
+ *
+ * @param  list<string>  $directories
+ * @return list<string>
+ */
+function qaJobSweepScanFindings(array $directories): array
+{
+    $findings = [];
+
+    foreach ($directories as $directory) {
+        if (! is_dir($directory)) {
+            continue;
+        }
+
+        foreach ((new Finder)->files()->in($directory)->name('*.php') as $file) {
+            $contents = (string) file_get_contents($file->getRealPath());
+
+            $namespace = preg_match('/^namespace\s+([^;]+);/m', $contents, $nsMatch) === 1 ? trim($nsMatch[1]) : '';
+
+            $className = qaJobSweepDeclaredClassName($contents);
+
+            if ($className === null) {
+                continue;
+            }
+
+            $fqcn = $namespace === '' ? $className : $namespace.'\\'.$className;
+
+            if (! class_exists($fqcn)) {
+                $findings[] = "{$fqcn} declared in {$file->getRealPath()} does not autoload.";
+            }
+        }
+    }
+
+    return $findings;
+}
+
+/**
  * Every promoted or declared property across the class and its whole
  * hierarchy, including traits.
  *
@@ -271,8 +313,44 @@ function qaJobSweepGenericInstance(string $fqcn): array
 }
 
 /**
- * AC-10, generic: build a generic instance, serialise it, and look for the
- * tenant id and for a planted credential's needles.
+ * R-3: the plan's actual needle list - every one of these, case-insensitive,
+ * anywhere in a queued job's serialised payload is a finding on its own,
+ * independent of any one planted value a caller supplies.
+ *
+ * @var list<string>
+ */
+const QA_JOB_SWEEP_FORBIDDEN_NEEDLES = ['env://', 'password', 'credential', 'secret'];
+
+/**
+ * R-3: the sentinel the generic builder would have put in a `tenantId`
+ * (or `*TenantId`) constructor parameter - the exact string
+ * `qaJobSweepGenericInstance()` assigns a `string`-typed parameter by that
+ * name - so the payload check below has something to prove a tenant id was
+ * actually carried, rather than asserting on a value nothing ever wrote.
+ */
+function qaJobSweepTenantIdSentinel(string $fqcn): ?string
+{
+    $reflection = new ReflectionClass($fqcn);
+    $constructor = $reflection->getConstructor();
+
+    if ($constructor === null) {
+        return null;
+    }
+
+    foreach ($constructor->getParameters() as $parameter) {
+        if ($parameter->getName() === 'tenantId' || str_ends_with($parameter->getName(), 'TenantId')) {
+            return 'qa-'.$parameter->getName();
+        }
+    }
+
+    return null;
+}
+
+/**
+ * AC-10, generic: build a generic instance, serialise it, and check that
+ * the tenant id is actually carried (R-3's first clause) and that neither
+ * the plan's forbidden needles (QA_JOB_SWEEP_FORBIDDEN_NEEDLES) nor any
+ * caller-supplied planted needle appears anywhere in the payload.
  *
  * @param  list<string>  $needles  credential values that must not appear
  */
@@ -285,6 +363,18 @@ function qaJobSweepPayloadFinding(string $fqcn, array $needles = []): ?string
     }
 
     $payload = serialize($instance);
+
+    $sentinel = qaJobSweepTenantIdSentinel($fqcn);
+
+    if ($sentinel !== null && ! str_contains($payload, $sentinel)) {
+        return "{$fqcn}'s serialised payload does not carry its tenant id.";
+    }
+
+    foreach (QA_JOB_SWEEP_FORBIDDEN_NEEDLES as $forbidden) {
+        if (stripos($payload, $forbidden) !== false) {
+            return "{$fqcn}'s serialised payload contains the forbidden string [{$forbidden}].";
+        }
+    }
 
     foreach ($needles as $needle) {
         if ($needle !== '' && str_contains($payload, $needle)) {
@@ -322,6 +412,60 @@ function qaJobSweepAmbientDrivers(array $ctx): array
     ];
 }
 
+/**
+ * AC-9 deterministic, W-1: scenario R, the recycled worker - the ambient
+ * tenant is entered and the container's scoped bindings are dropped with
+ * no `leave()`, exactly what a worker recycled between jobs does, before
+ * `$driver` runs. Returns a finding for every migration call this attack
+ * causes to land against the ambient tenant's own database - proof the
+ * job trusted the connection it was handed rather than resolving its own,
+ * driven through the same attack both the positive case (AC-9, with the
+ * real job's driver) and the negative control (with a trusting double)
+ * use.
+ *
+ * @param  \Closure(string): void  $driver
+ * @return list<string>
+ */
+function qaJobSweepAmbientAttack(\Closure $driver, string $ambientTenant): array
+{
+    tenancy()->enter($ambientTenant);
+    app()->forgetScopedInstances();
+
+    $driver($ambientTenant);
+
+    $applier = migrateFixtureApplier();
+    $ambientDatabase = DB::connection('master')->table('tenant_databases')->where('tenant_id', $ambientTenant)->value('database_name');
+
+    $findings = [];
+
+    foreach ($applier->calls as $call) {
+        if ($call['database'] === $ambientDatabase) {
+            $findings[] = "a migration call landed against the ambient tenant's database [{$ambientTenant}]";
+        }
+    }
+
+    return $findings;
+}
+
+if (! class_exists('QaJobSweepAmbientTrustingJob', false)) {
+    /**
+     * W-1: a stand-in for a job that applies to whatever connection is
+     * currently configured rather than entering its own tenant through
+     * `Tenancy::enter()` - exactly the bug AC-9 exists to catch. It lives
+     * only in this test file, never under a scanned `src/` tree, so it is
+     * a test-file double and not a production mutation.
+     */
+    final class QaJobSweepAmbientTrustingJob implements ShouldQueue
+    {
+        use Queueable;
+
+        public function handle(): void
+        {
+            migrateFixtureApplier()->apply(config('tenancy.connection', 'tenant'), runFixtureSet(), 1);
+        }
+    }
+}
+
 beforeEach(function () {
     migrateFixtureBoot();
 });
@@ -339,6 +483,8 @@ it('AC-24: every scanned directory actually exists', function () {
 });
 
 it('AC-8: the only ShouldQueue class in the repository is MigrateTenantQueueJob', function () {
+    expect(qaJobSweepScanFindings(qaJobSweepDirectories()))->toBe([]);
+
     $found = qaJobSweepQueuedClasses(qaJobSweepDirectories());
 
     expect($found)->toBe([MigrateTenantQueueJob::class]);
@@ -396,6 +542,14 @@ it('AC-10: no property looks like a credential, and the serialised payload carri
 
         expect(qaJobSweepCredentialPropertyFinding($class))->not->toBeNull();
 
+        // R-3: the payload function itself, not just the separate
+        // property-name rule, must also report this plant - its own
+        // credential-shaped property name (`password`) is serialised
+        // verbatim as a struct key, so qaJobSweepPayloadFinding() must
+        // catch it through QA_JOB_SWEEP_FORBIDDEN_NEEDLES even with no
+        // caller-supplied needle at all.
+        expect(qaJobSweepPayloadFinding($class))->not->toBeNull();
+
         // The positive plant: tenantId and no credential, no finding.
         $positive = 'QaJobSweepPlantedTenantOnly'.bin2hex(random_bytes(4));
 
@@ -434,19 +588,7 @@ it('AC-9 deterministic: a recycled worker still resolves the job`s own tenant, n
     // Scenario R, the recycled worker: tenant B is left ambient and the
     // container scope is dropped with no leave() - exactly what a worker
     // recycled between jobs does - and then the job for A is dispatched.
-    tenancy()->enter($tenantB);
-    app()->forgetScopedInstances();
-
-    ($drivers[MigrateTenantQueueJob::class])($tenantB);
-
-    $applier = migrateFixtureApplier();
-    $findings = [];
-
-    foreach ($applier->calls as $call) {
-        if ($call['database'] === DB::connection('master')->table('tenant_databases')->where('tenant_id', $tenantB)->value('database_name')) {
-            $findings[] = 'a migration call landed against tenant B`s database';
-        }
-    }
+    $findings = qaJobSweepAmbientAttack($drivers[MigrateTenantQueueJob::class], $tenantB);
 
     $jobRow = migrateFixtureJobRow($jobId);
     $mappingB = migrateFixtureMappingRow($tenantB);
@@ -487,28 +629,24 @@ it('AC-9 deterministic: a leaked scope refuses rather than silently migrating th
     expect((string) migrateFixtureJobRow($jobId)['status'])->toBe('failed');
 });
 
-it('negative control: a job that trusts the ambient connection is reported landing in tenant B', function () {
+it('negative control, W-1: a job that trusts the ambient connection is reported by the same scenario-R attack', function () {
     $server = migrateFixtureServer();
-    $tenantA = migrateFixtureTenant('job-sweep-neg-a', $server);
     $tenantB = migrateFixtureTenant('job-sweep-neg-b', $server);
 
-    tenancy()->enter($tenantB);
-    app()->forgetScopedInstances();
+    // QaJobSweepAmbientTrustingJob applies to whatever connection is
+    // currently configured rather than entering its own tenant - exactly
+    // the bug AC-9 exists to catch - driven through qaJobSweepAmbientAttack(),
+    // the exact function the positive AC-9 case above uses. A finding here
+    // is the proof that function actually detects this failure mode, not
+    // just that it stays quiet on the real, correctly-isolated job.
+    $findings = qaJobSweepAmbientAttack(
+        function (string $ambientTenant): void {
+            (new QaJobSweepAmbientTrustingJob)->handle();
+        },
+        $tenantB
+    );
 
-    $applier = migrateFixtureApplier();
-
-    // QaJobSweepAmbientTrustingJob: a stand-in for a job that applies to
-    // whatever connection is currently configured rather than entering its
-    // own tenant - exactly the bug AC-9 exists to catch. It lives only in
-    // this test, never under src/, so it is a test-file double and not a
-    // production mutation.
-    $databaseNow = (string) DB::connection(config('tenancy.connection', 'tenant'))->getDatabaseName();
-    $applier->apply(config('tenancy.connection', 'tenant'), runFixtureSet(), 1);
-
-    $expectedB = DB::connection('master')->table('tenant_databases')->where('tenant_id', $tenantB)->value('database_name');
-
-    expect($databaseNow)->toBe($expectedB);
-    expect($applier->calls[0]['database'] ?? null)->toBe($expectedB, 'the trusting double`s effect landed in tenant-b');
+    expect($findings)->not->toBe([], 'the ambient-trusting double was not reported as a leak');
 
     tenancy()->leave();
 });
