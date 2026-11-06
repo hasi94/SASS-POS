@@ -1,10 +1,12 @@
 # QA Report: T-024 CI pipeline (FP-218)
 
-## Verdict: PASS
+## Verdict: PASS (Round 3)
 
 Round 1 verdict: FAIL -> Round 2 verdict: PASS (lead's fix commit `fa0a52c` reworded both
 `docs/backlog.md` and qa's own agent-memory note to describe, not quote, the forbidden
-fragment; independently re-verified below).
+fragment; independently re-verified below) -> Round 3 verdict: PASS (dev's commit `7851890`
+closed reviewer Warnings W-1/W-2/W-3 in `CiWorkflowShapeTest.php`; independently re-verified,
+see "Round 3" section below).
 
 One major defect: dev's own `IN_QA` status-update commit (`c267880`, to `docs/backlog.md`)
 introduces a new, reproducible `QaVocabularyRenameSweepTest` failure. That test is part of
@@ -114,8 +116,99 @@ violation in prose"), the only change since the round-1 FAIL at `c267880`.
 
 No new defects found in round 2. BUG-1 is closed.
 
+## Round 3 (Warning fix verification — W-1/W-2/W-3)
+
+Scope: reviewer approved T-024 with 0 Criticals but 3 Warnings, all in `CiWorkflowShapeTest.php`
+(hardcoded-port blind spot, tenant-registration-ordering/status blind spot, T-023-lesson-reversion
+blind spot). Dev's commit `7851890` ("fix review Warnings W-1/W-2/W-3") claimed 3 new assertions,
+13 passed / 101 assertions (was 12/75), and that each was proven red by a one-at-a-time revert then
+restored. `git show 7851890 --stat` confirmed the commit touches only
+`modules/host/tests/Feature/CiWorkflowShapeTest.php` plus two agent-memory files — no production
+file.
+
+1. **Diff-scope check.** `git diff 12f3c03..7851890 --stat` → only
+   `.claude/agent-memory/developer/MEMORY.md`, a new agent-memory note, and
+   `CiWorkflowShapeTest.php` (91 insertions). `.github/workflows/ci.yml` and
+   `.github/ci/register-ci-tenant.sql` are untouched since the reviewer-approved commit — confirmed
+   directly, not trusted from dev's report.
+2. **`CiWorkflowShapeTest.php` re-run solo**: `cd modules/host && "E:\xampp\php\php.exe" vendor/bin/pest tests/Feature/CiWorkflowShapeTest.php`
+   → **13 passed (101 assertions)**, 54.42s. Matches dev's reported count exactly.
+3. **Independent discrimination checks on all three new assertions** (not two — did all three),
+   each via my own revert of the shipped file, confirmed red for the named reason, then restored
+   and re-confirmed green via `git checkout -- <file>` + `git diff --stat` (clean):
+   - **W-1** (`ci.yml`, job `migrate-fresh`'s `ports:` changed from `- 3306` to `- '3306:3306'`):
+     failed at `CiWorkflowShapeTest.php:364` ("job migrate-fresh does not map an ephemeral,
+     container-only mysql port", array diff `3306` vs `'3306:3306'`) — the exact assertion and
+     exact reason the Warning named. Restored; 13/13 green again.
+   - **W-2** (`register-ci-tenant.sql`, the `tenants` row's status changed from `'provisioning'`
+     to `'active'`): failed at `CiWorkflowShapeTest.php:525` (`substr_count($executable,
+     'provisioning')` dropped from 2 to 1) — the exact D-13 status-pairing assertion. Restored;
+     13/13 green again.
+   - **W-3** (`ci.yml`, both jobs' healthcheck `--health-cmd` changed from
+     `--password=ci-root-dev-only` to a space-split `-p ci-root-dev-only`): failed at
+     `CiWorkflowShapeTest.php:371` (`$options` no longer contains `--password=`) — the exact
+     T-023-lesson-reversion assertion. Restored; 13/13 green again.
+4. **`QaVocabularyRenameSweepTest` re-run solo**: 5 passed (35 assertions) — unchanged from round 2.
+5. **Full gate, `composer check` from `modules/host`.** First attempt (started 17:59, 2080.34s,
+   `FLEXIPOS-GATE-MARGIN ratio=3.75`) returned **46 failed / 23 skipped / 2729 passed (17243
+   assertions)** — far outside any prior baseline (12 failed / 2762–2763 passed / 19308–19334
+   assertions in every round-1/round-2/dev run on this task). Failure list included a
+   `ProcessTimedOutException` spawning `pest --list-groups` (60s timeout) and a tenancy-fixture
+   SQLite `PDOException: table marker already exists` — both signatures of a second process
+   sharing this machine's resources, per this project's own documented trap ("Two shared files turn
+   one mistake into a hundred meaningless failures" / never-overlap-gate-runs). Investigated instead
+   of reported: `Get-CimInstance Win32_Process -Filter "name='php.exe'"` found PID 35616 running
+   `E:\xampp\php\php.exe artisan test --testsuite=Feature` (the exact FlexiPOS-prescribed PHP path),
+   started 18:24:04 — squarely inside the first run's 17:59–18:33 window — with near-zero
+   accumulated CPU even 38 minutes later (hung, not mine; I started no such process). Treated the
+   46-failed run as contaminated and **discarded** it rather than reporting it.
+   Re-ran clean (full output to a log file, no `tail` truncation this time):
+   **12 failed / 23 skipped / 2763 passed (19334 assertions)**, 1275.35s,
+   `FLEXIPOS-GATE-MARGIN ratio=6.12`. This matches the task's predicted baseline exactly
+   (2763 passed, one higher than the prior round's 2762, exactly accounted for by dev's new
+   `CiWorkflowShapeTest` case: +1 case, +26 assertions — 75→101 in that file is +26, and the
+   suite-wide total is 19308→19334, also +26. Two independent counts agreeing on the same +26 is
+   the reconciliation). Lint, stan and deptrac all reported clean before the test step
+   (`{"tool":"pint","result":"passed"}`, PHPStan `[OK] No errors`, deptrac `Violations 0`).
+6. **The 12 failures identified by name** and confirmed as the long-documented, cross-task
+   `ModuleHost`-boot-fragility cluster (`App\Support\ModuleHost`-adjacent tests, full-suite-only
+   state pollution) already seen in T-021/T-022/T-023/T-024-round-2's own QA and dev reports:
+   `ModulesEnvParsingTest::it boots with zero modules when MODULES is unset` (1),
+   `QaHealthProbeResilienceTest` (2), `QaModuleNameValidationTest` (3),
+   `QaModuleRegistryContractTest` (6). Re-ran each file standalone (solo `pest` invocation per
+   file, not filtered together): `QaModuleNameValidationTest` and `QaModuleRegistryContractTest`
+   are fully green alone (7/7 and 8/8); `ModulesEnvParsingTest` and `QaHealthProbeResilienceTest`
+   each still show 1 failure even run completely alone on this machine (the `ModulesEnvParsingTest`
+   one reads `MODULES` as `demo` instead of empty when unset — an `.env`-default leak, not a test-
+   order artefact on this machine). No stray `bootstrap/cache/config.php` or `*Probe.php` files
+   found (checked directly) that would explain it as leftover state from the discarded contaminated
+   run. Nothing in T-024's diff (`ci.yml`, `register-ci-tenant.sql`, `assert-tenant-state.sh`,
+   `CiWorkflowShapeTest.php`) touches `App\Support\ModuleHost`, `MODULES`, or `.env` — this is the
+   same pre-existing, environment-level cluster this project's QA reports have carried across
+   multiple tasks, now confirmed to be slightly wider in membership (4 files, not just
+   `QaModuleRegistryContractTest`) than my own prior note stated; memory updated accordingly.
+
+**Round 3 verdict: PASS.** All three Warnings are now closed with independently-reproduced
+discrimination evidence (not merely trusted from dev's own revert-test report). No new defect
+found. The one contaminated gate run was correctly identified as contamination (not reported as a
+regression) and discarded in favour of a clean re-run that matches the task's predicted numbers
+exactly.
+
 ## Regression risks / notes
 
-- The `QaModuleRegistryContractTest` cluster (12 failures in both runs) is the same long-documented, cross-task, state-pollution-under-full-suite-only baseline gap (15/15 green standalone) that has appeared in T-021/T-022/T-023's own QA and dev reports; nothing in this task's diff touches that test, its subject (`App\Support\ModuleHost`), or `MODULES`/`.env`.
-- Everything in the 4 CI-pipeline artefacts themselves (`ci.yml`, `register-ci-tenant.sql`, `assert-tenant-state.sh`, `CiWorkflowShapeTest.php`) held up under independent re-reading against real migration/handler source, with no engine ever contacted (per the task's hard constraint and `ENGINE_HOLD`/D-1), in both rounds.
-- AC-9/AC-10/AC-13 to AC-15 and AC-19's runtime half remain correctly fenced NOT VERIFIABLE until a real GitHub Actions run — unchanged from round 1, not re-litigated here since the fix touched no workflow file.
+- The pre-existing `ModuleHost`-boot cluster (12 failures, same signature both in round 2 and round
+  3's clean run) is cross-task baseline noise, confirmed again not touched by this task's diff.
+- **Never run `composer check` on a machine with another `php artisan test`/`composer check`
+  process active in the same or a sibling worktree** — a contaminated run here showed 46 failed
+  (vs. the true 12) with a `ProcessTimedOutException` and a shared-SQLite-fixture `PDOException`,
+  both signatures of resource contention, not real regressions. Always capture full `composer
+  check` output to a log file (never `| tail -N`) so a surprising failure count can be
+  investigated rather than guessed at.
+- Everything in the 4 CI-pipeline artefacts themselves (`ci.yml`, `register-ci-tenant.sql`,
+  `assert-tenant-state.sh`, `CiWorkflowShapeTest.php`) held up under independent re-reading and,
+  this round, independent mutation/discrimination testing of all three new assertions, with no
+  engine ever contacted (per `ENGINE_HOLD`/D-1).
+- AC-9/AC-10/AC-13 to AC-15 and AC-19's runtime half remain correctly fenced NOT VERIFIABLE until a
+  real GitHub Actions run — unchanged, not re-litigated here since the fix touched no workflow file.
+
+Run 1: FAIL -> Run 2: PASS -> Run 3: PASS (Warnings W-1/W-2/W-3 closed, independently re-verified).

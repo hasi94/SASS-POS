@@ -1,6 +1,6 @@
 ---
 name: t024-ci-pipeline-closeout
-description: T-024 CI pipeline - a committed backlog-row narration re-triggered the vocabulary sweep trap, how the gate's +1/-1 shifted count proved it was real not flake, and the D-13/IdentifierColumn/SQL cross-checks that held clean
+description: T-024 CI pipeline - a committed backlog-row narration re-triggered the vocabulary sweep trap, how the gate's +1/-1 shifted count proved it was real not flake, the D-13/IdentifierColumn/SQL cross-checks that held clean, and (round 3) how a 46-failed gate run turned out to be a second php.exe process, not a regression
 metadata:
   type: project
 ---
@@ -51,3 +51,39 @@ regression (not the pre-existing `QaModuleRegistryContractTest` cluster) was the
 moved. A composer-check full run on this machine took 1367s this time vs. 1072s in round 1 — real
 machine-load variance, not a gate-step concern since it stayed well inside the manifest's margin
 (ratio 5.70).
+
+**Round 3 (reviewer Warning fix verification): PASS.** Dev's `7851890` added 3 assertions to
+`CiWorkflowShapeTest.php` (W-1 fixed-port blind spot, W-2 tenant-status/ordering blind spot, W-3
+T-023-lesson-reversion blind spot) — 12→13 cases, 75→101 assertions (+26). Independently mutated
+all three (not just two) via my own edit-run-restore of the shipped `ci.yml`/`register-ci-tenant.sql`
+(never trusting dev's own revert-test report): `3306`→`'3306:3306'` reddened line 364 exactly,
+`'provisioning'`→`'active'` on the tenants row reddened the `substr_count`==2 check at line 525,
+and `--password=`→space-split `-p` reddened line 371 — all three for the named reason, all three
+restored clean (`git checkout -- <file>` + `git diff --stat` empty) and re-confirmed 13/13 green.
+
+**A `composer check` run that returns 46 failed instead of ~12 is contamination, not a
+regression — verify the process table before reporting it.** First full-gate attempt: 46 failed /
+2729 passed / 17243 assertions, with a `ProcessTimedOutException` spawning `pest --list-groups`
+and a tenancy-fixture SQLite `PDOException: table marker already exists` — both textbook
+[[project_gate-split-and-shared-state]] "second suite sharing the tree" signatures. Instead of
+reporting the scary number, `Get-CimInstance Win32_Process -Filter "name='php.exe'"` found a
+second `E:\xampp\php\php.exe artisan test --testsuite=Feature` (PID, not mine) whose start time
+sat squarely inside the contaminated run's window, with near-zero CPU minutes later (hung but
+present). Discarded that run, re-ran with full output to a log file (never `| tail -N` on a gate
+run — it hides the one line that would tell you *why* a surprising count happened) and got a
+clean **12 failed / 2763 passed / 19334 assertions**, exactly matching the task's predicted
+baseline (2762+1 case, 19308+26 assertions, both reconciling to the same dev-added test). Lesson
+reinforced: a composer check's number that is 3-4x the known baseline is itself evidence of
+contamination, not grounds to mark the task FAIL — check `tasklist`/WMI for a second PHP process
+in the same window before concluding anything.
+
+**The pre-existing full-suite-only cluster is wider than previously recorded.** It is not just
+`QaModuleRegistryContractTest` (6 cases) — this round's clean 12 also included
+`ModulesEnvParsingTest` (1), `QaHealthProbeResilienceTest` (2) and `QaModuleNameValidationTest`
+(3). Two of those four files (`QaModuleNameValidationTest`, `QaModuleRegistryContractTest`) are
+fully green run completely standalone; the other two (`ModulesEnvParsingTest`,
+`QaHealthProbeResilienceTest`) each still show exactly 1 failure even alone on this machine (an
+`.env` `MODULES` default leaking into a "MODULES unset" expectation) — a machine/environment-level
+default, not test-order pollution, and not touched by any of T-024's 4 shipped artefacts. Prior
+notes calling this cluster "15/15 green standalone" describe only the `QaModuleRegistryContractTest`
+slice of it; the other two files have their own, narrower, always-reproducing-alone failure.
