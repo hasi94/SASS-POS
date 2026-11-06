@@ -53,11 +53,18 @@ Re-derived directly from the shipped frontend and backend code, not assumed:
   auth failure is `{"error": "<token>"}` or `{"error":"invalid_request","reason":"<text>"}` — never
   `{success:false, errors:[...], meta:{...}}`. `frontend`'s `isEnvelope()` therefore returns `false` for
   every real auth failure body, and `toApiError()` falls through to a generic
-  `"The request failed."`, losing the real refusal token.
+  `"The request failed."`, losing the real refusal token. **The same bug exists on the success path,
+  not just the failure path**: `ApiClient.unwrap()` throws "not an API envelope" on *any* 2xx body
+  lacking `success`/`meta` keys, and every real auth success body (login, tenant selection, logout) is
+  also raw and non-enveloped — so even once the failure path is fixed, a real auth success still cannot
+  come back through `api.post()` at all; it needs its own, separate `postRaw()` path (D-7, AC-2).
 - `frontend/projects/shared/src/lib/auth/auth.service.ts`/`auth.models.ts`/`mock/mock-backend.ts` assume:
   - `POST auth/login` with `{email,password}` returning `{token, user:{id,name,email}, tenants:[{id,name,branches:[{id,name}]}]}`.
   - `POST auth/select-tenant` with `{tenant_id}` returning `{token, tenant:{id,name,branches:[...]}}`.
-  - `POST auth/logout` with no body returning `{}`.
+  - `POST auth/logout` with no body returning `{}`. (Re-reading the shipped
+    `AuthService.logout()` directly: it fires **no HTTP call at all** today — it only clears
+    local session state/storage synchronously. Only the mock backend's `auth/logout` handler
+    answers that path, and nothing in the current frontend code calls it.)
   The real, shipped endpoints (`packages/auth/routes/api.php`, `LoginController.php`,
   `SelectTenantController.php`, `LogoutController.php`, `LoginResult.php`, `SelectTenantResult.php`,
   `LogoutResult.php`) are:
@@ -109,22 +116,51 @@ Re-derived directly from the shipped frontend and backend code, not assumed:
   five top-level keys, same nesting, same `errors[]` item shape) and no change is required to
   `envelope.ts` itself. **Verifiable by inspection, recorded in D-1; no code change, no new test.**
 - AC-2: Given the real auth endpoints never wrap their bodies in the envelope (T-021 D-1, confirmed
-  directly against `AuthRefusals.php`/`LoginController.php`/etc.), When `auth.service.ts` is updated,
-  Then it stops assuming an enveloped auth response and instead matches the real, shipped field names:
-  `login()` reads `{access_token, refresh_token, tenants, default_tenant_id, must_change_password}`;
-  `selectTenant()` posts to `auth/tenant` with `{code}` and reads
-  `{access_token, refresh_token, tenant_id, tenant_code}`; `logout()` posts `{refresh_token}`. Verified
-  by `npm test` (updated/added unit specs for `AuthService` asserting the exact request body and path
-  for each call, and the exact fields read from each response) and by `ng build pos`/`ng build admin`
-  staying clean.
-- AC-3: Given a real auth failure body is one of `{"error":"invalid_credentials"}`,
-  `{"error":"wrong_token_type"}`, `{"error":"no_access"}`, `{"error":"tenant_not_servable", ...}`,
-  `{"error":"invalid_request","reason":"..."}`, or `{"error":"signing_unavailable"}` (none of which
-  satisfies `isEnvelope()`), When `toApiError()` receives one, Then it returns an `ApiError` whose
-  message/code reflects the real `error` token (and `reason` when present) rather than falling through
-  to the generic `"The request failed."` branch. Verified by `npm test` (a unit spec per listed shape
-  feeding `toApiError()` a matching `HttpErrorResponse` and asserting the parsed `ApiError.hasCode(...)`
-  or equivalent reads the real token).
+  directly against `AuthRefusals.php`/`LoginController.php`/etc.) **and given this is not only a
+  failure-path problem**: `ApiClient.unwrap()` throws "not an API envelope" on *any* 2xx body lacking
+  `success`/`meta` keys, and every real auth success body (login, tenant selection, logout) is also raw
+  and non-enveloped, so a real auth success cannot come back through the existing `api.post()` at all —
+  When `auth.service.ts` is updated, Then it stops assuming an enveloped auth response on both the
+  success and failure paths: a new `ApiClient.postRaw()` is added for these pre-envelope endpoints only
+  (T-021 D-1, until FP-369 moves them onto the envelope; the existing `api.post()`/envelope path is left
+  unchanged for every endpoint that already uses it), and `login()`, `selectTenant()`, and `logout()`
+  call `postRaw()` instead of `api.post()`, matching the real, shipped field names: `login()` reads
+  `{access_token, refresh_token, tenants, default_tenant_id, must_change_password}`; `selectTenant()`
+  posts to `auth/tenant` with `{code}` and reads `{access_token, refresh_token, tenant_id, tenant_code}`;
+  `logout()` posts `{refresh_token}` once per non-null token held (tenant, then platform), swallowing
+  any error (the real endpoint always answers 200 regardless of what is presented). Verified by
+  `npm test` (updated/added unit specs for `AuthService` and `api-client.ts` asserting the exact request
+  body and path for each `postRaw` call, the exact fields read from each response, **and a dedicated
+  case proving a raw, non-enveloped 2xx success body passes through `postRaw()` unchanged — checked as
+  its own case, not assumed covered by the failure-path fix alone**) and by `ng build pos`/
+  `ng build admin` staying clean.
+- AC-2a: Given `POST auth/tenant` requires a **platform** token (`RequirePlatformToken`) and returns a
+  **tenant-scoped** token pair, and given presenting a tenant token back to `auth/tenant` a second time
+  (e.g. a "change company" flow) is refused with 403 `wrong_token_type`, When the session is updated,
+  Then `AuthService` retains both token pairs simultaneously — the platform pair (from `login()`) and
+  the tenant pair (from the most recent `selectTenant()`) — rather than overwriting one with the other,
+  and a second (or later) call to `selectTenant()` always sends the stored **platform** token, never the
+  most recently received tenant token. Verified by `npm test` (a unit spec that logs in, selects tenant
+  A, then selects tenant B, and asserts the second `auth/tenant` request's `Authorization` header
+  carries the original platform access token, not tenant A's).
+- AC-3: Given a real auth failure body is one of the seven real refusal shapes this backend sends for
+  auth calls:
+
+  | Status | Body | Returned by |
+  |---|---|---|
+  | 401 | `{"error":"invalid_credentials"}` | Login; also the `auth/tenant` middleware when the bearer is missing, expired, or malformed |
+  | 403 | `{"error":"wrong_token_type"}` | The `auth/tenant` middleware when it receives a tenant token instead of a platform token |
+  | 403 | `{"error":"no_access"}` | `auth/tenant` |
+  | 403 | `{"error":"tenant_not_servable","status":"<tenant status>"}` | `auth/tenant` |
+  | 403 | `{"error":"employee_unavailable"}` | `auth/tenant` and token refresh |
+  | 422 | `{"error":"invalid_request","reason":"<text>"}` | Login; `auth/tenant` |
+  | 503 | `{"error":"signing_unavailable"}` | Login; `auth/tenant`; token refresh |
+
+  (none of which satisfies `isEnvelope()`), When `toApiError()` receives one, Then it returns an
+  `ApiError` whose message/code reflects the real `error` token (and `reason`/`status` when present)
+  rather than falling through to the generic `"The request failed."` branch. Verified by `npm test` (a
+  unit spec per listed shape, one per row above, feeding `toApiError()` a matching `HttpErrorResponse`
+  and asserting the parsed `ApiError.hasCode(...)` or equivalent reads the real token).
 - AC-4: Given `LoginResult` carries no user object, When `auth.models.ts`/`Session` are updated, Then
   `AuthUser`/`session.user` either is removed from the real-contract path or is clearly documented as a
   mock-only convenience not sourced from any real response field; no production code path reads a
@@ -239,9 +275,10 @@ Re-derived directly from the shipped frontend and backend code, not assumed:
 
 ## Non-functional requirements
 
-- Security: the auth-service reconciliation (AC-2/AC-3) must not log or persist a raw refresh/access
-  token anywhere beyond the existing `sessionStorage` mechanism already in place; parsing a real
-  `{error:...}` body (AC-3) must not echo request credentials into any `ApiError` message.
+- Security: the auth-service reconciliation (AC-2/AC-2a/AC-3) must not log or persist a raw
+  refresh/access token anywhere beyond the existing `sessionStorage` mechanism already in place, even
+  though AC-2a now requires holding two token pairs at once; parsing a real `{error:...}` body (AC-3)
+  must not echo request credentials into any `ApiError` message.
 - Compatibility: the mock backend (AC-6) continues to exclude itself from production bundles (AC-8) —
   the single most load-bearing existing guarantee in this workspace, and this task must not weaken it
   while changing the shapes it mocks.
@@ -253,8 +290,9 @@ Re-derived directly from the shipped frontend and backend code, not assumed:
 - T-009's authentication endpoints and T-021's envelope/error-catalogue are both DONE and will not
   change shape again before this task's `dev` step reconciles against them; if either changes before
   this task ships, the reconciliation is re-opened, not silently stale.
-- "Real, running check" for the frontend means `npm test` (Karma/Jasmine or the project's configured
-  runner) and `ng build`, run by `dev`/`qa` on this machine (Node 24.15/npm 11.12/Angular CLI 21.2 per
+- "Real, running check" for the frontend means `npm test` (Vitest, run through Angular's
+  `@angular/build:unit-test` builder — the workspace's actual configured runner, not Karma/Jasmine) and
+  `ng build`, run by `dev`/`qa` on this machine (Node 24.15/npm 11.12/Angular CLI 21.2 per
   `CLAUDE.md`); no headless browser or CI runner beyond what already backs the existing 21/21 suite is
   assumed to be unavailable.
 - D-9's PWA-for-`pos`-only call and D-10's plugin-remote scoping are both reversible decisions that a
