@@ -3,13 +3,18 @@
 ## Verdict: PASS (round 2)
 
 One concrete, reportable defect (BUG-1, major): the `mysql` service's healthcheck
-in `docker-compose.yml` passes the root password with a corrupting leading space,
-which would make MySQL healthcheck authentication fail forever once the engine
-hold lifts and `docker compose up` is actually run — defeating `app`'s
-`depends_on: mysql: condition: service_healthy` and leaving the stack unable to
-start the application service. Everything else checked (AC-1 through AC-17,
-AC-9/AC-10 consistency, AC-11 secrets hygiene, AC-12 to AC-16, the fencing
-language for AC-17/AC-18/AC-19, the full gate) holds.
+in `docker-compose.yml` passed the root password as one argv token with a
+corrupting embedded space. **Correction (per review round, W-2):** `mysqladmin
+ping` returns exit 0 whenever the server is reachable even on an
+access-denied error, so this would NOT have blocked `app`'s
+`depends_on: mysql: condition: service_healthy` forever as originally
+described here — the healthcheck would have kept reporting MySQL healthy
+while silently never actually authenticating with the intended password,
+undermining the credential's documentation-as-code value rather than hanging
+the stack. The fix (`--password=flexipos-root-dev-only`, commit `6775ec2`)
+is still correct and still the right thing to ship. Everything else checked
+(AC-1 through AC-17, AC-9/AC-10 consistency, AC-11 secrets hygiene, AC-12 to
+AC-16, the fencing language for AC-17/AC-18/AC-19, the full gate) holds.
 
 ## Environment / constraints honoured
 
