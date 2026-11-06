@@ -70,10 +70,13 @@ the engine-hold constraint below.
 
 - AC-1: Given the repository root, When `docker-compose.yml` (or `compose.yaml`) is
   parsed as YAML, Then it parses without error and declares exactly four services:
-  one application service (PHP 8.2+ FPM or equivalent, running the host
-  application), one MySQL service, one Redis service, one mail-catcher service
-  (Mailpit, matching the stub already present in this repo's `laravel/sail`
-  dependency and the convention it ships).
+  one application service (PHP 8.2+ running the host application — a single
+  process that serves HTTP itself, e.g. `php artisan serve`, is acceptable and is
+  "equivalent" for this AC's purposes; PHP-FPM is **not** equivalent on its own
+  because it needs a separate web-server container to answer HTTP, which would make
+  a fifth service and break the exactly-four-services count), one MySQL service,
+  one Redis service, one mail-catcher service (Mailpit, matching the stub already
+  present in this repo's `laravel/sail` dependency and the convention it ships).
 - AC-2: Given the MySQL service definition, When its `image` key is read, Then it
   pins MySQL **8.4** (a specific tag, not `latest`), matching
   `docs/architecture.md`'s and `docs/deployment-vps.md`'s stated stack — this is a
@@ -106,10 +109,13 @@ the engine-hold constraint below.
 
 - AC-9: Given `.env.example` (or a new `.env.docker.example`, per the decision log),
   When its Docker-profile entries are read, Then they use the compose service names
-  as hostnames (e.g. the MySQL host value is the MySQL service name, not
-  `127.0.0.1`), are clearly separated from and do not overwrite the existing
-  XAMPP-oriented values, and include matching credentials/database name consistent
-  with the compose file's MySQL service environment variables.
+  as hostnames — specifically `DB_MASTER_HOST` (and the other `DB_MASTER_*`
+  variables: `DB_MASTER_PORT`, `DB_MASTER_DATABASE`, `DB_MASTER_USERNAME`,
+  `DB_MASTER_PASSWORD`, per the master-connection config this application actually
+  reads) point at the MySQL service name, not `127.0.0.1` — are clearly separated
+  from and do not overwrite the existing XAMPP-oriented values, and include matching
+  credentials/database name consistent with the compose file's MySQL service
+  environment variables.
 - AC-10: Given the Docker-profile env file, When its Redis and mail entries are read,
   Then the Redis host/port match the compose Redis service, and
   `MAIL_HOST`/`MAIL_PORT` match the compose Mailpit service's SMTP port.
@@ -153,8 +159,10 @@ the engine-hold constraint below.
 - AC-17: Given the compose file, When a structural check parses it (e.g. `docker
   compose config` in validate-only mode, or an equivalent YAML/schema check that does
   not start containers), Then it exits successfully and the parsed service list
-  matches AC-1's four services — this check does not require Docker Desktop to be
-  running a daemon that connects to any engine, only Compose's own file validation.
+  matches AC-1's four services — this check requires only the `docker` CLI (with the
+  Compose v2 plugin) to be installed; it does **not** require Docker Desktop to be
+  running or a daemon connected to any engine (verified empirically: `docker compose
+  config` exits 0 with Docker Desktop stopped, Compose v2.40.0-desktop.1).
   **NOT VERIFIABLE by an automated gate test in this task** (no such test is added
   to the Pest suite); it is a manual/CLI check dev performs once and records the
   output of.
