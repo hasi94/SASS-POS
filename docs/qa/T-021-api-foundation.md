@@ -1,6 +1,6 @@
 # QA Report: T-021 API foundation
 
-## Verdict: PASS
+## Verdict: PASS (Run 2 — review round 1 fix verification)
 
 ## Summary
 
@@ -151,8 +151,122 @@ None. No `BUG-n` filed.
   (T-018/T-019/T-020) and not a gap specific to this review.
 - The gate's own 10.45 margin ratio leaves ample headroom; no action needed.
 
+## Run 2: review round 1 fix verification (R-1, S-1, S-2, S-9)
+
+Verified commit `71765c6` ("T-021: review round 1 fix (R-1, S-1, S-2, S-9)") against reviewer's round 1
+CHANGES REQUESTED (R-1 critical) and the three filed Suggestions, independently of dev's narrative.
+
+### Diff read against the claim
+
+Read `git show 71765c6` in full (9 files, 137+/11-). Confirmed the diff is exactly what R-1/S-1/S-2/S-9
+called for:
+- **R-1**: `IdempotencyStore::resolveExisting()`'s stale-claim takeover `UPDATE` now adds
+  `->where('created_at', $row->created_at)`, captures the affected-row count in `$taken`, and returns
+  `Claimed` only when `$taken === 1`, else `InProgress`. A new test races a second `UPDATE` ahead of the
+  takeover via `beforeExecuting()`.
+- **S-1**: `ApiResponse::failures([])` now throws `InvalidArgumentException` before touching `$errors[0]`.
+- **S-2**: `IdempotencyKey::PATTERN`'s trailing `$` became `\z`, closing the PCRE trailing-newline
+  bypass.
+- **S-9**: both `json_decode(...)` call sites in the idempotency replay round trip
+  (`RequireIdempotencyKey::runAndStore()` and `IdempotencyStore::resolveExisting()`'s replay return) drop
+  the `true` (assoc) flag. `RequireIdempotencyKey::replay()`'s `meta.request_id` patch gained an
+  `is_object()` branch alongside the existing `is_array()` one. One pre-existing assertion
+  (`IdempotencyStoreTest`) changed from `toBe(['ok' => true])` to `toEqual((object) ['ok' => true])`.
+
+### Independent mutation testing (all four, round-tripped: red on revert, green on restore)
+
+For each fix, I reverted exactly the line(s) the review called out, ran the new/changed test, confirmed
+red, restored, confirmed green, and confirmed `git status --short` was clean before and after each
+round trip (no leftover diff, no accidental drift into other files):
+
+1. **R-1**: reverted the CAS `->where('created_at', ...)` clause and the `$taken` check back to an
+   unconditional `UPDATE` + unconditional `Claimed`. The new race test
+   (`'loses the stale-claim takeover race to a competing request...'`) went red exactly as the bug
+   predicts: `Expected: Enum #... (InProgress)` / `Actual: Enum #... (Claimed)` — a second claimant wins
+   the race and gets `Claimed` back, meaning it would also run the handler. Restored; test green again
+   (same `.env`-warning shape as every other test in this worktree).
+2. **S-1**: commented out the `if ($errors === [])` guard. `ApiResponseTest`'s new S-1 case went red:
+   `Failed asserting that an instance of class ErrorException is an instance of class
+   InvalidArgumentException` — reproducing the exact undefined-index symptom the suggestion names.
+   Restored; green.
+3. **S-2**: reverted `\z` to `$`. `IdempotencyKeysTest`'s new S-2 case
+   (`isValid("abc\n")` expected `false`) went red: `Failed asserting that true is false` — confirming the
+   trailing-newline bypass is real and the test discriminates it. Restored; green.
+4. **S-9**, both round-trip points, independently:
+   - Reverted only the storage-side `json_decode(..., true)` in `runAndStore()` (kept the replay side
+     fixed). The HTTP-level S-9 test went red: stored/replayed body became `{"extra":[]}` instead of
+     `{"extra":{}}`. Restored; green.
+   - Reverted only the replay-side `json_decode($row->response_body, true)` in `resolveExisting()` (kept
+     the storage side fixed). Both the HTTP-level test (same `[]` vs `{}` mismatch) **and** the
+     kernel-level `IdempotencyStoreTest` S-9 case went red, the latter with `ErrorException: Attempt to
+     read property "data" on array` (the test's own `$replay->responseBody->data` access, proving the
+     test genuinely needs the object shape, not just a loose equality check). Restored; green.
+   - This confirms dev's claim that **both** round-trip points needed the fix, not just one — a
+     one-sided fix is caught by the existing tests.
+
+### S-9 edge case: does the `is_object()`/`is_array()` branch break a top-level JSON array body?
+
+The concern: `RequireIdempotencyKey::replay()`'s rewritten `meta.request_id` patch branches on
+`is_object($body)` first, `is_array($body)` second. Laravel's envelope (`ApiResponse::success()`/
+`failures()`) is always a top-level JSON **object** (`{success, data, message, errors, meta}`), so the
+committed tests only exercise the object branch. I wrote a temporary scratch test
+(`modules/host/tests/Feature/QaScratchIdemArrayTest.php`, not committed, deleted after use) registering a
+route that returns a bare top-level JSON array (`response()->json([1, 2, 3], 201)`) behind the
+idempotency middleware, and replayed it. Result: `first` and `replay` both serialize as `[1,2,3]`,
+`Idempotent-Replayed: true` on the second — the array branch (`is_array($body) && array_key_exists('meta', ...)`,
+which correctly finds no `meta` key on a plain list and skips the patch) passes the body through
+untouched and `response()->json($body, $status)` re-encodes a PHP array as a JSON array exactly as
+before. The fix does **not** regress the non-envelope-array case. Test file deleted after verification;
+`git status --short` confirmed clean.
+
+### Full gate — a genuine concurrency trap, then a clean solo run
+
+First attempt (`composer check`, backgrounded) landed on top of a **reviewer-owned `composer check`
+process already running in this same worktree** (`PID 78316`, `composer.phar check`, started while mine
+was in flight — confirmed via `Get-CimInstance Win32_Process`). The two runs shared the same SQLite
+tenant fixture files under `modules/host/storage/app/tenancy-fixture/`, and the result was exactly the
+corruption signature that shared-file concurrency produces: 89 failed, `database disk image is
+malformed`, `table marker already exists`, `Resource temporarily unavailable` on `unlink()`, and a
+`TenantConnectionFailed` complaining a fixture file "does not exist" moments after another test created
+it. None of this is a real product defect — it is the classic two-gate-runs-one-worktree trap. I waited
+for the reviewer's process to exit (confirmed via `Get-Process -Id 78316` polling in a background task),
+deleted the leftover/corrupted `tenant-a.sqlite`/`tenant-b.sqlite` fixture files, confirmed no other
+FlexiPOS-related `php.exe` process was running, and re-ran the gate alone.
+
+**Clean solo run** (`composer check`, 1041.83s elapsed, `FLEXIPOS-GATE-MARGIN ratio=7.49`):
+- `pint --test`: `{"tool":"pint","result":"passed"}`.
+- `phpstan analyse`: `[OK] No errors`.
+- `deptrac analyse`: Violations 0, Skipped violations 0, Uncovered 829, Allowed 1089, Warnings 0, Errors 0.
+- `vendor/bin/pest` (full suite): **10 failed, 2578 warnings, 164 passed (18551 assertions)**.
+- The 10 failures are, by name, **exactly** the Run 1 baseline: `HostTestSuiteCollectionTest`,
+  `ModuleMakeAtomicGenerationTest`, `QaGeneratedModuleTestDiscoveryTest`, `QaHealthProbeResilienceTest`
+  (`MissingAppKeyException`), `QaHostSuiteCollectionProofTest` (×2), `QaModuleConnectionRemovalTest`,
+  `QaRegenerationGuardTest` (×2), `QaTestSuiteIsolationTest`. No new failure, no missing failure.
+- **Dev's reported "11th failure" (a plugin-sdk `Encrypter` test needing a well-formed `APP_KEY`) did
+  NOT reproduce in my clean, no-APP_KEY-export, solo run.** This confirms dev's own attribution: it was
+  an artifact of dev's own throwaway `APP_KEY` export used to get real numbers, not a real gap in this
+  worktree or a regression from the fix commit. My count (164 passed / 10 failed) is the correct
+  baseline figure, matching Run 1 exactly.
+- `git status --short`: clean before and after (the deleted leftover `.sqlite` fixture files are
+  gitignored test artifacts, not tracked).
+
+### Verdict
+
+All four review items (R-1 critical, S-1/S-2/S-9 suggestions) are genuinely fixed, each independently
+mutation-tested red-then-green against the exact defect the review described. The S-9 object/array
+branch does not regress the non-envelope top-level-array case. The full gate is clean: lint, stan,
+deptrac all pass with zero issues; the test suite reproduces exactly the pre-existing, documented,
+`.env`-caused 10-failure baseline with no new failures and no regressions. PASS stands.
+
 ## History
 
 - Run 1: PASS (this report). Full gate matched dev's reported numbers exactly; all four regression
   claims independently verified against their actual guard tests; AC-8 mutation-tested directly; no
   defects found.
+- Run 2: PASS. Review round 1 fix (R-1 critical + S-1/S-2/S-9) verified by independent mutation testing,
+  all four red-then-green; S-9's is_object/is_array branch confirmed safe for a top-level-array edge
+  case; full gate re-run solo after an accidental overlap with reviewer's concurrent `composer check`
+  corrupted a first attempt (not a product defect — a shared-SQLite-fixture concurrency artifact,
+  resolved by waiting and re-running alone); clean solo run reproduces the exact 164-passed/10-failed
+  baseline, confirming dev's reported "11th failure" was their own `APP_KEY`-export artifact, not a
+  regression.
