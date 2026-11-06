@@ -97,16 +97,21 @@ alone (D-12).
   anything outside the container itself (so nothing persists past the job, keeping
   this container the "ephemeral, disposable" kind D-1's ruling describes).
 - AC-8: Given the fresh-database migration job, When inspecting its steps, Then
-  after `composer install` it creates a tenant database in that service container
-  with zero prior rows in its migration-tracking table, then invokes
-  `php artisan tenant:migrate` against that database with no `--to` flag (i.e. to
-  head), and the job is configured to fail (non-zero exit propagated to the job
-  result) if that command exits non-zero.
+  after `composer install` it creates and registers a tenant database in that
+  service container — the master schema migrated, the migration catalogue
+  published (`schema:publish`), a `database_servers` row, a `tenants` row, and a
+  `tenant_databases` mapping row all written for it, with zero prior rows in its
+  own migration-tracking table — then invokes `php artisan tenant:migrate
+  --tenant=<id>` against that database with no `--to` flag (i.e. to head), and the
+  job is configured to fail (non-zero exit propagated to the job result) if that
+  command exits non-zero.
 - AC-9: **[NOT VERIFIABLE UNTIL A REAL RUN]** Given the fresh-database migration job
   actually executes on a real push or pull request, When `tenant:migrate` runs
-  against the brand-new, empty tenant database, Then it completes with exit code 0
-  and the tenant's migration-tracking table ends at the latest shipped migration
-  version, with no error logged for any individual migration file.
+  against the brand-new, empty tenant database, Then it completes with exit code 0,
+  the master's `tenant_databases.schema_version` for that tenant ends at the latest
+  shipped migration version, and the tenant's own migration-tracking table records
+  every migration name up to that version, with no error logged for any individual
+  migration file.
 - AC-10: **[NOT VERIFIABLE UNTIL A REAL RUN]** Given the fresh-database migration
   job's service container, When the job finishes (success or failure), Then the
   container and any data written to it are destroyed with the job and nothing
@@ -120,17 +125,21 @@ alone (D-12).
   job — D-9's two-step design needs its own tenant database to carry a partial
   migration history before the second step runs).
 - AC-12: Given the existing-database migration job, When inspecting its steps, Then
-  after `composer install` and creating a tenant database, it first invokes
-  `php artisan tenant:migrate --to=<head-1>` (one version short of the latest
-  shipped migration, D-9) against that database, then invokes a second, separate
-  `php artisan tenant:migrate` with no `--to` flag against the same database, and
-  the job is configured to fail if either invocation exits non-zero.
+  after `composer install` and creating and registering a tenant database (master
+  schema migrated, catalogue published, a `database_servers` row, a `tenants` row
+  and a `tenant_databases` mapping row all written for it), it first invokes
+  `php artisan tenant:migrate --tenant=<id> --to=<head-1>` (one version short of
+  the latest shipped migration, D-9) against that database, then invokes a second,
+  separate `php artisan tenant:migrate --tenant=<id>` with no `--to` flag against
+  the same database, and the job is configured to fail if either invocation exits
+  non-zero.
 - AC-13: **[NOT VERIFIABLE UNTIL A REAL RUN]** Given the existing-database migration
   job actually executes on a real push or pull request, When the first
-  `tenant:migrate --to=<head-1>` invocation completes, Then the tenant's
-  migration-tracking table records every migration up to and including version
-  `head-1`, and the database is left in that partial state for the second
-  invocation to act on.
+  `tenant:migrate --to=<head-1>` invocation completes, Then the master's
+  `tenant_databases.schema_version` for that tenant reads `head-1` and the
+  tenant's own migration-tracking table records every migration name up to and
+  including version `head-1`, and the database is left in that partial state for
+  the second invocation to act on.
 - AC-14: **[NOT VERIFIABLE UNTIL A REAL RUN]** Given the existing-database migration
   job's database already carries migrations up to `head-1` (AC-13), When the second
   `tenant:migrate` invocation (no `--to`) runs against it, Then it completes with
@@ -139,8 +148,10 @@ alone (D-12).
 - AC-15: **[NOT VERIFIABLE UNTIL A REAL RUN]** Given the existing-database migration
   job has already reached head (AC-14), When `tenant:migrate` is invoked a third
   time against the same database with nothing pending, Then it completes with exit
-  code 0, reports zero migrations applied, and the migration-tracking table is
-  unchanged (idempotency check folded into this job per D-9).
+  code 0, reports zero pending/planned migration jobs for that run, and neither
+  the tenant's own migration-tracking table nor the master's recorded
+  `tenant_databases.schema_version` changes as a result (idempotency check folded
+  into this job per D-9).
 
 ### Group D — Isolation, credentials and safety
 
@@ -149,11 +160,15 @@ alone (D-12).
   (e.g. a literal dev-only password string), never a reference to
   `secrets.<name>` or any value that could plausibly be a real production
   credential (D-10).
-- AC-17: Given the whole workflow file, When searching it for a reference to a real
-  MySQL/MariaDB host, port, or connection string outside the CI-native `services:`
-  blocks described above, Then none exists — nothing in this workflow connects to
-  the shared local/XAMPP engine `ENGINE_HOLD` protects, or to any tenant database
-  outside the two throwaway CI service containers.
+- AC-17: Given the whole workflow file, When inspecting every value written as a
+  database host or port, Then no host other than `127.0.0.1` and no port other
+  than the job's own mapped service port (e.g. a reference to
+  `job.services.mysql.ports`) appears anywhere — the constraint is that nothing in
+  this workflow ever points at the shared/real engine's conventional address (the
+  one `ENGINE_HOLD` protects, or any tenant database outside the two throwaway CI
+  service containers), not that no address may be named at all; a job naming
+  `127.0.0.1` and its own ephemeral mapped port to reach its own service container
+  satisfies this AC.
 - AC-18: Given the workflow file, When inspecting every job for a `continue-on-error`
   flag, Then none is set — a failed step stops its job (default GitHub Actions
   behaviour), so a lint-only failure, for example, does not let a later step mask it
@@ -219,7 +234,7 @@ alone (D-12).
 None — the one genuinely open business question this task raised (whether
 `ENGINE_HOLD` covers a CI-only disposable database) was answered directly by the
 project owner (D-1); every other open point was a `ba` decision, logged in
-`docs/decisions/T-024-ci-pipeline.md` (D-2 through D-12).
+`docs/decisions/T-024-ci-pipeline.md` (D-2 through D-13).
 
 ## Assumptions
 

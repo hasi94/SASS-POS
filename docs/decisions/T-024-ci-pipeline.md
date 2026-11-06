@@ -133,7 +133,7 @@ project does not have yet (it has not shipped a first release). A same-run idemp
 re-run (run `tenant:migrate` twice with nothing pending the second time) was
 considered and rejected as the primary case because it tests a narrower property
 (no double-apply) than "existing database" asks for; it is folded into this job as
-an additional assertion instead (AC-9) rather than replacing the two-step upgrade.
+an additional assertion instead (AC-15) rather than replacing the two-step upgrade.
 Reversible: yes — a release-tagged upgrade job can be added once the project has a
 prior release to upgrade from.
 
@@ -174,3 +174,30 @@ YAML would be exactly the kind of unverifiable claim CLAUDE.md's "report real co
 results" rule exists to prevent. Reversible: n/a — a verification-method choice, not
 a design choice; superseded automatically the first time this pipeline actually runs
 on a real push or PR.
+
+D-13 | Why does the CI-registered tenant need status `provisioning`, and not
+`active` or any other enterable status? | The shipped tenant migration tree carries
+contract-phase steps at versions 15 and 21 (`modules/host/database/catalogue/
+tenant_schema_versions.json`, the fixed tree this spec treats as given). The
+planner's contract guard
+(`PlanMigrationRunHandler::assertContractStepsUnblocked`, verified by reading
+`packages/kernel/src/Schema/Features/PlanMigrationRun/PlanMigrationRunHandler.php`)
+refuses to plan a contract-phase migration while any tenant in the fleet — named
+by this run or not — sits below the version the contract step requires minus one,
+with exactly one status exempted from that blocking check:
+`PlanMigrationRunHandler::BLOCKING_EXEMPT_STATUS`, which is the literal string
+`'provisioning'`, on the stated reasoning that a provisioning database "holds
+nothing yet" so a column it never had cannot be the thing a contract step drops.
+A fresh CI tenant starts at version 0, below both contract steps; registered as
+any status other than `provisioning` it would appear in its own fleet's blocking
+set and refuse itself at the first contract-phase migration it reaches. Registering
+it as `provisioning` also means only a run that names the tenant explicitly
+(`--tenant=<id>`) will pick it up at all: `provisioning` is one of
+`TenantStatusPolicy::NAMED_ONLY_STATUSES` (`packages/kernel/src/Tenancy/
+TenantStatusPolicy.php`), so a bulk run (`--all`) would skip it — consistent with
+this spec's AC-8/AC-12 requirement that each migration job invoke
+`tenant:migrate --tenant=<id>` by name, never `--all`. | Reversible: yes — this is
+a value written into one SQL fixture file (`.github/ci/register-ci-tenant.sql` per
+the plan), not a schema or architectural commitment; changing it back to `active`
+is a one-line edit, though doing so would re-break the fresh-database job against
+today's shipped contract steps.
