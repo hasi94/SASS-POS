@@ -28,6 +28,8 @@ their real contents land in later backlog rows.
 ## Getting started
 
 PHP and Composer paths for this machine are documented in [CLAUDE.md](CLAUDE.md).
+A Docker Compose alternative to the native XAMPP path above is documented in
+[docs/docker-dev-environment.md](docs/docker-dev-environment.md).
 
 ```bash
 cd modules/host

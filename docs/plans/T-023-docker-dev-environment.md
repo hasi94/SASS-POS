@@ -138,9 +138,9 @@ The lead logs this for the human's sign-off, as with T-005/T-006/T-007. The prop
 
 ## Implementation steps
 
-- [ ] **Step 1: Dockerfile.** Write `infra/docker/app/Dockerfile` as specified above, with a short header comment saying what the image is for and that it copies no source. Pin the phpredis version. (AC-5)
+- [x] **Step 1: Dockerfile.** Write `infra/docker/app/Dockerfile` as specified above, with a short header comment saying what the image is for and that it copies no source. Pin the phpredis version. (AC-5)
 
-- [ ] **Step 2: Compose file.** Write `docker-compose.yml` exactly as specified above, with short comments covering:
+- [x] **Step 2: Compose file.** Write `docker-compose.yml` exactly as specified above, with short comments covering:
   - why 13306 and not 3306;
   - why the container-internal 0.0.0.0 listen is not a host binding;
   - why vendor and bootstrap/cache are volumes;
@@ -148,11 +148,11 @@ The lead logs this for the human's sign-off, as with T-005/T-006/T-007. The prop
 
   Pin the Mailpit tag to a concrete `v1.x.y`. (AC-1 to AC-8)
 
-- [ ] **Step 3: Env profile.** Write `modules/host/.env.docker.example` as specified above. Values are placeholders only, and every password contains `dev-only`. Then check:
+- [x] **Step 3: Env profile.** Write `modules/host/.env.docker.example` as specified above. Values are placeholders only, and every password contains `dev-only`. Then check:
   - `git check-ignore -v modules/host/.env.docker` reports it ignored;
   - `git check-ignore modules/host/.env.docker.example` reports it **not** ignored. (AC-9, AC-10, AC-11)
 
-- [ ] **Step 4: Static structural proof** (AC-17; works with the daemon stopped, as measured). From the repo root:
+- [x] **Step 4: Static structural proof** (AC-17; works with the daemon stopped, as measured). From the repo root:
   1. `docker compose config --quiet`: expect exit 0.
   2. `docker compose config --services | sort`: expect exactly `app`, `mailpit`, `mysql`, `redis`.
   3. `docker compose config --format json > <scratch>/compose.json`. With `E:\xampp\php\php.exe -r`, assert from that JSON:
@@ -167,9 +167,9 @@ The lead logs this for the human's sign-off, as with T-005/T-006/T-007. The prop
 
   `dev` records the exact commands and outputs in its hand-off. `qa` records them in `docs/qa/T-023-...`. **Never paste the JSON output into a swept file** (see Risks).
 
-- [ ] **Step 5 (optional, manual, AC-18): build only.** Only if Docker Desktop is *already running* or the operator chooses to start it: `docker compose build app`, or `docker build infra/docker/app`. No `up`, no `run`, no `composer install` in the container. If the daemon is stopped, record "AC-18 not run: daemon stopped" and do not start it on the operator's behalf without asking. Either outcome is acceptable for the gate.
+- [x] **Step 5 (optional, manual, AC-18): build only.** Only if Docker Desktop is *already running* or the operator chooses to start it: `docker compose build app`, or `docker build infra/docker/app`. No `up`, no `run`, no `composer install` in the container. If the daemon is stopped, record "AC-18 not run: daemon stopped" and do not start it on the operator's behalf without asking. Either outcome is acceptable for the gate.
 
-- [ ] **Step 6: Documentation.** Write `docs/docker-dev-environment.md` with these sections (AC-12, AC-13, AC-14, AC-19):
+- [x] **Step 6: Documentation.** Write `docs/docker-dev-environment.md` with these sections (AC-12, AC-13, AC-14, AC-19):
   1. *Two supported paths.* XAMPP is today's default and Docker is the alternative; neither is deprecated. Give at least one reason for each:
      - XAMPP: the proven default; faster on this team's Windows machines, where Docker Desktop bind mounts are slow.
      - Docker: closer to CI and VPS parity (MySQL 8.4, Redis 7); works on macOS and Linux; no Redis needed on the host.
@@ -192,7 +192,7 @@ The lead logs this for the human's sign-off, as with T-005/T-006/T-007. The prop
 
   Optionally add the one README pointer line.
 
-- [ ] **Step 7: Gate.** From `modules/host`:
+- [x] **Step 7: Gate.** From `modules/host`:
   1. Fast check first: `E:\xampp\php\php.exe vendor/bin/pest tests/Feature/QaVocabularyRenameSweepTest.php`. It sweeps every new file. Baseline measured green today: 5 passed, 2.79 s.
   2. Then `composer check`, the gate.
   3. Confirm `git diff --stat main...HEAD -- CLAUDE.md modules/host/.env.example modules/host/composer.json` is empty. (AC-15, AC-16, reversibility NFR)

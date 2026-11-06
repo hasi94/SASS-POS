@@ -1,0 +1,99 @@
+# T-023: the local-dev Docker Compose alternative to the native XAMPP path.
+# See docs/docker-dev-environment.md for prerequisites, first-run steps and
+# teardown. XAMPP (CLAUDE.md) stays the default; this stack is additional, not
+# a replacement.
+#
+# ENGINE_HOLD note: this file is authored and statically validated only
+# (`docker compose config`). Nothing here is started as part of proving
+# T-023's acceptance criteria - see docs/decisions/T-023-docker-dev-environment.md
+# D-7.
+name: flexipos-dev
+
+services:
+  app:
+    build:
+      context: ./infra/docker/app
+    image: flexipos-dev-app
+    working_dir: /app/modules/host
+    # artisan's own HTTP server, not PHP-FPM: FPM needs a separate web-server
+    # container to answer HTTP, which would make a fifth compose service and
+    # break the exactly-four-services count (spec AC-1).
+    command: php artisan serve --host=0.0.0.0 --port=8000 --no-reload
+    ports:
+      # 0.0.0.0 in the `command` above is the listen address inside the
+      # container's own network namespace, which publishing a port requires -
+      # it is not a host binding. The host side below is loopback-only.
+      - "127.0.0.1:${FLEXIPOS_APP_PORT:-8000}:8000"
+    volumes:
+      # The whole repository, not just modules/host: modules/host/composer.json
+      # resolves path repositories at ../../packages/* and ../*, so the
+      # container needs the whole tree to run `composer install`.
+      - .:/app
+      # The Docker env profile replaces the container's .env entirely; the
+      # XAMPP .env on the host is never read or written by the container.
+      # create_host_path: false makes a missing modules/host/.env.docker fail
+      # loudly instead of Docker silently creating a directory there.
+      - type: bind
+        source: ./modules/host/.env.docker
+        target: /app/modules/host/.env
+        bind:
+          create_host_path: false
+      # Container-only volumes: the host's vendor tree holds Windows junctions
+      # for the path packages, which do not resolve on a Linux container, and
+      # a container `composer install` must never overwrite the host's XAMPP
+      # vendor tree. bootstrap/cache is container-only for the same reason -
+      # cached config/routes built inside the container carry /app/... paths.
+      - app-vendor:/app/modules/host/vendor
+      - app-bootstrap-cache:/app/modules/host/bootstrap/cache
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      # Dev-only placeholders, never a real secret (spec AC-11).
+      MYSQL_ROOT_PASSWORD: flexipos-root-dev-only
+      MYSQL_DATABASE: flexipos_master
+      MYSQL_USER: flexipos
+      MYSQL_PASSWORD: flexipos-dev-only
+    ports:
+      # Never 3306: that is XAMPP's MariaDB, which holds other projects' live
+      # data and is the engine the ENGINE_HOLD protects.
+      - "127.0.0.1:${FLEXIPOS_MYSQL_PORT:-13306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p flexipos-root-dev-only"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - "127.0.0.1:${FLEXIPOS_REDIS_PORT:-16379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mailpit:
+    image: axllent/mailpit:v1.21.3
+    ports:
+      - "127.0.0.1:${FLEXIPOS_MAILPIT_SMTP_PORT:-1025}:1025"
+      - "127.0.0.1:${FLEXIPOS_MAILPIT_UI_PORT:-8025}:8025"
+
+volumes:
+  mysql-data:
+  redis-data:
+  app-vendor:
+  app-bootstrap-cache:
