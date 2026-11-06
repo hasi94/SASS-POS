@@ -1,6 +1,6 @@
 # QA Report: T-023 Docker development environment (FP-217)
 
-## Verdict: FAIL
+## Verdict: PASS (round 2)
 
 One concrete, reportable defect (BUG-1, major): the `mysql` service's healthcheck
 in `docker-compose.yml` passes the root password with a corrupting leading space,
@@ -76,3 +76,79 @@ language for AC-17/AC-18/AC-19, the full gate) holds.
 - The vocabulary-sweep risk the plan called out (pasting compose JSON prose into a swept file) was not triggered; all four new files pass `QaVocabularyRenameSweepTest`, and this report itself is in `docs/qa/`, which the plan notes as exempt.
 - BUG-1 is cheap to fix (`-pflexipos-root-dev-only`, no space) and does not require touching anything else; re-verification can be done the same way (reading `docker compose config --format json`) without touching the engine hold.
 - Everything else in the compose file, Dockerfile, env profile and documentation is structurally sound and internally consistent; this is a single-line defect, not a systemic one.
+
+## Round 2 — re-verification of the BUG-1 fix (commit 6775ec2)
+
+Scope: dev's only change since round 1 is commit `6775ec2`, a one-line fix to
+`docker-compose.yml`'s `mysql.healthcheck.test` array. Round 1's independent
+verification of AC-1 through AC-19, docs accuracy, and the untouched-file
+checks (CLAUDE.md / `.env.example` / `composer.json`) is relied upon as-is
+below; it was not redone from scratch, only confirmed to still hold (nothing
+else changed in the diff).
+
+### Fix verification
+
+- `git show 6775ec2` — confirmed the diff is exactly the one line expected:
+  `docker-compose.yml` healthcheck test array's fifth token changed from
+  `"-p flexipos-root-dev-only"` (space-corrupted) to
+  `"--password=flexipos-root-dev-only"`.
+- `git status --short` — clean, nothing uncommitted.
+- `git diff 9a6fc78..6775ec2 --stat` — `docker-compose.yml | 2 +-`,
+  **1 file changed, 1 insertion(+), 1 deletion(-)**. Confirms nothing besides
+  the healthcheck line changed between my round-1 FAIL commit and the fix
+  commit — no drive-by edits elsewhere.
+- `docker compose config --format json` (daemon still stopped throughout,
+  `ENGINE_HOLD` honoured, Docker Desktop not started) — re-extracted
+  `services.mysql.healthcheck.test` independently (via a small Node snippet
+  reading stdin, not by trusting dev's numbers):
+  ```json
+  ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--password=flexipos-root-dev-only"]
+  ```
+  Five clean argv tokens after `CMD` (`mysqladmin`, `ping`, `-h`,
+  `127.0.0.1`, `--password=flexipos-root-dev-only`) — no embedded space in
+  any token, and the password value matches `MYSQL_ROOT_PASSWORD:
+  flexipos-root-dev-only` set in the same `docker-compose.yml` (confirmed by
+  grepping both lines). `--password=VALUE` is a single argv token understood
+  correctly by `mysqladmin` with no shell needed, so this closes BUG-1 as
+  described: the healthcheck will now authenticate with the real root
+  password instead of a leading-space-corrupted one.
+
+### Full re-run
+
+- `E:\xampp\php\php.exe vendor/bin/pest --filter=QaVocabularyRenameSweepTest`
+  — **5 passed** (35 assertions), 6.54s. No new file (nothing changed
+  besides `docker-compose.yml`, which was already swept and clean in round
+  1) tripped it.
+- `cd modules/host && composer check` — **2750 passed, 12 failed, 23
+  skipped** (19233 assertions), 840.10s. Exact match to round 1's numbers.
+  The 12 failures are the same pre-existing `QaModuleRegistryContractTest`
+  cluster identified in round 1 (confirmed by test name in this run's
+  output: "it fails fast when a module declares no psr-4 namespace", "...
+  names no provider class", "...provider class cannot be autoloaded", "...
+  names the offending module in the exception rather than the first one in
+  the list", plus the remainder of the same 12-test cluster truncated from
+  this tail but already isolated and reconfirmed green standalone in round
+  1). No new failures, no change in count. `docker-compose.yml` touches no
+  PHP file, so this is exactly the outcome expected: a pure infra-file fix
+  with zero effect on the PHP test suite.
+
+### Verdict
+
+All items in the lead's round-2 checklist confirm clean:
+1. Healthcheck test array is 5 clean tokens, no embedded space, password
+   value matches `MYSQL_ROOT_PASSWORD` — **confirmed independently**.
+2. `git status --short` clean; `git diff 9a6fc78..6775ec2 --stat` is exactly
+   one line in `docker-compose.yml` — **confirmed**.
+3. `QaVocabularyRenameSweepTest` — **5/5** — **confirmed**.
+4. `composer check` — **2750 passed / 12 failed / 23 skipped**, same
+   pre-existing cluster, no new failures — **confirmed, matches round 1**.
+5. Round 1's AC-1–AC-19 and docs/CLAUDE.md/.env.example/composer.json
+   evidence stands unchanged (diffstat above proves nothing else moved).
+
+BUG-1 is closed. No new defects found in this round. **Verdict: PASS.**
+
+---
+
+Run 1: FAIL (BUG-1 — MySQL healthcheck password had an embedded space).
+Run 2: FAIL -> PASS (BUG-1 fixed in commit 6775ec2, independently
+re-verified; full gate unchanged at 2750/12/23).

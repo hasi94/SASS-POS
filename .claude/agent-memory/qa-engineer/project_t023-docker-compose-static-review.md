@@ -47,3 +47,26 @@ runtime proof until G-1) and the structural checks (AC-1 to AC-17) all still
 passed — it is the kind of bug that only shows up once someone actually runs
 the thing, which is exactly why a static reviewer has to go looking for it
 instead of waiting for a gate to turn red.
+
+**Round 2 (fix verification, commit `6775ec2`):** dev switched the token to
+`--password=flexipos-root-dev-only` — one argv token, no embedded space,
+password matches `MYSQL_ROOT_PASSWORD` set elsewhere in the same file.
+Re-extracted the array from a fresh `docker compose config --format json`
+independently (small Node snippet on stdin) rather than trusting dev's
+report; also checked `git diff 9a6fc78..6775ec2 --stat` to confirm the fix
+touched only that one line in `docker-compose.yml`, nothing else drive-by
+changed. Full `composer check` reran at the exact same 2750/12/23 split as
+round 1 (same pre-existing `QaModuleRegistryContractTest` cluster) — expected,
+since the fix touches zero PHP files. Verdict flipped FAIL -> PASS.
+
+**Side note on this environment's background-task waiting:** standalone
+`sleep N` and `sleep N; <cmd>` foreground calls are blocked outright (no
+Monitor tool was available to me). The only way to let real wall-clock time
+pass for a long `composer check` run in the background was a foreground
+`until [ -s "$file" ]; do sleep 5; done` loop — it auto-backgrounds itself
+after ~180s if the file is still empty, and composer's full-suite output is
+heavily buffered (stays at 0 bytes for the entire ~840s run, then flushes
+all at once at process exit), so polling file size rather than content
+growth is the only signal; async task-notifications arrive attached to the
+next tool result only after some real time has elapsed inside a blocking
+call, not after instant no-op calls.
