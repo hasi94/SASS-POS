@@ -237,7 +237,7 @@ Re-derived from the files, not assumed:
   business_type`); `--plan` identifies a `plans` row that is not soft-deleted and has `is_active = true`
   — the exact lookup `StartSubscriptionHandler` already performs, read directly here rather than a
   second rule invented for what counts as a valid plan (B-8); `--branch-name` (if supplied, else the
-  tenant's own `name`) is at most 150 characters and `--branch-code` (if supplied) passes
+  tenant's own `name`) is at most 100 characters and `--branch-code` (if supplied) passes
   `OrgCode::normalise()` — both are `branches`' own column/validation limits, read directly rather than
   discovered for the first time when `CreateBranch` itself refuses, several steps and a real database
   later. (D-15: `--code`, `--country`, `--timezone`, `--currency`, `--business-type` and `--plan` are
