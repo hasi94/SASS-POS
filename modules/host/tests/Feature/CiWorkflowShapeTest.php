@@ -652,7 +652,13 @@ it('names both dist/pos/browser and dist/admin/browser and inverts grep exit cod
     // interpolated path shape, not by a literal "dist/pos/browser" string.
     expect($mockCheckRun)->toContain('for app in pos admin')
         ->and($mockCheckRun)->toContain('dist/"${app}"/browser')
-        ->and($mockCheckRun)->toContain('exit 1');
+        // Pin the real match branch itself (`0) ... exit 1 ;;`), not just the
+        // presence of the string "exit 1" anywhere in the step - that alone is
+        // also satisfied by the unrelated `compgen ... || { ...; exit 1; }`
+        // guard, so it would stay green even if this branch were weakened to
+        // `exit 0` and silently let a leaked mock reference through.
+        ->and($mockCheckRun)->toMatch('/^\s*0\)[^\n]*exit 1\s*;;/m')
+        ->and($mockCheckRun)->toMatch('/^\s*\*\)[^\n]*exit 1\s*;;/m');
 });
 
 it('does not write test:fast, secrets., docker compose, or a _PASSWORD/_HOST/_PORT env key or continue-on-error into the frontend job (T-025 plan guardrail)', function () {

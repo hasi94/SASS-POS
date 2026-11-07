@@ -21,9 +21,16 @@ import { AuthService } from '../auth/auth.service';
           <ul class="fp-choices">
             @for (t of auth.tenants(); track t.id) {
               <li>
-                <button type="button" [disabled]="busy()" (click)="pickTenant(t.code)">
+                <button
+                  type="button"
+                  [disabled]="busy() || !t.selectable"
+                  (click)="pickTenant(t.code)"
+                >
                   {{ t.name }}
                 </button>
+                @if (!t.selectable) {
+                  <span class="fp-muted">({{ t.status }})</span>
+                }
               </li>
             } @empty {
               <li class="fp-muted">No companies are linked to this account.</li>

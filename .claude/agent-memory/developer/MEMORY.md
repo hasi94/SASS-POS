@@ -70,3 +70,4 @@
 - [Lead instruction to commit does not override role rule](feedback_lead_instruction_to_commit_does_not_override_role_rule.md) - a task prompt said "commit"; the dev role file says the lead commits - flag it, don't silently do either.
 - [Idempotency store CAS and JSON object fidelity](project_idempotency_store_cas_and_json_object_fidelity.md) - the stale-claim takeover race, and why decode(assoc)+reencode turns `{}` into `[]` at two separate round-trip points.
 - [A prose disclaimer defeats its own regex](feedback_a_prose_disclaimer_defeats_its_own_regex.md) - "No DROP anywhere" contains the word DROP; strip comment lines before asserting a forbidden token is absent.
+- [Disabled button needs native click](feedback_disabled_button_needs_native_click.md) - dispatchEvent(new Event('click')) fires on a disabled button; use .click() to prove the guard.
