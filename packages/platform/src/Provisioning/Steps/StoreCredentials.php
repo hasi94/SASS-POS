@@ -20,10 +20,22 @@ use Illuminate\Contracts\Config\Repository as ConfigRepository;
  * **Both passwords exist and are durably written before anything needs them.**
  * The two references ({@see TenantDatabaseNames::appCredentialRef()}/
  * `migrateCredentialRef()`) are a pure function of `reserve_identity`'s own
- * journalled `sequence` and the configured secrets root - computed fresh
- * every entry, never journalled as a separate fact, because they are already
- * reproducible from what `reserve_identity` wrote (the same reasoning that
- * keeps `database_name`/`app_username` off this step's own journal too).
+ * journalled `sequence` and the configured secrets root - but **only on the
+ * first attempt**. They are journalled here, before either `put()` call, and
+ * every later entry reads them back from the journal rather than recomputing
+ * them from `tenancy.secrets.file_root` (architect ruling, after step 10's
+ * close-out: the root is configuration and can change between a failed
+ * attempt and a `--resume`, e.g. a redeploy in between; recomputing on every
+ * entry would then split this run's two secrets across two roots, orphaning
+ * whichever file the first attempt already wrote, with no record of where it
+ * went for `abandon` - step 16 - to find). Reading the journalled reference
+ * does not itself bypass root confinement (Ruling 3): confinement is checked
+ * against whatever root is configured *now*, so a re-entry behind a root
+ * that has genuinely moved fails closed here (`SecretPathEscapesRoot`) rather
+ * than silently writing a second file under the new root - no credential is
+ * ever split across two roots either way. Once the root is pointed back at
+ * where this run's secrets actually live, a resume completes against the
+ * same, unchanged references.
  *
  * **AC-17 negative: re-entry neither rotates nor writes a second version.**
  * `exists()` is checked first; a reference already written is left alone -
@@ -45,12 +57,27 @@ final class StoreCredentials implements ProvisioningStep
      */
     public function run(RunContext $context, StepJournal $journal): array
     {
-        $reserved = $journal->outputOf(StepName::ReserveIdentity);
-        $sequence = (int) $reserved['sequence'];
-        $root = (string) $this->config->get('tenancy.secrets.file_root');
+        $saved = $journal->read();
 
-        $appRef = TenantDatabaseNames::appCredentialRef($sequence, $root);
-        $migrateRef = TenantDatabaseNames::migrateCredentialRef($sequence, $root);
+        if (isset($saved['app_credential_ref'], $saved['migrate_credential_ref'])) {
+            $appRef = (string) $saved['app_credential_ref'];
+            $migrateRef = (string) $saved['migrate_credential_ref'];
+        } else {
+            $reserved = $journal->outputOf(StepName::ReserveIdentity);
+            $sequence = (int) $reserved['sequence'];
+            $root = (string) $this->config->get('tenancy.secrets.file_root');
+
+            $appRef = TenantDatabaseNames::appCredentialRef($sequence, $root);
+            $migrateRef = TenantDatabaseNames::migrateCredentialRef($sequence, $root);
+
+            // Intent first: both references are committed before either
+            // put() runs, so a resumed attempt - even behind a changed
+            // config root - finds and reuses exactly these two references.
+            $journal->write([
+                'app_credential_ref' => $appRef,
+                'migrate_credential_ref' => $migrateRef,
+            ]);
+        }
 
         if (! $this->secrets->exists($appRef)) {
             $this->secrets->put($appRef, CredentialGenerator::generate());

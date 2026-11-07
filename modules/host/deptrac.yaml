@@ -385,13 +385,20 @@ deptrac:
       - Package_Kernel
     # T-016. Source reaches the kernel and the published contracts only, and
     # never imports organization's or access's internals - the AC-32 seam.
+    # T-026 step 12 widens this the same way T-019 widened Package_PluginSdk:
+    # seed_core opens the tenant connection under
+    # TenantConnectionPurpose::Migrating, the same way the kernel's own
+    # runner and the plugin migration runner do, so the status symbols'
+    # carve-out needs this one edge back here too.
     Package_Platform:
       - Package_Kernel
+      - Package_Kernel_TenancyStatus
       - Package_Contracts
     Package_Platform_Tests:
       - Package_Platform
       - Package_Contracts
       - Package_Kernel
+      - Package_Kernel_TenancyStatus
     # T-019 step 1 (plan Ruling 6, section 5, -> lead). Widened from `~` so
     # the gateway, the registry and the enablement slices may read the
     # kernel (RunnerClock, Tenancy, RequestId, SourceRules, MigrationTree,

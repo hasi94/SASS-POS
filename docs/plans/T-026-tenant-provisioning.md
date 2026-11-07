@@ -467,7 +467,7 @@ Unique: `(run_id, step)`.
     - a bulk `PlanMigrationRun` skips the tenant.
   - *(AC-5 stand-in half, AC-8, AC-15, AC-17, AC-19.)*
 
-- [ ] **Step 11: `migrate_remainder`.**
+- [x] **Step 11: `migrate_remainder`.**
   - This uses the shipped `ArtisanTenantMigrationApplier` on the SQLite tenant, as `QaRealApplierOnStandInTest` does.
   - The plan is named: spy on `namesTenants()`.
   - The run id is journalled before execution, and re-entry reuses it: exactly one `tenant_migration_runs` row.
@@ -476,7 +476,7 @@ Unique: `(run_id, step)`.
   - The mapping status is still `provisioning` (AC-22).
   - *(AC-20 to AC-23.)*
 
-- [ ] **Step 12: `seed_core`.**
+- [x] **Step 12: `seed_core`.**
   - **Order:** the `schema_meta` stamp (AC-25a), then `seedPermissions()`, then `DefaultBranch::ensure()` with `MAIN` and the tenant name, or the overrides.
   - **Refusals:**
     - a refused key fails the step, and no branch exists;

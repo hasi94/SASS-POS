@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Platform\Tests\Provisioning\Steps;
 
 use Flexipos\Kernel\Schema\Support\RunnerClock;
+use Flexipos\Kernel\Tenancy\Exceptions\SecretPathEscapesRoot;
 use Flexipos\Kernel\Tenancy\Provisioning\TenantDatabaseNames;
 use Flexipos\Kernel\Tenancy\Secrets\SecretResolver;
 use Flexipos\Kernel\Tenancy\Secrets\WritableSecretStore;
@@ -107,6 +108,74 @@ it('generates and writes two distinct, high-entropy passwords (AC-15)', function
         app()->forgetInstance(SecretResolver::class);
         app()->forgetInstance(WritableSecretStore::class);
         storeCredentialsCleanup($root);
+    }
+});
+
+it('journals both references before the config root can move, so a resume never derives new ones from a changed root', function () {
+    $firstRoot = storeCredentialsRoot();
+    $secondRoot = storeCredentialsRoot();
+
+    try {
+        config(['tenancy.secrets.file_root' => $firstRoot]);
+        app()->forgetInstance(SecretResolver::class);
+        app()->forgetInstance(WritableSecretStore::class);
+
+        app()->instance(RunnerClock::class, RunnerClock::fixedAt('2026-11-07 10:00:00.000'));
+        PlatformSeed::migrate();
+
+        [$context, $journal] = storeCredentialsFixture();
+
+        $first = app(StoreCredentials::class)->run($context, $journal);
+
+        $expectedAppRef = TenantDatabaseNames::appCredentialRef(1, $firstRoot);
+        $expectedMigrateRef = TenantDatabaseNames::migrateCredentialRef(1, $firstRoot);
+
+        expect($first['app_credential_ref'])->toBe($expectedAppRef)
+            ->and($first['migrate_credential_ref'])->toBe($expectedMigrateRef);
+
+        // Simulate a redeploy between the failed attempt and the resume: the
+        // config root moves to a brand-new, empty directory.
+        config(['tenancy.secrets.file_root' => $secondRoot]);
+        app()->forgetInstance(SecretResolver::class);
+        app()->forgetInstance(WritableSecretStore::class);
+
+        // The step still reads the journalled references - the ones rooted
+        // under $firstRoot - rather than recomputing a second pair under
+        // $secondRoot. Root confinement (Ruling 3) is a security boundary
+        // checked against whatever root is configured *now*, so re-entering
+        // behind a genuinely moved root fails closed: no new file is ever
+        // written under $secondRoot, so nothing is orphaned there either.
+        // This is the fix: before it, a re-entry would have recomputed a
+        // *different* pair of references under $secondRoot and silently
+        // written a second password file, orphaning the first.
+        expect(fn () => app(StoreCredentials::class)->run($context, $journal))
+            ->toThrow(SecretPathEscapesRoot::class);
+
+        expect(scandir($secondRoot))->toBe(['.', '..']);
+
+        // Once the misconfiguration is corrected (the root is pointed back
+        // at where this run's secrets actually live), a resume completes
+        // using exactly the original references, and the original password
+        // - never rotated.
+        config(['tenancy.secrets.file_root' => $firstRoot]);
+        app()->forgetInstance(SecretResolver::class);
+        app()->forgetInstance(WritableSecretStore::class);
+
+        $resumed = app(StoreCredentials::class)->run($context, $journal);
+
+        expect($resumed['app_credential_ref'])->toBe($expectedAppRef)
+            ->and($resumed['migrate_credential_ref'])->toBe($expectedMigrateRef);
+
+        $appPassword = app(SecretResolver::class)->resolve($expectedAppRef)->reveal();
+        $migratePassword = app(SecretResolver::class)->resolve($expectedMigrateRef)->reveal();
+
+        expect(strlen($appPassword))->toBe(40)
+            ->and(strlen($migratePassword))->toBe(40);
+    } finally {
+        app()->forgetInstance(SecretResolver::class);
+        app()->forgetInstance(WritableSecretStore::class);
+        storeCredentialsCleanup($firstRoot);
+        storeCredentialsCleanup($secondRoot);
     }
 });
 
