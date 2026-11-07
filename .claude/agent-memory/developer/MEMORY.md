@@ -72,3 +72,4 @@
 - [A prose disclaimer defeats its own regex](feedback_a_prose_disclaimer_defeats_its_own_regex.md) - "No DROP anywhere" contains the word DROP; strip comment lines before asserting a forbidden token is absent.
 - [Disabled button needs native click](feedback_disabled_button_needs_native_click.md) - dispatchEvent(new Event('click')) fires on a disabled button; use .click() to prove the guard.
 - [T-026 provisioning kernel layer](project_t026_provisioning_kernel_layer.md) - what steps 1-5 actually shipped, the `%` host wildcard vs sprintf, cwd-pollution flake, and reading CPU time twice before calling a run "hung".
+- [T-026 reserve_identity/select_server](project_t026_reserve_identity_select_server.md) - a step tested outside the runner must journal its own idempotency marker; AC-37's static check needs normalise() inlined at every write site, not behind a variable.

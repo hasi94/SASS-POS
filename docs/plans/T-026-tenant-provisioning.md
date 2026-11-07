@@ -428,7 +428,7 @@ Unique: `(run_id, step)`.
   - After each refusal, **zero** run, step or tenant rows exist.
   - *(AC-1, AC-6, AC-11 refusal half, D-15, D-28.)*
 
-- [ ] **Step 9: `reserve_identity` and `select_server`.**
+- [x] **Step 9: `reserve_identity` and `select_server`.**
   - **`reserve_identity`.**
     - The tenant row matches AC-10, with `provisioning` status and a null `plan_id`.
     - `sequence` is `MAX + 1` inside the transaction. This works on both drivers; SQLite has no AUTO_INCREMENT on the column.
