@@ -49,6 +49,24 @@ final class TenantDatabaseNames
     }
 
     /**
+     * The `file://` credential reference `store_credentials` writes to and
+     * `create_users` reads back (T-026 Ruling 3): `file://<root>/tenant_
+     * <sequence, 6+ digits>_app`. A pure function of `sequence` and the
+     * configured root alone, so it is the same value however many times a
+     * resumed run recomputes it - nothing about it is ever journalled as a
+     * separate fact.
+     */
+    public static function appCredentialRef(int $sequence, string $root): string
+    {
+        return 'file://'.rtrim($root, '/\\').'/tenant_'.self::digits($sequence).'_app';
+    }
+
+    public static function migrateCredentialRef(int $sequence, string $root): string
+    {
+        return 'file://'.rtrim($root, '/\\').'/tenant_'.self::digits($sequence).'_mig';
+    }
+
+    /**
      * @throws TenantNameRejected
      */
     public static function assertDatabaseName(string $name): void

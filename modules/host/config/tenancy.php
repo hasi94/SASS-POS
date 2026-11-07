@@ -185,6 +185,12 @@ return [
         'driver' => env('TENANCY_PROVISIONING_DRIVER', 'refusing'),
         'user_host' => env('TENANCY_PROVISIONING_USER_HOST', '%'),
         'admin_username' => env('TENANCY_PROVISIONING_ADMIN_USERNAME', 'root'),
+        // The charset/collation `create_database` asks for (T-026 AC-16),
+        // mirroring config/database.php's own mysql/mariadb connection
+        // defaults - a tenant database is created the same way the master
+        // connection already is, not a second convention.
+        'charset' => env('TENANCY_PROVISIONING_CHARSET', 'utf8mb4'),
+        'collation' => env('TENANCY_PROVISIONING_COLLATION', 'utf8mb4_unicode_ci'),
     ],
 
 ];

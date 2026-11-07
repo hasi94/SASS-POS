@@ -443,7 +443,7 @@ Unique: `(run_id, step)`.
     - `database_servers` is unchanged.
   - *(AC-6, AC-7 stand-in half, AC-10, AC-11, AC-13, AC-14, AC-37.)*
 
-- [ ] **Step 10: `create_database`, `store_credentials`, `create_users`, `write_mapping` (D-20 order).**
+- [x] **Step 10: `create_database`, `store_credentials`, `create_users`, `write_mapping` (D-20 order).**
   - **`create_database`.**
     - On the first attempt, `Absent` means create.
     - `Empty` or `Occupied` on the first attempt means refuse as pre-existing (AC-5 negative). `preexisting: true` is journalled, so a resume refuses again.
