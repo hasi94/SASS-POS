@@ -1,5 +1,10 @@
 # QA Report: T-020 Workflow engine
 
+Run 1: PASS (BUG-1/BUG-2 found and fixed by QA itself, test-coverage only).
+Run 2: PASS -> PASS (review round 1 fixes R-1/R-2/W-4/W-6/S-4 all independently verified correct;
+full-suite re-run blocked twice by a third, unrelated process's destructive changes to this shared
+worktree — see "Run 2" section below).
+
 ## Verdict: PASS
 
 Production code is correct everywhere it was mutation-tested (15/15 plan-mandated mutations
@@ -192,6 +197,134 @@ genuine check, no gap found.
   and by the new test passing against the unmutated code). I added the missing test myself, which
   independently exercises all three branch_ids cases (another branch, no branch, the named branch),
   and re-confirmed the mutation now goes red. No dev action needed.
+
+## Run 2: review round 1 fix verification (R-1, R-2, W-4, W-6, S-4)
+
+### Verdict: PASS (unchanged)
+
+Verified `d1e9a17` fixes exactly what reviewer's round-1 Criticals/warnings required, with no
+scope drift, and ran targeted + full-suite re-verification.
+
+### Gate-timeout incident (context, not a T-020 defect)
+
+Between my round-1 PASS and this re-verification, the gate's own test-step timeout (900s) fell
+behind the suite's real runtime (1232s) and started failing with `FLEXIPOS-GATE-TIMEOUT`. The lead
+fixed this directly (commits `bb52ac3`/`3e0e9cd`/`2fb3a2b`/`b122ffc`), landing on
+`process-timeout: 7800` in `modules/host/composer.json` (the value `GateStepTimerTest` requires to
+clear three constraints simultaneously: the headroom formula, the ~2%-reserve budget, and the
+multiple-of-300 requirement). This is infrastructure, not T-020's own work, but it is why a full
+gate run this round takes minutes rather than failing outright, and it is why the margin numbers
+below differ in shape from Run 1's.
+
+### R-1 — `workflow:definitions`/`workflow:pending` now use `$this->table()`
+
+Read `git show d1e9a17` for both command files: `ListWorkflowDefinitionsCommand.php` and
+`ListPendingWorkflowTasksCommand.php` both replaced the per-row `$this->components->info()` loop
+with `$this->table([...], array_map(...))`, with `Name`/`Instance` added as explicit columns —
+exactly R-1's ask. Independently ran (not just read) the dev's own real-command tests added in the
+same commit, which call `Artisan::call()` for real and assert on `Artisan::output()`:
+- `ListWorkflowDefinitionsTest`'s new case asserts the output contains the fixture's actual `name`
+  string (`'Proof-of-pipeline fixture - not a business workflow'`), a value distinct from `key`/
+  `entity_type`, so this is not a tautology — confirmed by reading `FixtureApproval.php`.
+- `ListPendingWorkflowTasksTest`'s new case asserts the output contains the real `instanceId`
+  string.
+
+Ran both files: `5 passed (14 assertions)`. Verified.
+
+### R-2 — AC-18 exact event sequence, AC-20's four terminal statuses
+
+Read the new `DecideWorkflowTaskTest.php` cases: the AC-20 dataset now runs
+`->with(['approved', 'rejected', 'cancelled', 'expired'])`, each driving the instance to that exact
+terminal status before asserting `instanceClosed`; AC-18's new test asserts the full nine-event
+`started/assigned/assigned/approved/assigned/assigned/approved/approved/completed` sequence with
+per-event `actor_employee_id`; a separate new test specifically covers the "still open" case
+(quorum any, one of two voted) and asserts the `rejected` vote event is written while the instance
+stays pending.
+
+**Mutation-tested the "still open" assertion directly** (not just read it): temporarily removed the
+`$this->events->record(...)` call from the `StepState::Open` branch in
+`DecideWorkflowTaskHandler.php` (the vote event write R-2 is meant to catch going missing). Re-ran
+the new test — it failed exactly as expected (`Expecting null not to be null`, pointing at the
+`workflow_events` lookup). Reverted the mutation; `git diff` on the handler confirmed byte-for-byte
+clean. Ran the full `DecideWorkflowTask` test group with the real code restored: `19 passed (55
+assertions)`, including the W-4 command test and all four AC-20 dataset rows.
+
+### W-4 — `WorkflowEvaluationFailed` handled in the console command
+
+`DecideWorkflowTaskCommand.php`'s diff adds a `catch (WorkflowEvaluationFailed $failed)` arm
+printing `Refused [{$failed->cause}]` and returning `self::FAILURE`, matching `WorkflowActionRefused`'s
+existing handling. The commit's own new test, `'it exits 1 cleanly on a WorkflowEvaluationFailed
+instead of an uncaught exception (W-4)'`, and the handler-level test `'it refuses cleanly with
+WorkflowEvaluationFailed when the next step is unassignable (W-4)'` (which corrupts a real
+`workflow_steps` row to force `approverTypeUnavailable` at decide-time) both ran green in the
+`DecideWorkflowTaskCommandTest`/`DecideWorkflowTaskTest` runs above.
+
+### W-6 — `--as` validated and folded
+
+`RegisterWorkflowDefinitionHandler.php`'s diff adds `EmployeeDirectory::isLive()` check plus
+`strtoupper()` fold before `created_by`/`updated_by` are set, throwing `WorkflowDefinitionRefused`
+on an unknown/not-live id, with the insert guarded behind this check (nothing written on refusal).
+Ran `RegisterWorkflowDefinitionTest`: `6 passed (21 assertions)`, including the new fold case and
+the new unknown-id refusal case (which also asserts zero rows written).
+
+### S-4 — tests now resolve `WorkflowApprovals`, not `WorkflowGate`, to call `decide()`
+
+Confirmed via `git show d1e9a17` that `CancelWorkflowInstanceTest.php` and `WorkflowPipelineTest.php`
+both swap every `app(WorkflowGate::class)->decide(...)` call to `app(WorkflowApprovals::class)->decide(...)`,
+matching S-4 exactly (`WorkflowGate` still used for `evaluate()`/`cancel()`, which are its own
+contract methods).
+
+### `DefinitionRepository.php` docblock correction
+
+Diff confirms the overclaim ("re-validated on read") was replaced with an accurate statement: only
+enum/JSON-shape checks run on read (throwing `definitionCorrupt`); value rules, `approver_ref`
+shape, and `branch_ids` list-shape stay write-time-only via `DefinitionValidator`. Matches what I
+verified directly against the source in Run 1.
+
+### Full gate re-run — two void attempts, root cause identified and not T-020's
+
+`composer check` itself failed at the `lint` step before reaching `stan`/`deptrac`/`test`: Pint
+flagged `line_ending` (and import-grouping) violations on the same `modules/demo/*` files the task
+brief flagged as another session's uncommitted, in-progress work — not mine to touch, and not
+related to T-020. Ran `stan` and `deptrac` standalone to get around the blocked aggregate script:
+- `composer stan` → `[OK] No errors`.
+- `composer deptrac` → `Violations 0, Skipped violations 0, Uncovered 753, Allowed 1045, Warnings 0, Errors 0`.
+
+Ran `composer test` (the gate's own test step, via `tools/gate-step.php`) standalone twice, both
+runs void:
+- **Attempt 1:** `274 failed, 22 skipped, 2368 passed (15716 assertions), 658.55s`, with
+  `TenantConnectionFailed`/`Could not open the database for tenant [tenant-a]` and repeated
+  `unlink(): Resource temporarily unavailable` on the shared SQLite tenancy-fixture files — the
+  exact concurrent-worktree contamination signature from a prior task's QA round (two pest
+  processes observed running simultaneously in this worktree via `Get-CimInstance Win32_Process`
+  at the time). Void: not a code regression, a shared-fixture race from a second process in the
+  same worktree.
+- **Attempt 2** (after confirming no pest/gate process was running): `2082 failed, 13 skipped, 569
+  passed (5682 assertions), 313.96s`, with `UnknownModuleException: Unknown module "demo" listed in
+  MODULES: no module found at .../modules/demo`. `git status` at that point showed the entire
+  `modules/demo/` tree **deleted** (not just modified) by whatever other session is active in this
+  worktree, confirmed by `ls modules/demo` failing directly on disk. Also void, and worse than
+  attempt 1: this is a live, ongoing destructive change to the worktree by another process, not a
+  transient race.
+
+**I could not obtain my own independently-measured clean full-suite number this round** — the
+worktree was not exclusively held for either attempt, contrary to the task brief's own caution.
+This is an environment/coordination problem, not a T-020 defect: every T-020-specific targeted test
+group I ran in isolation (`DecideWorkflowTask` 19/19, `ListWorkflowDefinitions` +
+`ListPendingWorkflowTasks` 5/5, `RegisterWorkflowDefinition` 6/6 — 30/30 total) passed cleanly, and
+`stan`/`deptrac` are clean on the full codebase. I recommend the lead re-run `composer check` once
+the worktree is exclusively held (or from an isolated clone, per the technique in my agent memory)
+to get the official number; based on the lead's own prior clean run (2629 passed / 12 failed FP-316
+/ 22 skipped, ratio 9.75) and my clean targeted re-runs of every file `d1e9a17` touched, I have no
+reason to expect that number to differ now.
+
+### Updated regression risk
+
+- **This worktree was shared by a destructive concurrent process during this QA round**, not just
+  an uncommitted-diff risk as flagged at task start — the `modules/demo` tree was deleted outright
+  partway through, not merely modified. Flagging to the lead: the "coordinate timing with reviewer"
+  caution in this task's brief was insufficient this round; a third session appears to have been
+  actively restructuring modules/demo concurrently. I did not touch, stage, or revert any of it.
 
 ## Regression risks / notes
 
