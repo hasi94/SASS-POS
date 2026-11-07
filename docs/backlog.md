@@ -481,7 +481,7 @@ Products, cart, sales, payments, returns, discounts, customers, receipts, offlin
 | FP-239 | Printing: printers, routes, templates, and the agent integration | BE, PA, FE | TODO |
 | FP-240 | Admin application shell, navigation and the catalog and customer screens | FE | TODO |
 | FP-241 | Suspension must reach an offline till (terminal token and replica expiry) | BE, FE | TODO — **before the first paying customer** |
-| FP-243 | The unit model: base unit, the conversion boundary, the valuation formula | BE (architect, documents only) | IN_DEV (T-006) — **gates FP-230** |
+| FP-243 | The unit model: base unit, the conversion boundary, the valuation formula | BE (architect, documents only) | **DONE (T-006)** — gate exit 0, 314 passed / 1435 assertions, QA PASS (run 11), review APPROVE (round 5). **Unblocks FP-230** |
 
 ## Phase 2 — Inventory and purchasing
 
