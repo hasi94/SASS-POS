@@ -1,0 +1,66 @@
+# QA Report: T-026
+
+## Verdict: PASS
+
+## Acceptance criteria coverage
+
+All ACs verified by reading the real shipped source against the spec/plan, and by running the full gate. Table below maps the areas I independently checked beyond trusting the plan's own AC-map (plan section 6), with the result of my own reading.
+
+| AC | Test(s) | Result |
+|----|---------|--------|
+| AC-1 (CLI validation, 8 format rules) | `ProvisionTenantCommandTest` | PASS — read `ProvisionTenantInput::validate` call path via `ProvisionTenantHandler`; command signature matches all listed options exactly |
+| AC-2 to AC-4 (plan written whole, fixed order, resume skips done) | `ProvisioningRunnerTest`, `ProvisioningSchemaTest` | PASS — read `ProvisioningRunner::run()`; `skip if done` logic present and covered |
+| AC-5 (idempotent-by-step, stand-in half) | `CreateDatabaseTest` (6 cases incl. Absent/Empty/Occupied × first-attempt/re-entry) | PASS — read `CreateDatabase.php`, matches the three-state fencing exactly |
+| AC-6, AC-7 (collision/race refusal) | `ReserveIdentityTest` | PASS — read `ReserveIdentity.php`: up-front check + unique-violation re-read distinguishing code vs sequence collision, bounded retry |
+| AC-8 (no row visible outside provisioning before write_mapping) | step 10 tests (`Ac8RealEngineFailureTest`) | PASS (gate green) |
+| AC-9 (abandon — archive not drop/delete) | `AbandonProvisioningHandlerTest` (8 cases) | PASS — read `AbandonProvisioningHandler.php`: archives, drops users (not db), forgets secrets, D-30 attach untouched |
+| AC-10 to AC-14 (reserve_identity/select_server) | `ReserveIdentityTest`, `SelectServerTest`, `TenantDatabaseNamesTest`, `TenantCodeTest` | PASS — read `SelectServer.php`: never writes `tenant_count`, journals selection, named exclusion reasons |
+| AC-15 to AC-19 (engine port, store_credentials, create_users, write_mapping) | `ProvisionerStatementsTest`, `MySqlTenantDatabaseProvisionerTest`, `StoreCredentialsTest`, `CreateUsersTest`, `WriteMappingTest` | PASS — read all five files; D-20 order (store_credentials before create_users) confirmed in both code and docs |
+| AC-17 negative + Ruling 3 amendment (credential-reference journaling) | `StoreCredentialsTest` — "it journals both references before the config root can move..." | PASS, independently verified the fix closes the real gap (see Defects/Notes below) |
+| AC-18 (redaction) | `ProvisioningErrors` read directly; `ProvisioningRunnerTest`'s AC-18 control | PASS — double-layer redaction (named needles + generic `scheme://` pattern) |
+| AC-20 to AC-23 (migrate_remainder drives T-008) | `MigrateRemainderTest` | PASS — read `MigrateRemainder.php`: named selector only, run id journalled before execution, terminal-status match |
+| AC-25, AC-25a, AC-26, AC-27 (seed_core) | `SeedCoreTest`, `BootstrapOwnerTest`, `DatabaseDefaultBranchTest` | PASS — read `SeedCore.php`: Ruling 6 pre-check, order, idempotent-by-layer |
+| AC-29 to AC-31 (create_owner, D-23, D-24, D-30) | `CreateOwnerTest`, `BootstrapOwnerTest` | PASS — read `CreateOwner.php`/`BootstrapOwnerHandler.php` in full; D-23 precondition checked inside the transaction, soft-delete control present |
+| AC-32 to AC-36 (verify, activate) | `VerifyTest`, `ActivateTest` | PASS — read `Verify.php`/`Activate.php`: D-17 re-check (never trusts prior output), AC-35 compare-and-set confirmed live in the gate run |
+| AC-37, AC-38 | `ReserveIdentityCodeWriteTest`, `ProvisionTenantEndToEndTest` | PASS — e2e test proves `ActivationIssuer::issue()` returns `TEN201-...` for a lower-case `--code` input |
+| AC-39 (lint/stan/deptrac, boundary) | `composer check` (this run) | PASS — Pint passed, PHPStan "No errors", Deptrac 0 violations/0 warnings/0 errors |
+| AC-39 (containment check 3) | `DestructiveStatementContainmentTest` | PASS — read check 3's scanner and both production-code owners; confirmed `MySqlTenantDatabaseProvisioner.php` itself holds no literal SQL (delegates to `ProvisionerStatements`), so the owners list is exactly right |
+| AC-40 (NOT VERIFIED list, ENGINE_HOLD) | `TenantProvisionerEngineTest` (skipped), binding test | PASS — confirmed skip reason references `EngineOnHold`; confirmed default binding is `RefusingTenantDatabaseProvisioner` and phpunit.xml never sets `tenancy.provisioning.driver` |
+| Crash-and-resume (AC-4/AC-5 end to end) | `ProvisionTenantEndToEndTest`'s 11-case dataset | PASS, reviewed and accepted as adequate — see Notes |
+
+## Test run summary
+
+- Command: `cd modules/host && "/e/xampp/php/php.exe" "/c/ProgramData/ComposerSetup/bin/composer.phar" check` (the full gate — lint, PHPStan, Deptrac, full test suite), run fresh and independently by me from a clean working tree (`git status` clean before and after).
+- Result: lint passed; PHPStan "No errors"; Deptrac 0 violations / 0 warnings / 0 errors; **13 failed, 25 skipped, 2980 passed (20603 assertions)**, Duration 815.32s (`FLEXIPOS-GATE-MARGIN ratio=9.56`).
+- This reproduces dev's final-session reported numbers (13/25/2980, 815.25s) essentially exactly — confirmed independently, not merely trusted.
+- The 13 failures were individually confirmed, by `git log` on each failing test file, to be **pre-existing and untouched by this task**: `ModulesEnvParsingTest`×1, `QaHealthProbeResilienceTest`×2, `QaModuleNameValidationTest`×3, `QaModuleRegistryContractTest`×6 (all last touched in T-021/T-005, long before this branch), and `QaVocabularyRenameSweepTest`×1 — its failure output names exactly two hits, this session's own `.claude/agent-memory/developer/project_t026_create_owner_verify_activate.md` and the pre-existing `frontend/package-lock.json`, neither of which is T-026 production code.
+- `ProvisionTenantEndToEndTest`: all 13 cases passed, including all 11 crash-at-each-step/resume cases.
+- `QaPlatformSourceRulesTest`: passed, including the widened `tenants.status` sole-writer scan (now `TenantStatusSync.php`, `Activate.php`, `AbandonProvisioningHandler.php`).
+- `DestructiveStatementContainmentTest`: passed (all 3 checks, including the new check 3).
+- `StoreCredentialsTest`: passed, including the Ruling-3-amendment case proving a config-root change between a failed attempt and a resume does not orphan or split a credential.
+- `ProvisionerBindingTest`: passed, including the control that the suite's own default `tenancy.provisioning.driver` config value is `refusing` (never touched to `mysql` anywhere in test code).
+- `TenantProvisionerEngineTest`: correctly skipped under `ENGINE_HOLD`, with the `EngineOnHold` reason text, exactly as AC-40 requires.
+
+## Independent verification beyond trusting the plan/dev reports
+
+- **Ruling 3 amendment (credential-reference journaling fix).** Read `StoreCredentials.php` in full: references are journalled on first entry, before either `put()`; on re-entry the journalled references are reused and root confinement is checked against *whatever root is configured now* (so a moved root fails closed, never silently splits a credential across two roots). `StoreCredentialsTest`'s second case plants exactly the regression scenario the amendment describes (root moves between attempts) and proves the fix — read the test in full, confirmed it simulates the real gap (not a tautology) and asserts `SecretPathEscapesRoot` is thrown and nothing is written under the new root, then that the original credential is found and reused once the root is restored. This closes the gap genuinely.
+- **The two `tenants.status` sole-writer-scan widenings.** Read `Activate.php` and `AbandonProvisioningHandler.php` in full: both writes are real, compare-and-set/guarded (`WHERE status = 'provisioning'` for `activate`; an unconditional archive write for `abandon`, which is correct because `abandon` is the terminal compensating act). Read `QaPlatformSourceRulesTest.php`'s widened scan: the exception list is now exactly 3 named basenames, with its own negative control (a file that only reads `tenants.status` is not flagged) and its own positive control (a planted writer not on the exception list is still caught). Both widenings are legitimate and the scan still discriminates.
+- **`toolchainSpawnTokens()` exec( ) regex fix.** Read `Helpers.php`'s lookbehind `(?<![\w$>:]|function\s)exec\s*\(`. Found the real trigger: `MySqlTenantDatabaseProvisionerTest.php:41` declares `public function exec(string $sql): void` on a test double implementing `TenantStatementExecutor`. Confirmed that file is correctly absent from `toolchainGroupFiles()` (it does not spawn a process), and confirmed the fix does not weaken detection of a real spawner: `ToolchainGroupDetectorTest`'s "does not mistake a method or static call" case exercises every function-shaped token through `$pdo->`, `SomeClass::`, `$this->` receivers and expects all to be *not* flagged, while the "reports a source that starts a child process" case still flags every bare token. The fix is sound.
+- **The `Package_Platform` → `Package_Kernel_TenancyStatus` deptrac edge.** Read `deptrac.yaml`: the collector for `Package_Kernel_TenancyStatus` names exactly three classes (`TenantConnectionPurpose`, `TenantDatabase`, `TenantStatusPolicy`). Grepped `packages/platform/src` and found exactly 3 files use `TenantConnectionPurpose` (`CreateOwner.php`, `Verify.php`, `SeedCore.php`), matching Ruling 6's "these three steps run under `TenantConnectionPurpose::Migrating`" exactly. The widening is scoped as narrowly as the symbol-level collector allows and opens nothing broader than the precedent (`Package_PluginSdk`) already established for the identical need.
+- **The crash-and-resume dataset's single generic decorator (step 15).** Read `ProvisionTenantEndToEndTest.php`'s `E2eCrashOnceStep` in full. It wraps the real, container-resolved step class, lets it run to completion (so every journal write it makes is genuinely committed, exactly as production would), then throws once — simulating "the effect landed but the runner's own `done` marking never committed," which is AC-5's documented failure shape. I accept this as adequate: it exercises the real step classes, not a fixture standing in for them, and the final assertions (`doneSteps === count(StepName::cases())`, mapping `active`, tenant `trial`, exactly one `tenant_users`/employee/branch row) are the same postconditions an uninterrupted run gets, checked by count rather than by a separate baseline diff — a reasonable equivalent given every later-step idempotency check is already independently unit-tested per step. This is not a reduction in what AC-4/AC-5 end-to-end prove, as the dev's handback message claimed, and I did not find a scenario the 11 bespoke-fixture alternative would have caught that this one does not.
+- **The containment check 3 "two owning files" list.** Confirmed `MySqlTenantDatabaseProvisioner.php` contains no literal SQL text at all (it delegates every statement to `ProvisionerStatements`) — so the owners list (`ProvisionerStatements.php`, `EngineDatabase.php`) is exactly and only the files that actually need to be exempted, nothing wider.
+- **ENGINE_HOLD.** Confirmed the default binding is `RefusingTenantDatabaseProvisioner` (`TenancyServiceProvider.php:139-144`, default case), confirmed `phpunit.xml`/suite config never sets `tenancy.provisioning.driver`, confirmed via `ProvisionerBindingTest`'s own control test, and confirmed `TenantProvisionerEngineTest`/`Ac8RealEngineFailureTest`-adjacent engine tests are correctly skipped in the gate output with the `EngineOnHold` message.
+
+## Defects
+
+None found.
+
+## Regression risks / notes
+
+- The Windows-only `unlink()`/`rmdir()` warnings against `tenancy-fixture/tenant-a.sqlite` seen repeatedly during this gate run are a pre-existing, environment-specific flake (file handle held briefly by another process on this Windows machine's SQLite teardown) — they did not fail any test and are unrelated to T-026's own code. Worth a note for future QA runs on this machine: do not mistake these warnings for a new regression.
+- The follow-up risk the architect already flagged (section 7 of the plan) stands as documented: an archived (abandoned) tenant, or a version-0 provisioning tenant, would block a future non-`expand` ("contract") tenant migration fleet-wide, because `PlanMigrationRunHandler::tenantsBelow()` exempts only `provisioning` from that block and nothing exempts `archived`. This is latent today (every shipped migration is `expand`) and is correctly filed as a T-008 follow-up, not a T-026 defect.
+- Many stale `php.exe` processes (from 2026-11-04 through 2026-11-07) were present in this worktree's process list before I started; I confirmed via CPU-sampling that none were active (0 CPU growth across checks) before starting the gate, so they did not contaminate this run. They remain orphaned and may be worth a cleanup pass outside this task's scope.
+
+## History
+
+Run 1: PASS (first and only QA pass on this task; full gate independently reproduced dev's reported baseline exactly, and all flagged review items — the crash/resume dataset judgment call, the un-rerun step-18 mutations, the Ruling-3 credential-journaling fix, the two sole-writer-scan widenings, the exec( ) regex fix, and the deptrac edge widening — were independently verified against the final, fully-assembled pipeline, not merely re-read from prior session reports.)

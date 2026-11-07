@@ -1,0 +1,22 @@
+---
+name: project-t026-provisioning-closeout
+description: T-026 tenant provisioning QA close-out — judgment calls accepted, verification techniques used, a Windows SQLite teardown flake to not mistake for a regression
+metadata:
+  type: project
+---
+
+T-026 (FP-206, tenant provisioning) passed QA on round 1, full gate reproduced exactly (13 failed/25 skipped/2980 passed/815.3s, all 13 failures pre-existing and confirmed via `git log` on each failing test file to be untouched by this task).
+
+**The crash-and-resume dataset judgment call (step 15) was accepted.** `ProvisionTenantEndToEndTest`'s `E2eCrashOnceStep` is one generic `Container::extend()` decorator that wraps whatever the real, container-resolved step class is, lets it run to completion (so its journal writes are genuinely committed), then throws once to simulate "effect landed, runner's own done-marking never committed." Run once per `StepName` (11 cases) via a dataset. This exercises real step classes, not fixtures standing in for them, and the final assertions (done-step count equals an uninterrupted run's, exact row counts for mapping/tenant/branch/employee/tenant_users) are a reasonable equivalent to a separate baseline diff, given every step's own idempotency is already unit-tested in isolation. Accepted as adequate — did not find a scenario 11 bespoke fixtures would catch that this generic one does not.
+
+**Credential-reference journaling fix (Ruling 3 amendment) verified as real, not cosmetic.** `StoreCredentials.php` journals both `file://` references before either `put()` on first entry; on re-entry it reuses the journalled references rather than recomputing from `tenancy.secrets.file_root`, which is config and can move between a failed attempt and a resume. `StoreCredentialsTest` plants exactly that scenario (config root moves, then moves back) and proves the fix with `SecretPathEscapesRoot` thrown and nothing written under the new root on the first resume attempt, then the original credential found untouched once the root is restored. Read the test in full to confirm it isn't a tautology — it is a genuine before/after reproduction.
+
+**Two independently-widened QA source scans both legitimate.** `tenants.status` sole-writer scan widened twice across sessions (`Activate.php`, `AbandonProvisioningHandler.php`) — both are real, guarded writes (compare-and-set for activate, unconditional-but-correct archive for the terminal abandon act), and the scan keeps its own negative control (a read-only reference is not flagged) and positive control (an unlisted planted writer still is).
+
+**A real shared-detector bug, found and fixed mid-task, verified sound.** `modules/host/tests/Helpers.php`'s `exec(` toolchain-spawn regex false-matched `public function exec(string $sql): void` on a test double (`MySqlTenantDatabaseProvisionerTest.php:41`, a `TenantStatementExecutor` fake). The fix added a `(?<!...|function\s)` lookbehind. Verified the fix doesn't weaken real-spawner detection via `ToolchainGroupDetectorTest`'s existing method/static-call negative-control case, which already exercises every function-shaped token through several receiver prefixes.
+
+**Windows-only flake to recognize, not chase as a regression:** repeated `PHP Warning: unlink(...tenancy-fixture/tenant-a.sqlite): Resource temporarily unavailable` / `rmdir(...): Directory not empty` during a full `composer check` run on this machine. These are teardown warnings only — no test failed because of them — caused by a transient file-handle hold on Windows SQLite teardown. Seen dozens of times across this one gate run with zero associated test failures; do not mistake for new breakage on a future T-026-adjacent task.
+
+**Technique: confirming a "pre-existing baseline" failure list is real, not assumed.** For each of the 13 failing tests in the final gate, ran `git log --oneline -3 -- <test file>` and confirmed the most recent touch predates this branch (T-021/T-005 era) before accepting dev's claim that they're pre-existing flake, not a regression this task introduced.
+
+See [T-024 CI pipeline close-out](project_t024-ci-pipeline-closeout.md) for the "+1/-1 gate trick" and other general gate-verification techniques, and [Gate split and shared state](project_gate-split-and-shared-state.md) for why never to overlap an ad-hoc Pest run with a running gate (respected here — all additional verification in this task was done by reading source, not by running Pest, while the full gate was in flight).
