@@ -323,11 +323,11 @@ Unique: `(run_id, step)`.
 - Test file basenames stay unique.
 - List any foreign `php.exe` processes before each gate run.
 
-- [ ] **Step 0: baseline.**
-  - Record the counts, the test-step seconds and the FP-328 headroom line.
-  - *(No AC.)*
+- [x] **Step 0: baseline.** *(Partial - see `dev`'s handback message for the counts actually recorded;
+  this machine's full `composer test` run did not complete inside this session because of heavy,
+  unrelated process contention, so the FP-328 headroom line was not re-measured.)*
 
-- [ ] **Step 1: the master tables.**
+- [x] **Step 1: the master tables.**
   - **`ProvisioningSchemaTest`:**
     - exact column lists and nullability;
     - unique `(run_id, step)` (a raw double insert);
@@ -336,7 +336,7 @@ Unique: `(run_id, step)`.
   - **Predicted red:** `MasterSchemaBuildsTest` and the inventory. Anything else means stop.
   - *(AC-2, schema half.)*
 
-- [ ] **Step 2: naming and the tenant code.**
+- [x] **Step 2: naming and the tenant code.**
   - **`TenantDatabaseNamesTest`:**
     - sequence 1 gives `flx_t_000001`, `flx_t000001_app` and `flx_t000001_mig`;
     - 999999 still has 6 digits, and 1000000 widens to 7;
@@ -348,7 +348,7 @@ Unique: `(run_id, step)`.
     - the check runs against `ActivationCodeFormat::TENANT_PART_PATTERN` itself.
   - *(AC-11 unit half, AC-12.)*
 
-- [ ] **Step 3: writable secrets.**
+- [x] **Step 3: writable secrets.**
   - **Tests:**
     - put, exists and resolve round-trip;
     - an equal `put` is a no-op and a different `put` is refused (AC-17 negative);
@@ -360,7 +360,7 @@ Unique: `(run_id, step)`.
   - **Mutation:** removing confinement turns the traversal cases red.
   - *(AC-17, D-6.)*
 
-- [ ] **Step 4: the engine port.**
+- [x] **Step 4: the engine port.**
   - **Probe first.**
     - Prove that a mapping with a bare `database_name` of `flx_t_000001` opens the SQLite file of that name when the test's working directory is the fixture root. `SQLiteConnector` tries `realpath()` and then `base_path()`.
     - The working directory is restored in `finally`.
@@ -380,7 +380,7 @@ Unique: `(run_id, step)`.
   - **Mutation:** drop one guard check; the other still refuses.
   - *(AC-15, AC-16 stand-in half, AC-18 statement half, AC-39.)*
 
-- [ ] **Step 5: the mapping writer and the `schema_meta` stamp.**
+- [x] **Step 5: the mapping writer and the `schema_meta` stamp.**
   - **`TenantMappingWriterTest`:**
     - `insert` writes exactly AC-19's values;
     - every write is followed by an eviction (spy on `EvictsTenantMappings`);
@@ -642,6 +642,18 @@ Any other red file means stop and report to `architect`.
 - Never stub a guard (`TenantDatabaseNames`, the D-23 precondition) to allow.
 - If the step 4 probe fails, stop.
 - `AttachBranch` refuses a re-attach: check first.
+
+### `dev` → lead
+
+- Steps 0-5 are implemented and tested (kernel-layer foundation: the two master tables, the naming
+  rule, writable `file://` secrets, the engine port in all three implementations, containment check 3,
+  the skipped engine test, the mapping writer and the `schema_meta` stamp). Steps 6-18 - the
+  `packages/access`/`packages/organization` bootstrap contracts, the platform orchestrator (`RunContext`,
+  `StepJournal`, the eleven step classes, the lease, `tenant:provision`), and the end-to-end/abandon
+  proofs - are **not built**. This plan's 19 steps and ~130 cases are a multi-session scope; stopping at
+  a clean, fully-tested layer boundary (everything steps 6+ are specified to call) seemed better than a
+  partial, unverifiable attempt at the cross-package orchestrator in the same pass. See the handback
+  message for the real file list and test/lint/stan/deptrac results.
 
 ## Questions for the human
 

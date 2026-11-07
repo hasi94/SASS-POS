@@ -116,7 +116,7 @@ it('creates exactly the master tables AC-1 names', function () {
     expect(migrationTreeTables(MigrationTree::Master))->toBe($expected)
         // Seventeen from T-008 plus T-009 step 3's four (AC-50), plus
         // T-019 step 3's five plugin-registry tables (AC-7).
-        ->and(masterApplicationTables())->toHaveCount(26)
+        ->and(masterApplicationTables())->toHaveCount(28)
         ->and(masterSystemTables())->toHaveCount(7);
 });
 

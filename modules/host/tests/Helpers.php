@@ -446,6 +446,10 @@ function masterApplicationTables(): array
         'tenant_migration_jobs',
         'tenant_migration_runs',
         'tenant_plugins',
+        // T-026 step 1: the resumable provisioning run (docs/database.md
+        // section 4.7).
+        'tenant_provisioning_runs',
+        'tenant_provisioning_steps',
         'tenant_users',
         'tenants',
         'users',

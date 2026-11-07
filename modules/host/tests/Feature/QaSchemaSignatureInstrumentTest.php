@@ -181,7 +181,7 @@ it('writes a signature for every master and baseline table, and accepts two equa
     // from AC-23's six to fourteen, and a count written here would have to be
     // edited by every task that ships a tenant table (T-010 Ruling 2).
     // T-019 step 3 adds the five plugin-registry tables.
-    expect($master)->toHaveCount(34)
+    expect($master)->toHaveCount(36)
         ->and($tenant)->toHaveCount(count(tenantTreeTables()) + 1)
         ->and(array_keys($master))->toContain('tenants', 'tenant_databases', 'users', 'sessions', 'migrations')
         ->and(array_keys($tenant))->toContain('settings', 'outbox_events', 'schema_meta', 'migrations');

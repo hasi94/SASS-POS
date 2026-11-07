@@ -7,11 +7,19 @@ use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
 use Flexipos\Kernel\Tenancy\Contracts\TenantFleet;
 use Flexipos\Kernel\Tenancy\Contracts\TenantMigrationTargetRepository;
 use Flexipos\Kernel\Tenancy\Exceptions\TenancyException;
+use Flexipos\Kernel\Tenancy\Provisioning\Contracts\TenantDatabaseProvisioner;
+use Flexipos\Kernel\Tenancy\Provisioning\MySqlTenantDatabaseProvisioner;
+use Flexipos\Kernel\Tenancy\Provisioning\RecordingTenantDatabaseProvisioner;
+use Flexipos\Kernel\Tenancy\Provisioning\RefusingTenantDatabaseProvisioner;
 use Flexipos\Kernel\Tenancy\Secrets\ConnectionPassword;
 use Flexipos\Kernel\Tenancy\Secrets\EnvSecretResolver;
+use Flexipos\Kernel\Tenancy\Secrets\FileSecretResolver;
+use Flexipos\Kernel\Tenancy\Secrets\FileSecretStore;
 use Flexipos\Kernel\Tenancy\Secrets\SchemeSecretResolver;
+use Flexipos\Kernel\Tenancy\Secrets\SchemeSecretStore;
 use Flexipos\Kernel\Tenancy\Secrets\Secret;
 use Flexipos\Kernel\Tenancy\Secrets\SecretResolver;
+use Flexipos\Kernel\Tenancy\Secrets\WritableSecretStore;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Container\Container;
@@ -93,12 +101,48 @@ final class TenancyServiceProvider extends ServiceProvider
         $this->app->singleton(TenantStatusPolicy::class, static fn (): TenantStatusPolicy => TenantStatusPolicy::shipped());
 
         $this->app->singleton(SecretResolver::class, static function (Application $app): SecretResolver {
-            // env:// only in T-003 (decision D-31). Every other scheme
-            // docs/database.md section 4.4 lists is refused by
+            // env:// since T-003 (decision D-31); file:// since T-026 (D-6) -
+            // the writable driver this task builds. Every other scheme
+            // docs/database.md section 4.4 lists is still refused by
             // SchemeSecretResolver until the task that needs it adds a driver.
+            $config = $app->make(ConfigRepository::class);
+
             return new SchemeSecretResolver([
                 EnvSecretResolver::SCHEME => new EnvSecretResolver($app),
+                FileSecretResolver::SCHEME => new FileSecretResolver(
+                    (string) $config->get('tenancy.secrets.file_root')
+                ),
             ]);
+        });
+
+        // T-026 D-6: the write half. env:// is deliberately not registered
+        // here - it stays read-only (D-31) - so a put() against it is
+        // refused as an unregistered scheme, not by a special case.
+        $this->app->singleton(WritableSecretStore::class, static function (Application $app): WritableSecretStore {
+            $config = $app->make(ConfigRepository::class);
+
+            return new SchemeSecretStore([
+                FileSecretResolver::SCHEME => new FileSecretStore(
+                    (string) $config->get('tenancy.secrets.file_root')
+                ),
+            ]);
+        });
+
+        // T-026 Ruling 4. The default refuses - "no provisioner configured" -
+        // and the real MySQL/MariaDB implementation is bound only when a
+        // deployment sets tenancy.provisioning.driver=mysql explicitly.
+        // phpunit.xml never sets it, so a test that forgets to bind the
+        // recording stand-in fails closed instead of reaching a live server
+        // (ENGINE_HOLD).
+        $this->app->singleton(TenantDatabaseProvisioner::class, static function (Application $app): TenantDatabaseProvisioner {
+            $config = $app->make(ConfigRepository::class);
+            $driver = (string) $config->get('tenancy.provisioning.driver', 'refusing');
+
+            return match ($driver) {
+                'mysql' => $app->make(MySqlTenantDatabaseProvisioner::class),
+                'recording' => $app->make(RecordingTenantDatabaseProvisioner::class),
+                default => $app->make(RefusingTenantDatabaseProvisioner::class),
+            };
         });
 
         $this->app->singleton(

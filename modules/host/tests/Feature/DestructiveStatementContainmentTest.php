@@ -330,3 +330,138 @@ it('reports every shape of guard double, and ignores the real class being used',
 
     expect(containmentGuardDoublesInCode($legitimate))->toBe([]);
 });
+
+/*
+|--------------------------------------------------------------------------
+| Check 3 - CREATE DATABASE/CREATE USER/ALTER USER/GRANT/DROP USER, in
+| production code, live in exactly the files that own them (T-026 AC-39)
+|--------------------------------------------------------------------------
+|
+| T-026 adds the first production code that issues CREATE DATABASE,
+| CREATE USER, ALTER USER, GRANT and DROP USER at all - the real-engine
+| provisioning port (Ruling 4). Checks 1 and 2 above are untouched: they are
+| about DROP DATABASE/DROP SCHEMA and the name-guard double, neither of
+| which this adds.
+|
+| Scoped to production code only - every path containing a "/tests/"
+| segment is excluded. A **test** asserting a literal SQL string (what
+| ProvisionerStatements/MySqlTenantDatabaseProvisioner build, or the
+| pre-existing CI tenant script CiWorkflowShapeTest reads) is not a path
+| that can act on a server; the incident this file exists to prevent was
+| production code handed to a sweep, not an assertion string.
+*/
+
+/**
+ * Occurrences of CREATE DATABASE, CREATE USER, ALTER USER, GRANT … ON or
+ * DROP USER in code.
+ *
+ * Each pattern is anchored at a word boundary so a variable or type name
+ * that merely contains one of these words - `TenantGrant $grant`,
+ * `grantOwner()` - is never matched. GRANT additionally requires the `ON`
+ * clause to be followed by a backtick, which is what every real grant
+ * statement in this codebase does and no identifier name does.
+ *
+ * @return list<string>
+ */
+function containmentProvisioningStatementsInCode(string $source): array
+{
+    $code = containmentCodeOnly($source);
+
+    $patterns = [
+        '/\bcreate\s+database\b.{0,40}/is',
+        '/\bcreate\s+user\b.{0,40}/is',
+        '/\balter\s+user\b.{0,40}/is',
+        '/\bdrop\s+user\b.{0,40}/is',
+        '/\bgrant\s+[a-z,\s]+\bon\b\s*`.{0,40}/is',
+    ];
+
+    $found = [];
+
+    foreach ($patterns as $pattern) {
+        preg_match_all($pattern, $code, $matches);
+
+        foreach ($matches[0] as $match) {
+            $found[] = trim((string) $match);
+        }
+    }
+
+    return $found;
+}
+
+/**
+ * The production files allowed to issue these statements, each in its own
+ * file: the real engine port's pure statement builder, and the test-only
+ * create half of EngineDatabase (its own drop is check 1's business, not
+ * this one's - EngineDatabase never issues CREATE USER/ALTER USER/GRANT/
+ * DROP USER at all).
+ *
+ * @return list<string>
+ */
+function containmentProvisioningStatementOwners(): array
+{
+    return [
+        'packages/kernel/src/Tenancy/Provisioning/ProvisionerStatements.php',
+        'packages/testing/src/Engine/EngineDatabase.php',
+    ];
+}
+
+/**
+ * Every owned PHP source outside any "/tests/" directory.
+ *
+ * @return array<string, string>
+ */
+function containmentProductionPhpSources(): array
+{
+    $production = [];
+
+    foreach (containmentOwnedPhpSources() as $path => $source) {
+        if (str_contains($path, '/tests/')) {
+            continue;
+        }
+
+        $production[$path] = $source;
+    }
+
+    return $production;
+}
+
+it('issues CREATE DATABASE/CREATE USER/ALTER USER/GRANT/DROP USER in production code in no file but the two that own them', function () {
+    $offenders = [];
+
+    foreach (containmentProductionPhpSources() as $path => $source) {
+        if (in_array($path, containmentProvisioningStatementOwners(), true)) {
+            continue;
+        }
+
+        $found = containmentProvisioningStatementsInCode($source);
+
+        if ($found !== []) {
+            $offenders[$path] = $found;
+        }
+    }
+
+    expect($offenders)->toBe([]);
+});
+
+it('still finds the statements the two owning files are allowed to issue', function () {
+    foreach (containmentProvisioningStatementOwners() as $owner) {
+        $found = containmentProvisioningStatementsInCode(containmentProductionPhpSources()[$owner]);
+
+        expect($found)->not->toBe([]);
+    }
+});
+
+it('reports a planted CREATE USER/GRANT in code and ignores a variable or method merely named after one', function () {
+    $forbidden = '<?php $pdo->exec(\'create'.' user if not exists `x`@\\\'%\\\' identified by ?\');'
+        .'$pdo->exec(\'grant'.' select on `x`.* to `y`\');';
+
+    expect(containmentProvisioningStatementsInCode($forbidden))->toHaveCount(2);
+
+    // The negative control: a type name and a method name that merely
+    // contain these words, which must never be reported.
+    $legitimate = '<?php'."\n"
+        .'function grantOwner(TenantGrant $grant): void {}'."\n"
+        .'$assigned = $grant->value;';
+
+    expect(containmentProvisioningStatementsInCode($legitimate))->toBe([]);
+});

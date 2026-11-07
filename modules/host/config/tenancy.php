@@ -155,4 +155,36 @@ return [
 
     'databases' => [],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Writable secrets (T-026 D-6, D-29)
+    |--------------------------------------------------------------------------
+    |
+    | `file://` is the only writable credential driver this project builds
+    | (D-6); every reference must resolve under `file_root`, after `..` and
+    | symlinks are resolved. The default is a sensible local path under this
+    | project's existing storage convention; the real VPS placement and
+    | backup strategy are deliberately deferred to FP-221 (D-29) - this key
+    | only has to be configurable, not correct for a deployment that does not
+    | exist yet.
+    |
+    | `provisioning.driver` selects the real-engine database/user-creation
+    | implementation; the default is "refusing", which throws rather than
+    | reach a live server. It is bound to "mysql" only when a deployment sets
+    | this explicitly - never by the test suite (ENGINE_HOLD, T-026 Ruling 4).
+    | `provisioning.user_host` is the MySQL/MariaDB host pattern a created
+    | user is scoped to.
+    |
+    */
+
+    'secrets' => [
+        'file_root' => env('TENANCY_SECRETS_FILE_ROOT', storage_path('secrets')),
+    ],
+
+    'provisioning' => [
+        'driver' => env('TENANCY_PROVISIONING_DRIVER', 'refusing'),
+        'user_host' => env('TENANCY_PROVISIONING_USER_HOST', '%'),
+        'admin_username' => env('TENANCY_PROVISIONING_ADMIN_USERNAME', 'root'),
+    ],
+
 ];
