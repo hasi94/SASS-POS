@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 import { ContextPage, LoginPage, authGuard, contextGuard, guestGuard } from '@flexipos/shared';
+import { adminPlugins } from './plugins';
 
 export const routes: Routes = [
   {
@@ -33,6 +34,7 @@ export const routes: Routes = [
         loadComponent: () => import('./shell/placeholder-page').then((m) => m.PlaceholderPage),
         data: { title: 'Customers', arrivesWith: 'FP-232 and FP-240' },
       },
+      ...adminPlugins.toRoutes(),
       { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
     ],
   },

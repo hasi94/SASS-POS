@@ -2,6 +2,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, InjectionToken, inject } from '@angular/core';
 import { Observable, catchError, map, throwError } from 'rxjs';
 import { ApiEnvelope, ApiError, isEnvelope } from './envelope';
+import { isLegacyRefusal, legacyRefusalToApiError } from './legacy-refusal';
 
 /** Base of the versioned REST API. Apps provide it; the default is same-origin. */
 export const API_BASE_URL = new InjectionToken<string>('API_BASE_URL', {
@@ -32,6 +33,19 @@ export class ApiClient {
 
   delete<T>(path: string): Observable<T> {
     return this.unwrap(this.http.delete<ApiEnvelope<T>>(this.url(path)));
+  }
+
+  /**
+   * For the pre-envelope endpoints only (T-021 D-1: auth/access/organization/
+   * platform/terminal, until FP-369 moves them onto the envelope). Skips
+   * `unwrap()` entirely — the real 2xx body is returned as-is — but still
+   * maps a failure through {@link toApiError}, so a real auth refusal's
+   * token surfaces the same way a `post()` failure's would.
+   */
+  postRaw<T>(path: string, body?: unknown): Observable<T> {
+    return this.http
+      .post<T>(this.url(path), body ?? {})
+      .pipe(catchError((err: unknown) => throwError(() => toApiError(err))));
   }
 
   private url(path: string): string {
@@ -66,6 +80,9 @@ export function toApiError(err: unknown): ApiError {
         err.error.errors,
         err.error.meta.request_id,
       );
+    }
+    if (isLegacyRefusal(err.error)) {
+      return legacyRefusalToApiError(err.status, err.error, err.headers?.get('X-Request-Id') ?? null);
     }
     if (err.status === 0) {
       return new ApiError(0, 'Cannot reach the server.');

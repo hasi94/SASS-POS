@@ -15,9 +15,22 @@ const KEY = 'flexipos.session';
 
 function seed(tenantId: string | null, branchId: string | null): void {
   const session: Session = {
-    token: 't',
+    platform: { accessToken: 'pt', refreshToken: 'prt' },
+    tenantTokens: tenantId ? { accessToken: 'tt', refreshToken: 'trt' } : null,
     user: { id: '1', name: 'A', email: 'a@b.c' },
-    tenants: [{ id: 'T', name: 'T', branches: [{ id: 'B', name: 'B' }] }],
+    tenants: [
+      {
+        id: 'T',
+        code: 't',
+        name: 'T',
+        status: 'active',
+        selectable: true,
+        is_default: true,
+        branches: [{ id: 'B', name: 'B' }],
+      },
+    ],
+    defaultTenantId: 'T',
+    mustChangePassword: false,
     tenantId,
     branchId,
   };

@@ -21,6 +21,13 @@ use Symfony\Component\Yaml\Yaml;
  * on this team can trigger that, so none of them is asserted here (D-12).
  * The runtime half of AC-9/AC-13/AC-14/AC-15 is instead asserted inside the
  * job itself, by .github/ci/assert-tenant-state.sh, on the first real run.
+ *
+ * T-025 (FP-219): extended, not duplicated (D-12 in
+ * docs/decisions/T-025-frontend-bootstrap.md), with cases for the new,
+ * independent `frontend` job (AC-17 to AC-21). The static shape of that job
+ * is checked the same way the backend jobs above are; a real GitHub Actions
+ * run of it is fenced NOT VERIFIABLE for the same reason as AC-9/AC-13/
+ * AC-14/AC-15/AC-19 above.
  */
 
 /**
@@ -246,6 +253,45 @@ function ciValuesForKeysEndingWith(mixed $structure, string $suffix): array
     }
 
     return $values;
+}
+
+/**
+ * The frontend job (T-025 AC-17 to AC-21), by key rather than by searching for it -
+ * `dev`'s own name for it, the same way `ciQualityJob()` finds the quality job by
+ * behaviour. Throws if absent, so every case below fails loudly rather than on a null
+ * array access.
+ *
+ * @return array<string, mixed>
+ */
+function ciFrontendJob(): array
+{
+    $jobs = ciWorkflowJobs();
+
+    if (! array_key_exists('frontend', $jobs)) {
+        throw new RuntimeException('no "frontend" job in the workflow');
+    }
+
+    return $jobs['frontend'];
+}
+
+/**
+ * Every `uses:` step value in a job, in step order. A step with no `uses` key
+ * contributes nothing.
+ *
+ * @param  array<string, mixed>  $job
+ * @return list<string>
+ */
+function ciJobStepUses(array $job): array
+{
+    $uses = [];
+
+    foreach ((array) ($job['steps'] ?? []) as $step) {
+        if (is_array($step) && isset($step['uses']) && is_string($step['uses'])) {
+            $uses[] = $step['uses'];
+        }
+    }
+
+    return $uses;
 }
 
 it('parses as YAML and has the triggers and jobs block AC-1 requires', function () {
@@ -523,4 +569,115 @@ it('registers the CI tenant with a fresh CREATE DATABASE, no DROP and the provis
     // exempt from PlanMigrationRunHandler's contract-step block and gated to
     // only a run that names this tenant explicitly.
     expect(substr_count($executable, 'provisioning'))->toBe(2);
+});
+
+it('has a frontend job, the only one running npm ci, with no if: and no services block, and never runs composer (T-025 AC-17, AC-18)', function () {
+    $frontend = ciFrontendJob();
+
+    $jobsRunningNpmCi = array_filter(
+        ciWorkflowJobs(),
+        fn (array $job): bool => ciAnyRunContains(ciJobStepRuns($job), 'npm ci')
+    );
+
+    expect($jobsRunningNpmCi)->toHaveCount(1);
+    expect($frontend)->not->toHaveKey('if')
+        ->and($frontend)->not->toHaveKey(ciServicesKey());
+
+    expect(ciAnyRunContains(ciJobStepRuns($frontend), 'composer'))->toBeFalse();
+});
+
+it('runs the frontend job with working-directory frontend and shell bash (T-025 AC-17)', function () {
+    $frontend = ciFrontendJob();
+
+    expect($frontend['defaults']['run']['working-directory'] ?? null)->toBe('frontend')
+        ->and($frontend['defaults']['run']['shell'] ?? null)->toBe('bash');
+});
+
+it('sets up Node 24 via actions/setup-node in the frontend job (T-025 AC-17)', function () {
+    $frontend = ciFrontendJob();
+    $uses = ciJobStepUses($frontend);
+
+    $setupNodeStep = null;
+
+    foreach ((array) ($frontend['steps'] ?? []) as $step) {
+        if (is_array($step) && isset($step['uses']) && str_starts_with((string) $step['uses'], 'actions/setup-node@')) {
+            $setupNodeStep = $step;
+
+            break;
+        }
+    }
+
+    expect(array_filter($uses, fn (string $use): bool => str_starts_with($use, 'actions/setup-node@')))
+        ->not->toBe([]);
+    expect($setupNodeStep)->not->toBeNull('no step in the frontend job uses actions/setup-node@*');
+    expect($setupNodeStep['with']['node-version'] ?? null)->toBe('24');
+});
+
+it('runs npm ci, npm test, both ng builds and the mock-exclusion check as five distinct, ordered steps (T-025 AC-17, AC-18)', function () {
+    $frontend = ciFrontendJob();
+    $runs = ciJobStepRuns($frontend);
+
+    $npmCi = ciIndexOfRunContaining($runs, 'npm ci');
+    $npmTest = ciIndexOfRunContaining($runs, 'npm test');
+    $buildPos = ciIndexOfRunContaining($runs, 'ng build pos');
+    $buildAdmin = ciIndexOfRunContaining($runs, 'ng build admin');
+    $mockCheck = ciIndexOfRunContaining($runs, 'demo@flexipos.test');
+
+    expect($npmCi)->not->toBe(-1)
+        ->and($npmTest)->not->toBe(-1)
+        ->and($buildPos)->not->toBe(-1)
+        ->and($buildAdmin)->not->toBe(-1)
+        ->and($mockCheck)->not->toBe(-1);
+
+    expect(array_unique([$npmCi, $npmTest, $buildPos, $buildAdmin, $mockCheck]))->toHaveCount(5);
+
+    expect($npmCi)->toBeLessThan($npmTest)
+        ->and($npmTest)->toBeLessThan($buildPos)
+        ->and($buildPos)->toBeLessThan($buildAdmin)
+        ->and($buildAdmin)->toBeLessThan($mockCheck);
+});
+
+it('names both dist/pos/browser and dist/admin/browser and inverts grep exit code with an explicit exit 1 (T-025 AC-18)', function () {
+    $frontend = ciFrontendJob();
+    $runs = ciJobStepRuns($frontend);
+
+    $mockCheckIndex = ciIndexOfRunContaining($runs, 'demo@flexipos.test');
+    expect($mockCheckIndex)->not->toBe(-1);
+
+    $mockCheckRun = $runs[$mockCheckIndex];
+
+    // The step loops `for app in pos admin`, building the path from the loop
+    // variable (`dist/"${app}"/browser`) rather than writing each path out
+    // literally twice - this checks both apps are named, by the loop and the
+    // interpolated path shape, not by a literal "dist/pos/browser" string.
+    expect($mockCheckRun)->toContain('for app in pos admin')
+        ->and($mockCheckRun)->toContain('dist/"${app}"/browser')
+        ->and($mockCheckRun)->toContain('exit 1');
+});
+
+it('does not write test:fast, secrets., docker compose, or a _PASSWORD/_HOST/_PORT env key or continue-on-error into the frontend job (T-025 plan guardrail)', function () {
+    $frontend = ciFrontendJob();
+    $raw = Yaml::dump(['frontend' => $frontend]);
+
+    expect($raw)->not->toContain('test:fast')
+        ->and($raw)->not->toContain('secrets.')
+        ->and($raw)->not->toMatch('/docker\s+compose/i')
+        ->and($raw)->not->toContain('continue-on-error');
+
+    foreach (['_PASSWORD', '_HOST', '_PORT'] as $suffix) {
+        expect(ciValuesForKeysEndingWith($frontend, $suffix))->toBe([]);
+    }
+});
+
+it('leaves the quality job with no npm run step, and the existing composer-lint-ownership case still green (T-025 AC-21)', function () {
+    $quality = ciQualityJob();
+
+    expect(ciAnyRunContains(ciJobStepRuns($quality), 'npm'))->toBeFalse();
+
+    $qualityJobs = array_filter(
+        ciWorkflowJobs(),
+        fn (array $job): bool => ciAnyRunContains(ciJobStepRuns($job), 'composer lint')
+    );
+
+    expect($qualityJobs)->toHaveCount(1);
 });

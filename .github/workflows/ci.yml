@@ -266,3 +266,53 @@ jobs:
 
       - name: Assert nothing changed on the no-op run (AC-15)
         run: bash ../../.github/ci/assert-tenant-state.sh "$CATALOGUE_HEAD" "0"
+
+  # T-025 (FP-219), D-11: an independent job, sibling to the three above, not
+  # folded into `quality` - a frontend failure never blocks the backend
+  # quality signal, or vice versa, and nothing here needs a working-directory
+  # override on every step the way folding into `quality` would.
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests (pos, admin, shared)
+        run: npm test
+
+      - name: Production build (pos)
+        run: npx ng build pos
+
+      - name: Production build (admin)
+        run: npx ng build admin
+
+      # The explicit rc handling is deliberate: a bare `! grep` also "passes"
+      # on exit code 2 (a missing or unreadable file), so it would go green
+      # on a job whose build produced nothing.
+      - name: Mock backend absent from both production bundles
+        run: |
+          for app in pos admin; do
+            compgen -G "dist/${app}/browser/*.js" > /dev/null || { echo "no ${app} bundles to check" >&2; exit 1; }
+            set +e
+            grep -l "demo@flexipos.test" dist/"${app}"/browser/*.js
+            rc=$?
+            set -e
+            case "$rc" in
+              1) echo "${app}: mock backend absent" ;;
+              0) echo "${app}: mock backend found in a production bundle" >&2; exit 1 ;;
+              *) echo "${app}: grep failed (exit ${rc})" >&2; exit 1 ;;
+            esac
+          done

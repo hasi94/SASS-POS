@@ -10,14 +10,18 @@ import { AuthService } from '../auth/auth.service';
   template: `
     <main class="fp-auth">
       <section class="fp-card">
-        <h1>Welcome, {{ auth.user()?.name }}</h1>
+        @if (auth.user(); as u) {
+          <h1>Welcome, {{ u.name }}</h1>
+        } @else {
+          <h1>Welcome</h1>
+        }
 
         @if (!auth.tenant()) {
           <p class="fp-muted">Choose a company</p>
           <ul class="fp-choices">
             @for (t of auth.tenants(); track t.id) {
               <li>
-                <button type="button" [disabled]="busy()" (click)="pickTenant(t.id)">
+                <button type="button" [disabled]="busy()" (click)="pickTenant(t.code)">
                   {{ t.name }}
                 </button>
               </li>
@@ -28,10 +32,12 @@ import { AuthService } from '../auth/auth.service';
         } @else {
           <p class="fp-muted">{{ auth.tenant()?.name }} — choose a branch</p>
           <ul class="fp-choices">
-            @for (b of auth.tenant()?.branches; track b.id) {
+            @for (b of auth.tenant()?.branches ?? []; track b.id) {
               <li>
                 <button type="button" (click)="pickBranch(b.id)">{{ b.name }}</button>
               </li>
+            } @empty {
+              <li class="fp-muted">No branch can be chosen for this company yet.</li>
             }
           </ul>
           <button type="button" class="fp-link" (click)="auth.clearContext()">
@@ -57,10 +63,10 @@ export class ContextPage {
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
 
-  protected pickTenant(id: string): void {
+  protected pickTenant(code: string): void {
     this.busy.set(true);
     this.error.set(null);
-    this.auth.selectTenant(id).subscribe({
+    this.auth.selectTenant(code).subscribe({
       next: () => {
         this.busy.set(false);
         const branches = this.auth.tenant()?.branches ?? [];

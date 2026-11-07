@@ -1,6 +1,7 @@
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
-import { ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/core';
+import { ApplicationConfig, isDevMode, provideBrowserGlobalErrorListeners } from '@angular/core';
 import { provideRouter, withComponentInputBinding } from '@angular/router';
+import { provideServiceWorker } from '@angular/service-worker';
 import { API_BASE_URL, SESSION_STORAGE_KEY, authInterceptor } from '@flexipos/shared';
 import { apiBaseUrl, devInterceptors } from '../environments/environment';
 import { routes } from './app.routes';
@@ -15,5 +16,11 @@ export const appConfig: ApplicationConfig = {
     provideHttpClient(withInterceptors(interceptors)),
     { provide: API_BASE_URL, useValue: apiBaseUrl },
     { provide: SESSION_STORAGE_KEY, useValue: 'flexipos.pos.session' },
+    // T-025 (D-9): the till's service worker. Never active in `ng serve`/development
+    // (AC-10) — `pos` only; `admin` gets no PWA treatment this task.
+    provideServiceWorker('ngsw-worker.js', {
+      enabled: !isDevMode(),
+      registrationStrategy: 'registerWhenStable:30000',
+    }),
   ],
 };

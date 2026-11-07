@@ -1,7 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { Observable, tap } from 'rxjs';
 import { ApiClient } from '../api/api-client';
-import { LoginResult, SelectTenantResult, Session, TenantSummary } from './auth.models';
+import { LoginResult, LoginTenant, LogoutResult, SelectTenantResult, Session } from './auth.models';
 import { SESSION_STORAGE_KEY } from './session-storage';
 
 /**
@@ -9,6 +9,14 @@ import { SESSION_STORAGE_KEY } from './session-storage';
  *
  * The client may *name* a tenant; the server decides whether the person may use it and
  * which database it lives in. Nothing here ever holds or sends a database name.
+ *
+ * Reconciled against the real T-009 endpoints (T-025, D-7/D-7a/D-8): `login()`,
+ * `selectTenant()` and `logout()` call {@link ApiClient.postRaw} because none of these
+ * bodies is wrapped in the envelope yet (T-021 D-1, until FP-369). The session holds the
+ * **platform** token pair (from `login()`) and the **tenant** token pair (from the most
+ * recent `selectTenant()`) side by side — `auth/tenant` requires a platform token
+ * (`RequirePlatformToken`) and refuses a tenant token with `wrong_token_type`, so
+ * overwriting the platform pair would break a later "change company".
  */
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -17,51 +25,74 @@ export class AuthService {
   private readonly state = signal<Session | null>(this.restore());
 
   readonly session = this.state.asReadonly();
-  readonly token = computed(() => this.state()?.token ?? null);
-  readonly user = computed(() => this.state()?.user ?? null);
-  readonly tenants = computed(() => this.state()?.tenants ?? []);
   readonly isAuthenticated = computed(() => this.state() !== null);
 
-  readonly tenant = computed<TenantSummary | null>(() => {
+  /** The token sent on every request except `auth/tenant` (D-7a). */
+  readonly token = computed(() => {
+    const s = this.state();
+    return s ? (s.tenantTokens?.accessToken ?? s.platform.accessToken) : null;
+  });
+  /** The token `auth/tenant` must always receive, even after a tenant token exists. */
+  readonly platformToken = computed(() => this.state()?.platform.accessToken ?? null);
+
+  /** Mock-only (D-6): never sourced from a real response field. */
+  readonly user = computed(() => this.state()?.user ?? null);
+  readonly tenants = computed<LoginTenant[]>(() => this.state()?.tenants ?? []);
+
+  readonly tenant = computed<LoginTenant | null>(() => {
     const s = this.state();
     return s?.tenants.find((t) => t.id === s.tenantId) ?? null;
   });
+  /** Mock-only (D-5): no real endpoint supplies a branch list. */
   readonly branch = computed(() => {
     const s = this.state();
-    return this.tenant()?.branches.find((b) => b.id === s?.branchId) ?? null;
+    return this.tenant()?.branches?.find((b) => b.id === s?.branchId) ?? null;
   });
-  /** True once a company and a branch are chosen, i.e. business screens may open. */
+  /**
+   * True once a company and a branch are chosen, i.e. business screens may open. With
+   * the real backend this never becomes true (D-5: no real endpoint supplies branches) —
+   * a logged, accepted gap, not a regression, since nothing talks to a real backend yet.
+   */
   readonly hasContext = computed(() => this.tenant() !== null && this.branch() !== null);
 
   login(email: string, password: string): Observable<LoginResult> {
-    return this.api.post<LoginResult>('auth/login', { email, password }).pipe(
+    return this.api.postRaw<LoginResult>('auth/login', { email, password }).pipe(
       tap((r) =>
         this.commit({
-          token: r.token,
-          user: r.user,
+          platform: { accessToken: r.access_token, refreshToken: r.refresh_token },
+          tenantTokens: null,
           tenants: r.tenants,
+          defaultTenantId: r.default_tenant_id,
+          mustChangePassword: r.must_change_password,
           tenantId: null,
           branchId: null,
+          user: r.user,
         }),
       ),
     );
   }
 
-  /** Ask the server to switch to a company; the reply carries a token bound to it. */
-  selectTenant(tenantId: string): Observable<SelectTenantResult> {
-    return this.api.post<SelectTenantResult>('auth/select-tenant', { tenant_id: tenantId }).pipe(
+  /** Ask the server to switch to a company; always sends the stored platform token (D-7a). */
+  selectTenant(code: string): Observable<SelectTenantResult> {
+    return this.api.postRaw<SelectTenantResult>('auth/tenant', { code }).pipe(
       tap((r) => {
         const s = this.state();
         if (s) {
-          this.commit({ ...s, token: r.token, tenantId: r.tenant.id, branchId: null });
+          this.commit({
+            ...s,
+            tenantTokens: { accessToken: r.access_token, refreshToken: r.refresh_token },
+            tenantId: r.tenant_id,
+            branchId: null,
+          });
         }
       }),
     );
   }
 
+  /** Mock-only (D-5): the real backend has no endpoint to validate this against. */
   selectBranch(branchId: string): void {
     const s = this.state();
-    if (s && this.tenant()?.branches.some((b) => b.id === branchId)) {
+    if (s && this.tenant()?.branches?.some((b) => b.id === branchId)) {
       this.commit({ ...s, branchId });
     }
   }
@@ -70,12 +101,24 @@ export class AuthService {
   clearContext(): void {
     const s = this.state();
     if (s) {
-      this.commit({ ...s, tenantId: null, branchId: null });
+      this.commit({ ...s, tenantTokens: null, tenantId: null, branchId: null });
     }
   }
 
+  /**
+   * Clears local state synchronously, then fires one `auth/logout` per non-null refresh
+   * token held (tenant, then platform). The real endpoint always answers 200, whatever
+   * is presented, so any error here is swallowed.
+   */
   logout(): void {
+    const s = this.state();
+    const refreshTokens = [s?.tenantTokens?.refreshToken, s?.platform.refreshToken].filter(
+      (t): t is string => !!t,
+    );
     this.commit(null);
+    for (const refresh_token of refreshTokens) {
+      this.api.postRaw<LogoutResult>('auth/logout', { refresh_token }).subscribe({ error: () => {} });
+    }
   }
 
   private commit(next: Session | null): void {
@@ -94,7 +137,15 @@ export class AuthService {
   private restore(): Session | null {
     try {
       const raw = sessionStorage.getItem(this.storageKey);
-      return raw ? (JSON.parse(raw) as Session) : null;
+      if (!raw) {
+        return null;
+      }
+      const parsed = JSON.parse(raw) as Partial<Session>;
+      // A stored session in the old T-012 shape (no `platform` pair) is discarded.
+      if (!parsed.platform) {
+        return null;
+      }
+      return parsed as Session;
     } catch {
       return null;
     }

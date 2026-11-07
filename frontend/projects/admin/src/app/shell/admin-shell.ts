@@ -19,7 +19,9 @@ import { AuthService } from '@flexipos/shared';
         <strong>{{ auth.tenant()?.name }}</strong>
         <span class="fp-muted">{{ auth.branch()?.name }}</span>
         <span class="spacer"></span>
-        <span class="fp-muted">{{ auth.user()?.name }}</span>
+        @if (auth.user(); as u) {
+          <span class="fp-muted">{{ u.name }}</span>
+        }
         <button type="button" (click)="switchCompany()">Switch</button>
         <button type="button" (click)="signOut()">Sign out</button>
       </header>
