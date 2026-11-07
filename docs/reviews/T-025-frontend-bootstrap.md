@@ -73,8 +73,33 @@ latent bug or undermines a test's own stated purpose):**
 - Round 1: PASS, 0 defects (one test-coverage-only gap found and closed by `qa` itself, not a
   production bug — see `docs/qa/T-025-frontend-bootstrap.md`).
 
-## Verdict after Round 1
+## Round 2 — APPROVE (fix commit `a89c3e1`, QA re-verification `fa24964`)
 
-**APPROVE, with R-1/R-2 folded into a fix round** before marking T-025 DONE (same practice as
-T-022/T-024: a Warning that is either a real latent bug or undermines its own test's proof gets
-fixed, not just filed).
+Both round-1 Warnings fixed. Reviewer re-ran `npm test` (6 files, 46 tests, all passed — was
+44) and `pest tests/Feature/CiWorkflowShapeTest.php` (20 tests, 134 assertions, all passed).
+
+- **R-1 / FP-405 fixed.** `context-page.ts:24-33` — `[disabled]="busy() || !t.selectable"`,
+  status shown via interpolation (no XSS risk). The new `context-page.spec.ts` checks the real
+  behaviour: a non-selectable tenant's button is disabled and shows its status, a native
+  `.click()` on it never calls `selectTenant`, a selectable tenant stays enabled. Would fail if
+  the fix were reverted.
+- **R-2 / FP-406 fixed.** `CiWorkflowShapeTest.php:655-661` — the loose `toContain('exit 1')`
+  is replaced by two line-anchored patterns (`/^\s*0\)[^\n]*exit 1\s*;;/m` and the `*)`
+  equivalent); `[^\n]*` keeps each match to its own `case` line, so the unrelated `compgen`
+  guard line can no longer satisfy it. Changing either real branch to `exit 0` now reddens the
+  test.
+
+Both fixes independently mutation-tested by both `qa` (round 2, `docs/qa/T-025-frontend-bootstrap.md`)
+and `reviewer` before this verdict.
+
+**New Suggestion (non-blocking, filed as a follow-up):**
+- **FP-410** `context-page.spec.ts`'s `signIn()` helper uses the deprecated RxJS 7
+  `.toPromise()`; use `await firstValueFrom(auth.login(...))` instead.
+
+Noted, not filed: commit `a89c3e1` also carries developer-agent memory files under
+`.claude/agent-memory/developer/` — harmless, a packaging nicety for whoever eventually merges
+this branch, not a backlog item.
+
+## Final verdict
+
+**APPROVE. T-025 is DONE.**
