@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Access;
 
 use Flexipos\Access\Features\ArchiveAuditLogs\ArchiveAuditLogsCommand;
+use Flexipos\Access\Features\BootstrapOwner\BootstrapOwnerHandler;
 use Flexipos\Access\Features\BuildEmployeeClaims\BuildEmployeeClaimsHandler;
 use Flexipos\Access\Features\SearchAuditLog\SearchAuditLogCommand;
 use Flexipos\Access\Registry\AccessPermissions;
@@ -28,6 +29,7 @@ use Flexipos\Contracts\Access\EmployeeStalenessCheck;
 use Flexipos\Contracts\Access\PermissionDeclaration;
 use Flexipos\Contracts\Access\PermissionResolver;
 use Flexipos\Contracts\Access\RoleHolders;
+use Flexipos\Contracts\Access\TenantAccessBootstrap;
 use Flexipos\Contracts\Access\TerminalLoginLog;
 use Flexipos\Contracts\Audit\AuditTrail;
 use Flexipos\Contracts\Audit\DeclaresAuditActions;
@@ -134,6 +136,12 @@ final class AccessServiceProvider extends ServiceProvider implements DeclaresAud
         // itself.
         $this->app->singleton(RoleHolders::class, DatabaseRoleHolders::class);
 
+        // T-026 D-23, D-24. The one door packages/platform's create_owner
+        // step is allowed to reach into this package through, for the
+        // chicken-and-egg first-owner grant. Bound to the real handler,
+        // which checks its own precondition rather than trusting a caller.
+        $this->app->singleton(TenantAccessBootstrap::class, BootstrapOwnerHandler::class);
+
         // T-017 step 8/11: console-only entry points, since neither audit
         // search nor archival has an HTTP route (D-7).
         if ($this->app->runningInConsole()) {
@@ -193,7 +201,8 @@ final class AccessServiceProvider extends ServiceProvider implements DeclaresAud
     }
 
     /**
-     * This package's fifteen declared audit actions (T-017 Ruling 3).
+     * This package's sixteen declared audit actions (T-017 Ruling 3; T-026
+     * added `owner_granted`).
      *
      * Declared the same way any module declares its own, by implementing
      * the published interface on the provider, so {@see AuditWriter}'s

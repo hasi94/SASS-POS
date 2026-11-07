@@ -8,6 +8,7 @@ use Flexipos\Access\Features\AssignRole\AssignRole;
 use Flexipos\Access\Features\AssignRole\AssignRoleHandler;
 use Flexipos\Access\Features\AttachBranch\AttachBranch;
 use Flexipos\Access\Features\AttachBranch\AttachBranchHandler;
+use Flexipos\Access\Features\BootstrapOwner\BootstrapOwnerHandler;
 use Flexipos\Access\Features\ChangeEmployeeStatus\ChangeEmployeeStatus;
 use Flexipos\Access\Features\ChangeEmployeeStatus\ChangeEmployeeStatusHandler;
 use Flexipos\Access\Features\ClearEmployeePermission\ClearEmployeePermission;
@@ -32,6 +33,8 @@ use Flexipos\Access\Features\SetPin\SetPin;
 use Flexipos\Access\Features\SetPin\SetPinHandler;
 use Flexipos\Access\Features\SetRolePermissions\SetRolePermissions;
 use Flexipos\Access\Features\SetRolePermissions\SetRolePermissionsHandler;
+use Flexipos\Access\Features\SyncPermissionRegistry\SyncPermissionRegistry;
+use Flexipos\Access\Features\SyncPermissionRegistry\SyncPermissionRegistryHandler;
 use Flexipos\Access\Features\UpdateEmployee\UpdateEmployee;
 use Flexipos\Access\Features\UpdateEmployee\UpdateEmployeeHandler;
 use Flexipos\Access\Support\AccessLogWriter;
@@ -194,6 +197,15 @@ function auditWorld(): array
     $ids['subject'] = AccessSeed::employee('subject');
     $ids['actor'] = AccessSeed::actorHolding('actor', [$ids['key']]);
 
+    // T-026 D-23: grantOwner() needs the system `owner` role and an
+    // employee to grant it to. The role comes from the sync below, which
+    // writes no audit row of its own; the employee is seeded directly
+    // (AccessSeed's own convention, not through CreateEmployeeHandler),
+    // precisely so this setup does not add a row ahead of the one every
+    // *other* case in this file expects to find at index 0.
+    app(SyncPermissionRegistryHandler::class)->handle(new SyncPermissionRegistry);
+    $ids['ownerEmployee'] = AccessSeed::employee('OWNER');
+
     return $ids;
 }
 
@@ -292,6 +304,13 @@ function auditOperations(array $ids): array
             $handler = app(DeleteRoleHandler::class);
             $handler->handle(new DeleteRole($created['role'], $ids['actor']));
         },
+        // T-026 D-23: the one operation with no actor at all, by design -
+        // see the special case below for its `actor_id`/`actor_name`.
+        BootstrapOwnerHandler::class => static function () use ($ids): void {
+            /** @var BootstrapOwnerHandler $handler */
+            $handler = app(BootstrapOwnerHandler::class);
+            $handler->grantOwner($ids['ownerEmployee']);
+        },
     ];
 }
 
@@ -321,9 +340,16 @@ it('writes exactly one audit row for every writing operation of sections C to E 
             "[{$handler}] wrote a row that does not cover audit_logs"
         );
 
-        // The fields that are the same for all fifteen operations, with
+        // The fields that are the same for every operation except one, with
         // their expected values - `ip` among them, which is the field a
         // field-by-field assertion omitted and a whole-row one cannot.
+        //
+        // T-026 D-23: BootstrapOwnerHandler::grantOwner() is the one
+        // operation with no actor at all, by design - the chicken-and-egg
+        // first-owner grant - so its expected `actor_id`/`actor_name` are
+        // both null rather than the shared actor every other operation uses.
+        $isActorless = $handler === BootstrapOwnerHandler::class;
+
         expect([
             'module' => $row['module'],
             'actor_type' => $row['actor_type'],
@@ -335,8 +361,8 @@ it('writes exactly one audit row for every writing operation of sections C to E 
         ])->toBe([
             'module' => AuditWriter::MODULE,
             'actor_type' => AuditWriter::ACTOR_TYPE,
-            'actor_id' => $ids['actor'],
-            'actor_name' => 'actor',
+            'actor_id' => $isActorless ? null : $ids['actor'],
+            'actor_name' => $isActorless ? null : 'actor',
             'ip' => AUDIT_FIXED_IP,
             'user_agent' => null,
             'request_id' => null,

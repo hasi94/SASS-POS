@@ -10,6 +10,7 @@ use Flexipos\Access\Features\AssignRole\AssignRole;
 use Flexipos\Access\Features\AssignRole\AssignRoleHandler;
 use Flexipos\Access\Features\AttachBranch\AttachBranch;
 use Flexipos\Access\Features\AttachBranch\AttachBranchHandler;
+use Flexipos\Access\Features\BootstrapOwner\BootstrapOwnerHandler;
 use Flexipos\Access\Features\BuildEmployeeClaims\BuildEmployeeClaims;
 use Flexipos\Access\Features\BuildEmployeeClaims\BuildEmployeeClaimsHandler;
 use Flexipos\Access\Features\ChangeEmployeeStatus\ChangeEmployeeStatus;
@@ -365,6 +366,13 @@ function bumpSweepOperations(array $ids): array
         'BuildEmployeeClaims' => static function () use ($ids): void {
             app(BuildEmployeeClaimsHandler::class)
                 ->handle(new BuildEmployeeClaims($ids['other'], '01JBUSER000000000000000009'));
+        },
+        // T-026 D-23. The `owner` role already exists ({@see bumpSweepWorld()}'s
+        // sync), so this grants it to 'other' and moves every (key, scope)
+        // cell of theirs that owner adds - the same shape AssignRole proves,
+        // through this slice's own gated operation instead.
+        'BootstrapOwner' => static function () use ($ids): void {
+            app(BootstrapOwnerHandler::class)->grantOwner($ids['other']);
         },
         'ChangeEmployeeStatus' => static function () use ($ids): void {
             app(ChangeEmployeeStatusHandler::class)

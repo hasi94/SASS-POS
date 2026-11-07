@@ -49,14 +49,14 @@ it('knows exactly the modules access and organization declare today', function (
     expect(auditCatalogue()->modules())->toBe(['access', 'organization']);
 });
 
-it('holds access s fifteen actions and organization s sixteen, printed', function () {
+it('holds access s sixteen actions and organization s sixteen, printed', function () {
     $access = auditCatalogue()->actions('access');
     $organization = auditCatalogue()->actions('organization');
 
     fwrite(STDOUT, "\naccess actions: ".implode(', ', $access)."\n");
     fwrite(STDOUT, 'organization actions: '.implode(', ', $organization)."\n");
 
-    expect($access)->toHaveCount(15)
+    expect($access)->toHaveCount(16)
         ->and($organization)->toHaveCount(16)
         ->and($access)->toBe(array_values(array_unique($access)))
         ->and($organization)->toBe(array_values(array_unique($organization)));

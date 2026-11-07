@@ -31,6 +31,8 @@ final class AccessAuditActions
         'role_assigned',
         // AttachBranchHandler
         'branch_attached',
+        // BootstrapOwnerHandler (T-026 D-23)
+        'owner_granted',
         // ChangeEmployeeStatusHandler
         'employee_status_changed',
         // ClearEmployeePermissionHandler

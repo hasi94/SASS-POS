@@ -389,7 +389,7 @@ Unique: `(run_id, step)`.
   - **`SchemaMetaStampTest`:** absent means written, equal means a no-op, and another tenant means `TenantIdentityMismatch` with nothing written. The test reads back through `SchemaMetaIdentity::of()`.
   - *(AC-19, AC-25a, groundwork for AC-33.)*
 
-- [ ] **Step 6: the contracts and their implementations.**
+- [x] **Step 6: the contracts and their implementations.**
   - **Access, `BootstrapOwnerTest`** (on `AccessTenantFixture`):
     - `ensureOwnerEmployee` creates `OWNER` once; a second call returns the same id.
     - `attachOwnerBranch` writes one `employee_branches` row with `is_default`; a second call is a no-op and is **not** refused.

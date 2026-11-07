@@ -8,12 +8,14 @@ use Flexipos\Contracts\Access\DeclaresPermissions;
 use Flexipos\Contracts\Access\PermissionDeclaration;
 use Flexipos\Contracts\Audit\DeclaresAuditActions;
 use Flexipos\Contracts\Organization\BranchDirectory;
+use Flexipos\Contracts\Organization\DefaultBranch;
 use Flexipos\Contracts\Organization\TerminalActivation;
 use Flexipos\Contracts\Organization\TerminalAuthority;
 use Flexipos\Organization\Features\ActivateTerminal\ActivateTerminalHandler;
 use Flexipos\Organization\Registry\OrganizationAuditActions;
 use Flexipos\Organization\Registry\OrganizationPermissions;
 use Flexipos\Organization\Support\DatabaseBranchDirectory;
+use Flexipos\Organization\Support\DatabaseDefaultBranch;
 use Flexipos\Organization\Support\DatabaseTerminalAuthority;
 use Illuminate\Support\ServiceProvider;
 
@@ -51,6 +53,11 @@ final class OrganizationServiceProvider extends ServiceProvider implements Decla
         // answered from the tenant database. A reader: a terminal it cannot
         // find is null, which refuses.
         $this->app->singleton(TerminalAuthority::class, DatabaseTerminalAuthority::class);
+
+        // T-026 Ruling 5. What packages/platform's provisioning asks of
+        // organization for a tenant's one default branch, through the
+        // published contract only.
+        $this->app->singleton(DefaultBranch::class, DatabaseDefaultBranch::class);
     }
 
     /**
