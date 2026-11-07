@@ -287,8 +287,10 @@ Resolution and caching:
 
 | Table | Columns / notes |
 |---|---|
-| tenant_provisioning_runs | `[ID]` `[TS]`, tenant_id FK, type enum(create, restore, clone, move, deprovision), source_tenant_id NULL, target_server_id FK NULL, status enum(running, completed, failed, rolled_back), current_step, started_at, finished_at, error TEXT, initiated_by FK users |
+| tenant_provisioning_runs | `[ID]` `[TS]`, tenant_id FK NULL (filled at `reserve_identity`), type enum(create, restore, clone, move, deprovision), source_tenant_id NULL, target_server_id FK NULL, status enum(running, completed, failed, rolled_back), current_step VARCHAR(40) NULL, input JSON NULL (the validated options, no secrets — a resume needs none), claimed_by VARCHAR(100) NULL, heartbeat_at DATETIME(3) NULL, started_at, finished_at, error TEXT, initiated_by FK users NULL; index (status), (tenant_id) |
 | tenant_provisioning_steps | `[ID]`, run_id FK CASCADE, step VARCHAR(40), sequence SMALLINT, status enum(pending, running, done, failed, skipped, compensated), attempts, started_at, finished_at, output JSON, error TEXT; unique (run_id, step) |
+
+**As built (T-026, FP-206).** Only `type = 'create'` is written today; `restore`, `clone`, `move` and `deprovision` are reserved for the related lifecycles noted in section 8. `tenant_provisioning_runs.input`, `claimed_by` and `heartbeat_at` are this task's own addition to the columns above, carrying the compare-and-set lease a `--resume` or `--abandon` claims through (`status = 'failed'`, or a non-stale `running` row past `heartbeat_at`) and the run's own validated options. The eleven real `step` values a `create` run writes, in order, are: `reserve_identity`, `select_server`, `create_database`, `store_credentials`, `create_users`, `write_mapping`, `migrate_remainder`, `seed_core`, `create_owner`, `verify`, `activate` — no `import_template` step (out of scope, D-3). `seed_core`, `create_owner` and `verify` are the only steps that open the tenant connection, and only while `tenant_databases.status = 'provisioning'`. `store_credentials` writes both generated passwords through a new writable `file://` reference scheme (the pre-T-026 `env://` resolver stays read-only) before `create_users` ever runs, so a crash between the two always finds a password already durably on disk. `abandon` (`tenant:provision --abandon=<run id>`) compensates a `failed` or stale `running` run by archiving — never deleting or dropping — both `tenants.status` and `tenant_databases.status`, dropping the two database users it created, and forgetting the two stored secret versions; it never issues `DROP DATABASE`, and the mapping row (and the `database_name` it records) stays readable for an operator to drop by hand.
 
 ### 4.8 Backup catalogue
 
@@ -1573,6 +1575,14 @@ Financial reports and where they read from: **Trial balance** and **Balance shee
 | 12 | `activate` | `tenant_databases.status = active`, `tenants.status = trial|active`, bump `database_servers.tenant_count`, emit `tenant.provisioned`, send the welcome e-mail | — |
 
 The whole run is **idempotent by step**: re-running with `--resume` skips `done` steps and retries from the first non-`done` one. A run left `failed` for more than 24 hours is reported by the nightly consistency check as an `orphan_database` candidate.
+
+**As built (T-026, FP-206).** The table above is the original design sketch; what actually shipped differs in a few places worth stating plainly rather than leaving the reader to reconcile the two:
+
+- there is no `import_template` fast-path step — every tenant applies the full baseline migration tree through the same runner §9 already describes (D-3, out of scope for this task);
+- the real order is the eleven steps listed in section 4.7's "as built" note above, with `select_server` immediately after `reserve_identity` (no `data_region` column exists on `database_servers` today — selection is by `accepts_new_tenants`, `status = active` and `tenant_count < max_tenants` only, lowest `tenant_count` winning ties) and `store_credentials`/`create_users` in that order, deliberately, so a crash between the two always finds a password already durably written before any user is created;
+- `seed_core` ships permissions, the `owner` system role, a schema-identity stamp and one default branch — the richer seed list above (chart of accounts, fiscal periods, tax groups, payment methods, print templates…) belongs to the modules that own those tables and is explicitly out of scope here (D-5);
+- compensation is never per-step. `abandon` (`--abandon=<run id>`) is the only path that compensates a `failed` or stale `running` run, and it never issues `DROP DATABASE`/`DROP USER`-the-whole-database: it archives both `tenants.status` and `tenant_databases.status`, drops the two created database *users* (not the database), and forgets the two stored secret versions, leaving the database itself for an operator to drop by hand once they are certain nothing else needs it;
+- `activate` starts the subscription `trial` by default, or `active` under `--active`, and bumps `database_servers.tenant_count` only on the write that actually flips the mapping from `provisioning` to `active` — a resumed, already-active run writes nothing a second time.
 
 Related lifecycles, same machinery:
 

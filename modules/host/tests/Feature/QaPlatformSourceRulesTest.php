@@ -288,12 +288,15 @@ it('the only file writing tenants.plan_id is PlanMirror: the built-up-array shap
     }
 });
 
-it('the only files writing tenants.status are TenantStatusSync and activate, with a planted-file control', function () {
+it('the only files writing tenants.status are TenantStatusSync, activate and abandon, with a planted-file control', function () {
     // T-026 D-7: `activate` is the one explicit `provisioning -> trial|active`
     // transition `TenantStatusSync` itself declines to make for a protected
     // status (`TenantCommercialStatus::PROTECTED`) - a second, intentional
-    // writer, not a regression of this rule.
-    expect(qaPlatformOtherWriters('tenants', 'status', ['TenantStatusSync.php', 'Activate.php']))->toBe([]);
+    // writer, not a regression of this rule. `AbandonProvisioningHandler`
+    // (step 16, Ruling 10) is the third: it writes `tenants.status =
+    // 'archived'` when compensating a failed or stale run, the one other
+    // explicit transition this task adds.
+    expect(qaPlatformOtherWriters('tenants', 'status', ['TenantStatusSync.php', 'Activate.php', 'AbandonProvisioningHandler.php']))->toBe([]);
 
     $directory = qaPlatformFreshTempDirectory();
     File::put($directory.'/Planted.php', "<?php\n\$x->table('tenants')->where('id', \$id)->update(['status' => \$status]);\n");

@@ -79,6 +79,10 @@ final class ProvisionTenantCommand extends Command
         $this->components->info("Provisioning run {$result->runId} is {$result->status}.");
         $this->announceOwner($result);
 
+        if ($result->abandonMessage !== null) {
+            $this->components->warn($result->abandonMessage);
+        }
+
         return self::SUCCESS;
     }
 

@@ -74,3 +74,4 @@
 - [T-026 provisioning kernel layer](project_t026_provisioning_kernel_layer.md) - what steps 1-5 actually shipped, the `%` host wildcard vs sprintf, cwd-pollution flake, and reading CPU time twice before calling a run "hung".
 - [T-026 reserve_identity/select_server](project_t026_reserve_identity_select_server.md) - a step tested outside the runner must journal its own idempotency marker; AC-37's static check needs normalise() inlined at every write site, not behind a variable.
 - [T-026 create_owner/verify/activate](project_t026_create_owner_verify_activate.md) - the password side-channel a journalled return value can't carry, the attach-vs-create ordering trap, and the sole-writer scan `activate` collides with.
+- [T-026 end-to-end, abandon, close-out](project_t026_e2e_abandon_and_closeout.md) - why the E2E test lives in modules/host, the generic crash-once decorator, the sole-writer scan recurring, and the final gate numbers.

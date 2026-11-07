@@ -6,6 +6,8 @@ namespace Flexipos\Platform\Features\ProvisionTenant;
 
 use Flexipos\Contracts\Organization\DefaultBranch;
 use Flexipos\Platform\Exceptions\PlatformRefused;
+use Flexipos\Platform\Features\AbandonProvisioning\AbandonProvisioning;
+use Flexipos\Platform\Features\AbandonProvisioning\AbandonProvisioningHandler;
 use Flexipos\Platform\Provisioning\OwnerCredentialAnnouncement;
 use Flexipos\Platform\Provisioning\ProvisioningRunner;
 use Flexipos\Platform\Provisioning\ProvisioningStep;
@@ -29,9 +31,12 @@ use LogicException;
  * a later step - so it stays correct, but untested, until step 15's
  * end-to-end proof reaches it.
  *
- * **Abandon is not built here.** `--abandon` is recognised only far enough
- * to take part in AC-1's mutual-exclusion rule; its actual compensation
- * (Ruling 10, AC-9) is `Features\AbandonProvisioning`, step 16's own file.
+ * **Abandon is delegated whole.** `--abandon` is recognised here only far
+ * enough to take part in AC-1's mutual-exclusion rule; its actual
+ * compensation (Ruling 10, AC-9) is `Features\AbandonProvisioning`, step
+ * 16's own slice - this method hands the run id straight to it and wraps
+ * its result back into a {@see ProvisionTenantResult} so the one command
+ * has one result type to print.
  */
 final class ProvisionTenantHandler
 {
@@ -42,6 +47,7 @@ final class ProvisionTenantHandler
         private readonly DefaultBranch $defaultBranch,
         private readonly ProvisioningRunner $runner,
         private readonly Container $container,
+        private readonly AbandonProvisioningHandler $abandon,
     ) {}
 
     public function handle(ProvisionTenant $command): ProvisionTenantResult
@@ -55,11 +61,12 @@ final class ProvisionTenantHandler
         }
 
         if ($command->abandonRunId !== null) {
-            // Step 16's Features\AbandonProvisioning is the real
-            // implementation (Ruling 10, AC-9); nothing here compensates a
-            // run yet.
-            throw new LogicException(
-                'tenant:provision --abandon is not implemented yet (T-026 step 16, Features\\AbandonProvisioning).'
+            $result = $this->abandon->handle(new AbandonProvisioning($command->abandonRunId));
+
+            return new ProvisionTenantResult(
+                runId: $result->runId,
+                status: $result->status,
+                abandonMessage: $result->message,
             );
         }
 

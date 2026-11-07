@@ -247,3 +247,12 @@ it('refuses a --branch-code that fails OrgCode::normalise()', function () {
 
     assertNothingWasWritten();
 });
+
+it('--abandon refuses a run that does not exist, through the same plumbing as --resume', function () {
+    $exitCode = Artisan::call('tenant:provision', [
+        '--abandon' => '01J0000000000000000000000C',
+    ]);
+
+    expect($exitCode)->not->toBe(0)
+        ->and(Artisan::output())->toContain('No provisioning run');
+});

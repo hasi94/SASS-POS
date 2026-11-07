@@ -15,6 +15,11 @@ use Flexipos\Platform\Provisioning\OwnerCredentialAnnouncement;
  * command reads once and discards - never persisted, logged or journalled.
  * Both are null when `create_owner` did not run this attempt (every step
  * already `done` on a resume that only needed to finish `verify`/`activate`).
+ *
+ * `$abandonMessage` is step 16's own `Features\AbandonProvisioning`
+ * result, carried the same way: null for every `create`/`--resume` call,
+ * and the spec's "was not dropped" sentence (or its "never reached
+ * create_database" variant) for an `--abandon` call.
  */
 final class ProvisionTenantResult
 {
@@ -23,5 +28,6 @@ final class ProvisionTenantResult
         public readonly string $status,
         public readonly ?string $ownerMode = null,
         public readonly ?string $ownerPassword = null,
+        public readonly ?string $abandonMessage = null,
     ) {}
 }
