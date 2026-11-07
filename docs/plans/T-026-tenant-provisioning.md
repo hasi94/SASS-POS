@@ -403,7 +403,7 @@ Unique: `(run_id, step)`.
   - **Mutation:** remove the D-23 precondition; the guard case goes red.
   - *(AC-25, AC-26, AC-27, AC-29 tenant half, D-23, D-24, D-25.)*
 
-- [ ] **Step 7: the runner core, with three in-test fake steps.**
+- [x] **Step 7: the runner core, with three in-test fake steps.**
   - **The plan:** written whole (one run, every step `pending`, `current_step` first), and steps run in order.
   - **On failure:** the step is `failed` with its error, the run is `failed` with `current_step` on that step, and later steps are untouched.
   - **Resume:** `done` steps are skipped, and the journal survives a thrown step.

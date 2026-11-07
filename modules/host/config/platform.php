@@ -28,4 +28,11 @@ return [
         'entitlements' => [],
     ],
 
+    // T-026 (FP-206), Ruling 2: the compare-and-set lease window a stale
+    // `running` provisioning run is reclaimed through. Nothing auto-resumes;
+    // this only decides when `--resume` is *permitted* to try.
+    'provisioning' => [
+        'stale_after_minutes' => (int) env('PLATFORM_PROVISIONING_STALE_AFTER_MINUTES', 30),
+    ],
+
 ];
