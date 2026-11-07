@@ -414,7 +414,7 @@ Unique: `(run_id, step)`.
   - **Mutation:** drop "skip done"; the execution counter goes red.
   - *(AC-2, AC-3, AC-4, AC-6 resume half, AC-18.)*
 
-- [ ] **Step 8: the command and AC-1's validation (D-25, D-28).**
+- [x] **Step 8: the command and AC-1's validation (D-25, D-28).**
   - **`ProvisionTenantCommandTest`:** each required option, missing or blank, is refused with the field named.
   - Each AC-1 format rule is refused when broken:
     - code pattern;
@@ -643,7 +643,17 @@ Any other red file means stop and report to `architect`.
 - If the step 4 probe fails, stop.
 - `AttachBranch` refuses a re-attach: check first.
 
-### `dev` → lead
+### `dev` → lead (session 2)
+
+- Step 8 is implemented and tested: `Features/ProvisionTenant/{ProvisionTenant,
+  ProvisionTenantInput,ProvisionTenantHandler,ProvisionTenantResult,
+  ProvisionTenantCommand}.php` plus the `PlatformServiceProvider` command
+  registration. `ProvisionTenantCommandTest` covers every AC-1 refusal path
+  (29 cases). Steps 9-18 remain unbuilt. See the handback message for the
+  full file list, exact test/lint/stan/deptrac numbers and the one deferred
+  branch (`--abandon`, step 16's own territory).
+
+### `dev` → lead (session 1)
 
 - Steps 0-5 are implemented and tested (kernel-layer foundation: the two master tables, the naming
   rule, writable `file://` secrets, the engine port in all three implementations, containment check 3,

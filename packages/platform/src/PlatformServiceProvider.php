@@ -18,6 +18,7 @@ use Flexipos\Platform\Features\ChangeSubscriptionStatus\ChangeSubscriptionStatus
 use Flexipos\Platform\Features\CheckSeatAvailability\CheckSeatAvailabilityHandler;
 use Flexipos\Platform\Features\EnforceCommercialDeadlines\EnforceCommercialDeadlinesCommand;
 use Flexipos\Platform\Features\EnforceCommercialDeadlines\EnforceCommercialDeadlinesHandler;
+use Flexipos\Platform\Features\ProvisionTenant\ProvisionTenantCommand;
 use Flexipos\Platform\Features\ResolveFeatureFlag\ResolveFeatureFlagHandler;
 use Flexipos\Platform\Features\ResolvePlanLimit\ResolvePlanLimitHandler;
 use Flexipos\Platform\Features\SearchPlatformAuditLog\SearchPlatformAuditLogCommand;
@@ -121,6 +122,9 @@ final class PlatformServiceProvider extends ServiceProvider
                 SetTenantFeatureFlagCommand::class,
                 // T-017 D-7: console only, same precedent.
                 SearchPlatformAuditLogCommand::class,
+                // T-026 (FP-206): the one resumable job that brings a
+                // tenant into existence end to end.
+                ProvisionTenantCommand::class,
             ]);
         }
     }
