@@ -120,6 +120,49 @@ failures) stands.
 
 - Round 1: **PASS**, 0 defects. `docs/qa/T-026-tenant-provisioning.md`.
 
+## Round 2 — CHANGES REQUESTED (fix commit `fefc82c`, follow-ons `8adc554`, QA `b423c83`)
+
+Reviewer re-ran the affected suites (platform Provisioning/AbandonProvisioning/ProvisionTenant,
+kernel Tenancy/Provisioning, access BootstrapOwner/`AccessBumpSweepTest`, the end-to-end,
+`SecretsStorageRootIsGitIgnoredTest`, `TenantProvisionerEngineTest`,
+`DestructiveStatementContainmentTest`): **211 passed, 2 skipped (both engine tests, as
+designed), 154s.**
+
+**7 of 10 items verified fully closed:** R-2, W-1, W-2, W-4, W-6, W-7, W-8.
+
+**One Critical remains (R-3, what's left of R-1):** the fix closes two paths (an in-process
+failure, and a crash *before* `create_owner` is marked `done`) but not the underlying class of
+problem. If the process dies *after* `create_owner` is `done` — during `verify`, `activate`,
+`markRunCompleted`, a SIGTERM/SSH-disconnect/OOM/PHP-fatal (none of which are a catchable
+`Throwable`) — no recovery path exists: resume skips the already-`done` step, the announcement
+stays `null`, and nothing is printed, with no command able to reach a `completed` run either
+(`claim()` refuses it as `alreadyCompleted`). Required fix: extract the D-31 rotation's
+precondition and update into a small shared service usable from two places — `resume()` when
+the announcement came back `null` but `create_owner`'s own output shows `created`/`rotated`,
+and a new `tenant:provision --reissue-owner-password=<run_id>` command that also works against
+a `completed` run. Both must print an explicit "already signed in, nothing to reissue" message
+when the precondition fails, never silence.
+
+**Two Warnings partly fixed:**
+- **W-3** the lease is checked on heartbeats and the four `mark*` writes, but `markStepRunning`/
+  `setCurrentStep`/`writeStepOutput` remain unchecked, so a worker that already lost the lease
+  can still flip a step to `running` and move `current_step` before its next checked write
+  catches up. Call `touchHeartbeat` first in each iteration, before `markStepRunning`, and add
+  the lease check to the three unchecked writes too.
+- **W-5** the random database-name suffix is hex, but `TenantDatabaseNames::assertDatabaseName`
+  requires `[0-9]{6,}` — this test will fail the moment `ENGINE_HOLD` lifts (fails safe, but
+  broken; use digits). Also `assertNotTheXamppEngine()` only refuses the literal
+  `127.0.0.1:3306`, letting `localhost:3306`/`::1:3306` through — refuse port 3306 on any
+  loopback host, or outright.
+
+**One Suggestion:** put R-3's rotation read behind `lockForUpdate()` to close a sub-second
+concurrent-first-login race (free to add, not currently exploitable in any tested path).
+
+## Verdict after Round 2
+
+**CHANGES REQUESTED.** R-3 (a residual Critical) plus the W-3/W-5 gaps folded into a third fix
+round.
+
 ## Verdict after Round 1
 
 **CHANGES REQUESTED.** R-1 and R-2 plus all 8 Warnings folded into one fix round — every one is
