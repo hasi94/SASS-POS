@@ -169,7 +169,12 @@ function bumpSweepWorld(): array
 
     $ids['role'] = AccessSeed::role('shift_lead', [$ids['key'], $ids['scopedKey']]);
     $ids['subject'] = AccessSeed::employee('subject');
-    $ids['other'] = AccessSeed::employee('other', ['user_id' => '01JBUSER000000000000000009']);
+    // Coded OWNER (review round 1 W-4): BootstrapOwnerHandler::grantOwner()
+    // now refuses any target that is not the live, OWNER-coded employee -
+    // this fixture's own 'BootstrapOwner' operation below needs a target
+    // that clears that gate, and nothing else here depends on this
+    // employee's code being literally 'other'.
+    $ids['other'] = AccessSeed::employee('OWNER', ['user_id' => '01JBUSER000000000000000009']);
     $ids['actor'] = AccessSeed::actorHolding(
         'actor',
         array_merge(bumpSweepKeys(), [$ids['key'], $ids['scopedKey']])

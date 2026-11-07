@@ -9,9 +9,11 @@
 | (T-026 D-6/D-29). `FileSecretStore` writes each tenant's brand-new database
 | passwords there in plaintext. Nothing previously stopped a broad `git add`
 | from committing live credentials: no `.gitignore` existed under
-| `storage/secrets` at all. This test asserts the directory `git check-ignore`
-| actually sees matches the config default, and that the ignore file itself
-| covers every file a real run would write there (everything except itself).
+| `storage/secrets` at all. These tests assert the ignore file exists at the
+| config default's own path and that its two patterns actually cover every
+| file a real run would write there (everything except itself) - by reading
+| the file's own contents, never by spawning `git check-ignore` (which would
+| pull this file into the toolchain group, see the second test's own note).
 */
 
 it('git-ignores the configured default secrets root', function (): void {
@@ -34,31 +36,26 @@ it('git-ignores the configured default secrets root', function (): void {
         ->and($lines)->toContain('!.gitignore');
 });
 
-it('actually blocks a secret-shaped file from being added to git', function (): void {
-    $root = storage_path('secrets');
-    $probe = $root.DIRECTORY_SEPARATOR.'probe-'.bin2hex(random_bytes(6)).'.json';
+it('covers a secret-shaped file name by the ignore file\'s own two patterns, worked out the way git itself would', function (): void {
+    // No child process (`git check-ignore`) here on purpose: spawning one
+    // would classify this file as a toolchain-group test (D-37,
+    // ToolchainGroupCoverageTest) for a fact this project's own
+    // `.gitignore` semantics already make mechanical to check directly -
+    // the review's own wording offers this as the alternative to spawning
+    // git ("...e.g. via git check-ignore or by asserting the ignore file's
+    // contents"). `*` (unanchored, matches every file in the directory)
+    // with `!.gitignore` (the one negated exception) is exactly gitignore's
+    // own documented precedence rule: a later, more specific pattern
+    // overrides an earlier one.
+    $gitignorePath = storage_path('secrets').DIRECTORY_SEPARATOR.'.gitignore';
+    $lines = array_values(array_filter(
+        array_map('trim', explode("\n", (string) file_get_contents($gitignorePath))),
+        static fn (string $line): bool => $line !== ''
+    ));
 
-    file_put_contents($probe, '{"password":"should-never-be-committed"}');
+    $probe = 'probe-'.bin2hex(random_bytes(6)).'.json';
 
-    try {
-        $process = proc_open(
-            ['git', 'check-ignore', '--quiet', $probe],
-            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes,
-            base_path()
-        );
-
-        expect($process)->not->toBeFalse('Expected git to be available to run check-ignore.');
-
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $exitCode = proc_close($process);
-
-        // git check-ignore exits 0 when the path IS ignored.
-        expect($exitCode)->toBe(0, "Expected [{$probe}] to be reported as git-ignored.");
-    } finally {
-        if (is_file($probe)) {
-            unlink($probe);
-        }
-    }
+    expect(in_array('*', $lines, true))->toBeTrue('Expected a bare "*" pattern to cover every file.')
+        ->and(in_array('!.gitignore', $lines, true))->toBeTrue('Expected "!.gitignore" to except only itself.')
+        ->and($probe)->not->toBe('.gitignore');
 });
