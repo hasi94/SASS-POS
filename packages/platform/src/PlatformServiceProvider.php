@@ -23,6 +23,7 @@ use Flexipos\Platform\Features\ResolveFeatureFlag\ResolveFeatureFlagHandler;
 use Flexipos\Platform\Features\ResolvePlanLimit\ResolvePlanLimitHandler;
 use Flexipos\Platform\Features\SearchPlatformAuditLog\SearchPlatformAuditLogCommand;
 use Flexipos\Platform\Features\SetTenantFeatureFlag\SetTenantFeatureFlagCommand;
+use Flexipos\Platform\Provisioning\OwnerCredentialAnnouncement;
 use Flexipos\Platform\Support\CachingEntitlementSource;
 use Flexipos\Platform\Support\ConfigEntitlementSource;
 use Flexipos\Platform\Support\EntitlementSource;
@@ -110,6 +111,11 @@ final class PlatformServiceProvider extends ServiceProvider
         // question, answered by the same `isCurrent()` authority
         // PlatformLicence uses for its own (unrelated) type='platform' rows.
         $this->app->singleton(PluginLicences::class, MasterPluginLicences::class);
+
+        // T-026 D-26: one instance per process, so create_owner's write and
+        // ProvisionTenantHandler's read-back after the run finishes see the
+        // same in-memory announcement.
+        $this->app->singleton(OwnerCredentialAnnouncement::class);
 
         if ($this->app->runningInConsole()) {
             $this->commands([

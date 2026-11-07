@@ -6,6 +6,7 @@ namespace Flexipos\Platform\Features\ProvisionTenant;
 
 use Flexipos\Contracts\Organization\DefaultBranch;
 use Flexipos\Platform\Exceptions\PlatformRefused;
+use Flexipos\Platform\Provisioning\OwnerCredentialAnnouncement;
 use Flexipos\Platform\Provisioning\ProvisioningRunner;
 use Flexipos\Platform\Provisioning\ProvisioningStep;
 use Flexipos\Platform\Provisioning\StepName;
@@ -74,7 +75,7 @@ final class ProvisionTenantHandler
 
         $this->execute($runId, $input->toArray(), $command->actorUserId);
 
-        return new ProvisionTenantResult($runId, 'completed');
+        return $this->result($runId);
     }
 
     private function resume(string $runId, ?string $actorUserId): ProvisionTenantResult
@@ -86,7 +87,19 @@ final class ProvisionTenantHandler
 
         $this->execute($runId, $input, $actorUserId);
 
-        return new ProvisionTenantResult($runId, 'completed');
+        return $this->result($runId);
+    }
+
+    /**
+     * `create_owner`'s own in-memory announcement (D-26), read back from the
+     * same container-singleton instance the step just wrote to - never
+     * persisted anywhere in between.
+     */
+    private function result(string $runId): ProvisionTenantResult
+    {
+        $announcement = $this->container->make(OwnerCredentialAnnouncement::class);
+
+        return new ProvisionTenantResult($runId, 'completed', $announcement->mode(), $announcement->password());
     }
 
     /**

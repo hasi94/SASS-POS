@@ -77,8 +77,24 @@ final class ProvisionTenantCommand extends Command
         }
 
         $this->components->info("Provisioning run {$result->runId} is {$result->status}.");
+        $this->announceOwner($result);
 
         return self::SUCCESS;
+    }
+
+    /**
+     * D-26: the owner's initial password is printed exactly once, from the
+     * in-memory result, and only in the attempt that actually inserted the
+     * `users` row.
+     */
+    private function announceOwner(ProvisionTenantResult $result): void
+    {
+        match ($result->ownerMode) {
+            'created' => $this->components->warn("Owner login created. Initial password: {$result->ownerPassword}"),
+            'attached' => $this->components->info('The owner email already had a login; it was attached to this tenant.'),
+            'already_created' => $this->components->info('The initial password was shown when it was created.'),
+            default => null,
+        };
     }
 
     private function stringOption(string $name): ?string

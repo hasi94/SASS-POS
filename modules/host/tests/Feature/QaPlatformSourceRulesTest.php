@@ -144,19 +144,26 @@ function qaPlatformPlantedPath(string $directory): string
  * assignment into an array key, so the tightened (assignment-only) form of
  * the built-up pattern does not flag them.
  *
+ * @param  string|list<string>  $exceptBasename  one basename, or several
+ *                                               legitimate writers of this
+ *                                               pair (T-026 D-7: `activate`
+ *                                               is a second, intentional
+ *                                               writer of `tenants.status`,
+ *                                               alongside `TenantStatusSync`)
  * @param  list<string>|null  $directories  defaults to {@see qaPlatformSourceDirectories()}
  * @return list<string>
  */
-function qaPlatformOtherWriters(string $table, string $column, string $exceptBasename, ?array $directories = null): array
+function qaPlatformOtherWriters(string $table, string $column, string|array $exceptBasename, ?array $directories = null): array
 {
     $found = [];
     $quotedColumn = preg_quote($column, '/');
+    $exceptBasenames = is_array($exceptBasename) ? $exceptBasename : [$exceptBasename];
 
     $inlineLiteral = '/(?:update|=)\s*\(?\s*\[[^\]]*[\'"]'.$quotedColumn.'[\'"]\s*=>/s';
     $builtUpAssignment = '/\$\w+\s*\[\s*[\'"]'.$quotedColumn.'[\'"]\s*\]\s*=(?!=)/';
 
     foreach (qaPlatformSourceFiles($directories ?? qaPlatformSourceDirectories()) as $path => $contents) {
-        if (basename($path) === $exceptBasename) {
+        if (in_array(basename($path), $exceptBasenames, true)) {
             continue;
         }
 
@@ -281,8 +288,12 @@ it('the only file writing tenants.plan_id is PlanMirror: the built-up-array shap
     }
 });
 
-it('the only file writing tenants.status is TenantStatusSync, with a planted-file control', function () {
-    expect(qaPlatformOtherWriters('tenants', 'status', 'TenantStatusSync.php'))->toBe([]);
+it('the only files writing tenants.status are TenantStatusSync and activate, with a planted-file control', function () {
+    // T-026 D-7: `activate` is the one explicit `provisioning -> trial|active`
+    // transition `TenantStatusSync` itself declines to make for a protected
+    // status (`TenantCommercialStatus::PROTECTED`) - a second, intentional
+    // writer, not a regression of this rule.
+    expect(qaPlatformOtherWriters('tenants', 'status', ['TenantStatusSync.php', 'Activate.php']))->toBe([]);
 
     $directory = qaPlatformFreshTempDirectory();
     File::put($directory.'/Planted.php', "<?php\n\$x->table('tenants')->where('id', \$id)->update(['status' => \$status]);\n");

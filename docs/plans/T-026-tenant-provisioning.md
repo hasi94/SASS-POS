@@ -485,7 +485,7 @@ Unique: `(run_id, step)`.
   - **Re-entry** is idempotent: one stamp, one branch.
   - *(AC-25, AC-25a, AC-26, AC-27.)*
 
-- [ ] **Step 13: `create_owner`.**
+- [x] **Step 13: `create_owner`.**
   - **New email (`created`).** Ruling 7's postconditions hold: one `OWNER`, its branch link, the `owner` grant, one `users` row with `must_change_password = true`, `tenant_users`, and the back-filled `employees.user_id`.
   - **Password output.** The password appears in the command output exactly once, and in no row and no log (log spy).
   - **Existing email (`attached`, D-30).**
@@ -498,7 +498,7 @@ Unique: `(run_id, step)`.
   - **Crash after the user was created, then resume.** The user row is reused (the id matches the journal), and the password is not re-printed.
   - *(AC-29, AC-30, AC-31, D-26.)*
 
-- [ ] **Step 14: `verify` and `activate`.**
+- [x] **Step 14: `verify` and `activate`.**
   - **`verify`.** Each AC-32 assertion is broken in turn by a fixture, and each failure names its assertion:
     - a migration row deleted;
     - a `role_permissions` row deleted;
@@ -648,6 +648,19 @@ Any other red file means stop and report to `architect`.
 - Never stub a guard (`TenantDatabaseNames`, the D-23 precondition) to allow.
 - If the step 4 probe fails, stop.
 - `AttachBranch` refuses a re-attach: check first.
+
+### `dev` → lead (session 3)
+
+- Steps 13 and 14 are implemented and tested: `Provisioning/Steps/{CreateOwner,Verify,Activate}.php`,
+  a new `Provisioning/OwnerCredentialAnnouncement.php` (D-26's in-memory password-announcement side
+  channel, not named in section 3 - see the handback message for why it was needed and why it cannot
+  leak through the normal journalled-output path), and small additions to `ProvisionTenantResult`/
+  `ProvisionTenantHandler`/`ProvisionTenantCommand` so the command can print `create_owner`'s one-time
+  announcement. One pre-existing file needed a real, non-cosmetic edit beyond section 9's list:
+  `QaPlatformSourceRulesTest.php`'s sole-writer scan for `tenants.status` had to be widened to accept
+  `activate` as a second, intentional writer alongside `TenantStatusSync` (D-7) - this was a real
+  regression the gate caught, now fixed and asserted by name in the test's own title. Full numbers,
+  deviations and the pre-existing/unrelated failures in the gate are in the handback message.
 
 ### `dev` → lead (session 2)
 
