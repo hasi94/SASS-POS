@@ -71,6 +71,37 @@
 - The transient filesystem-handle warning seen mid-gate-run (`tenancy-fixture.php` `unlink()`/`rmdir()` "Resource temporarily unavailable") did not stall or fail the suite and is noted for the record in case it recurs in a future task's gate run; no second PHP process was found contending for the same files at the time.
 - Nothing in this task touches `quality`, `migrate-fresh`, or `migrate-existing` — confirmed by the zero-removed-lines diff cited under AC-21, independent of trusting the plan's own claim.
 
+## Round 2 — review-fix verification (R-1/FP-405, R-2/FP-406)
+
+### Verdict: PASS
+
+Scope: verify only the two fixes committed in `a89c3e1` (round-1 code-review Warnings). Rest of the task already PASSed in round 1 above and was not re-run beyond the gate numbers the lead supplied.
+
+### R-1 / FP-405 — non-selectable tenant disabled, with status shown
+
+- **Read the shipped change.** `frontend/projects/shared/src/lib/ui/context-page.ts`: the tenant button is `[disabled]="busy() || !t.selectable"`, and `@if (!t.selectable) { <span class="fp-muted">({{ t.status }})</span> }` sits next to the name — matches the review's description.
+- **Read the shipped test.** `frontend/projects/shared/src/lib/ui/context-page.spec.ts`, `'disables a non-selectable tenant and shows its status, without letting it be clicked'`: asserts `button!.disabled` is `true`, the `<li>` text contains `suspended.status`, then fires `button!.click()` (confirmed — **not** `dispatchEvent(new Event('click'))`) and asserts `selectTenant` was never called. A second test confirms a selectable tenant's button is `disabled === false`.
+- **Mutation check.** Temporarily changed `[disabled]="busy() || !t.selectable"` to `[disabled]="busy()"` in `context-page.ts`, ran `npm test -- --watch=false`: **1 failed / 45 passed (46)** — the exact test above failed with `AssertionError: expected false to be true` at the `button!.disabled` assertion, i.e. reddened for the right reason. Restored the line; `git diff` on `context-page.ts` showed no diff; re-ran: **6 files / 46 tests, all green**.
+- **jsdom click-vs-dispatchEvent concern.** Confirmed by direct reading of the committed spec that it uses `button!.click()`, which does respect the `disabled` DOM property in jsdom (a native `.click()` on a disabled button is a no-op, correctly driving the `expect(spy).not.toHaveBeenCalled()` assertion). Had the first, buggy `dispatchEvent(new Event('click'))` version shipped instead, jsdom would have fired the handler regardless of `disabled`, and the `not.toHaveBeenCalled()` assertion would have failed-dangerously only if the handler actually ran — i.e. that version would have been unable to prove the disablement at all. The shipped `.click()` version is the one that actually discriminates; confirmed by the mutation test above reddening via the `disabled` property assertion itself, not via the click-spy assertion, so the whole test (both assertions) is sound regardless of which one would have caught the dispatchEvent-era bug.
+- **Full frontend suite**, unmutated: `npm test -- --watch=false` → 2 test files / 2 tests (pos smoke) + 6 test files / 46 tests (shared/admin/pos spec project) = consistent with the lead's expected 46/46 for the main spec run.
+
+### R-2 / FP-406 — CI mock-exclusion exit-code pin
+
+- **Read the shipped test.** `modules/host/tests/Feature/CiWorkflowShapeTest.php`, `'names both dist/pos/browser and dist/admin/browser and inverts grep exit code with an explicit exit 1 (T-025 AC-18)'` (lines 640–662): asserts the loop/path shape, then pins the real match branches with `toMatch('/^\s*0\)[^\n]*exit 1\s*;;/m')` and `toMatch('/^\s*\*\)[^\n]*exit 1\s*;;/m')` — a regex anchored on the actual `case` branches, not a loose `toContain('exit 1')` that the unrelated `compgen ... || { ...; exit 1; }` guard could satisfy on its own.
+- **Mutation check.** Temporarily changed `.github/workflows/ci.yml`'s `0) echo "...found..." >&2; exit 1 ;;` to `exit 0 ;;`. Ran `vendor/bin/pest tests/Feature/CiWorkflowShapeTest.php`: **1 failed / 19 passed (133 assertions)** — exactly the target test failed, with `Failed asserting that '...0) ... exit 0 ;;...' matches PCRE pattern "/^\s*0\)[^\n]*exit 1\s*;;/m"` — reddened for the right reason, and no other test in the file was affected. Restored the line; `git diff .github/workflows/ci.yml` showed **no diff**; re-ran: **20 passed (134 assertions)**, matching the pre-mutation baseline exactly.
+
+### Test run summary (round 2)
+
+- `cd frontend && npm test -- --watch=false` — 2 + 46 tests, all green (baseline); re-run after each mutation as described above.
+- `cd modules/host && "E:\xampp\php\php.exe" vendor/bin/pest tests/Feature/CiWorkflowShapeTest.php` — **20 passed, 134 assertions**, both before and after the mutation/restore cycle.
+- `git status --short` at the end of the session: clean — both mutated files were restored exactly, no stray edits left in the tree.
+- Did not re-run the full `composer check`; accepted the lead's independently-run figures (13 failed / 2769 passed / 23 skipped, 19367 assertions) as matching the documented pre-existing baseline cluster (12) plus the accepted D-13 false positive (1), with no new failures — consistent with round 1's own gate accounting of the same cluster.
+
+### Defects — round 2
+
+None. Both R-1 and R-2 fixes hold up under independent mutation testing; each shipped test reddens specifically and only for the mutation it is meant to catch, and both production files were left byte-identical (`git diff` clean) after the mutation/restore cycle.
+
 ## History
 
 - Run 1: PASS (with BUG-1, a test-discrimination gap in `dev`'s own AC-2a-verifying spec, not a production defect — addressed by QA's own added test, no dev fix required).
+- Run 2: PASS — review-fix round (R-1/FP-405, R-2/FP-406) independently mutation-verified, no new defects.
