@@ -64,7 +64,13 @@ The corrected spec (D-20 to D-30) was checked against source.
   - `FileSecretResolver` (read) and `FileSecretStore` (write) share `FileSecretPath`.
   - Every reference must resolve under `tenancy.secrets.file_root`, after `..` and symlinks are resolved. This is configurable and defaults to `storage_path('secrets')` (D-29); real placement is FP-221's.
   - Writes go to a temporary file and are then renamed, with mode 0600. Windows ignores the mode; this is recorded.
-- **References** look like `file://<root>/tenant_<seq6>_{app|mig}`. They are computed at `reserve_identity` and never recomputed (AC-12, AC-17).
+- **References** look like `file://<root>/tenant_<seq6>_{app|mig}`. They are fixed once per run and never recomputed after they have been used (AC-12, AC-17).
+  - **Amended after step 10 (ruling on `dev`'s deviation).** The references are not journalled by `reserve_identity`. They are a pure function, `TenantDatabaseNames::{app,migrate}CredentialRef(sequence, root)`, of the journalled `sequence` and the configured root.
+  - That pure function is not enough on its own. The root is configuration and can change between attempts, so the references must be pinned **by `store_credentials`'s own journal, intent-first**:
+    - on its first entry, the step writes both references to its journal before either `put`;
+    - on re-entry, it reuses the journalled references and never recomputes them.
+  - `create_users`, `write_mapping` and abandon read the references from `store_credentials`'s journal or output, never from config.
+  - Step 9 needs no change.
 - **Registration.** `SchemeSecretResolver` gains `file`. `env://` stays read-only, and `put` to it is refused.
 - **Passwords** are 40 characters of `[A-Za-z0-9]` from `random_bytes`. `store_credentials` generates them, never the engine port (AC-15).
 
