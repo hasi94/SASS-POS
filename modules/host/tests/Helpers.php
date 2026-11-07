@@ -114,6 +114,9 @@ function toolchainGroupExemptions(): array
  * Every function form is matched only as a bare call, never as a method or
  * static call: a naive /\bexec\s*\(/ also matches $pdo->exec('create table
  * ...'), which would sweep the whole tenancy fixture in as a toolchain test.
+ * `exec(` also excludes a preceding `function `, so a test double declaring
+ * a method literally named exec() (T-026's TenantStatementExecutor seam) is
+ * not swept in as a spawner either - it never calls the real builtin.
  *
  * @return array<string, non-empty-string>
  */
@@ -125,7 +128,7 @@ function toolchainSpawnTokens(): array
         'shell_exec(' => '/(?<![\w$>:])shell_exec\s*\(/',
         'popen(' => '/(?<![\w$>:])popen\s*\(/',
         'passthru(' => '/(?<![\w$>:])passthru\s*\(/',
-        'exec(' => '/(?<![\w$>:])exec\s*\(/',
+        'exec(' => '/(?<![\w$>:]|function\s)exec\s*\(/',
     ];
 }
 
