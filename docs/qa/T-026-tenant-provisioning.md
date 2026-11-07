@@ -116,3 +116,78 @@ None found. All 10 review-round-1 items hold up under independent reading and, w
 ## History
 
 Run 1 (fix round verification): PASS. All 10 review round 1 items (R-1, R-2, W-1 to W-8) independently verified against real source and tests, not taken on the commit message's word; full gate reproduced dev's own re-verified baseline exactly (13 failed/2999 passed/25 skipped), with no new regressions and no contamination.
+
+---
+
+# QA Report round 3: T-026 review round 2 fix verification
+
+## Verdict: PASS
+
+Scope: verify the 1 residual Critical (R-3, the residual half of R-1) and the 2 partially-fixed Warnings (W-3, W-5) from `docs/reviews/T-026-tenant-provisioning.md` round 2, committed in `59b3553` (R-3, W-3, W-5 from review round 2). Not a re-run of the whole task's AC map (rounds 1-2 above already cover that) — each of the 3 items was independently read against real source and tests, and independently mutation-tested, not taken on the commit message's word.
+
+## Pre-flight
+
+Listed `php.exe` processes before starting (`Get-CimInstance Win32_Process -Filter "name='php.exe'"`): every process found belonged to unrelated sibling projects on this machine (SimplePos-System ×6, THARA ×2, Scribe ×1, plus two of this worktree's own stray XAMPP processes — `artisan serve` and `queue:work` — neither of which runs `vendor/bin/pest` or touches `storage/app/tenancy-fixture`). Re-checked immediately before launching the gate with a path-filtered query (`CommandLine -like '*NEW-FLEXIPOS*'`): zero results. No contamination risk to this worktree's test run.
+
+## Fix-by-fix verification
+
+### R-3 — owner password lost on a crash after `create_owner` is already `done`
+
+Read `OwnerPasswordReissue.php` in full (the new shared service: `lockForUpdate()` read, `must_change_password = true AND last_login_at IS NULL` precondition, password rotation inside one master transaction), `CreateOwner.php`'s own re-entry branch (now delegates to the shared service instead of inlining D-31's logic), `ProvisionTenantHandler::resume()`'s `reissueIfAnnouncementIsEmpty()` (reaches for `create_owner`'s own journalled output when the announcement comes back `null`, reissues only if the mode was `created`/`rotated`), and the new `--reissue-owner-password` wiring (`reissueOwnerPassword()` uses `$this->runner->find($runId)` — never `claim()` — so it works against a `completed` run; the precondition, not the run's status, gates it; both success and refusal paths return an explicit `ProvisionTenantResult`, never silent).
+
+Independently verified via the exact scenario the task specified, already present in `ProvisionTenantEndToEndTest.php`:
+- `'recovers the owner password on resume when the crash happens after create_owner is already done...'` — crashes `verify` (not `create_owner`) via the generic `E2eCrashOnceStep` decorator, confirms `create_owner`'s step row is `done` and `verify`'s is `failed`, forgets the `OwnerCredentialAnnouncement` singleton (simulating a real process restart), resumes, and asserts the recovered password actually logs in via the real `LoginHandler`.
+- `'reissues the owner password for a run through --reissue-owner-password, including an already-completed run, and refuses once signed in...'` — runs `--reissue-owner-password` against an already-`completed` run (confirmed `status = 'completed'` before the call, which `claim()` would refuse outright), gets `rotated` with a working password, logs in with it, then calls `--reissue-owner-password` a second time and confirms it refuses (`already_signed_in`, `ownerPassword === null`) — and that the *first* reissued password still works afterward (nothing was silently rewritten by the refused call).
+
+**Mutation-tested the wiring is load-bearing, not cosmetic.** Temporarily reverted `ProvisionTenantHandler::resume()`'s `return $this->reissueIfAnnouncementIsEmpty($this->result($runId));` to plain `return $this->result($runId);` and re-ran the R-3 resume test: it failed exactly as expected (`Failed asserting that null is identical to 'rotated'.` at the test's own assertion line) — proving the test genuinely discriminates the fix, not a tautology. Reverted the edit; `git diff` on the file is empty.
+
+**Result: PASS.** Both paths (resume-into-a-null-announcement, and the standalone reissue command against a completed run) are real, independently exercised, and the test that proves it is a true positive.
+
+### W-3 — lease not enforced on `markStepRunning`/`setCurrentStep`/`writeStepOutput`
+
+Read `ProvisioningRuns.php` in full: `touchHeartbeat` (now called first in `ProvisioningRunner::run()`'s loop, confirmed by grep — line order is `touchHeartbeat`, `markStepRunning`, `setCurrentStep`), `markStepRunning`, `setCurrentStep` and `writeStepOutput` (via `StepJournal`'s `$claimedBy`, threaded through for every real runner-constructed journal, `null` only for direct fixture-seeding test constructions that never hold a lease to begin with) all now gate their `UPDATE` through `assertLeaseHeld()`/the cross-table `leaseGuardedStepsQuery()`.
+
+Independently verified with my own direct database manipulation (two tests in `ProvisioningRunnerTest.php`, both constructed exactly as the task asked):
+- `'never flips a step to running or moves current_step once the lease was already lost before the iteration starts'` — directly `UPDATE`s `claimed_by` on the run row mid-test (before `run()` is even called), then asserts the stolen-from worker's `run()` throws `ProvisioningRunRefused`, the step row stays `pending` with `attempts = 0` (never flipped to `running`), and `current_step` stays at the original value (never moved).
+- `'refuses a step journal write once the lease has been lost mid-step, and never persists it'` — a fake step (`StealsLeaseThenWritesFakeStep`) steals its own run's lease from *inside* its `run()` body, then calls `$journal->write(...)`; asserts `ProvisioningRunRefused` is thrown and the step row's `output` column stays `null` (the write never persisted).
+
+**Mutation-tested all three guards, with one genuine residual finding.**
+- `writeStepOutput`'s guard: proven load-bearing by the `StealsLeaseThenWritesFakeStep` test above (a real, non-tautological discrimination — the theft happens mid-step, after the iteration's own `markStepRunning`/`setCurrentStep` already succeeded, so only `writeStepOutput`'s own check can catch it).
+- `markStepRunning`'s guard: temporarily reverted its `leaseGuardedStepsQuery($runId, $claimedBy)` to the unguarded `stepsTable()->where('run_id', $runId)` and re-ran the full `ProvisioningRunnerTest`/`ProvisionTenantEndToEndTest` suites — **every test still passed.** No existing test independently proves this guard is load-bearing; it is fully shadowed by `touchHeartbeat`'s own identical check, which runs immediately before it in the same iteration with no reachable gap in a single-process test.
+- `setCurrentStep`'s guard: same experiment, same result — reverted its `where('claimed_by', $claimedBy)` to an unguarded update, re-ran `ProvisioningRunnerTest` (12/12 passed) and the full `ProvisionTenantEndToEndTest` (17/17 passed) with the mutation live. **Nothing failed.**
+
+Both mutations were reverted; `git diff` on `ProvisioningRuns.php` is empty.
+
+**This is not a behavioural defect** — the production code genuinely guards all three calls now, exactly as the review asked, and the guard on `markStepRunning`/`setCurrentStep` is real defence against a genuine concurrent-worker race (two real processes, a lease stolen in the real gap between `touchHeartbeat`'s commit and `markStepRunning`'s/`setCurrentStep`'s own commit) that a single-process test cannot structurally produce without a hook between two sequential plain `Eloquent` calls, which no test or production code currently provides. **It is a real, narrow test-coverage gap**, filed below as a non-blocking note: round 3's own task brief asked me to "confirm the stolen-from worker can no longer flip a step to running [or] move current_step" via direct manipulation, and the only test that manipulates the lease *before* the iteration starts is caught first by `touchHeartbeat`, never reaching a point where `markStepRunning`'s/`setCurrentStep`'s own guard is the one doing the work. Not a new issue — round 2 QA's own notes already flagged the pre-fix version of this ordering dependency; it persists in a different shape now that the code is fixed but the tests still can't isolate two of the three guards.
+
+**Result: PASS** (the review's required code change is real and correct on all three calls; the test-coverage gap on two of the three is noted, not blocking).
+
+### W-5 — real-engine test's naming and XAMPP-refusal gaps
+
+Read `TenantProvisionerEngineTest.php` in full:
+- The random suffix generator (`'9'.str_pad((string) random_int(0, 99999), 5, '0', STR_PAD_LEFT)`) is digits-only, 6 digits total, satisfying `TenantDatabaseNames::assertDatabaseName()`'s `[0-9]{6,}` requirement — confirmed by running the new, not-skip-gated test `'generates a digits-only suffix that TenantDatabaseNames itself accepts'` (passed, 3 assertions: database name, app username, migrate username all accepted with no exception).
+- `isLoopbackHost()`/`assertNotTheXamppEngine()` now refuses port 3306 on `localhost`, `::1`, and the full `127.0.0.0/8` range (regex `^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$`), not only the literal `127.0.0.1` — confirmed by running `'refuses every loopback spelling on port 3306, not only the literal 127.0.0.1'` (passed: `localhost:3306`, `::1:3306`, `127.0.0.2:3306`, `127.255.255.255:3306` all throw with `'XAMPP'` in the message; `localhost:13306` and a real non-loopback host on `3306` both still pass through un-refused — the negative control is present and correct).
+
+**Result: PASS.** Both gaps closed exactly as the review required; both fixes have their own, non-skip-gated unit test (they don't depend on `ENGINE_HOLD` lifting to be exercised), and both ran green in this round's test pass.
+
+## Test run summary
+
+- Targeted run (all three fix areas plus adjacent step/verify/command/e2e/engine-naming tests): `cd modules/host && "/e/xampp/php/php.exe" vendor/bin/pest --filter="ProvisioningRunnerTest|ProvisionTenantEndToEndTest|ProvisionTenantCommandTest|TenantProvisionerEngineTest|CreateOwnerTest|VerifyTest|TenantDatabaseNamesTest"` — **95 passed, 1 skipped** (the live-engine test, correctly skipped under `ENGINE_HOLD`), 111.17s. Re-ran `ProvisionTenantEndToEndTest` alone explicitly to confirm all 17 cases (including the 3 R-3-specific ones): **17 passed**, 61.34s.
+- Full gate: `cd modules/host && "/e/xampp/php/php.exe" "/c/ProgramData/ComposerSetup/bin/composer.phar" check`, run fresh from this worktree on commit `59b3553`, from a clean working tree (confirmed clean before and after, including after the two temporary mutations above, each individually reverted and `git diff`-verified empty before the gate ran).
+- Result: Pint passed; PHPStan "No errors"; Deptrac 0 violations/0 warnings/0 errors/902 uncovered/1298 allowed (independently re-run standalone after the combined gate's own lint/stan/deptrac output was cut from my capture by `tail`, to directly confirm each); **test step: 13 failed, 25 skipped, 3007 passed (20779 assertions)**, Duration 765.61s — **exactly the lead's stated clean baseline** (13 failed exact pre-existing baseline / 3007 passed / 25 skipped).
+- The 13 failures shown in this run's output (`QaModuleNameValidationTest`×1, `QaModuleRegistryContractTest`×6, `QaVocabularyRenameSweepTest`×1 citing the same two non-production survivors as round 2 — `.claude/agent-memory/developer/project_t026_create_owner_verify_activate.md` and `frontend/package-lock.json`) match the shape of the baseline already confirmed pre-existing and untouched by this task in rounds 1 and 2; no new failure, no new skip, no count drift.
+- Windows-only `unlink()`/`rmdir()` warnings against `tenancy-fixture/tenant-a.sqlite` recurred throughout this run, as in both prior rounds — teardown-only, zero associated test failures, not a regression (see memory note).
+
+## Defects
+
+None found that block this round. One non-blocking test-coverage note filed below (W-3's `markStepRunning`/`setCurrentStep` guards are real but not independently discriminated by any existing test).
+
+## Regression risks / notes
+
+- **W-3 residual test-coverage gap (not a defect):** no existing test proves `markStepRunning`'s or `setCurrentStep`'s own lease guard is load-bearing in isolation — both are provably shadowed by `touchHeartbeat`'s identical, earlier check in every test that manipulates the lease before an iteration starts. Verified by temporarily removing each guard in turn and re-running the full `ProvisioningRunnerTest` + `ProvisionTenantEndToEndTest` suites: zero failures either time. The production code is correct and matters for a genuine multi-process race no single-process test can produce without a hook between two sequential plain-Eloquent calls that does not exist today. A future task adding a true concurrency/stress test for this runner should be aware these two guards are currently unverified by anything in the suite.
+- Same machine-contention caveat as rounds 1-2 stands: this run shared the machine with roughly a dozen unrelated PHP processes from sibling projects throughout; none touched this worktree (confirmed by path-filtered process query both before and during the gate), and no corruption signature (locked database, malformed disk image) appeared anywhere in the output.
+- Windows SQLite teardown flake (`unlink`/`rmdir` warnings on `tenant-a.sqlite`) is the same pre-existing, environment-specific non-failure noted in rounds 1 and 2 — not new, not a regression.
+
+## History
+
+Run 1 (round 2 review-fix verification): PASS. R-3 (the residual half of R-1), W-3 and W-5 from review round 2 all independently verified against real source and tests, each also mutation-tested (R-3's resume wiring, W-3's three lease guards individually, W-5's naming/refusal fixes) rather than taken on the commit message's word. Full gate reproduced the lead's stated clean baseline exactly (13 failed/3007 passed/25 skipped, 765.61s). One non-blocking test-coverage note filed (W-3's `markStepRunning`/`setCurrentStep` guards are real but currently undiscriminated by any test, fully shadowed by `touchHeartbeat`).
