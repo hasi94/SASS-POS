@@ -12,6 +12,7 @@ use Flexipos\Organization\Support\ActivationIssuer;
 use Flexipos\Platform\Features\ProvisionTenant\ProvisionTenant;
 use Flexipos\Platform\Features\ProvisionTenant\ProvisionTenantHandler;
 use Flexipos\Platform\Features\ProvisionTenant\ProvisionTenantResult;
+use Flexipos\Platform\Provisioning\OwnerCredentialAnnouncement;
 use Flexipos\Platform\Provisioning\ProvisioningStep;
 use Flexipos\Platform\Provisioning\RunContext;
 use Flexipos\Platform\Provisioning\StepJournal;
@@ -21,6 +22,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
+use Symfony\Component\Console\Output\BufferedOutput;
 
 /*
 |--------------------------------------------------------------------------
@@ -456,3 +458,111 @@ it('crashes right after %s, then resumes to a completed run', function (string $
         ->count();
     expect($doneSteps)->toBe(count(StepName::cases()));
 })->with('every provisioning step');
+
+/*
+|--------------------------------------------------------------------------
+| Review round 1 R-1 / D-31: the password actually survives a real process
+| restart, not only an in-process crash
+|--------------------------------------------------------------------------
+|
+| Every other crash-and-resume case above relies on
+| OwnerCredentialAnnouncement's singleton surviving in-process between the
+| simulated crash and its resume - which is exactly how R-1 stayed hidden: a
+| real process restart would never have that. This test forgets the
+| singleton before resuming, as a real new process would start with nothing
+| in it, and then proves the password it announces on resume is not merely
+| present but actually works, by logging in with it through the real
+| LoginHandler (the same pattern as this file's own first test, around its
+| login assertion).
+*/
+it('recovers the owner password after create_owner crashes right after committing and the process is forgotten, then logs in with the rotated password (review round 1 R-1, D-31)', function () {
+    $stepClass = 'Flexipos\\Platform\\Provisioning\\Steps\\CreateOwner';
+
+    E2eCrashOnceStep::$armed = true;
+    app()->extend($stepClass, static fn (ProvisioningStep $built): ProvisioningStep => new E2eCrashOnceStep($built));
+
+    $code = 'TEN209';
+
+    $caught = null;
+
+    try {
+        e2eProvision($code);
+    } catch (RuntimeException $exception) {
+        $caught = $exception;
+    }
+
+    expect($caught)->not->toBeNull();
+
+    $run = PlatformSeed::connection()->table('tenant_provisioning_runs')->where('type', 'create')->orderByDesc('created_at')->first();
+    expect($run)->not->toBeNull()
+        ->and($run->status)->toBe('failed');
+
+    $createOwnerStep = PlatformSeed::connection()->table('tenant_provisioning_steps')
+        ->where('run_id', $run->id)->where('step', 'create_owner')->first();
+    expect($createOwnerStep->status)->toBe('failed');
+
+    // The one step that actually matters here: simulate a genuinely new
+    // process. Nothing survives this in a real restart either.
+    app()->forgetInstance(OwnerCredentialAnnouncement::class);
+
+    $resumed = app(ProvisionTenantHandler::class)->handle(e2eCommand($code, [
+        'resumeRunId' => (string) $run->id,
+    ]));
+
+    expect($resumed->status)->toBe('completed')
+        ->and($resumed->ownerMode)->toBe('rotated')
+        ->and($resumed->ownerPassword)->toBeString()
+        ->and($resumed->ownerPassword)->not->toBe('');
+
+    $login = authFixtureLoginHandler()->handle(new Login(
+        email: strtolower($code).'-owner@example.com',
+        password: (string) $resumed->ownerPassword,
+        ip: '203.0.113.11',
+        userAgent: 'FlexiPOS/1.0',
+        deviceId: 'till-e2e-r1',
+    ));
+
+    expect($login->mustChangePassword)->toBeTrue();
+
+    $tenantEntry = null;
+
+    foreach ($login->tenants as $entry) {
+        if ($entry['code'] === $code) {
+            $tenantEntry = $entry;
+        }
+    }
+
+    expect($tenantEntry)->not->toBeNull();
+});
+
+it('prints the owner password before the error when a later step fails after create_owner already committed (review round 1 R-1)', function () {
+    $stepClass = 'Flexipos\\Platform\\Provisioning\\Steps\\Verify';
+
+    E2eCrashOnceStep::$armed = true;
+    app()->extend($stepClass, static fn (ProvisioningStep $built): ProvisioningStep => new E2eCrashOnceStep($built));
+
+    $code = 'TEN210';
+
+    // migrate_remainder runs `php artisan migrate` as a nested Artisan call
+    // (T-011's own precedent): Artisan::output() would return that nested
+    // call's output, not tenant:provision's own, so the outer command's
+    // output is captured explicitly instead.
+    $buffer = new BufferedOutput;
+
+    $exitCode = Artisan::call('tenant:provision', [
+        '--code' => $code,
+        '--name' => 'Shop '.$code,
+        '--country' => 'LK',
+        '--timezone' => 'Asia/Colombo',
+        '--currency' => 'LKR',
+        '--business-type' => 'retail',
+        '--owner-email' => strtolower($code).'-owner@example.com',
+        '--plan' => PlatformSeed::plan(),
+    ], $buffer);
+
+    expect($exitCode)->not->toBe(0);
+
+    $output = $buffer->fetch();
+    expect($output)->toContain('Owner login created. Initial password:')
+        ->and($output)->toContain('simulated crash');
+});

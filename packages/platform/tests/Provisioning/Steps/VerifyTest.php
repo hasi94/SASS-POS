@@ -177,6 +177,34 @@ it('fails naming the tenant_users assertion when the link is unlinked', function
         ->toThrow(PlatformRefused::class, 'tenant_users');
 });
 
+it('fails naming the owner-user_id assertion when the tenant-side employee is linked to a different user (review round 1 W-8)', function () {
+    [$context, $journal, $tenantId] = verifyFixture('TEN109');
+
+    app(Tenancy::class)->run($tenantId, function () {
+        $connection = DB::connection((string) config('tenancy.connection', 'tenant'));
+        $employee = $connection->table('employees')->where('code', 'OWNER')->first();
+        $connection->table('employees')->where('id', $employee->id)->update(['user_id' => '01JBOGUS00000000000000AA']);
+    }, TenantConnectionPurpose::Migrating);
+
+    expect(fn () => app(Verify::class)->run($context, $journal))
+        ->toThrow(PlatformRefused::class, "owner employee's own user_id");
+});
+
+it('fails naming the tenant_users-employee assertion when the master link points at a different employee (review round 1 W-8)', function () {
+    [$context, $journal, $tenantId] = verifyFixture('TEN110');
+
+    $owner = app(ProvisioningRuns::class)->stepOutput($context->runId, StepName::CreateOwner->value);
+    $userId = (string) $owner['user_id'];
+
+    DB::connection('master')->table('tenant_users')
+        ->where('tenant_id', $tenantId)
+        ->where('user_id', $userId)
+        ->update(['employee_id' => '01JBOGUS00000000000000BB']);
+
+    expect(fn () => app(Verify::class)->run($context, $journal))
+        ->toThrow(PlatformRefused::class, 'tenant_users links user');
+});
+
 it('refuses before entry when the mapping status is not provisioning (Ruling 6)', function () {
     [$context, $journal, $tenantId] = verifyFixture('TEN108');
 

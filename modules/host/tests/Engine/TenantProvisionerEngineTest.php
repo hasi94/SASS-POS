@@ -23,9 +23,27 @@ use Flexipos\Testing\Engine\EngineConnection;
 | incident happened on.** `flx_t_*` is not a reserved test prefix the way
 | `flexipos_t8test_*` is (ReservedDatabaseName), so nothing here is
 | structurally prevented from reaching a real tenant database name on
-| whichever server EngineConnection names - the operator running this file
-| once G-1 clears is responsible for pointing it at the disposable Docker
-| instance, not at the shared engine.
+| whichever server it is pointed at.
+|
+| **Review round 1 W-5: the server connection is built from Docker-only
+| settings, never from `database.connections.mysql.*`** (that connection's
+| own shipped default is the shared XAMPP server, exactly the thing
+| ENGINE_HOLD protects). `tenancy.provisioning.engine_test_host`/`_port`
+| default to `127.0.0.1`/`13306` - this project's docker-compose.yml's own
+| published MySQL port, never XAMPP's `3306`. {@see assertNotTheXamppEngine()}
+| refuses outright, before any connection is attempted, if the resolved
+| host:port is `127.0.0.1:3306` regardless of how it got there (an
+| operator's own override included) - the one thing a comment alone cannot
+| enforce.
+|
+| **Cleanup so a second run doesn't fail its own precondition.** The
+| database/user names are suffixed with a fresh random token per run,
+| rather than the earlier fixed `flx_t_900001` - a leftover database from a
+| previous run (this file never drops a database; only
+| `Flexipos\Testing\Engine\EngineDatabase` may, and its own reserved prefix
+| is `flexipos_t8test_*`, not this engine test's) can never collide with
+| the current run's own fresh name. The two users this test creates are
+| still dropped at the end either way.
 |
 | What AC-16/AC-18/AC-5's engine halves actually need, once this runs:
 | - a database exists with the computed name and configured charset/
@@ -40,19 +58,50 @@ use Flexipos\Testing\Engine\EngineConnection;
 |
 */
 
+/**
+ * @throws RuntimeException the resolved host:port is the shared XAMPP
+ *                          engine's own default - this test must never
+ *                          connect to it, under any configuration
+ */
+function assertNotTheXamppEngine(string $host, int $port): void
+{
+    if ($host === '127.0.0.1' && $port === 3306) {
+        throw new RuntimeException(
+            'TenantProvisionerEngineTest refuses to run against 127.0.0.1:3306 - that is the shared XAMPP '
+            .'engine ENGINE_HOLD protects, never T-023\'s disposable Docker instance. Point '
+            .'tenancy.provisioning.engine_test_host/engine_test_port at the Docker-compose MySQL port instead.'
+        );
+    }
+}
+
+it('refuses outright to run against the shared XAMPP engine default, with no connection attempted (review round 1 W-5)', function () {
+    expect(fn () => assertNotTheXamppEngine('127.0.0.1', 3306))->toThrow(RuntimeException::class, 'XAMPP');
+
+    // The control: the Docker-compose port, and a different host entirely,
+    // both pass.
+    assertNotTheXamppEngine('127.0.0.1', 13306);
+    assertNotTheXamppEngine('mysql-docker-host', 3306);
+});
+
 it('creates a database and two scoped users with no password ever appearing in clear', function () {
+    $host = (string) config('tenancy.provisioning.engine_test_host', '127.0.0.1');
+    $port = (int) config('tenancy.provisioning.engine_test_port', 13306);
+
+    assertNotTheXamppEngine($host, $port);
+
     $server = new ProvisioningServer(
         'engine-test',
-        (string) config('database.connections.mysql.host', '127.0.0.1'),
-        (int) config('database.connections.mysql.port', 3306),
+        $host,
+        $port,
         'mysql',
         'none',
         'env://TENANT_PROVISIONER_ENGINE_TEST_CREDENTIAL',
     );
 
-    $name = 'flx_t_900001';
-    $appUser = 'flx_t900001_app';
-    $migrateUser = 'flx_t900001_mig';
+    $suffix = substr(bin2hex(random_bytes(4)), 0, 6);
+    $name = 'flx_t_9'.$suffix;
+    $appUser = 'flx_t9'.$suffix.'_app';
+    $migrateUser = 'flx_t9'.$suffix.'_mig';
 
     /** @var MySqlTenantDatabaseProvisioner $provisioner */
     $provisioner = app(MySqlTenantDatabaseProvisioner::class);

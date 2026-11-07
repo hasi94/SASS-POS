@@ -16,6 +16,7 @@ use Flexipos\Platform\Support\MasterConnection;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Support\Str;
 use LogicException;
+use Throwable;
 
 /**
  * `tenant:provision`'s handler (T-026 Ruling 2, section 5 item 4).
@@ -110,11 +111,32 @@ final class ProvisionTenantHandler
     }
 
     /**
+     * Review round 1 R-1: a failure in `verify`/`activate`, or in
+     * `create_owner`'s own `linkUser()` half, must still surface whatever
+     * {@see OwnerCredentialAnnouncement} already holds - a `created` or
+     * `rotated` password exists nowhere else, and AC-18 forbids journalling
+     * it, so this is the one chance this process gets to hand it back
+     * before the error. A failure with nothing announced (every earlier
+     * step, or a resumed run that never reaches `create_owner` again)
+     * re-throws the original unchanged.
+     *
      * @param  array<string, mixed>  $input
+     *
+     * @throws ProvisionTenantFailedWithOwnerAnnouncement|Throwable
      */
     private function execute(string $runId, array $input, ?string $actorUserId): void
     {
-        $this->runner->run($runId, $this->resolveSteps(), $input, $actorUserId);
+        try {
+            $this->runner->run($runId, $this->resolveSteps(), $input, $actorUserId, $this->workerId());
+        } catch (Throwable $e) {
+            $announcement = $this->container->make(OwnerCredentialAnnouncement::class);
+
+            if ($announcement->mode() === null) {
+                throw $e;
+            }
+
+            throw new ProvisionTenantFailedWithOwnerAnnouncement($announcement->mode(), $announcement->password(), $e);
+        }
     }
 
     /**

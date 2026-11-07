@@ -191,6 +191,18 @@ return [
         // connection already is, not a second convention.
         'charset' => env('TENANCY_PROVISIONING_CHARSET', 'utf8mb4'),
         'collation' => env('TENANCY_PROVISIONING_COLLATION', 'utf8mb4_unicode_ci'),
+
+        // Review round 1 W-5: where modules/host/tests/Engine/
+        // TenantProvisionerEngineTest.php connects, once ENGINE_HOLD
+        // clears. Deliberately NOT database.connections.mysql.* - that
+        // connection's own shipped default is the shared XAMPP engine
+        // (127.0.0.1:3306), exactly the server ENGINE_HOLD exists to
+        // protect. The default below is T-023 docker-compose.yml's own
+        // published MySQL port (FLEXIPOS_MYSQL_PORT, default 13306) -
+        // never 3306, which that test refuses outright regardless of how
+        // it is reached.
+        'engine_test_host' => env('TENANCY_PROVISIONING_ENGINE_TEST_HOST', '127.0.0.1'),
+        'engine_test_port' => env('TENANCY_PROVISIONING_ENGINE_TEST_PORT', 13306),
     ],
 
 ];

@@ -23,6 +23,31 @@ final class ProvisioningRunRefused extends RuntimeException
     }
 
     /**
+     * A `rolled_back` (abandoned) run: it can never become claimable again,
+     * so neither `--resume` nor a second `--abandon` should fall through to
+     * {@see self::leaseHeld()}'s "wait for the staleness window" message,
+     * which is meaningless for a run in this terminal state (review round 1
+     * W-7).
+     */
+    public static function alreadyAbandoned(string $runId): self
+    {
+        return new self("Provisioning run [{$runId}] was already abandoned; it cannot be resumed or abandoned again.");
+    }
+
+    /**
+     * The compare-and-set lease was enforced again after the initial claim
+     * and lost: some other worker has since claimed this run (review round
+     * 1 W-3). The process holding this exception must stop writing
+     * immediately - it no longer owns the run.
+     */
+    public static function leaseLost(string $runId): self
+    {
+        return new self(
+            "Provisioning run [{$runId}]'s lease was claimed by another worker; this process no longer owns it and must stop."
+        );
+    }
+
+    /**
      * A non-stale `running` run, claimed by somebody else (or this same
      * process, in an earlier attempt) and not yet past the staleness
      * window.

@@ -9,6 +9,7 @@ use Flexipos\Kernel\Tenancy\Provisioning\Contracts\ProvisioningServer;
 use Flexipos\Kernel\Tenancy\Provisioning\Contracts\TenantDatabaseProvisioner;
 use Flexipos\Kernel\Tenancy\Provisioning\TenantMappingWriter;
 use Flexipos\Kernel\Tenancy\Secrets\WritableSecretStore;
+use Flexipos\Platform\Exceptions\PlatformRefused;
 use Flexipos\Platform\Provisioning\ProvisioningRunner;
 use Flexipos\Platform\Provisioning\ProvisioningRuns;
 use Flexipos\Platform\Provisioning\StepName;
@@ -57,6 +58,17 @@ final class AbandonProvisioningHandler
         $runId = $command->runId;
         $tenantId = $run['tenant_id'] === null ? null : (string) $run['tenant_id'];
 
+        // Review round 1 W-2: re-read the tenant's own live status before any
+        // engine-side work. activate()'s master transaction can commit
+        // (mapping active, tenant_count+1, subscription started, tenants.status
+        // trial/active) before the runner itself marks the step/run done; a
+        // crash in that exact gap leaves a failed/stale-running run that
+        // claim() above would otherwise happily hand to this handler, which
+        // would then drop a live tenant's database users and secrets.
+        if ($tenantId !== null) {
+            $this->assertNotYetLive($runId, $tenantId);
+        }
+
         $steps = $this->runs->steps($runId);
 
         $statusOf = [];
@@ -69,32 +81,52 @@ final class AbandonProvisioningHandler
             ? $this->serverFrom($this->runs->stepOutput($runId, StepName::SelectServer->value))
             : null;
 
-        // Engine side: the two users this run itself created, if it reached
-        // that far (AC-9's DROP USER half; dropping removes that user's
-        // grants with it).
-        if ($server !== null && ($statusOf[StepName::CreateUsers->value] ?? null) === 'done') {
+        // Engine side: the two users this run itself created, if create_users
+        // ever reached its own pre-existence check and found neither one a
+        // foreign conflict - whatever that step's own status ended up being
+        // (review round 1 W-1, widening from "status done", which missed a
+        // crash between that check committing and either createUser() call
+        // actually running). dropUser() is `DROP USER IF EXISTS`, so
+        // attempting it against a user that check committed to but never
+        // actually got created is a safe no-op (Ruling 10's own wording).
+        $createUsersOutput = $this->runs->stepOutput($runId, StepName::CreateUsers->value);
+        $createUsersChecked = ($createUsersOutput['checked'] ?? false) === true;
+        $createUsersPreexisting = ($createUsersOutput['preexisting'] ?? false) === true;
+
+        if ($server !== null && $createUsersChecked && ! $createUsersPreexisting) {
             $reserved = $this->runs->stepOutput($runId, StepName::ReserveIdentity->value);
 
             $this->provisioner->dropUser($server, (string) $reserved['app_username']);
             $this->provisioner->dropUser($server, (string) $reserved['migrate_username']);
         }
 
-        // The two secret versions this run wrote, if it reached that far.
-        if (($statusOf[StepName::StoreCredentials->value] ?? null) === 'done') {
-            $credentials = $this->runs->stepOutput($runId, StepName::StoreCredentials->value);
+        // The two secret versions this run wrote, whenever store_credentials'
+        // own journal actually holds them - regardless of that step's own
+        // status (review round 1 W-1; forget() on a reference nothing wrote
+        // is a no-op, so there is no harm in asking unconditionally).
+        $credentials = $this->runs->stepOutput($runId, StepName::StoreCredentials->value);
 
+        if (isset($credentials['app_credential_ref'])) {
             $this->secrets->forget((string) $credentials['app_credential_ref']);
+        }
+
+        if (isset($credentials['migrate_credential_ref'])) {
             $this->secrets->forget((string) $credentials['migrate_credential_ref']);
         }
 
         // Master side (Ruling 10): archive, never delete or drop. A run
         // that never reached reserve_identity has no tenant row to archive
-        // at all.
+        // at all. Compare-and-set on status = 'provisioning' (review round
+        // 1 W-2): the last line of defence, in case this tenant somehow
+        // went live between the re-check above and this write.
         if ($tenantId !== null) {
-            $this->master->get()->table('tenants')->where('id', $tenantId)->update([
-                'status' => 'archived',
-                'updated_at' => $this->clock->timestamp(),
-            ]);
+            $this->master->get()->table('tenants')
+                ->where('id', $tenantId)
+                ->where('status', 'provisioning')
+                ->update([
+                    'status' => 'archived',
+                    'updated_at' => $this->clock->timestamp(),
+                ]);
 
             // Already a no-op when write_mapping never ran (Ruling 10:
             // "abandon before write_mapping: only the tenant is archived").
@@ -123,6 +155,38 @@ final class AbandonProvisioningHandler
                 ? 'This run never reached create_database; there is no database to drop.'
                 : "The database itself was not dropped \u{2014} drop [{$databaseName}] on [{$serverCode}] by hand if you are certain nothing else needs it.",
         );
+    }
+
+    /**
+     * Review round 1 W-2. `tenants.status` leaving `provisioning` (to
+     * `trial`/`active`), or `tenant_databases.status` leaving `provisioning`
+     * (to `active`), means `activate` already committed for real - abandon
+     * must refuse and point the operator at `--resume` instead, which
+     * completes safely against an already-active tenant (AC-35).
+     *
+     * @throws PlatformRefused the tenant is already live
+     */
+    private function assertNotYetLive(string $runId, string $tenantId): void
+    {
+        $tenant = $this->master->get()->table('tenants')->where('id', $tenantId)->first();
+        $mapping = $this->master->get()->table('tenant_databases')->where('tenant_id', $tenantId)->first();
+
+        $tenantStatus = $tenant === null ? null : (string) $tenant->status;
+        $mappingStatus = $mapping === null ? null : (string) $mapping->status;
+
+        if ($tenantStatus !== null && $tenantStatus !== 'provisioning') {
+            throw PlatformRefused::validation(
+                "abandon refuses: tenant [{$tenantId}] (run [{$runId}]) is already [{$tenantStatus}], not [provisioning] - "
+                .'it was activated before this run was marked done. Use --resume instead; it completes safely against an already-active tenant.'
+            );
+        }
+
+        if ($mappingStatus !== null && $mappingStatus !== 'provisioning') {
+            throw PlatformRefused::validation(
+                "abandon refuses: tenant [{$tenantId}]'s mapping (run [{$runId}]) is already [{$mappingStatus}], not [provisioning] - "
+                .'it was activated before this run was marked done. Use --resume instead; it completes safely against an already-active tenant.'
+            );
+        }
     }
 
     /**

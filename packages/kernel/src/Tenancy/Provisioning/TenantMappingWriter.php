@@ -90,11 +90,20 @@ final class TenantMappingWriter
      * `abandon`: marks the mapping `archived` if the row exists at all - a
      * run abandoned before `write_mapping` has no row to archive, which is
      * not an error (Ruling 10).
+     *
+     * Compare-and-set on `status = 'provisioning'` (review round 1 W-2):
+     * `AbandonProvisioningHandler` already re-reads and refuses before
+     * calling this at all, but this write is the one that would actually
+     * archive an already-`active` mapping if that earlier check were ever
+     * bypassed or raced - affecting zero rows here is the last line of
+     * defence against archiving a database tenants are already being served
+     * from.
      */
     public function archive(string $tenantId): void
     {
         $affected = $this->table()
             ->where('tenant_id', $tenantId)
+            ->where('status', 'provisioning')
             ->update([
                 'status' => 'archived',
                 'archived_at' => $this->clock->timestamp(),

@@ -150,6 +150,22 @@ it('archives, writing archived and evicting', function () {
         ->and($spy->evicted)->toBe([$tenantId]);
 });
 
+it('does not archive an already-active mapping, compare-and-set (review round 1 W-2)', function () {
+    [$tenantId, $serverId] = mappingWriterSeedTenant();
+    $spy = new SpyingTenantDatabaseRepository;
+    $writer = new TenantMappingWriter(app('db'), app('config'), app(RunnerClock::class), $spy);
+
+    $writer->insert(mappingWriterRow($tenantId, $serverId));
+    $writer->activate($tenantId);
+    $spy->evicted = [];
+
+    $writer->archive($tenantId);
+
+    expect(DB::connection('master')->table('tenant_databases')->where('tenant_id', $tenantId)->value('status'))
+        ->toBe('active')
+        ->and($spy->evicted)->toBe([]);
+});
+
 it('archiving a tenant with no mapping row yet is a no-op, not an error', function () {
     [$tenantId] = mappingWriterSeedTenant();
     $spy = new SpyingTenantDatabaseRepository;

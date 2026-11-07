@@ -228,24 +228,112 @@ it('resumes after a master-side failure injected right after the tenant writes c
     }, TenantConnectionPurpose::Migrating);
 });
 
-it('does not re-print the password on a resume that finds the user already created', function () {
+it('rotates the password and announces the new one on a resume that finds the user already created, still unused (review round 1 R-1, D-31)', function () {
     [$context, $journal] = createOwnerFixture('TEN004');
 
     $first = app(CreateOwner::class)->run($context, $journal);
     $announcementAfterFirst = app(OwnerCredentialAnnouncement::class);
+    $firstPassword = $announcementAfterFirst->password();
     expect($announcementAfterFirst->mode())->toBe('created')
-        ->and($announcementAfterFirst->password())->toBeString();
+        ->and($firstPassword)->toBeString();
+
+    $user = PlatformSeed::connection()->table('users')->where('id', $first['user_id'])->first();
+    expect($user->last_login_at)->toBeNull();
+
+    // Forgetting the singleton simulates a real new process (review round 1
+    // R-1): a genuinely restarted worker would never have the first
+    // attempt's password sitting in memory either.
+    app()->forgetInstance(OwnerCredentialAnnouncement::class);
 
     $second = app(CreateOwner::class)->run($context, $journal);
 
     expect($second['user_id'])->toBe($first['user_id'])
-        ->and($second['mode'])->toBe('created');
+        ->and($second['mode'])->toBe('rotated');
+
+    $announcementAfterSecond = app(OwnerCredentialAnnouncement::class);
+    expect($announcementAfterSecond->mode())->toBe('rotated')
+        ->and($announcementAfterSecond->password())->toBeString()
+        ->and($announcementAfterSecond->password())->not->toBe($firstPassword);
+
+    // Exactly one users row throughout - this is a password rewrite, never a
+    // second account.
+    expect(PlatformSeed::connection()->table('users')->where('id', $first['user_id'])->count())->toBe(1);
+
+    $userAfter = PlatformSeed::connection()->table('users')->where('id', $first['user_id'])->first();
+    expect(Hash::check((string) $announcementAfterSecond->password(), (string) $userAfter->password_hash))->toBeTrue()
+        ->and(Hash::check($firstPassword, (string) $userAfter->password_hash))->toBeFalse()
+        ->and((bool) $userAfter->must_change_password)->toBeTrue();
+});
+
+it('does not rotate, and announces nothing, when the login has already been signed into once (D-31\'s precondition)', function () {
+    [$context, $journal] = createOwnerFixture('TEN006');
+
+    $first = app(CreateOwner::class)->run($context, $journal);
+
+    PlatformSeed::connection()->table('users')->where('id', $first['user_id'])->update([
+        'last_login_at' => app(RunnerClock::class)->timestamp(),
+    ]);
+    $hashBefore = PlatformSeed::connection()->table('users')->where('id', $first['user_id'])->value('password_hash');
+
+    app()->forgetInstance(OwnerCredentialAnnouncement::class);
+
+    $second = app(CreateOwner::class)->run($context, $journal);
+
+    expect($second['user_id'])->toBe($first['user_id'])
+        ->and($second['mode'])->toBe('already_created');
 
     $announcementAfterSecond = app(OwnerCredentialAnnouncement::class);
     expect($announcementAfterSecond->mode())->toBe('already_created')
         ->and($announcementAfterSecond->password())->toBeNull();
 
-    expect(PlatformSeed::connection()->table('users')->where('id', $first['user_id'])->count())->toBe(1);
+    $hashAfter = PlatformSeed::connection()->table('users')->where('id', $first['user_id'])->value('password_hash');
+    expect($hashAfter)->toBe($hashBefore);
+});
+
+it('does not rotate, and announces nothing, when the login was already changed (must_change_password already false)', function () {
+    [$context, $journal] = createOwnerFixture('TEN007');
+
+    $first = app(CreateOwner::class)->run($context, $journal);
+
+    PlatformSeed::connection()->table('users')->where('id', $first['user_id'])->update([
+        'must_change_password' => false,
+    ]);
+    $hashBefore = PlatformSeed::connection()->table('users')->where('id', $first['user_id'])->value('password_hash');
+
+    app()->forgetInstance(OwnerCredentialAnnouncement::class);
+
+    $second = app(CreateOwner::class)->run($context, $journal);
+
+    expect($second['mode'])->toBe('already_created');
+
+    $hashAfter = PlatformSeed::connection()->table('users')->where('id', $first['user_id'])->value('password_hash');
+    expect($hashAfter)->toBe($hashBefore);
+});
+
+it('never announces a password for a users row the master transaction then rolled back (review round 1 R-1)', function () {
+    [$context, $journal] = createOwnerFixture('TEN008', ['owner_email' => 'rolled.back.owner@example.com']);
+
+    // Fails the statement immediately AFTER the new users row's own INSERT
+    // has run, but still inside the same transaction - exactly the window
+    // R-1 names: a closure that announced its own write here would announce
+    // a password for a row the engine is about to roll back.
+    DB::connection('master')->listen(function ($event): void {
+        $sql = strtolower((string) $event->sql);
+
+        if (str_contains($sql, 'insert') && str_contains($sql, 'tenant_users')) {
+            throw new RuntimeException('simulated failure after the users row insert, inside the transaction');
+        }
+    });
+
+    expect(fn () => app(CreateOwner::class)->run($context, $journal))
+        ->toThrow(RuntimeException::class, 'simulated failure after the users row insert');
+
+    expect(PlatformSeed::connection()->table('users')->where('email_lower', 'rolled.back.owner@example.com')->count())
+        ->toBe(0);
+
+    $announcement = app(OwnerCredentialAnnouncement::class);
+    expect($announcement->mode())->toBeNull()
+        ->and($announcement->password())->toBeNull();
 });
 
 it('refuses before entry when the mapping status is not provisioning (Ruling 6)', function () {

@@ -106,9 +106,29 @@ final class BootstrapOwnerHandler implements TenantAccessBootstrap
         $connection = $this->tenant->get();
 
         $connection->transaction(function () use ($connection, $employeeId): void {
+            // Review round 1 W-4: narrower than "no other live employee
+            // holds owner" alone - the target itself must be the live,
+            // OWNER-coded employee this bootstrap operation is scoped to.
+            // Checked first, so a non-OWNER-coded or soft-deleted target is
+            // refused before the owner-role row is even locked below.
+            $target = $connection->table('employees')
+                ->where('id', $employeeId)
+                ->first();
+
+            if ($target === null || (string) $target->code !== self::OWNER_CODE || $target->deleted_at !== null) {
+                throw TenantBootstrapRefused::notTheOwnerCodedEmployee(
+                    "Employee [{$employeeId}] may not be granted [owner]: it is not the live, OWNER-coded employee this operation is scoped to."
+                );
+            }
+
+            // Locked for the duration of the transaction, closing the
+            // check/insert race W-4 also named: two concurrent grantOwner()
+            // calls now serialise on this one row instead of both reading
+            // "nobody holds owner yet" before either writes.
             $owner = $connection->table('roles')
                 ->where('key', SystemRole::OWNER_KEY)
                 ->where('is_system', true)
+                ->lockForUpdate()
                 ->first();
 
             if ($owner === null) {

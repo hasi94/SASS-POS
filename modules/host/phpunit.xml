@@ -144,6 +144,16 @@
         -->
         <env name="ENGINE_HOLD" value="1" force="true"/>
         <server name="ENGINE_HOLD" value="1" force="true"/>
+        <!--
+            T-026 review round 1 W-6: the refusing-default provisioning
+            driver is pinned the same way ENGINE_HOLD itself is - forced on
+            both <env> and <server>, so no local .env following
+            .env.example's own documented TENANCY_PROVISIONING_DRIVER key can
+            silently bind the real mysql driver for a test that doesn't
+            explicitly bind the stand-in itself.
+        -->
+        <env name="TENANCY_PROVISIONING_DRIVER" value="refusing" force="true"/>
+        <server name="TENANCY_PROVISIONING_DRIVER" value="refusing" force="true"/>
         <env name="ENGINE_DRIVER" value="mariadb"/>
         <env name="ENGINE_HOST" value="127.0.0.1"/>
         <env name="ENGINE_PORT" value="3306"/>

@@ -184,7 +184,7 @@ function ac8RunAndFail(string $failingMethod, string $codeSuffix): string
     $caught = null;
 
     try {
-        $runner->run($runId, $steps, $input, null);
+        $runner->run($runId, $steps, $input, null, 'worker-1');
     } catch (ProvisioningStepFailed $exception) {
         $caught = $exception;
     }

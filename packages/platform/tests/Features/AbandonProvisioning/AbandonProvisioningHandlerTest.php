@@ -111,7 +111,7 @@ function abandonFixtureThroughWriteMapping(string $code, string $secretsRoot): a
         'app_username' => $appUser,
         'migrate_username' => $migrateUser,
     ]);
-    app(ProvisioningRuns::class)->markStepDone($runId, StepName::ReserveIdentity->value, $reserveJournal->read(), $now);
+    app(ProvisioningRuns::class)->markStepDone($runId, 'worker-1', StepName::ReserveIdentity->value, $reserveJournal->read(), $now);
 
     $selectJournal = new StepJournal(app(ProvisioningRuns::class), $runId, StepName::SelectServer);
     $selectJournal->write([
@@ -123,7 +123,7 @@ function abandonFixtureThroughWriteMapping(string $code, string $secretsRoot): a
         'tls_mode' => 'required',
         'provisioner_credential_ref' => 'env://ADMIN',
     ]);
-    app(ProvisioningRuns::class)->markStepDone($runId, StepName::SelectServer->value, $selectJournal->read(), $now);
+    app(ProvisioningRuns::class)->markStepDone($runId, 'worker-1', StepName::SelectServer->value, $selectJournal->read(), $now);
 
     $createDbJournal = new StepJournal(app(ProvisioningRuns::class), $runId, StepName::CreateDatabase);
     $createDbJournal->write([
@@ -131,7 +131,7 @@ function abandonFixtureThroughWriteMapping(string $code, string $secretsRoot): a
         'charset' => 'utf8mb4',
         'collation' => 'utf8mb4_unicode_ci',
     ]);
-    app(ProvisioningRuns::class)->markStepDone($runId, StepName::CreateDatabase->value, $createDbJournal->read(), $now);
+    app(ProvisioningRuns::class)->markStepDone($runId, 'worker-1', StepName::CreateDatabase->value, $createDbJournal->read(), $now);
 
     config(['tenancy.secrets.file_root' => $secretsRoot]);
     app()->forgetInstance(SecretResolver::class);
@@ -148,7 +148,7 @@ function abandonFixtureThroughWriteMapping(string $code, string $secretsRoot): a
         'app_credential_ref' => $appRef,
         'migrate_credential_ref' => $migrateRef,
     ]);
-    app(ProvisioningRuns::class)->markStepDone($runId, StepName::StoreCredentials->value, $storeJournal->read(), $now);
+    app(ProvisioningRuns::class)->markStepDone($runId, 'worker-1', StepName::StoreCredentials->value, $storeJournal->read(), $now);
 
     $server = new ProvisioningServer(
         'srv-'.strtolower($code), '127.0.0.1', 3306, 'mysql', 'required', 'env://ADMIN',
@@ -161,7 +161,7 @@ function abandonFixtureThroughWriteMapping(string $code, string $secretsRoot): a
 
     $createUsersJournal = new StepJournal(app(ProvisioningRuns::class), $runId, StepName::CreateUsers);
     $createUsersJournal->write(['checked' => true, 'app_username' => $appUser, 'migrate_username' => $migrateUser]);
-    app(ProvisioningRuns::class)->markStepDone($runId, StepName::CreateUsers->value, $createUsersJournal->read(), $now);
+    app(ProvisioningRuns::class)->markStepDone($runId, 'worker-1', StepName::CreateUsers->value, $createUsersJournal->read(), $now);
 
     PlatformSeed::connection()->table('tenant_databases')->insert([
         'tenant_id' => $tenantId,
@@ -184,12 +184,12 @@ function abandonFixtureThroughWriteMapping(string $code, string $secretsRoot): a
 
     $writeMappingJournal = new StepJournal(app(ProvisioningRuns::class), $runId, StepName::WriteMapping);
     $writeMappingJournal->write(['database_name' => $databaseName]);
-    app(ProvisioningRuns::class)->markStepDone($runId, StepName::WriteMapping->value, $writeMappingJournal->read(), $now);
+    app(ProvisioningRuns::class)->markStepDone($runId, 'worker-1', StepName::WriteMapping->value, $writeMappingJournal->read(), $now);
 
     // Left exactly as a crash in migrate_remainder (or later) would leave
     // it: failed, with current_step naming whatever ran next.
-    app(ProvisioningRuns::class)->markStepFailed($runId, StepName::MigrateRemainder->value, 'simulated crash', $now);
-    app(ProvisioningRuns::class)->markRunFailed($runId, StepName::MigrateRemainder->value, 'simulated crash', $now);
+    app(ProvisioningRuns::class)->markStepFailed($runId, 'worker-1', StepName::MigrateRemainder->value, 'simulated crash', $now);
+    app(ProvisioningRuns::class)->markRunFailed($runId, 'worker-1', StepName::MigrateRemainder->value, 'simulated crash', $now);
 
     return [$runId, $tenantId, $serverId, $appRef, $migrateRef];
 }
@@ -299,9 +299,9 @@ it('abandons before write_mapping: only the tenant is archived, and there is no 
         'app_username' => 'flx_t000302_app',
         'migrate_username' => 'flx_t000302_mig',
     ]);
-    app(ProvisioningRuns::class)->markStepDone($runId, StepName::ReserveIdentity->value, $journal->read(), $now);
-    app(ProvisioningRuns::class)->markStepFailed($runId, StepName::SelectServer->value, 'simulated crash', $now);
-    app(ProvisioningRuns::class)->markRunFailed($runId, StepName::SelectServer->value, 'simulated crash', $now);
+    app(ProvisioningRuns::class)->markStepDone($runId, 'worker-1', StepName::ReserveIdentity->value, $journal->read(), $now);
+    app(ProvisioningRuns::class)->markStepFailed($runId, 'worker-1', StepName::SelectServer->value, 'simulated crash', $now);
+    app(ProvisioningRuns::class)->markRunFailed($runId, 'worker-1', StepName::SelectServer->value, 'simulated crash', $now);
 
     $result = app(AbandonProvisioningHandler::class)->handle(new AbandonProvisioning($runId));
 
@@ -318,8 +318,8 @@ it('abandons before write_mapping: only the tenant is archived, and there is no 
 it('reports that there is no database to drop when the run never reached create_database', function () {
     $runId = app(ProvisioningRunner::class)->plan('create', [], null, 'worker-1', StepName::order());
     $now = app(RunnerClock::class)->timestamp();
-    app(ProvisioningRuns::class)->markStepFailed($runId, StepName::ReserveIdentity->value, 'simulated crash', $now);
-    app(ProvisioningRuns::class)->markRunFailed($runId, StepName::ReserveIdentity->value, 'simulated crash', $now);
+    app(ProvisioningRuns::class)->markStepFailed($runId, 'worker-1', StepName::ReserveIdentity->value, 'simulated crash', $now);
+    app(ProvisioningRuns::class)->markRunFailed($runId, 'worker-1', StepName::ReserveIdentity->value, 'simulated crash', $now);
 
     $result = app(AbandonProvisioningHandler::class)->handle(new AbandonProvisioning($runId));
 
@@ -332,7 +332,7 @@ it('reports that there is no database to drop when the run never reached create_
 it('refuses a completed run', function () {
     $runId = app(ProvisioningRunner::class)->plan('create', [], null, 'worker-1', StepName::order());
     $now = app(RunnerClock::class)->timestamp();
-    app(ProvisioningRuns::class)->markRunCompleted($runId, $now);
+    app(ProvisioningRuns::class)->markRunCompleted($runId, 'worker-1', $now);
 
     expect(fn () => app(AbandonProvisioningHandler::class)->handle(new AbandonProvisioning($runId)))
         ->toThrow(ProvisioningRunRefused::class);
@@ -354,6 +354,185 @@ it('refuses a non-stale running run', function () {
 it('refuses an unknown run id', function () {
     expect(fn () => app(AbandonProvisioningHandler::class)->handle(new AbandonProvisioning('01J0000000000000000000000Z')))
         ->toThrow(ProvisioningRunRefused::class);
+});
+
+it('drops both users when create_users crashed between its two createUser() calls, even though the step itself is failed, not done (review round 1 W-1)', function () {
+    $root = abandonSecretsRoot();
+    $code = 'TEN305';
+
+    try {
+        $tenantId = PlatformSeed::tenant($code, 'provisioning');
+        $serverId = (string) Str::ulid();
+        $now = app(RunnerClock::class)->timestamp();
+
+        PlatformSeed::connection()->table('database_servers')->insert([
+            'id' => $serverId,
+            'code' => 'srv-'.strtolower($code),
+            'name' => 'Server for '.$code,
+            'host' => '127.0.0.1',
+            'port' => 3306,
+            'engine' => 'mysql',
+            'tls_mode' => 'required',
+            'provisioner_credential_ref' => 'env://ADMIN',
+            'tier' => 'shared',
+            'max_tenants' => 100,
+            'tenant_count' => 0,
+            'status' => 'active',
+            'accepts_new_tenants' => true,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        $runId = app(ProvisioningRunner::class)->plan('create', [], null, 'worker-1', StepName::order());
+        app(ProvisioningRuns::class)->setTenantId($runId, $tenantId, $now);
+        app(ProvisioningRuns::class)->setTargetServerId($runId, $serverId, $now);
+
+        [$databaseName, $appUser, $migrateUser] = abandonNamesFor($code);
+
+        $reserveJournal = new StepJournal(app(ProvisioningRuns::class), $runId, StepName::ReserveIdentity);
+        $reserveJournal->write([
+            'tenant_id' => $tenantId, 'sequence' => 1, 'code' => $code, 'database_name' => $databaseName,
+            'app_username' => $appUser, 'migrate_username' => $migrateUser,
+        ]);
+        app(ProvisioningRuns::class)->markStepDone($runId, 'worker-1', StepName::ReserveIdentity->value, $reserveJournal->read(), $now);
+
+        $selectJournal = new StepJournal(app(ProvisioningRuns::class), $runId, StepName::SelectServer);
+        $selectJournal->write([
+            'server_id' => $serverId, 'server_code' => 'srv-'.strtolower($code), 'host' => '127.0.0.1',
+            'port' => 3306, 'engine' => 'mysql', 'tls_mode' => 'required', 'provisioner_credential_ref' => 'env://ADMIN',
+        ]);
+        app(ProvisioningRuns::class)->markStepDone($runId, 'worker-1', StepName::SelectServer->value, $selectJournal->read(), $now);
+
+        $createDbJournal = new StepJournal(app(ProvisioningRuns::class), $runId, StepName::CreateDatabase);
+        $createDbJournal->write(['database_name' => $databaseName, 'charset' => 'utf8mb4', 'collation' => 'utf8mb4_unicode_ci']);
+        app(ProvisioningRuns::class)->markStepDone($runId, 'worker-1', StepName::CreateDatabase->value, $createDbJournal->read(), $now);
+
+        config(['tenancy.secrets.file_root' => $root]);
+        app()->forgetInstance(SecretResolver::class);
+        app()->forgetInstance(WritableSecretStore::class);
+
+        $appRef = 'file://'.$root.'/'.$code.'_app';
+        $migrateRef = 'file://'.$root.'/'.$code.'_mig';
+        app(WritableSecretStore::class)->put($appRef, CredentialGenerator::generate());
+        app(WritableSecretStore::class)->put($migrateRef, CredentialGenerator::generate());
+
+        $storeJournal = new StepJournal(app(ProvisioningRuns::class), $runId, StepName::StoreCredentials);
+        $storeJournal->write(['app_credential_ref' => $appRef, 'migrate_credential_ref' => $migrateRef]);
+        app(ProvisioningRuns::class)->markStepDone($runId, 'worker-1', StepName::StoreCredentials->value, $storeJournal->read(), $now);
+
+        $server = new ProvisioningServer('srv-'.strtolower($code), '127.0.0.1', 3306, 'mysql', 'required', 'env://ADMIN');
+
+        // create_users' own pre-existence check committed (checked = true,
+        // not preexisting) and the FIRST createUser() call actually ran -
+        // then the process crashed before the SECOND one. The step row
+        // itself is left `failed`, never `done`.
+        /** @var RecordingTenantDatabaseProvisioner $provisioner */
+        $provisioner = app(TenantDatabaseProvisioner::class);
+        $provisioner->createUser($server, $appUser, app(SecretResolver::class)->resolve($appRef), TenantGrant::App, $databaseName);
+
+        $createUsersJournal = new StepJournal(app(ProvisioningRuns::class), $runId, StepName::CreateUsers);
+        $createUsersJournal->write(['checked' => true]);
+        app(ProvisioningRuns::class)->markStepFailed($runId, 'worker-1', StepName::CreateUsers->value, 'simulated crash', $now);
+        app(ProvisioningRuns::class)->markRunFailed($runId, 'worker-1', StepName::CreateUsers->value, 'simulated crash', $now);
+
+        app(AbandonProvisioningHandler::class)->handle(new AbandonProvisioning($runId));
+
+        $dropCalls = array_values(array_filter($provisioner->calls(), fn (array $call): bool => $call['method'] === 'dropUser'));
+        $droppedUsers = array_map(static fn (array $call): string => (string) $call['user'], $dropCalls);
+
+        expect($droppedUsers)->toContain($appUser)
+            ->and($droppedUsers)->toContain($migrateUser);
+    } finally {
+        app()->forgetInstance(SecretResolver::class);
+        app()->forgetInstance(WritableSecretStore::class);
+        abandonCleanupRoot($root);
+    }
+});
+
+it('forgets both secret references when store_credentials crashed after only the first put(), even though the step itself is failed, not done (review round 1 W-1)', function () {
+    $root = abandonSecretsRoot();
+    $code = 'TEN306';
+
+    try {
+        $tenantId = PlatformSeed::tenant($code, 'provisioning');
+        $now = app(RunnerClock::class)->timestamp();
+
+        $runId = app(ProvisioningRunner::class)->plan('create', [], null, 'worker-1', StepName::order());
+        app(ProvisioningRuns::class)->setTenantId($runId, $tenantId, $now);
+
+        [$databaseName, $appUser, $migrateUser] = abandonNamesFor($code);
+
+        $reserveJournal = new StepJournal(app(ProvisioningRuns::class), $runId, StepName::ReserveIdentity);
+        $reserveJournal->write([
+            'tenant_id' => $tenantId, 'sequence' => 1, 'code' => $code, 'database_name' => $databaseName,
+            'app_username' => $appUser, 'migrate_username' => $migrateUser,
+        ]);
+        app(ProvisioningRuns::class)->markStepDone($runId, 'worker-1', StepName::ReserveIdentity->value, $reserveJournal->read(), $now);
+        app(ProvisioningRuns::class)->markStepFailed($runId, 'worker-1', StepName::SelectServer->value, 'simulated crash', $now);
+        app(ProvisioningRuns::class)->markRunFailed($runId, 'worker-1', StepName::SelectServer->value, 'simulated crash', $now);
+
+        config(['tenancy.secrets.file_root' => $root]);
+        app()->forgetInstance(SecretResolver::class);
+        app()->forgetInstance(WritableSecretStore::class);
+
+        $appRef = 'file://'.$root.'/'.$code.'_app';
+        $migrateRef = 'file://'.$root.'/'.$code.'_mig';
+
+        // Both references were journalled first (D-20's intent-first order),
+        // then only the FIRST put() actually ran before the crash - the
+        // step row is left at whatever status it had before (never done).
+        $storeJournal = new StepJournal(app(ProvisioningRuns::class), $runId, StepName::StoreCredentials);
+        $storeJournal->write(['app_credential_ref' => $appRef, 'migrate_credential_ref' => $migrateRef]);
+        app(WritableSecretStore::class)->put($appRef, CredentialGenerator::generate());
+
+        expect(app(WritableSecretStore::class)->exists($appRef))->toBeTrue()
+            ->and(app(WritableSecretStore::class)->exists($migrateRef))->toBeFalse();
+
+        app(AbandonProvisioningHandler::class)->handle(new AbandonProvisioning($runId));
+
+        expect(app(WritableSecretStore::class)->exists($appRef))->toBeFalse();
+    } finally {
+        app()->forgetInstance(SecretResolver::class);
+        app()->forgetInstance(WritableSecretStore::class);
+        abandonCleanupRoot($root);
+    }
+});
+
+it('refuses to abandon a run whose tenant already went active (review round 1 W-2), and touches nothing', function () {
+    $root = abandonSecretsRoot();
+
+    try {
+        [$runId, $tenantId, , $appRef, $migrateRef] = abandonFixtureThroughWriteMapping('TEN307', $root);
+
+        PlatformSeed::connection()->table('tenants')->where('id', $tenantId)->update(['status' => 'trial']);
+        PlatformSeed::connection()->table('tenant_databases')->where('tenant_id', $tenantId)->update(['status' => 'active']);
+
+        expect(fn () => app(AbandonProvisioningHandler::class)->handle(new AbandonProvisioning($runId)))
+            ->toThrow(PlatformRefused::class, '--resume');
+
+        $tenant = (array) PlatformSeed::connection()->table('tenants')->where('id', $tenantId)->first();
+        expect($tenant['status'])->toBe('trial');
+
+        $mapping = (array) PlatformSeed::connection()->table('tenant_databases')->where('tenant_id', $tenantId)->first();
+        expect($mapping['status'])->toBe('active');
+
+        expect(app(WritableSecretStore::class)->exists($appRef))->toBeTrue()
+            ->and(app(WritableSecretStore::class)->exists($migrateRef))->toBeTrue();
+
+        /** @var RecordingTenantDatabaseProvisioner $provisioner */
+        $provisioner = app(TenantDatabaseProvisioner::class);
+        $dropCalls = array_values(array_filter($provisioner->calls(), fn (array $call): bool => $call['method'] === 'dropUser'));
+        expect($dropCalls)->toBe([]);
+
+        // The run itself is left exactly as claim() left it - still failed,
+        // not rolled_back - so a human can decide what to do next.
+        $run = (array) PlatformSeed::connection()->table('tenant_provisioning_runs')->where('id', $runId)->first();
+        expect($run['status'])->toBe('running');
+    } finally {
+        app()->forgetInstance(SecretResolver::class);
+        app()->forgetInstance(WritableSecretStore::class);
+        abandonCleanupRoot($root);
+    }
 });
 
 it('a fresh run with the same code is refused after abandon (the tenant row is archived, not deleted)', function () {

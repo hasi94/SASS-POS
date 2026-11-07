@@ -123,12 +123,24 @@ final class ProvisioningRuns
         return $affected > 0;
     }
 
-    public function touchHeartbeat(string $runId, string $now): void
+    /**
+     * Review round 1 W-3: the compare-and-set lease is enforced here too,
+     * not only at the initial claim - a zero-row update means some other
+     * worker has since claimed this run (stale takeover) and this process's
+     * own lease is gone, so it must stop rather than keep writing.
+     *
+     * @throws ProvisioningRunRefused the lease named by `$claimedBy` no
+     *                                longer holds this run
+     */
+    public function touchHeartbeat(string $runId, string $claimedBy, string $now): void
     {
-        $this->runsTable()->where('id', $runId)->update([
-            'heartbeat_at' => $now,
-            'updated_at' => $now,
-        ]);
+        $this->assertLeaseHeld(
+            $this->runsTable()->where('id', $runId)->where('claimed_by', $claimedBy)->update([
+                'heartbeat_at' => $now,
+                'updated_at' => $now,
+            ]),
+            $runId,
+        );
     }
 
     public function setCurrentStep(string $runId, string $step, string $now): void
@@ -139,24 +151,48 @@ final class ProvisioningRuns
         ]);
     }
 
-    public function markRunFailed(string $runId, string $step, string $error, string $now): void
+    /**
+     * @throws ProvisioningRunRefused the lease named by `$claimedBy` no
+     *                                longer holds this run (review round 1 W-3)
+     */
+    public function markRunFailed(string $runId, string $claimedBy, string $step, string $error, string $now): void
     {
-        $this->runsTable()->where('id', $runId)->update([
-            'status' => 'failed',
-            'current_step' => $step,
-            'error' => $error,
-            'updated_at' => $now,
-        ]);
+        $this->assertLeaseHeld(
+            $this->runsTable()->where('id', $runId)->where('claimed_by', $claimedBy)->update([
+                'status' => 'failed',
+                'current_step' => $step,
+                'error' => $error,
+                'updated_at' => $now,
+            ]),
+            $runId,
+        );
     }
 
-    public function markRunCompleted(string $runId, string $now): void
+    /**
+     * Review round 1 W-3: guarded on both the lease AND `status = 'running'`
+     * - the latter so a stale takeover that has since itself abandoned the
+     * run (`rolled_back`) can never be overwritten back to `completed` by
+     * this, now-superseded, worker finishing its own last step late.
+     *
+     * @throws ProvisioningRunRefused the lease named by `$claimedBy` no
+     *                                longer holds this run, or it is no
+     *                                longer `running`
+     */
+    public function markRunCompleted(string $runId, string $claimedBy, string $now): void
     {
-        $this->runsTable()->where('id', $runId)->update([
-            'status' => 'completed',
-            'current_step' => null,
-            'finished_at' => $now,
-            'updated_at' => $now,
-        ]);
+        $this->assertLeaseHeld(
+            $this->runsTable()
+                ->where('id', $runId)
+                ->where('claimed_by', $claimedBy)
+                ->where('status', 'running')
+                ->update([
+                    'status' => 'completed',
+                    'current_step' => null,
+                    'finished_at' => $now,
+                    'updated_at' => $now,
+                ]),
+            $runId,
+        );
     }
 
     public function markRunRolledBack(string $runId, string $now): void
@@ -272,28 +308,46 @@ final class ProvisioningRuns
     }
 
     /**
+     * `tenant_provisioning_steps` has no `claimed_by` column of its own -
+     * the lease lives on the run row - so the guard is a correlated
+     * `whereExists` against `tenant_provisioning_runs`, portable to both
+     * MySQL/MariaDB and the suite's sqlite stand-in (review round 1 W-3).
+     *
      * @param  array<string, mixed>  $output
+     *
+     * @throws ProvisioningRunRefused the lease named by `$claimedBy` no
+     *                                longer holds this run
      */
-    public function markStepDone(string $runId, string $step, array $output, string $now): void
+    public function markStepDone(string $runId, string $claimedBy, string $step, array $output, string $now): void
     {
         $merged = array_merge($this->stepOutput($runId, $step), $output);
 
-        $this->stepsTable()->where('run_id', $runId)->where('step', $step)->update([
-            'status' => 'done',
-            'output' => json_encode($merged),
-            'finished_at' => $now,
-            'updated_at' => $now,
-        ]);
+        $this->assertLeaseHeld(
+            $this->leaseGuardedStepsQuery($runId, $claimedBy)->where('step', $step)->update([
+                'status' => 'done',
+                'output' => json_encode($merged),
+                'finished_at' => $now,
+                'updated_at' => $now,
+            ]),
+            $runId,
+        );
     }
 
-    public function markStepFailed(string $runId, string $step, string $error, string $now): void
+    /**
+     * @throws ProvisioningRunRefused the lease named by `$claimedBy` no
+     *                                longer holds this run (review round 1 W-3)
+     */
+    public function markStepFailed(string $runId, string $claimedBy, string $step, string $error, string $now): void
     {
-        $this->stepsTable()->where('run_id', $runId)->where('step', $step)->update([
-            'status' => 'failed',
-            'error' => $error,
-            'finished_at' => $now,
-            'updated_at' => $now,
-        ]);
+        $this->assertLeaseHeld(
+            $this->leaseGuardedStepsQuery($runId, $claimedBy)->where('step', $step)->update([
+                'status' => 'failed',
+                'error' => $error,
+                'finished_at' => $now,
+                'updated_at' => $now,
+            ]),
+            $runId,
+        );
     }
 
     public function markStepCompensated(string $runId, string $step, ?string $note, string $now): void
@@ -309,6 +363,35 @@ final class ProvisioningRuns
     private function quote(string $timestamp): string
     {
         return "'".str_replace("'", '', $timestamp)."'";
+    }
+
+    /**
+     * A steps-table query pre-filtered to rows whose run is still claimed by
+     * `$claimedBy` - the cross-table half of the compare-and-set lease
+     * (review round 1 W-3).
+     */
+    private function leaseGuardedStepsQuery(string $runId, string $claimedBy): Builder
+    {
+        return $this->stepsTable()
+            ->where('run_id', $runId)
+            ->whereExists(function (Builder $query) use ($runId, $claimedBy): void {
+                $query->select('id')
+                    ->from('tenant_provisioning_runs')
+                    ->where('id', $runId)
+                    ->where('claimed_by', $claimedBy);
+            });
+    }
+
+    /**
+     * @throws ProvisioningRunRefused `$affected` is zero: the lease was
+     *                                lost to another worker's claim (review
+     *                                round 1 W-3)
+     */
+    private function assertLeaseHeld(int $affected, string $runId): void
+    {
+        if ($affected === 0) {
+            throw ProvisioningRunRefused::leaseLost($runId);
+        }
     }
 
     private function runsTable(): Builder

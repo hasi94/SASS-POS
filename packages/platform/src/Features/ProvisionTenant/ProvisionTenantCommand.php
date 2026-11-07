@@ -71,6 +71,14 @@ final class ProvisionTenantCommand extends Command
                 abandonRunId: $this->stringOption('abandon'),
             ));
         } catch (RuntimeException|LogicException $refused) {
+            // Review round 1 R-1: if a created/rotated owner password was
+            // ever generated before this failure, this is the one chance
+            // this process gets to show it - printed before the error, the
+            // same order a successful run already uses.
+            if ($refused instanceof ProvisionTenantFailedWithOwnerAnnouncement) {
+                $this->printOwnerAnnouncement($refused->ownerMode, $refused->ownerPassword);
+            }
+
             $this->components->error($refused->getMessage());
 
             return self::FAILURE;
@@ -93,8 +101,21 @@ final class ProvisionTenantCommand extends Command
      */
     private function announceOwner(ProvisionTenantResult $result): void
     {
-        match ($result->ownerMode) {
-            'created' => $this->components->warn("Owner login created. Initial password: {$result->ownerPassword}"),
+        $this->printOwnerAnnouncement($result->ownerMode, $result->ownerPassword);
+    }
+
+    /**
+     * The one place both a successful result and a failure-with-announcement
+     * (review round 1 R-1) print the owner's credential state, so the two
+     * paths cannot drift into two different sentences for the same mode.
+     */
+    private function printOwnerAnnouncement(?string $mode, ?string $password): void
+    {
+        match ($mode) {
+            'created' => $this->components->warn("Owner login created. Initial password: {$password}"),
+            'rotated' => $this->components->warn(
+                "The owner login's password could not be recovered from an earlier attempt and was rotated. New password: {$password}"
+            ),
             'attached' => $this->components->info('The owner email already had a login; it was attached to this tenant.'),
             'already_created' => $this->components->info('The initial password was shown when it was created.'),
             default => null,

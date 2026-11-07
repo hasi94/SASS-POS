@@ -41,4 +41,17 @@ final class TenantBootstrapRefused extends RuntimeException
     {
         return new self($message);
     }
+
+    /**
+     * Review round 1 W-4: `grantOwner()`'s only guard was "no other live
+     * employee holds owner", which is broader than D-23's own one
+     * chicken-and-egg case - a live tenant whose real owner was
+     * soft-deleted could otherwise have any employee made owner through
+     * this one published door. The target must itself be the `OWNER`-coded,
+     * not-soft-deleted employee this run created.
+     */
+    public static function notTheOwnerCodedEmployee(string $message): self
+    {
+        return new self($message);
+    }
 }

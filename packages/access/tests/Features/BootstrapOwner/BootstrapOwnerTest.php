@@ -133,15 +133,26 @@ it('grantOwner() grants the system owner with granted_by null and an audit row; 
 it('refuses with TenantBootstrapRefused when another live employee already holds owner, and writes nothing (D-23)', function () {
     bootstrap()->seedPermissions();
 
-    $firstOwner = bootstrap()->ensureOwnerEmployee(new OwnerSeed('First'));
-    bootstrap()->grantOwner($firstOwner);
+    // `employees.code` is unique forever, including over soft-deleted rows
+    // (the migration's own "code is unique over a NOT NULL column, so the
+    // key covers soft-deleted" rule) - so a second row can never also be
+    // coded OWNER while the first lives. "Another live employee already
+    // holds it" is therefore a historical/legacy grant on a
+    // differently-coded employee (AccessSeed::assign() grants the role
+    // directly, bypassing this contract entirely, exactly as a pre-T-026
+    // row could have been written) - the real OWNER-coded employee
+    // (review round 1 W-4's own target restriction) still must not take it
+    // over.
+    $roleId = ownerRoleId();
+    $legacyHolder = AccessSeed::employee('legacy-owner');
+    AccessSeed::assign($legacyHolder, (string) $roleId);
 
-    $secondEmployee = AccessSeed::employee('second');
+    $realOwner = bootstrap()->ensureOwnerEmployee(new OwnerSeed('First'));
 
     $before = AccessSeed::connection()->table('employee_roles')->count();
 
     try {
-        bootstrap()->grantOwner($secondEmployee);
+        bootstrap()->grantOwner($realOwner);
         $thrown = null;
     } catch (TenantBootstrapRefused $refused) {
         $thrown = $refused;
@@ -154,22 +165,58 @@ it('refuses with TenantBootstrapRefused when another live employee already holds
 it('control: a soft-deleted holder does not trigger the refusal', function () {
     bootstrap()->seedPermissions();
 
-    $firstOwner = bootstrap()->ensureOwnerEmployee(new OwnerSeed('First'));
-    bootstrap()->grantOwner($firstOwner);
+    $roleId = ownerRoleId();
+    $legacyHolder = AccessSeed::employee('legacy-owner');
+    AccessSeed::assign($legacyHolder, (string) $roleId);
 
     AccessSeed::connection()->table('employees')
-        ->where('id', $firstOwner)
+        ->where('id', $legacyHolder)
         ->update(['deleted_at' => '2026-11-07 10:00:00.000']);
 
-    $secondEmployee = AccessSeed::employee('second');
+    $realOwner = bootstrap()->ensureOwnerEmployee(new OwnerSeed('First'));
 
     // Must not throw.
-    bootstrap()->grantOwner($secondEmployee);
+    bootstrap()->grantOwner($realOwner);
+
+    expect(AccessSeed::connection()->table('employee_roles')->where('role_id', $roleId)->where('employee_id', $realOwner)->exists())
+        ->toBeTrue();
+});
+
+it('refuses grantOwner() for an employee that is not OWNER-coded, even when no owner exists yet (review round 1 W-4)', function () {
+    bootstrap()->seedPermissions();
+
+    $notOwner = AccessSeed::employee('not-owner');
+
+    try {
+        bootstrap()->grantOwner($notOwner);
+        $thrown = null;
+    } catch (TenantBootstrapRefused $refused) {
+        $thrown = $refused;
+    }
+
+    expect($thrown)->not->toBeNull();
 
     $roleId = ownerRoleId();
+    expect(AccessSeed::connection()->table('employee_roles')->where('role_id', $roleId)->count())->toBe(0);
+});
 
-    expect(AccessSeed::connection()->table('employee_roles')->where('role_id', $roleId)->where('employee_id', $secondEmployee)->exists())
-        ->toBeTrue();
+it('refuses grantOwner() for a soft-deleted OWNER-coded employee (review round 1 W-4)', function () {
+    bootstrap()->seedPermissions();
+
+    $employeeId = bootstrap()->ensureOwnerEmployee(new OwnerSeed('Jane'));
+
+    AccessSeed::connection()->table('employees')
+        ->where('id', $employeeId)
+        ->update(['deleted_at' => '2026-11-07 10:00:00.000']);
+
+    try {
+        bootstrap()->grantOwner($employeeId);
+        $thrown = null;
+    } catch (TenantBootstrapRefused $refused) {
+        $thrown = $refused;
+    }
+
+    expect($thrown)->not->toBeNull();
 });
 
 it('refuses grantOwner() when no owner role exists yet (seedPermissions() was never run)', function () {

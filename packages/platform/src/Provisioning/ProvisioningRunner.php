@@ -67,6 +67,10 @@ final class ProvisioningRunner
             throw ProvisioningRunRefused::alreadyCompleted($runId);
         }
 
+        if ($run['status'] === 'rolled_back') {
+            throw ProvisioningRunRefused::alreadyAbandoned($runId);
+        }
+
         $staleAfterMinutes = (int) $this->config->get('platform.provisioning.stale_after_minutes', 30);
         $now = $this->clock->timestamp();
         $staleThreshold = $this->clock->now()->subMinutes($staleAfterMinutes)->format(RunnerClock::PRECISION);
@@ -87,10 +91,16 @@ final class ProvisioningRunner
      *                                                  `StepName::value`,
      *                                                  in execution order
      * @param  array<string, mixed>  $input
+     * @param  string  $claimedBy  the same worker id this run was planned or
+     *                             claimed under - re-checked, not only at
+     *                             entry, by every mutating call below
+     *                             (review round 1 W-3)
      *
      * @throws ProvisioningStepFailed
+     * @throws ProvisioningRunRefused the lease named by `$claimedBy` was
+     *                                lost mid-run to another worker's claim
      */
-    public function run(string $runId, array $steps, array $input, ?string $initiatedBy): void
+    public function run(string $runId, array $steps, array $input, ?string $initiatedBy, string $claimedBy): void
     {
         $context = new RunContext($runId, $input, $initiatedBy);
 
@@ -105,35 +115,35 @@ final class ProvisioningRunner
             $now = $this->clock->timestamp();
             $this->runs->markStepRunning($runId, $name, $now);
             $this->runs->setCurrentStep($runId, $name, $now);
-            $this->runs->touchHeartbeat($runId, $now);
+            $this->runs->touchHeartbeat($runId, $claimedBy, $now);
 
             $journal = new StepJournal($this->runs, $runId, $stepName);
 
             try {
                 $output = $step->run($context, $journal);
             } catch (Throwable $e) {
-                $this->fail($runId, $stepName, $e);
+                $this->fail($runId, $claimedBy, $stepName, $e);
             }
 
             $now = $this->clock->timestamp();
-            $this->runs->markStepDone($runId, $name, $output, $now);
-            $this->runs->touchHeartbeat($runId, $now);
+            $this->runs->markStepDone($runId, $claimedBy, $name, $output, $now);
+            $this->runs->touchHeartbeat($runId, $claimedBy, $now);
         }
 
-        $this->runs->markRunCompleted($runId, $this->clock->timestamp());
+        $this->runs->markRunCompleted($runId, $claimedBy, $this->clock->timestamp());
     }
 
     /**
      * @throws ProvisioningStepFailed always
      */
-    private function fail(string $runId, StepName $step, Throwable $e): never
+    private function fail(string $runId, string $claimedBy, StepName $step, Throwable $e): never
     {
         $needles = ProvisioningErrors::needlesFor($this->runs->allOutputs($runId), $this->secrets);
         $sanitised = ProvisioningErrors::sanitise($e->getMessage(), $needles);
         $now = $this->clock->timestamp();
 
-        $this->runs->markStepFailed($runId, $step->value, $sanitised, $now);
-        $this->runs->markRunFailed($runId, $step->value, $sanitised, $now);
+        $this->runs->markStepFailed($runId, $claimedBy, $step->value, $sanitised, $now);
+        $this->runs->markRunFailed($runId, $claimedBy, $step->value, $sanitised, $now);
 
         throw new ProvisioningStepFailed($step, $sanitised);
     }

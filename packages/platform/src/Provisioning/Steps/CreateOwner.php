@@ -57,6 +57,24 @@ use Illuminate\Support\Str;
  * printed by the command - this step's own `run()` return value carries only
  * the employee id, the user id and which outcome happened, which is exactly
  * what {@see ProvisioningRunner} is free to journal.
+ *
+ * **The announcement is recorded only after the master transaction returns,
+ * never from inside its closure (review round 1 R-1).** A closure that
+ * announces its own write would also announce a write the engine then rolls
+ * back - {@see self::writeMasterSide()} returns the outcome (and, for
+ * `created`/`rotated`, the plaintext) and {@see self::run()} records the
+ * announcement from that return value, after the transaction has actually
+ * committed.
+ *
+ * **D-31's rotation.** When a resumed attempt finds the `users` row this
+ * exact run already created on an earlier, since-crashed attempt, and that
+ * row is still provably unused (`must_change_password = true` AND
+ * `last_login_at IS NULL`), the password is rotated and the new one is
+ * announced (`OwnerCredentialAnnouncement::recordRotated()`) rather than
+ * silently reporting "already shown" with no way to recover it. A single
+ * successful sign-in anywhere closes this path for that row permanently -
+ * the precondition is read from the same row this method already fetched,
+ * inside the same transaction as the rotation itself.
  */
 final class CreateOwner implements ProvisioningStep
 {
@@ -135,6 +153,17 @@ final class CreateOwner implements ProvisioningStep
 
         $outcome = $this->writeMasterSide($emailLower, $email, $localPart, $ownerName, $userId, $tenantId, $employeeId);
 
+        // Announced only now, after the master transaction has actually
+        // committed (review round 1 R-1) - never from inside its closure,
+        // which would also announce a write the engine then rolled back.
+        match ($outcome['mode']) {
+            'created' => $this->announcement->recordCreated((string) $outcome['password']),
+            'rotated' => $this->announcement->recordRotated((string) $outcome['password']),
+            'attached' => $this->announcement->recordAttached(),
+            'already_created' => $this->announcement->recordAlreadyCreated(),
+            default => null,
+        };
+
         $this->tenancy->run(
             $tenantId,
             function () use ($employeeId, $outcome): void {
@@ -176,7 +205,11 @@ final class CreateOwner implements ProvisioningStep
     }
 
     /**
-     * @return array{mode: string, user_id: string}
+     * Returns the outcome only; nothing here announces anything - that
+     * happens in {@see self::run()}, after this transaction has actually
+     * returned (review round 1 R-1).
+     *
+     * @return array{mode: string, user_id: string, password?: string}
      */
     private function writeMasterSide(
         string $emailLower,
@@ -189,16 +222,15 @@ final class CreateOwner implements ProvisioningStep
     ): array {
         $master = $this->master->get();
 
-        /** @var array{mode: string, user_id: string} $outcome */
+        /** @var array{mode: string, user_id: string, password?: string} $outcome */
         $outcome = $master->transaction(function () use ($master, $emailLower, $email, $localPart, $ownerName, $journalledUserId, $tenantId, $employeeId): array {
             $existing = $master->table('users')->where('email_lower', $emailLower)->first();
 
             if ($existing === null) {
                 $password = $this->insertUser($master, $journalledUserId, $email, $ownerName ?? $localPart);
-                $this->announcement->recordCreated($password);
                 $this->insertTenantUserIfAbsent($master, $tenantId, $journalledUserId, $employeeId, isDefault: true);
 
-                return ['mode' => 'created', 'user_id' => $journalledUserId];
+                return ['mode' => 'created', 'user_id' => $journalledUserId, 'password' => $password];
             }
 
             $existingId = (string) $existing->id;
@@ -206,21 +238,47 @@ final class CreateOwner implements ProvisioningStep
             if ($existingId === $journalledUserId) {
                 // An earlier attempt of this run already created it; nothing
                 // on the users row is written again (AC-17-style idempotence
-                // for the master write).
-                $this->announcement->recordAlreadyCreated();
+                // for the master write) UNLESS D-31's rotation precondition
+                // holds, in which case the password itself is the one thing
+                // that does need rewriting.
                 $this->insertTenantUserIfAbsent($master, $tenantId, $journalledUserId, $employeeId, isDefault: true);
 
-                return ['mode' => 'created', 'user_id' => $journalledUserId];
+                /** @var object{must_change_password: mixed, last_login_at: mixed} $existing */
+                if ((bool) $existing->must_change_password && $existing->last_login_at === null) {
+                    $password = $this->rotatePassword($master, $journalledUserId);
+
+                    return ['mode' => 'rotated', 'user_id' => $journalledUserId, 'password' => $password];
+                }
+
+                return ['mode' => 'already_created', 'user_id' => $journalledUserId];
             }
 
             // D-30: attach. Nothing on the existing row is modified.
-            $this->announcement->recordAttached();
             $this->insertTenantUserIfAbsent($master, $tenantId, $existingId, $employeeId, isDefault: false);
 
             return ['mode' => 'attached', 'user_id' => $existingId];
         });
 
         return $outcome;
+    }
+
+    /**
+     * D-31. Generates a fresh password for a `users` row this run itself
+     * created on an earlier, since-crashed attempt, provably never used
+     * (checked by the caller, inside the same transaction as this write).
+     * `must_change_password` is left `true` - it already was - and nothing
+     * else on the row changes.
+     */
+    private function rotatePassword(Connection $master, string $userId): string
+    {
+        $password = CredentialGenerator::generate()->reveal();
+
+        $master->table('users')->where('id', $userId)->update([
+            'password_hash' => Hash::make($password),
+            'updated_at' => $this->clock->timestamp(),
+        ]);
+
+        return $password;
     }
 
     /**

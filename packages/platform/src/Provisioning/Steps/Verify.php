@@ -30,18 +30,23 @@ use Illuminate\Database\DatabaseManager;
  * `docs/decisions` states outright, so a false-positive two steps back cannot
  * compound into `activate` running against an unverified tenant.
  *
- * **Six assertions, each named in its own refusal** (AC-32): the migrated
+ * **Seven assertions, each named in its own refusal** (AC-32): the migrated
  * schema's `migrations` table is exactly `migrate_remainder`'s own target
  * set, no more and no fewer; the `permissions`/`roles` tables hold `owner`
  * with every declared key ({@see TenantAccessBootstrap::ownerMissingKeys()});
  * `schema_meta`'s `tenant_id` row matches this tenant's own master id
  * ({@see SchemaMetaIdentity::of()}, closing AC-25a's loop); the branch
  * `seed_core` created still exists; the owner employee `create_owner`
- * created is attached to that branch and holds `owner`; and the master
- * `tenant_users` row links that run's own user to this tenant. Any mismatch
- * fails this step with the specific assertion named, and `activate` never
- * runs - it is the next step in sequence, and this step throwing stops the
- * run exactly as every other step's failure does.
+ * created is attached to that branch and holds `owner`; and the owner
+ * employee ↔ master `tenant_users` link, checked in **both** directions
+ * (review round 1 W-8): the tenant-side employee's own `user_id` names
+ * `create_owner`'s journalled user, AND the master `tenant_users` row for
+ * that exact (tenant, user) pair names that same employee back - closing
+ * both ends of the loop rather than only confirming a row with the right
+ * user id exists somewhere. Any mismatch fails this step with the specific
+ * assertion named, and `activate` never runs - it is the next step in
+ * sequence, and this step throwing stops the run exactly as every other
+ * step's failure does.
  *
  * **Ruling 6's pre-check**, same as `seed_core`/`create_owner`: this tenant's
  * `tenant_databases.status` must still be `provisioning` before the tenant
@@ -79,9 +84,11 @@ final class Verify implements ProvisioningStep
             $this->set()->catalogue()
         );
 
+        $ownerEmployeeId = null;
+
         $this->tenancy->run(
             $tenantId,
-            function () use ($tenantId, $branchId, $expectedMigrations): void {
+            function () use ($tenantId, $branchId, $expectedMigrations, $expectedUserId, &$ownerEmployeeId): void {
                 $connection = $this->tenantConnection();
 
                 $actualMigrations = $connection->table('migrations')
@@ -126,18 +133,40 @@ final class Verify implements ProvisioningStep
                 if (! $owner['holds_owner']) {
                     throw PlatformRefused::validation('verify: the owner employee does not hold the owner role.');
                 }
+
+                // Direction 1 (tenant -> master): the employee this tenant
+                // actually holds as OWNER must itself be linked to the exact
+                // user create_owner journalled - not merely some tenant_users
+                // row existing for that user elsewhere (review round 1 W-8).
+                if ($owner['user_id'] !== $expectedUserId) {
+                    throw PlatformRefused::validation(
+                        "verify: the owner employee's own user_id is [".($owner['user_id'] ?? 'null')."], expected [{$expectedUserId}]."
+                    );
+                }
+
+                $ownerEmployeeId = $owner['employee_id'];
             },
             TenantConnectionPurpose::Migrating
         );
 
-        $linked = $this->master->get()->table('tenant_users')
+        $link = $this->master->get()->table('tenant_users')
             ->where('tenant_id', $tenantId)
             ->where('user_id', $expectedUserId)
-            ->exists();
+            ->first();
 
-        if (! $linked) {
+        if ($link === null) {
             throw PlatformRefused::validation(
                 "verify: no tenant_users row links user [{$expectedUserId}] to tenant [{$tenantId}]."
+            );
+        }
+
+        // Direction 2 (master -> tenant): that same tenant_users row must
+        // name the owner employee back, not some other employee (review
+        // round 1 W-8's other half).
+        /** @var object{employee_id: ?string} $link */
+        if ((string) $link->employee_id !== (string) $ownerEmployeeId) {
+            throw PlatformRefused::validation(
+                "verify: tenant_users links user [{$expectedUserId}] to employee [".($link->employee_id ?? 'null')."], expected the owner employee [{$ownerEmployeeId}]."
             );
         }
 

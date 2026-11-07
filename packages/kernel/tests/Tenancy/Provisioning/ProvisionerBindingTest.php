@@ -39,3 +39,14 @@ it('never binds the MySQL implementation under the suite\'s own default configur
     // no test having touched the config at all - must not be the real one.
     expect(config('tenancy.provisioning.driver'))->toBe('refusing');
 });
+
+it('has TENANCY_PROVISIONING_DRIVER pinned to refusing by phpunit.xml itself (review round 1 W-6)', function () {
+    // Distinct from the test above: this one fails if phpunit.xml's own
+    // <env>/<server> pin for TENANCY_PROVISIONING_DRIVER were ever removed,
+    // even though config('tenancy.provisioning.driver') would still read
+    // "refusing" from config/tenancy.php's own unset-env default in that
+    // case - this assertion is on the environment variable itself, the same
+    // way ENGINE_HOLD's own pin is proven by EngineHoldIgnoresTheEnvironmentTest.
+    expect($_SERVER['TENANCY_PROVISIONING_DRIVER'] ?? null)->toBe('refusing')
+        ->and($_ENV['TENANCY_PROVISIONING_DRIVER'] ?? null)->toBe('refusing');
+});
