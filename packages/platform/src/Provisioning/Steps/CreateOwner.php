@@ -13,6 +13,7 @@ use Flexipos\Kernel\Tenancy\Tenancy;
 use Flexipos\Kernel\Tenancy\TenantConnectionPurpose;
 use Flexipos\Platform\Exceptions\PlatformRefused;
 use Flexipos\Platform\Provisioning\OwnerCredentialAnnouncement;
+use Flexipos\Platform\Provisioning\OwnerPasswordReissue;
 use Flexipos\Platform\Provisioning\ProvisioningStep;
 use Flexipos\Platform\Provisioning\RunContext;
 use Flexipos\Platform\Provisioning\StepJournal;
@@ -72,9 +73,14 @@ use Illuminate\Support\Str;
  * `last_login_at IS NULL`), the password is rotated and the new one is
  * announced (`OwnerCredentialAnnouncement::recordRotated()`) rather than
  * silently reporting "already shown" with no way to recover it. A single
- * successful sign-in anywhere closes this path for that row permanently -
- * the precondition is read from the same row this method already fetched,
- * inside the same transaction as the rotation itself.
+ * successful sign-in anywhere closes this path for that row permanently.
+ * Review round 2's addendum to D-31 extracted the precondition check and
+ * the rotation write out of this class into {@see OwnerPasswordReissue} - a
+ * small shared service, re-read under its own `lockForUpdate()` rather than
+ * trusting the peek this method already took - so the exact same rule also
+ * answers `ProvisionTenantHandler::resume()` and the new
+ * `--reissue-owner-password` command for a process that died after this
+ * step was already `done`.
  */
 final class CreateOwner implements ProvisioningStep
 {
@@ -91,6 +97,7 @@ final class CreateOwner implements ProvisioningStep
         private readonly TenantAccessBootstrap $access,
         private readonly RunnerClock $clock,
         private readonly OwnerCredentialAnnouncement $announcement,
+        private readonly OwnerPasswordReissue $reissue,
     ) {}
 
     /**
@@ -240,14 +247,16 @@ final class CreateOwner implements ProvisioningStep
                 // on the users row is written again (AC-17-style idempotence
                 // for the master write) UNLESS D-31's rotation precondition
                 // holds, in which case the password itself is the one thing
-                // that does need rewriting.
+                // that does need rewriting - delegated whole to
+                // OwnerPasswordReissue (review round 2), re-checked under its
+                // own lockForUpdate() rather than trusting this transaction's
+                // own earlier, unlocked peek.
                 $this->insertTenantUserIfAbsent($master, $tenantId, $journalledUserId, $employeeId, isDefault: true);
 
-                /** @var object{must_change_password: mixed, last_login_at: mixed} $existing */
-                if ((bool) $existing->must_change_password && $existing->last_login_at === null) {
-                    $password = $this->rotatePassword($master, $journalledUserId);
+                $reissued = $this->reissue->reissue($journalledUserId);
 
-                    return ['mode' => 'rotated', 'user_id' => $journalledUserId, 'password' => $password];
+                if ($reissued['eligible']) {
+                    return ['mode' => 'rotated', 'user_id' => $journalledUserId, 'password' => (string) $reissued['password']];
                 }
 
                 return ['mode' => 'already_created', 'user_id' => $journalledUserId];
@@ -260,25 +269,6 @@ final class CreateOwner implements ProvisioningStep
         });
 
         return $outcome;
-    }
-
-    /**
-     * D-31. Generates a fresh password for a `users` row this run itself
-     * created on an earlier, since-crashed attempt, provably never used
-     * (checked by the caller, inside the same transaction as this write).
-     * `must_change_password` is left `true` - it already was - and nothing
-     * else on the row changes.
-     */
-    private function rotatePassword(Connection $master, string $userId): string
-    {
-        $password = CredentialGenerator::generate()->reveal();
-
-        $master->table('users')->where('id', $userId)->update([
-            'password_hash' => Hash::make($password),
-            'updated_at' => $this->clock->timestamp(),
-        ]);
-
-        return $password;
     }
 
     /**

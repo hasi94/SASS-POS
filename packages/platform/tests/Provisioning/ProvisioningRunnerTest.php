@@ -384,6 +384,83 @@ it('aborts mid-run, with no further write, when another worker claims the run un
     expect($reserveRow->status)->toBe('running');
 });
 
+it('never flips a step to running or moves current_step once the lease was already lost before the iteration starts (review round 2 W-3)', function () {
+    $runner = provisioningRunner();
+    $order = [StepName::ReserveIdentity, StepName::SelectServer];
+    $runId = $runner->plan('create', [], null, 'worker-1', $order);
+
+    // A stale takeover that already happened asynchronously, before this
+    // process's own run() call even starts its first iteration - worker-1
+    // no longer owns this run by the time the loop below runs at all.
+    PlatformSeed::connection()->table('tenant_provisioning_runs')->where('id', $runId)->update([
+        'claimed_by' => 'worker-2',
+    ]);
+
+    $neverRan = new CountingFakeStep;
+
+    expect(fn () => $runner->run($runId, [
+        'reserve_identity' => $neverRan,
+        'select_server' => new CountingFakeStep,
+    ], [], null, 'worker-1'))->toThrow(ProvisioningRunRefused::class);
+
+    // Before this fix, markStepRunning/setCurrentStep ran unchecked ahead
+    // of touchHeartbeat's own lease check, so the step row would already
+    // show `running`/attempts=1 even though worker-1 never actually held
+    // the lease for this iteration.
+    expect($neverRan->runs)->toBe(0);
+
+    $reserveRow = PlatformSeed::connection()->table('tenant_provisioning_steps')
+        ->where('run_id', $runId)->where('step', 'reserve_identity')->first();
+
+    expect($reserveRow->status)->toBe('pending')
+        ->and((int) $reserveRow->attempts)->toBe(0);
+
+    $run = PlatformSeed::connection()->table('tenant_provisioning_runs')->where('id', $runId)->first();
+    expect($run->current_step)->toBe('reserve_identity');
+});
+
+/**
+ * Steals the lease from inside its own run(), after markStepRunning and
+ * setCurrentStep have already committed for this (still legitimate at that
+ * point) worker, then tries to journal - the writeStepOutput half of W-3.
+ */
+final class StealsLeaseThenWritesFakeStep implements ProvisioningStep
+{
+    public function run(RunContext $context, StepJournal $journal): array
+    {
+        PlatformSeed::connection()->table('tenant_provisioning_runs')
+            ->where('id', $context->runId)
+            ->update(['claimed_by' => 'worker-2']);
+
+        $journal->write(['should_not_persist' => true]);
+
+        return [];
+    }
+
+    public function compensate(RunContext $context): ?string
+    {
+        return null;
+    }
+}
+
+it('refuses a step journal write once the lease has been lost mid-step, and never persists it (review round 2 W-3)', function () {
+    $runner = provisioningRunner();
+    $order = [StepName::ReserveIdentity];
+    $runId = $runner->plan('create', [], null, 'worker-1', $order);
+
+    expect(fn () => $runner->run($runId, [
+        'reserve_identity' => new StealsLeaseThenWritesFakeStep,
+    ], [], null, 'worker-1'))->toThrow(ProvisioningRunRefused::class);
+
+    $reserveRow = PlatformSeed::connection()->table('tenant_provisioning_steps')
+        ->where('run_id', $runId)->where('step', 'reserve_identity')->first();
+
+    // Before this fix, writeStepOutput wrote unconditionally: the journal
+    // entry would survive even though the lease that "wrote" it was
+    // already gone.
+    expect($reserveRow->output)->toBeNull();
+});
+
 it('lets exactly one of two sequential claims on a stale run win', function () {
     $runner = provisioningRunner();
     $order = [StepName::ReserveIdentity];

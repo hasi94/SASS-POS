@@ -44,7 +44,8 @@ final class ProvisionTenantCommand extends Command
         {--server= : Override automatic server selection}
         {--actor= : The acting platform user id, recorded on this run\'s audit rows}
         {--resume= : Resume an existing run by id}
-        {--abandon= : Abandon an existing run by id}';
+        {--abandon= : Abandon an existing run by id}
+        {--reissue-owner-password= : Reissue the owner\'s one-time password for a run whose create_owner step already succeeded, including an already-completed run}';
 
     protected $description = 'Create a tenant end to end: database, schema, seed data and an owner login, in one resumable run';
 
@@ -69,6 +70,7 @@ final class ProvisionTenantCommand extends Command
                 actorUserId: $this->stringOption('actor'),
                 resumeRunId: $this->stringOption('resume'),
                 abandonRunId: $this->stringOption('abandon'),
+                reissueOwnerPasswordRunId: $this->stringOption('reissue-owner-password'),
             ));
         } catch (RuntimeException|LogicException $refused) {
             // Review round 1 R-1: if a created/rotated owner password was
@@ -118,6 +120,18 @@ final class ProvisionTenantCommand extends Command
             ),
             'attached' => $this->components->info('The owner email already had a login; it was attached to this tenant.'),
             'already_created' => $this->components->info('The initial password was shown when it was created.'),
+            // Review round 2 R-3: reached only from a resume (or
+            // --reissue-owner-password) that found create_owner's own
+            // output already password-bearing but nobody ever saw it in
+            // this process - never silence either outcome.
+            'already_signed_in' => $this->components->info(
+                "The owner's one-time password from an earlier, crashed attempt could not be recovered: the login "
+                .'has already been signed into (or its password already changed) since, so nothing was reissued.'
+            ),
+            'nothing_to_reissue' => $this->components->info(
+                'This run has no owner password to reissue: create_owner has not succeeded yet, or the owner email '
+                .'was attached to an existing login rather than creating a new one.'
+            ),
             default => null,
         };
     }

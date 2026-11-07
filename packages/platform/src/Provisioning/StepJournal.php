@@ -17,6 +17,13 @@ namespace Flexipos\Platform\Provisioning;
  * part" checks on resume. `outputOf()` reads a different, already-`done`
  * step's output - the cross-step references later steps need (a reserved
  * tenant id, a selected server id, a created branch id).
+ *
+ * `$claimedBy` (review round 2 W-3) is the worker id {@see ProvisioningRunner}
+ * constructs this journal with for every real step execution, so `write()`
+ * is refused the instant this process's lease on the run is gone, not only
+ * on the runner's own later, already-checked writes. It is `null` only when
+ * a test constructs a journal directly to seed an earlier step's output as
+ * a fixture, outside the runner entirely.
  */
 final class StepJournal
 {
@@ -24,6 +31,7 @@ final class StepJournal
         private readonly ProvisioningRuns $runs,
         public readonly string $runId,
         public readonly StepName $step,
+        private readonly ?string $claimedBy = null,
     ) {}
 
     /**
@@ -31,7 +39,7 @@ final class StepJournal
      */
     public function write(array $output): void
     {
-        $this->runs->writeStepOutput($this->runId, $this->step->value, $output);
+        $this->runs->writeStepOutput($this->runId, $this->step->value, $output, $this->claimedBy);
     }
 
     /**

@@ -9,7 +9,9 @@ use Flexipos\Platform\Exceptions\PlatformRefused;
 use Flexipos\Platform\Features\AbandonProvisioning\AbandonProvisioning;
 use Flexipos\Platform\Features\AbandonProvisioning\AbandonProvisioningHandler;
 use Flexipos\Platform\Provisioning\OwnerCredentialAnnouncement;
+use Flexipos\Platform\Provisioning\OwnerPasswordReissue;
 use Flexipos\Platform\Provisioning\ProvisioningRunner;
+use Flexipos\Platform\Provisioning\ProvisioningRunRefused;
 use Flexipos\Platform\Provisioning\ProvisioningStep;
 use Flexipos\Platform\Provisioning\StepName;
 use Flexipos\Platform\Support\MasterConnection;
@@ -49,12 +51,21 @@ final class ProvisionTenantHandler
         private readonly ProvisioningRunner $runner,
         private readonly Container $container,
         private readonly AbandonProvisioningHandler $abandon,
+        private readonly OwnerPasswordReissue $reissue,
     ) {}
 
     public function handle(ProvisionTenant $command): ProvisionTenantResult
     {
-        if ($command->resumeRunId !== null && $command->abandonRunId !== null) {
-            throw PlatformRefused::validation('The --resume and --abandon options may not be combined.');
+        $exclusive = array_filter([
+            $command->resumeRunId,
+            $command->abandonRunId,
+            $command->reissueOwnerPasswordRunId,
+        ], static fn (?string $value): bool => $value !== null);
+
+        if (count($exclusive) > 1) {
+            throw PlatformRefused::validation(
+                'The --resume, --abandon and --reissue-owner-password options may not be combined.'
+            );
         }
 
         if ($command->resumeRunId !== null) {
@@ -69,6 +80,10 @@ final class ProvisionTenantHandler
                 status: $result->status,
                 abandonMessage: $result->message,
             );
+        }
+
+        if ($command->reissueOwnerPasswordRunId !== null) {
+            return $this->reissueOwnerPassword($command->reissueOwnerPasswordRunId);
         }
 
         $input = ProvisionTenantInput::validate($command, $this->master, $this->defaultBranch);
@@ -95,7 +110,75 @@ final class ProvisionTenantHandler
 
         $this->execute($runId, $input, $actorUserId);
 
-        return $this->result($runId);
+        return $this->reissueIfAnnouncementIsEmpty($this->result($runId));
+    }
+
+    /**
+     * Review round 2 R-3 (the residual half of R-1): `create_owner` is
+     * skipped on resume once it is already `done`, so a process that
+     * crashed *after* that step committed - during `verify`/`activate`/
+     * `markRunCompleted`, or any non-`Throwable` death (SIGTERM, an SSH
+     * disconnect, OOM, a PHP fatal) - never re-announces anything on this
+     * attempt. {@see self::result()}'s announcement is correctly `null` in
+     * that case; this reaches for `create_owner`'s own journalled output
+     * instead, and if it shows a password-bearing mode nobody has ever
+     * reported, reissues through {@see OwnerPasswordReissue} - the same
+     * precondition D-31 already defined, never silent either way.
+     */
+    private function reissueIfAnnouncementIsEmpty(ProvisionTenantResult $result): ProvisionTenantResult
+    {
+        if ($result->ownerMode !== null) {
+            return $result;
+        }
+
+        $createOwnerOutput = $this->runner->stepOutput($result->runId, StepName::CreateOwner);
+        $mode = $createOwnerOutput['mode'] ?? null;
+
+        if (! in_array($mode, ['created', 'rotated'], true)) {
+            return $result;
+        }
+
+        return $this->reissueResultFor($result->runId, $result->status, (string) $createOwnerOutput['user_id']);
+    }
+
+    /**
+     * Review round 2 R-3: works against a `completed` run too - the
+     * precondition (never signed in), not the run's own status, is what
+     * gates it, so this never goes through {@see ProvisioningRunner::claim()}
+     * at all.
+     */
+    private function reissueOwnerPassword(string $runId): ProvisionTenantResult
+    {
+        $run = $this->runner->find($runId);
+
+        if ($run === null) {
+            throw ProvisioningRunRefused::notFound($runId);
+        }
+
+        $createOwnerOutput = $this->runner->stepOutput($runId, StepName::CreateOwner);
+        $mode = $createOwnerOutput['mode'] ?? null;
+
+        if (! in_array($mode, ['created', 'rotated'], true)) {
+            return new ProvisionTenantResult($runId, (string) $run['status'], 'nothing_to_reissue');
+        }
+
+        return $this->reissueResultFor($runId, (string) $run['status'], (string) $createOwnerOutput['user_id']);
+    }
+
+    /**
+     * The one place both callers above turn an eligible/ineligible
+     * {@see OwnerPasswordReissue} outcome into a result - so the two paths
+     * cannot drift into two different sentences for the same outcome.
+     */
+    private function reissueResultFor(string $runId, string $status, string $userId): ProvisionTenantResult
+    {
+        $reissued = $this->reissue->reissue($userId);
+
+        if ($reissued['eligible']) {
+            return new ProvisionTenantResult($runId, $status, 'rotated', (string) $reissued['password']);
+        }
+
+        return new ProvisionTenantResult($runId, $status, 'already_signed_in');
     }
 
     /**

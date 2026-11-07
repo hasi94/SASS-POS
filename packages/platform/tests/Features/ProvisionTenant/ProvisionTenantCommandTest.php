@@ -58,11 +58,37 @@ it('refuses --resume combined with --abandon, with nothing written', function ()
         '--resume' => '01J0000000000000000000000A',
         '--abandon' => '01J0000000000000000000000B',
     ]);
+    $output = Artisan::output();
 
     expect($exitCode)->not->toBe(0)
-        ->and(Artisan::output())->toContain('--resume and --abandon');
+        ->and($output)->toContain('--resume')
+        ->and($output)->toContain('--abandon')
+        ->and($output)->toContain('may not be combined');
 
     assertNothingWasWritten();
+});
+
+it('refuses --resume combined with --reissue-owner-password, with nothing written (review round 2 R-3)', function () {
+    $exitCode = Artisan::call('tenant:provision', [
+        '--resume' => '01J0000000000000000000000A',
+        '--reissue-owner-password' => '01J0000000000000000000000B',
+    ]);
+    $output = Artisan::output();
+
+    expect($exitCode)->not->toBe(0)
+        ->and($output)->toContain('--reissue-owner-password')
+        ->and($output)->toContain('may not be combined');
+
+    assertNothingWasWritten();
+});
+
+it('--reissue-owner-password refuses a run that does not exist, through the same plumbing as --resume (review round 2 R-3)', function () {
+    $exitCode = Artisan::call('tenant:provision', [
+        '--reissue-owner-password' => '01J0000000000000000000000D',
+    ]);
+
+    expect($exitCode)->not->toBe(0)
+        ->and(Artisan::output())->toContain('No provisioning run');
 });
 
 it('refuses --resume naming a run that does not exist', function () {

@@ -83,6 +83,35 @@ final class ProvisioningRunner
     }
 
     /**
+     * A single step's own journalled output, read without claiming
+     * anything - used by a caller that needs to answer a question about an
+     * already-`done` step without re-running it (review round 2 R-3:
+     * `ProvisionTenantHandler::resume()` and `--reissue-owner-password`
+     * both need `create_owner`'s own output after it has been skipped as
+     * already done).
+     *
+     * @return array<string, mixed>
+     */
+    public function stepOutput(string $runId, StepName $step): array
+    {
+        return $this->runs->stepOutput($runId, $step->value);
+    }
+
+    /**
+     * The raw run row, or null - read without claiming anything, so a
+     * caller can answer for a run regardless of its status (review round 2
+     * R-3's `--reissue-owner-password`, which must also work against an
+     * already-`completed` run that {@see self::claim()} would otherwise
+     * refuse outright).
+     *
+     * @return array<string, mixed>|null
+     */
+    public function find(string $runId): ?array
+    {
+        return $this->runs->find($runId);
+    }
+
+    /**
      * Runs every step of `$steps`, in the order given, skipping any already
      * `done` (AC-3, AC-4). `$input`/`$initiatedBy` build the `RunContext`
      * every step is handed.
@@ -112,12 +141,16 @@ final class ProvisioningRunner
                 continue;
             }
 
+            // Review round 2 W-3: touchHeartbeat (already lease-checked)
+            // runs first, before either of the two writes below gets a
+            // chance to flip this step to `running` or move `current_step`
+            // under a lease this worker has already lost.
             $now = $this->clock->timestamp();
-            $this->runs->markStepRunning($runId, $name, $now);
-            $this->runs->setCurrentStep($runId, $name, $now);
             $this->runs->touchHeartbeat($runId, $claimedBy, $now);
+            $this->runs->markStepRunning($runId, $claimedBy, $name, $now);
+            $this->runs->setCurrentStep($runId, $claimedBy, $name, $now);
 
-            $journal = new StepJournal($this->runs, $runId, $stepName);
+            $journal = new StepJournal($this->runs, $runId, $stepName, $claimedBy);
 
             try {
                 $output = $step->run($context, $journal);

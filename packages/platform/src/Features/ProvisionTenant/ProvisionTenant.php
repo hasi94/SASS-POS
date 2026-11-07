@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Flexipos\Platform\Features\ProvisionTenant;
 
+use Flexipos\Platform\Provisioning\OwnerPasswordReissue;
+
 /**
  * The raw, unvalidated submission behind `tenant:provision` (T-026 AC-1,
  * D-28).
@@ -35,5 +37,13 @@ final class ProvisionTenant
         public readonly ?string $actorUserId = null,
         public readonly ?string $resumeRunId = null,
         public readonly ?string $abandonRunId = null,
+        /**
+         * Review round 2 R-3: reissues the owner's one-time password for a
+         * run whose `create_owner` step already succeeded, through
+         * {@see OwnerPasswordReissue} -
+         * works against a `completed` run too, since the precondition
+         * (never signed in), not the run's own status, is what gates it.
+         */
+        public readonly ?string $reissueOwnerPasswordRunId = null,
     ) {}
 }

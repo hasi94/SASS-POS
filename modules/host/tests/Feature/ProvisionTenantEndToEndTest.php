@@ -199,6 +199,7 @@ function e2eCommand(string $code, array $overrides = []): ProvisionTenant
         'actorUserId' => null,
         'resumeRunId' => null,
         'abandonRunId' => null,
+        'reissueOwnerPasswordRunId' => null,
     ];
 
     $merged = array_merge($defaults, $overrides);
@@ -221,6 +222,7 @@ function e2eCommand(string $code, array $overrides = []): ProvisionTenant
         actorUserId: $merged['actorUserId'],
         resumeRunId: $merged['resumeRunId'],
         abandonRunId: $merged['abandonRunId'],
+        reissueOwnerPasswordRunId: $merged['reissueOwnerPasswordRunId'],
     );
 }
 
@@ -565,4 +567,124 @@ it('prints the owner password before the error when a later step fails after cre
     $output = $buffer->fetch();
     expect($output)->toContain('Owner login created. Initial password:')
         ->and($output)->toContain('simulated crash');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Review round 2 R-3 (the residual half of R-1): a crash AFTER create_owner
+| is already `done` - during verify, activate, markRunCompleted, or any
+| non-Throwable death - still recovers the password on resume, and
+| --reissue-owner-password answers the same question for a run nobody ever
+| resumes at all.
+|--------------------------------------------------------------------------
+*/
+it('recovers the owner password on resume when the crash happens after create_owner is already done, not only right after it (review round 2 R-3)', function () {
+    $stepClass = 'Flexipos\\Platform\\Provisioning\\Steps\\Verify';
+
+    E2eCrashOnceStep::$armed = true;
+    app()->extend($stepClass, static fn (ProvisioningStep $built): ProvisioningStep => new E2eCrashOnceStep($built));
+
+    $code = 'TEN211';
+
+    $caught = null;
+
+    try {
+        e2eProvision($code);
+    } catch (RuntimeException $exception) {
+        $caught = $exception;
+    }
+
+    expect($caught)->not->toBeNull();
+
+    $run = PlatformSeed::connection()->table('tenant_provisioning_runs')->where('type', 'create')->orderByDesc('created_at')->first();
+    expect($run)->not->toBeNull()
+        ->and($run->status)->toBe('failed');
+
+    $createOwnerStep = PlatformSeed::connection()->table('tenant_provisioning_steps')
+        ->where('run_id', $run->id)->where('step', 'create_owner')->first();
+    expect($createOwnerStep->status)->toBe('done');
+
+    $verifyStep = PlatformSeed::connection()->table('tenant_provisioning_steps')
+        ->where('run_id', $run->id)->where('step', 'verify')->first();
+    expect($verifyStep->status)->toBe('failed');
+
+    // The announcement from create_owner's own, already-finished attempt is
+    // gone - exactly what a real process restart would start with. Nothing
+    // in this attempt's own run() call ever touches create_owner again (it
+    // is skipped as already done), so without the fix this stays null.
+    app()->forgetInstance(OwnerCredentialAnnouncement::class);
+
+    $resumed = app(ProvisionTenantHandler::class)->handle(e2eCommand($code, [
+        'resumeRunId' => (string) $run->id,
+    ]));
+
+    expect($resumed->status)->toBe('completed')
+        ->and($resumed->ownerMode)->toBe('rotated')
+        ->and($resumed->ownerPassword)->toBeString()
+        ->and($resumed->ownerPassword)->not->toBe('');
+
+    $login = authFixtureLoginHandler()->handle(new Login(
+        email: strtolower($code).'-owner@example.com',
+        password: (string) $resumed->ownerPassword,
+        ip: '203.0.113.12',
+        userAgent: 'FlexiPOS/1.0',
+        deviceId: 'till-e2e-r3',
+    ));
+
+    expect($login->mustChangePassword)->toBeTrue();
+});
+
+it('reissues the owner password for a run through --reissue-owner-password, including an already-completed run, and refuses once signed in (review round 2 R-3)', function () {
+    $code = 'TEN212';
+
+    $result = e2eProvision($code);
+
+    expect($result->status)->toBe('completed')
+        ->and($result->ownerMode)->toBe('created');
+
+    $firstPassword = (string) $result->ownerPassword;
+
+    // The run is already `completed` - claim() would refuse this outright,
+    // but the precondition (never signed in), not the run's own status, is
+    // what gates a reissue.
+    $run = PlatformSeed::connection()->table('tenant_provisioning_runs')->where('id', $result->runId)->first();
+    expect($run->status)->toBe('completed');
+
+    $reissued = app(ProvisionTenantHandler::class)->handle(e2eCommand($code, [
+        'reissueOwnerPasswordRunId' => $result->runId,
+    ]));
+
+    expect($reissued->ownerMode)->toBe('rotated')
+        ->and($reissued->ownerPassword)->toBeString()
+        ->and($reissued->ownerPassword)->not->toBe($firstPassword);
+
+    // The reissued password actually works.
+    $login = authFixtureLoginHandler()->handle(new Login(
+        email: strtolower($code).'-owner@example.com',
+        password: (string) $reissued->ownerPassword,
+        ip: '203.0.113.13',
+        userAgent: 'FlexiPOS/1.0',
+        deviceId: 'till-e2e-reissue',
+    ));
+
+    expect($login->mustChangePassword)->toBeTrue();
+
+    // Having now signed in once, a second reissue attempt must refuse
+    // explicitly rather than silently reporting nothing.
+    $refused = app(ProvisionTenantHandler::class)->handle(e2eCommand($code, [
+        'reissueOwnerPasswordRunId' => $result->runId,
+    ]));
+
+    expect($refused->ownerMode)->toBe('already_signed_in')
+        ->and($refused->ownerPassword)->toBeNull();
+
+    // The password from the login above still works - a refused reissue
+    // changes nothing on the row.
+    authFixtureLoginHandler()->handle(new Login(
+        email: strtolower($code).'-owner@example.com',
+        password: (string) $reissued->ownerPassword,
+        ip: '203.0.113.14',
+        userAgent: 'FlexiPOS/1.0',
+        deviceId: 'till-e2e-reissue-2',
+    ));
 });

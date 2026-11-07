@@ -4,6 +4,7 @@ use Flexipos\Kernel\Tenancy\Provisioning\Contracts\ProvisioningServer;
 use Flexipos\Kernel\Tenancy\Provisioning\DatabaseState;
 use Flexipos\Kernel\Tenancy\Provisioning\MySqlTenantDatabaseProvisioner;
 use Flexipos\Kernel\Tenancy\Provisioning\ProvisionerStatements;
+use Flexipos\Kernel\Tenancy\Provisioning\TenantDatabaseNames;
 use Flexipos\Kernel\Tenancy\Provisioning\TenantGrant;
 use Flexipos\Kernel\Tenancy\Secrets\CredentialGenerator;
 use Flexipos\Testing\Engine\EngineConnection;
@@ -32,9 +33,18 @@ use Flexipos\Testing\Engine\EngineConnection;
 | default to `127.0.0.1`/`13306` - this project's docker-compose.yml's own
 | published MySQL port, never XAMPP's `3306`. {@see assertNotTheXamppEngine()}
 | refuses outright, before any connection is attempted, if the resolved
-| host:port is `127.0.0.1:3306` regardless of how it got there (an
-| operator's own override included) - the one thing a comment alone cannot
-| enforce.
+| port is `3306` on any loopback host - `127.0.0.0/8`, `localhost`, `::1`
+| - regardless of how it got there (an operator's own override included).
+|
+| **Review round 2 W-5.** Two gaps in round 1's own fix, both closed here:
+| (a) `assertNotTheXamppEngine()` previously refused only the literal
+| `127.0.0.1:3306`, letting `localhost:3306`/`::1:3306`/`127.0.0.2:3306`
+| through - now any loopback address on port 3306 is refused, matching
+| this docblock's own original claim rather than its narrower code; (b) the
+| random database-name suffix below was hex, which would fail
+| `TenantDatabaseNames::assertDatabaseName()`'s own `[0-9]{6,}` requirement
+| the moment `ENGINE_HOLD` lifts - fails safe today (skipped), but wrong -
+| so it is digits only now.
 |
 | **Cleanup so a second run doesn't fail its own precondition.** The
 | database/user names are suffixed with a fresh random token per run,
@@ -59,17 +69,32 @@ use Flexipos\Testing\Engine\EngineConnection;
 */
 
 /**
+ * Review round 2 W-5: any loopback address, not only the literal
+ * `127.0.0.1` - `127.0.0.0/8`, `localhost`, and `::1` all resolve to the
+ * same machine, and the shared XAMPP engine answers on all of them.
+ */
+function isLoopbackHost(string $host): bool
+{
+    if ($host === 'localhost' || $host === '::1') {
+        return true;
+    }
+
+    return preg_match('/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/', $host) === 1;
+}
+
+/**
  * @throws RuntimeException the resolved host:port is the shared XAMPP
- *                          engine's own default - this test must never
- *                          connect to it, under any configuration
+ *                          engine's own default (any loopback address,
+ *                          port 3306) - this test must never connect to
+ *                          it, under any configuration
  */
 function assertNotTheXamppEngine(string $host, int $port): void
 {
-    if ($host === '127.0.0.1' && $port === 3306) {
+    if ($port === 3306 && isLoopbackHost($host)) {
         throw new RuntimeException(
-            'TenantProvisionerEngineTest refuses to run against 127.0.0.1:3306 - that is the shared XAMPP '
-            .'engine ENGINE_HOLD protects, never T-023\'s disposable Docker instance. Point '
-            .'tenancy.provisioning.engine_test_host/engine_test_port at the Docker-compose MySQL port instead.'
+            'TenantProvisionerEngineTest refuses to run against port 3306 on a loopback host ['.$host.'] - '
+            .'that is the shared XAMPP engine ENGINE_HOLD protects, never T-023\'s disposable Docker instance. '
+            .'Point tenancy.provisioning.engine_test_host/engine_test_port at the Docker-compose MySQL port instead.'
         );
     }
 }
@@ -81,6 +106,37 @@ it('refuses outright to run against the shared XAMPP engine default, with no con
     // both pass.
     assertNotTheXamppEngine('127.0.0.1', 13306);
     assertNotTheXamppEngine('mysql-docker-host', 3306);
+});
+
+it('refuses every loopback spelling on port 3306, not only the literal 127.0.0.1 (review round 2 W-5)', function () {
+    expect(fn () => assertNotTheXamppEngine('localhost', 3306))->toThrow(RuntimeException::class, 'XAMPP')
+        ->and(fn () => assertNotTheXamppEngine('::1', 3306))->toThrow(RuntimeException::class, 'XAMPP')
+        ->and(fn () => assertNotTheXamppEngine('127.0.0.2', 3306))->toThrow(RuntimeException::class, 'XAMPP')
+        ->and(fn () => assertNotTheXamppEngine('127.255.255.255', 3306))->toThrow(RuntimeException::class, 'XAMPP');
+
+    // Still not refused: a loopback host on a non-3306 port, or a real
+    // (non-loopback) host on 3306.
+    assertNotTheXamppEngine('localhost', 13306);
+    assertNotTheXamppEngine('mysql-docker-host', 3306);
+});
+
+it('generates a digits-only suffix that TenantDatabaseNames itself accepts (review round 2 W-5)', function () {
+    // Not gated on ENGINE_HOLD: this only proves the naming shape is still
+    // legal, which needs no live server - the actual defect (a hex suffix)
+    // would only have surfaced once ENGINE_HOLD lifted and this test
+    // stopped skipping, which is exactly what this assertion catches now
+    // instead.
+    $suffix = '9'.str_pad((string) random_int(0, 99999), 5, '0', STR_PAD_LEFT);
+    $name = 'flx_t_'.$suffix;
+    $appUser = 'flx_t'.$suffix.'_app';
+    $migrateUser = 'flx_t'.$suffix.'_mig';
+
+    expect(fn () => TenantDatabaseNames::assertDatabaseName($name))
+        ->not->toThrow(Throwable::class);
+    expect(fn () => TenantDatabaseNames::assertUsername($appUser))
+        ->not->toThrow(Throwable::class);
+    expect(fn () => TenantDatabaseNames::assertUsername($migrateUser))
+        ->not->toThrow(Throwable::class);
 });
 
 it('creates a database and two scoped users with no password ever appearing in clear', function () {
@@ -98,10 +154,14 @@ it('creates a database and two scoped users with no password ever appearing in c
         'env://TENANT_PROVISIONER_ENGINE_TEST_CREDENTIAL',
     );
 
-    $suffix = substr(bin2hex(random_bytes(4)), 0, 6);
-    $name = 'flx_t_9'.$suffix;
-    $appUser = 'flx_t9'.$suffix.'_app';
-    $migrateUser = 'flx_t9'.$suffix.'_mig';
+    // Digits only (review round 2 W-5): TenantDatabaseNames::assertDatabaseName()
+    // requires `[0-9]{6,}` after the prefix - a hex suffix would fail that
+    // check the moment ENGINE_HOLD lifts. The leading '9' keeps this run's
+    // name well clear of any real tenant's sequence.
+    $suffix = '9'.str_pad((string) random_int(0, 99999), 5, '0', STR_PAD_LEFT);
+    $name = 'flx_t_'.$suffix;
+    $appUser = 'flx_t'.$suffix.'_app';
+    $migrateUser = 'flx_t'.$suffix.'_mig';
 
     /** @var MySqlTenantDatabaseProvisioner $provisioner */
     $provisioner = app(MySqlTenantDatabaseProvisioner::class);

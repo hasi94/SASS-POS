@@ -143,12 +143,23 @@ final class ProvisioningRuns
         );
     }
 
-    public function setCurrentStep(string $runId, string $step, string $now): void
+    /**
+     * Review round 2 W-3: the lease is checked here too, not only on
+     * `touchHeartbeat`/the four `mark*` writes - a worker that already lost
+     * the lease must not be able to move `current_step` either.
+     *
+     * @throws ProvisioningRunRefused the lease named by `$claimedBy` no
+     *                                longer holds this run
+     */
+    public function setCurrentStep(string $runId, string $claimedBy, string $step, string $now): void
     {
-        $this->runsTable()->where('id', $runId)->update([
-            'current_step' => $step,
-            'updated_at' => $now,
-        ]);
+        $this->assertLeaseHeld(
+            $this->runsTable()->where('id', $runId)->where('claimed_by', $claimedBy)->update([
+                'current_step' => $step,
+                'updated_at' => $now,
+            ]),
+            $runId,
+        );
     }
 
     /**
@@ -244,16 +255,28 @@ final class ProvisioningRuns
         );
     }
 
-    public function markStepRunning(string $runId, string $step, string $now): void
+    /**
+     * Review round 2 W-3: lease-guarded through the same cross-table
+     * `whereExists` {@see self::markStepDone()}/{@see self::markStepFailed()}
+     * already use - a worker that already lost the lease must not be able
+     * to flip a step to `running` either.
+     *
+     * @throws ProvisioningRunRefused the lease named by `$claimedBy` no
+     *                                longer holds this run
+     */
+    public function markStepRunning(string $runId, string $claimedBy, string $step, string $now): void
     {
-        $this->stepsTable()->where('run_id', $runId)->where('step', $step)->update([
-            'status' => 'running',
-            'attempts' => new Expression('attempts + 1'),
-            'started_at' => new Expression(
-                'coalesce(started_at, '.$this->quote($now).')'
-            ),
-            'updated_at' => $now,
-        ]);
+        $this->assertLeaseHeld(
+            $this->leaseGuardedStepsQuery($runId, $claimedBy)->where('step', $step)->update([
+                'status' => 'running',
+                'attempts' => new Expression('attempts + 1'),
+                'started_at' => new Expression(
+                    'coalesce(started_at, '.$this->quote($now).')'
+                ),
+                'updated_at' => $now,
+            ]),
+            $runId,
+        );
     }
 
     /**
@@ -261,16 +284,36 @@ final class ProvisioningRuns
      * committed on its own - never batched with the step's status (Ruling
      * 2's "intent first, then effect").
      *
+     * **`$claimedBy` is optional (review round 2 W-3).** {@see StepJournal}
+     * threads the runner's own `claimedBy` through here for every real step
+     * execution, so a worker that has already lost the lease is refused
+     * mid-step rather than being allowed to keep journalling. It stays
+     * `null` only for the direct, fixture-setup construction several step
+     * tests use to seed an earlier step's output outside the runner
+     * entirely - those never claim a lease to begin with, so there is
+     * nothing to check.
+     *
      * @param  array<string, mixed>  $output
+     *
+     * @throws ProvisioningRunRefused `$claimedBy` is given and no longer
+     *                                holds this run's lease
      */
-    public function writeStepOutput(string $runId, string $step, array $output): void
+    public function writeStepOutput(string $runId, string $step, array $output, ?string $claimedBy = null): void
     {
         $existing = $this->stepOutput($runId, $step);
         $merged = array_merge($existing, $output);
 
-        $this->stepsTable()->where('run_id', $runId)->where('step', $step)->update([
+        $query = $claimedBy === null
+            ? $this->stepsTable()->where('run_id', $runId)
+            : $this->leaseGuardedStepsQuery($runId, $claimedBy);
+
+        $affected = $query->where('step', $step)->update([
             'output' => json_encode($merged),
         ]);
+
+        if ($claimedBy !== null) {
+            $this->assertLeaseHeld($affected, $runId);
+        }
     }
 
     /**
