@@ -158,6 +158,39 @@ when the precondition fails, never silence.
 **One Suggestion:** put R-3's rotation read behind `lockForUpdate()` to close a sub-second
 concurrent-first-login race (free to add, not currently exploitable in any tested path).
 
+## Round 3 — APPROVE (fix commit `59b3553`, QA `be38000`)
+
+Reviewer re-ran the affected suites (platform Provisioning/Features, access BootstrapOwner,
+`ProvisionTenantEndToEndTest`, `TenantProvisionerEngineTest`): **237 passed, 1 skipped (the
+engine test, still held), 104.8s.**
+
+- **R-3 closed.** The rule now lives in exactly one place (`OwnerPasswordReissue`, lock-protected),
+  called from three sites (`create_owner` re-entry, `resume()`, and the new
+  `--reissue-owner-password=<run_id>` command, which skips `claim()` so it also answers for a
+  `completed` run). Never touches the wrong account (gated on `create_owner`'s own journalled
+  mode/user id — an attached existing login per D-30 can never be rotated) and never silent
+  (every outcome, including both refusal cases, prints a line).
+- **W-3 closed**, reviewer agrees with QA's coverage-note call — the check that actually catches
+  a takeover (heartbeat, then the journal write, then the `mark*` writes) is tested; the two
+  structurally-untestable guards are reasonable belt-and-braces beyond what the review required.
+- **W-5 closed** — digits-only suffix accepted by the real naming assertion; port 3306 refused
+  on every loopback form with controls proving Docker's port and a non-loopback host still work.
+
+**New Suggestions filed as follow-ups (non-blocking): FP-419 to FP-422**
+- **FP-419** `reissueOwnerPassword()` should refuse on a `running`, not-yet-stale run — reissuing
+  while the original process is still going invalidates the password it's about to print.
+- **FP-420** every resume that completes re-rotates until the owner signs in (safe — newest
+  password always printed — but the message should note any earlier one is now dead).
+- **FP-421** the other half of W-3 was correctly left undone per the review's own scope: the
+  heartbeat still doesn't move inside a long step. Document (or fix) that
+  `stale_after_minutes` must exceed the longest step's real duration.
+- **FP-422** the engine test's "digits-only suffix" case checks its own copy of the generator,
+  not the one the real test uses — move it into one shared helper.
+
+## Final verdict
+
+**APPROVE. T-026 is DONE.**
+
 ## Verdict after Round 2
 
 **CHANGES REQUESTED.** R-3 (a residual Critical) plus the W-3/W-5 gaps folded into a third fix
