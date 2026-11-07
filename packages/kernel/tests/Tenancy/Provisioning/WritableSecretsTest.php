@@ -4,7 +4,6 @@ use Flexipos\Kernel\Tenancy\Exceptions\SecretPathEscapesRoot;
 use Flexipos\Kernel\Tenancy\Exceptions\SecretWriteRefused;
 use Flexipos\Kernel\Tenancy\Exceptions\UnsupportedCredentialReference;
 use Flexipos\Kernel\Tenancy\Secrets\CredentialGenerator;
-use Flexipos\Kernel\Tenancy\Secrets\EnvSecretResolver;
 use Flexipos\Kernel\Tenancy\Secrets\FileSecretResolver;
 use Flexipos\Kernel\Tenancy\Secrets\FileSecretStore;
 use Flexipos\Kernel\Tenancy\Secrets\SchemeSecretResolver;
@@ -112,7 +111,7 @@ it('refuses an unknown scheme, both for read and write', function () {
 
         expect(fn () => $resolver->resolve('vault://something'))->toThrow(UnsupportedCredentialReference::class)
             ->and(fn () => $store->put('vault://something', new Secret('x')))
-                ->toThrow(UnsupportedCredentialReference::class);
+            ->toThrow(UnsupportedCredentialReference::class);
     } finally {
         secretsCleanup($root);
     }

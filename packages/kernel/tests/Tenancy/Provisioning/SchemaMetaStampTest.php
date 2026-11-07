@@ -3,6 +3,7 @@
 use Flexipos\Kernel\Schema\Exceptions\TenantIdentityMismatch;
 use Flexipos\Kernel\Schema\Features\MigrateTenant\SchemaMetaIdentity;
 use Flexipos\Kernel\Tenancy\Provisioning\SchemaMetaStamp;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\SQLiteConnection;
 
 /**
@@ -15,7 +16,7 @@ function schemaMetaStampFixtureConnection(): SQLiteConnection
     $pdo = new PDO('sqlite::memory:');
     $connection = new SQLiteConnection($pdo, 'schema-meta-fixture');
 
-    $connection->getSchemaBuilder()->create('schema_meta', function (\Illuminate\Database\Schema\Blueprint $table) {
+    $connection->getSchemaBuilder()->create('schema_meta', function (Blueprint $table) {
         $table->string('key', 60)->primary();
         $table->string('value', 255)->nullable();
     });

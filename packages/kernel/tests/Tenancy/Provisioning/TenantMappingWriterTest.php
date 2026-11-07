@@ -1,5 +1,6 @@
 <?php
 
+use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Flexipos\Kernel\Tenancy\Contracts\EvictsTenantMappings;
 use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
 use Flexipos\Kernel\Tenancy\Provisioning\TenantMappingWriter;
@@ -16,7 +17,7 @@ uses(TestCase::class);
  * (this test never reads through it) - the AC-19/D-19 spy the plan calls
  * for.
  */
-final class SpyingTenantDatabaseRepository implements TenantDatabaseRepository, EvictsTenantMappings
+final class SpyingTenantDatabaseRepository implements EvictsTenantMappings, TenantDatabaseRepository
 {
     /** @var list<string> */
     public array $evicted = [];
@@ -100,7 +101,7 @@ function mappingWriterRow(string $tenantId, string $serverId): array
 it('inserts exactly the given row and evicts', function () {
     [$tenantId, $serverId] = mappingWriterSeedTenant();
     $spy = new SpyingTenantDatabaseRepository;
-    $writer = new TenantMappingWriter(app('db'), app('config'), app(\Flexipos\Kernel\Schema\Support\RunnerClock::class), $spy);
+    $writer = new TenantMappingWriter(app('db'), app('config'), app(RunnerClock::class), $spy);
 
     $row = $writer->insert(mappingWriterRow($tenantId, $serverId));
 
@@ -112,7 +113,7 @@ it('inserts exactly the given row and evicts', function () {
 it('is idempotent when the row already exists, and does not re-insert', function () {
     [$tenantId, $serverId] = mappingWriterSeedTenant();
     $spy = new SpyingTenantDatabaseRepository;
-    $writer = new TenantMappingWriter(app('db'), app('config'), app(\Flexipos\Kernel\Schema\Support\RunnerClock::class), $spy);
+    $writer = new TenantMappingWriter(app('db'), app('config'), app(RunnerClock::class), $spy);
 
     $writer->insert(mappingWriterRow($tenantId, $serverId));
     $writer->insert(mappingWriterRow($tenantId, $serverId));
@@ -123,7 +124,7 @@ it('is idempotent when the row already exists, and does not re-insert', function
 it('activates with compare-and-set: a second call affects nothing', function () {
     [$tenantId, $serverId] = mappingWriterSeedTenant();
     $spy = new SpyingTenantDatabaseRepository;
-    $writer = new TenantMappingWriter(app('db'), app('config'), app(\Flexipos\Kernel\Schema\Support\RunnerClock::class), $spy);
+    $writer = new TenantMappingWriter(app('db'), app('config'), app(RunnerClock::class), $spy);
 
     $writer->insert(mappingWriterRow($tenantId, $serverId));
 
@@ -137,7 +138,7 @@ it('activates with compare-and-set: a second call affects nothing', function () 
 it('archives, writing archived and evicting', function () {
     [$tenantId, $serverId] = mappingWriterSeedTenant();
     $spy = new SpyingTenantDatabaseRepository;
-    $writer = new TenantMappingWriter(app('db'), app('config'), app(\Flexipos\Kernel\Schema\Support\RunnerClock::class), $spy);
+    $writer = new TenantMappingWriter(app('db'), app('config'), app(RunnerClock::class), $spy);
 
     $writer->insert(mappingWriterRow($tenantId, $serverId));
     $spy->evicted = [];
@@ -152,7 +153,7 @@ it('archives, writing archived and evicting', function () {
 it('archiving a tenant with no mapping row yet is a no-op, not an error', function () {
     [$tenantId] = mappingWriterSeedTenant();
     $spy = new SpyingTenantDatabaseRepository;
-    $writer = new TenantMappingWriter(app('db'), app('config'), app(\Flexipos\Kernel\Schema\Support\RunnerClock::class), $spy);
+    $writer = new TenantMappingWriter(app('db'), app('config'), app(RunnerClock::class), $spy);
 
     $writer->archive($tenantId);
 

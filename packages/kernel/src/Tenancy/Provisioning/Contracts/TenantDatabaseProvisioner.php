@@ -7,17 +7,21 @@ namespace Flexipos\Kernel\Tenancy\Provisioning\Contracts;
 use Flexipos\Kernel\Tenancy\Provisioning\DatabaseState;
 use Flexipos\Kernel\Tenancy\Provisioning\Exceptions\ProvisioningNotConfigured;
 use Flexipos\Kernel\Tenancy\Provisioning\Exceptions\TenantNameRejected;
+use Flexipos\Kernel\Tenancy\Provisioning\MySqlTenantDatabaseProvisioner;
+use Flexipos\Kernel\Tenancy\Provisioning\RecordingTenantDatabaseProvisioner;
+use Flexipos\Kernel\Tenancy\Provisioning\RefusingTenantDatabaseProvisioner;
 use Flexipos\Kernel\Tenancy\Provisioning\TenantGrant;
+use Flexipos\Kernel\Tenancy\Secrets\CredentialGenerator;
 use Flexipos\Kernel\Tenancy\Secrets\Secret;
 
 /**
  * `CREATE DATABASE`/`CREATE USER`/`GRANT`, behind one published contract
  * (T-026 AC-15, Ruling 4).
  *
- * Three implementations: {@see \Flexipos\Kernel\Tenancy\Provisioning\MySqlTenantDatabaseProvisioner}
- * (the real one), {@see \Flexipos\Kernel\Tenancy\Provisioning\RecordingTenantDatabaseProvisioner}
+ * Three implementations: {@see MySqlTenantDatabaseProvisioner}
+ * (the real one), {@see RecordingTenantDatabaseProvisioner}
  * (the suite stand-in, bound by default in tests) and
- * {@see \Flexipos\Kernel\Tenancy\Provisioning\RefusingTenantDatabaseProvisioner}
+ * {@see RefusingTenantDatabaseProvisioner}
  * (the default binding everywhere else, which throws). The real
  * implementation is bound only when `tenancy.provisioning.driver=mysql` is
  * set explicitly - never by the test suite - so a caller that forgets to
@@ -25,7 +29,7 @@ use Flexipos\Kernel\Tenancy\Secrets\Secret;
  * live server.
  *
  * It does **not** generate passwords - that is `store_credentials`'/
- * {@see \Flexipos\Kernel\Tenancy\Secrets\CredentialGenerator}'s job,
+ * {@see CredentialGenerator}'s job,
  * deliberately split out so a password exists and is durably stored before
  * anything needs it (D-20).
  */
