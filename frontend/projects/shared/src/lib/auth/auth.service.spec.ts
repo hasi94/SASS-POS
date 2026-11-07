@@ -222,6 +222,46 @@ describe('AuthService against the real T-009 contract', () => {
     });
   });
 
+  // QA discrimination check (AC-2a): the spec's own wording is "logs in, selects
+  // tenant A, then selects tenant B" with no mention of an intervening
+  // clearContext(). The existing test above only exercises the case where
+  // clearContext() has already nulled tenantTokens before the second call,
+  // which happens to make `auth.token()` fall back to the platform token on
+  // its own — so that test still passes even if the interceptor used plain
+  // `auth.token()` instead of `auth.platformToken()` for auth/tenant. This
+  // test calls selectTenant() a second time with no clearContext() in
+  // between, which is the one scenario that actually discriminates the
+  // interceptor's special-casing.
+  it('QA: a second selectTenant() with NO intervening clearContext() still sends the platform bearer, not the first tenant token', () => {
+    auth.login('a@b.c', 'secret').subscribe();
+    http.expectOne('/api/v1/auth/login').flush({
+      access_token: 'platform-at',
+      refresh_token: 'platform-rt',
+      tenants: [],
+      default_tenant_id: null,
+      must_change_password: false,
+    });
+
+    auth.selectTenant('abc-pharmacy').subscribe();
+    http.expectOne('/api/v1/auth/tenant').flush({
+      access_token: 'tenant-at-abc',
+      refresh_token: 'tenant-rt-abc',
+      tenant_id: 'TEN001',
+      tenant_code: 'abc-pharmacy',
+    });
+
+    // No clearContext() here, unlike the test above.
+    auth.selectTenant('xyz-pharmacy').subscribe();
+    const second = http.expectOne('/api/v1/auth/tenant');
+    expect(second.request.headers.get('Authorization')).toBe('Bearer platform-at');
+    second.flush({
+      access_token: 'tenant-at-xyz',
+      refresh_token: 'tenant-rt-xyz',
+      tenant_id: 'TEN002',
+      tenant_code: 'xyz-pharmacy',
+    });
+  });
+
   it('logout(): fires one POST auth/logout per non-null token (tenant, then platform), clearing state first', () => {
     auth.login('a@b.c', 'secret').subscribe();
     http.expectOne('/api/v1/auth/login').flush({
