@@ -561,18 +561,18 @@ Notes on the schema:
 
 ### Chunk D: barcodes, location and branch settings, components, modifiers
 
-- [ ] **Step 14: barcodes** (four slices).
+- [x] **Step 14: barcodes** (four slices).
   - AC-28: blank refused; 65 characters refused; a duplicate on another product refused **naming that product's sku**; `quantity` defaults to 1.
   - **AC-29:** a `unit_id` of another dimension is refused, naming the mismatch. **Control:** the same dimension is accepted, including a unit with no conversion path, because the check is on dimension only.
   - **AC-30:** add A as primary, then B as primary. Afterwards exactly one row is primary and it is B, and this was done in one transaction. The update path behaves the same.
   - **Mutation M12:** skip the clearing. The unique backstop throws, and the test sees a refusal instead of success: red.
   - List: ordered with the primary first.
   - *(AC-28 to AC-31.)*
-- [ ] **Step 15: location and branch settings** (four slices).
+- [x] **Step 15: location and branch settings** (four slices).
   - AC-32: the defaults are 0; a negative level is refused; 5 decimals refused; a duplicate pair refused; an unknown location refused.
   - AC-33: a null price inherits; 0 is accepted; a negative price is refused; a duplicate pair is refused.
   - *(AC-32, AC-33.)*
-- [ ] **Step 16: components** (`AddProductComponent`, `RemoveProductComponent`).
+- [x] **Step 16: components** (`AddProductComponent`, `RemoveProductComponent`).
   - AC-34:
     - a self-component is refused;
     - a duplicate pair is refused;
@@ -582,7 +582,7 @@ Notes on the schema:
   - **Source scan:** the handler type-hints `Contracts\Catalog\UnitResolver`, never `DatabaseUnitResolver`.
   - *(AC-34, AC-34a.)*
   - **Mutation M13:** limit the cycle search to direct edges. The A→B→C→A case goes red.
-- [ ] **Step 17: modifiers** (six slices).
+- [x] **Step 17: modifiers** (six slices).
   - AC-36: the defaults (`min_select` 0, `max_select` stored as `NULL`); min 3 with max 2 refused; max null with any min is accepted.
   - AC-37: each partial triple (linked product only, product plus quantity, product plus unit) is refused; unit and quantity without a product is refused; all three is accepted; none is accepted.
   - AC-38: a soft-deleted linked product is refused; a linked unit whose dimension differs from the linked product's stock unit is refused. **Control:** the same dimension is accepted.

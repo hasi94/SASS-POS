@@ -4,18 +4,33 @@ declare(strict_types=1);
 
 namespace Flexipos\Catalog\Registry;
 
+use Flexipos\Catalog\Features\AddProductBarcode\AddProductBarcodeHandler;
+use Flexipos\Catalog\Features\AddProductComponent\AddProductComponentHandler;
+use Flexipos\Catalog\Features\AttachModifierGroup\AttachModifierGroupHandler;
 use Flexipos\Catalog\Features\CreateBrand\CreateBrandHandler;
 use Flexipos\Catalog\Features\CreateCategory\CreateCategoryHandler;
+use Flexipos\Catalog\Features\CreateModifier\CreateModifierHandler;
+use Flexipos\Catalog\Features\CreateModifierGroup\CreateModifierGroupHandler;
 use Flexipos\Catalog\Features\CreateProduct\CreateProductHandler;
+use Flexipos\Catalog\Features\CreateProductBranch\CreateProductBranchHandler;
+use Flexipos\Catalog\Features\CreateProductLocation\CreateProductLocationHandler;
 use Flexipos\Catalog\Features\CreateUnit\CreateUnitHandler;
 use Flexipos\Catalog\Features\CreateUnitConversion\CreateUnitConversionHandler;
 use Flexipos\Catalog\Features\DeleteBrand\DeleteBrandHandler;
 use Flexipos\Catalog\Features\DeleteCategory\DeleteCategoryHandler;
+use Flexipos\Catalog\Features\DeleteModifierGroup\DeleteModifierGroupHandler;
 use Flexipos\Catalog\Features\DeleteProduct\DeleteProductHandler;
+use Flexipos\Catalog\Features\DetachModifierGroup\DetachModifierGroupHandler;
+use Flexipos\Catalog\Features\RemoveModifier\RemoveModifierHandler;
+use Flexipos\Catalog\Features\RemoveProductBarcode\RemoveProductBarcodeHandler;
+use Flexipos\Catalog\Features\RemoveProductBranch\RemoveProductBranchHandler;
+use Flexipos\Catalog\Features\RemoveProductComponent\RemoveProductComponentHandler;
+use Flexipos\Catalog\Features\RemoveProductLocation\RemoveProductLocationHandler;
 use Flexipos\Catalog\Features\RemoveUnitConversion\RemoveUnitConversionHandler;
 use Flexipos\Catalog\Features\UpdateBrand\UpdateBrandHandler;
 use Flexipos\Catalog\Features\UpdateCategory\UpdateCategoryHandler;
 use Flexipos\Catalog\Features\UpdateProduct\UpdateProductHandler;
+use Flexipos\Catalog\Features\UpdateProductBarcode\UpdateProductBarcodeHandler;
 use Flexipos\Catalog\Features\UpdateUnit\UpdateUnitHandler;
 
 /**
@@ -50,5 +65,20 @@ final class CatalogAuditActions
         DeleteProductHandler::ACTION,
         CreateUnitConversionHandler::ACTION,
         RemoveUnitConversionHandler::ACTION,
+        AddProductBarcodeHandler::ACTION,
+        UpdateProductBarcodeHandler::ACTION,
+        RemoveProductBarcodeHandler::ACTION,
+        CreateProductLocationHandler::ACTION,
+        RemoveProductLocationHandler::ACTION,
+        CreateProductBranchHandler::ACTION,
+        RemoveProductBranchHandler::ACTION,
+        AddProductComponentHandler::ACTION,
+        RemoveProductComponentHandler::ACTION,
+        CreateModifierGroupHandler::ACTION,
+        DeleteModifierGroupHandler::ACTION,
+        CreateModifierHandler::ACTION,
+        RemoveModifierHandler::ACTION,
+        AttachModifierGroupHandler::ACTION,
+        DetachModifierGroupHandler::ACTION,
     ];
 }

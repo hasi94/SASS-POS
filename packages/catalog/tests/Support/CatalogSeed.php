@@ -175,6 +175,40 @@ final class CatalogSeed
     }
 
     /**
+     * A stock location (T-014), with every column defaulted as `locations`
+     * itself does. Not seeded by `AccessSeed`, which has no reason to - only
+     * this package's location/branch settings slices read it.
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    public static function location(string $code, ?string $branchId = null, array $overrides = []): string
+    {
+        $id = (string) Str::ulid();
+
+        self::connection()->table('locations')->insert(array_merge([
+            'id' => $id,
+            'branch_id' => $branchId,
+            'code' => $code,
+            'name' => 'Location '.$code,
+            'type' => 'warehouse',
+            'address' => null,
+            'manager_employee_id' => null,
+            'allow_negative_stock' => false,
+            'is_sellable_from' => false,
+            'is_purchasable_to' => true,
+            'is_active' => true,
+            'sort_order' => 0,
+            'created_by' => null,
+            'updated_by' => null,
+            'created_at' => self::NOW,
+            'updated_at' => self::NOW,
+            'deleted_at' => null,
+        ], $overrides));
+
+        return $id;
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     public static function audit(): array
