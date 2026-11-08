@@ -95,7 +95,7 @@ it('has no down() and passes SourceRules::inspect()', function () {
         ->and(SourceRules::inspect($source, MigrationTree::Tenant))->toBe([]);
 });
 
-it('is the catalogue top entry, phase expand, version 31', function () {
+it('is the catalogue top entry, phase expand, version 43', function () {
     $catalogue = json_decode(
         (string) file_get_contents(base_path('database/catalogue/tenant_schema_versions.json')),
         true
@@ -103,7 +103,7 @@ it('is the catalogue top entry, phase expand, version 31', function () {
 
     $top = end($catalogue);
 
-    expect($top['version'])->toBe(31)
-        ->and($top['migration'])->toBe('2026_10_30_001001_create_idempotency_keys_table')
+    expect($top['version'])->toBe(43)
+        ->and($top['migration'])->toBe('2026_11_08_002712_create_product_modifier_groups_table')
         ->and($top['phase'])->toBe('expand');
 });

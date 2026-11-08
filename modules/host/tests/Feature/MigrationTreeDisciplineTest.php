@@ -145,7 +145,8 @@ it('creates exactly the tenant tables the shipped tree declares', function () {
         ->and(tenantBaselineTables())->toHaveCount(6)
         // T-019 step 4 adds the three tenant-side plugin data tables.
         // T-020 step 3 adds the five workflow-engine tables (23 becomes 28).
-        ->and(tenantTreeTables())->toHaveCount(29)
+        // T-027 step 3 adds the twelve catalog tables (29 becomes 41).
+        ->and(tenantTreeTables())->toHaveCount(41)
         ->and(migrationTreeSources(MigrationTree::Tenant))->toHaveCount(tenantMigrationFileCount())
         ->and($tableless)->not->toBe([])
         ->and(tenantMigrationFileCount())->toBe(count(tenantTreeTables()) + count($tableless));

@@ -19,6 +19,7 @@
         "php": "^8.2",
         "flexipos/access": "*",
         "flexipos/auth": "*",
+        "flexipos/catalog": "*",
         "flexipos/contracts": "*",
         "flexipos/eventbus": "*",
         "flexipos/http-client": "*",
@@ -55,6 +56,7 @@
     "autoload-dev": {
         "psr-4": {
             "Flexipos\\Access\\Tests\\": "../../packages/access/tests/",
+            "Flexipos\\Catalog\\Tests\\": "../../packages/catalog/tests/",
             "Flexipos\\Eventbus\\Tests\\": "../../packages/eventbus/tests/",
             "Flexipos\\Organization\\Tests\\": "../../packages/organization/tests/",
             "Flexipos\\Platform\\Tests\\": "../../packages/platform/tests/",

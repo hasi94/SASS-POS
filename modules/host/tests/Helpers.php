@@ -524,6 +524,10 @@ function tenantTreeTables(): array
         'access_log',
         'audit_logs_archive',
         'branches',
+        // T-027 step 3: the twelve catalog tables (docs/database.md section
+        // 6.3).
+        'brands',
+        'categories',
         'devices',
         'employee_branches',
         'employee_permissions',
@@ -532,16 +536,26 @@ function tenantTreeTables(): array
         // T-021 AC-26: the idempotency store (docs/database.md section 6.21).
         'idempotency_keys',
         'locations',
+        'modifier_groups',
+        'modifiers',
         'permissions',
         // T-019 step 4: the tenant-side plugin data tables
         // (docs/database.md section 6.20).
         'plugin_execution_logs',
         'plugin_migrations',
         'plugin_settings',
+        'product_barcodes',
+        'product_branches',
+        'product_components',
+        'product_locations',
+        'product_modifier_groups',
+        'products',
         'role_permissions',
         'roles',
         'terminal_credentials',
         'terminals',
+        'unit_conversions',
+        'units',
         // T-020 step 3: the five workflow-engine tables (docs/database.md
         // section 6.15).
         'workflow_definitions',

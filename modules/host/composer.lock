@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "f465e45372b701668d0020049054c525",
+    "content-hash": "86e7abd4bb5f9bc0eca1c5b4c0945af2",
     "packages": [
         {
             "name": "brick/math",
@@ -633,6 +633,33 @@
                 "proprietary"
             ],
             "description": "FlexiPOS auth: JWT verification, service tokens, guards and permission resolution.",
+            "transport-options": {
+                "relative": true
+            }
+        },
+        {
+            "name": "flexipos/catalog",
+            "version": "0.1.0",
+            "dist": {
+                "type": "path",
+                "url": "../../packages/catalog",
+                "reference": "b6ebbbd52823e421b647ab184fb14aa9a6e8e4ed"
+            },
+            "require": {
+                "brick/math": "^0.14",
+                "flexipos/contracts": "*",
+                "php": "^8.2"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Flexipos\\Catalog\\": "src/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "FlexiPOS catalog: categories, brands, units and conversions, the UnitResolver and its snapshot contract, products and variants, exact-match barcodes, product-branch settings, product_components and modifiers.",
             "transport-options": {
                 "relative": true
             }

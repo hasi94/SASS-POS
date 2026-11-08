@@ -246,5 +246,101 @@
         "checksum": "3ad62ef433e64bc2eee7cc84157937431756865436396e7889090ba84eece481",
         "is_destructive": false,
         "requires_offline": false
+    },
+    {
+        "version": 32,
+        "migration": "2026_11_08_002701_create_units_table",
+        "phase": "expand",
+        "checksum": "252157f419c9744b8a94a0e1b52f0581f48d3d8b61b51b0acdb7d3d48a78fe68",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 33,
+        "migration": "2026_11_08_002702_create_categories_table",
+        "phase": "expand",
+        "checksum": "7b57eb7559d736d5283470cf275e6e433ba20dd4b46dd1d68e3f7a047caa00c0",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 34,
+        "migration": "2026_11_08_002703_create_brands_table",
+        "phase": "expand",
+        "checksum": "ed00daa127ab92df29eeb774186f5b27af5e39d5f92d9293f99d0700c4de6887",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 35,
+        "migration": "2026_11_08_002704_create_products_table",
+        "phase": "expand",
+        "checksum": "601914dcf3c378b88d6a9b01a87e0d938cf0a3c2e063e58092689406b31eca59",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 36,
+        "migration": "2026_11_08_002705_create_unit_conversions_table",
+        "phase": "expand",
+        "checksum": "9a5f3916afae2adb62a261a5cf2ae9fc96b5c7908b5b81e958634e169042b770",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 37,
+        "migration": "2026_11_08_002706_create_product_barcodes_table",
+        "phase": "expand",
+        "checksum": "e647877f3e01a77c2d910e17b770541763f7b10795091646c1c8f69fd353d58e",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 38,
+        "migration": "2026_11_08_002707_create_product_locations_table",
+        "phase": "expand",
+        "checksum": "4f13a36da7ba1069749ad4da89c952a5f193fd89fab313e5263d33b16fa6d5cb",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 39,
+        "migration": "2026_11_08_002708_create_product_branches_table",
+        "phase": "expand",
+        "checksum": "ab5124c7ffcaf87280737185548188c634ec53f71c447c0f28381e9c4c110ab2",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 40,
+        "migration": "2026_11_08_002709_create_product_components_table",
+        "phase": "expand",
+        "checksum": "08cca045b0947c6a46dd5fd0817247249f1da150e604a3440ec5b16264104987",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 41,
+        "migration": "2026_11_08_002710_create_modifier_groups_table",
+        "phase": "expand",
+        "checksum": "ca49c80a5239c6e6752b2240e705e35d29aa89e60989ee821547b181c88c1276",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 42,
+        "migration": "2026_11_08_002711_create_modifiers_table",
+        "phase": "expand",
+        "checksum": "0380985948fd249e3cb8eca0acc2d296465c9df586f609ca0334ff7031f9603c",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 43,
+        "migration": "2026_11_08_002712_create_product_modifier_groups_table",
+        "phase": "expand",
+        "checksum": "20a56fa0787796c5ba8f559f2a53e398c081e2e2f7721c0ed38cc8ee729c9a9e",
+        "is_destructive": false,
+        "requires_offline": false
     }
 ]

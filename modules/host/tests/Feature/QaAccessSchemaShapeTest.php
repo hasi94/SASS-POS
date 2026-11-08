@@ -203,7 +203,13 @@ it('creates the eight tables and nothing else, and the listing check can tell ot
     // T-021's one table (idempotency_keys) is excluded the same way.
     $t021 = ['idempotency_keys'];
 
-    $new = array_values(array_diff(qaT10Tables(), tenantBaselineTables(), ['migrations'], $t014, $t017, $t019, $t020, $t021));
+    // T-027's twelve catalog tables are excluded the same way.
+    $t027 = [
+        'brands', 'categories', 'modifier_groups', 'modifiers', 'product_barcodes', 'product_branches',
+        'product_components', 'product_locations', 'product_modifier_groups', 'products', 'unit_conversions', 'units',
+    ];
+
+    $new = array_values(array_diff(qaT10Tables(), tenantBaselineTables(), ['migrations'], $t014, $t017, $t019, $t020, $t021, $t027));
 
     expect($new)->toBe([
         'access_log', 'employee_branches', 'employee_permissions', 'employee_roles',

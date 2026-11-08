@@ -32,6 +32,11 @@ deptrac:
     # above: a layer is matched by namespace and not by directory, and
     # these were in neither registry.
     - ../../packages/auth/tests
+    # T-027 step 1. The catalog package, registered with its test tree, whose
+    # files declare Flexipos\Catalog\Tests\..., so the Package_Catalog_Tests
+    # layer below matches them.
+    - ../../packages/catalog/src
+    - ../../packages/catalog/tests
     - ../../packages/contracts/src
     - ../../packages/eventbus/src
     # T-018 step 1. The event bus package's tests, registered and collected
@@ -109,6 +114,24 @@ deptrac:
       collectors:
         - type: classLike
           value: ^Flexipos\\Auth\\.*
+
+    # T-027 step 1. The catalog package: categories, brands, units and
+    # conversions, the UnitResolver and its snapshot contract, products and
+    # variants, barcodes, product-branch settings, product_components and
+    # modifiers. Two layers, the same shape as eventbus's and workflow's:
+    # the first pattern excludes `Tests\`, so a class is in exactly one of
+    # them. Its source reaches only the kernel and the published contracts
+    # (Ruling 1) - never Package_Access directly - which is AC-41's
+    # instrument together with Module_Demo's own omission below.
+    - name: Package_Catalog
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Catalog\\(?!Tests\\).*
+
+    - name: Package_Catalog_Tests
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Catalog\\Tests\\.*
 
     - name: Package_Contracts
       collectors:
@@ -248,6 +271,7 @@ deptrac:
     HostApp:
       - Package_Access
       - Package_Auth
+      - Package_Catalog
       - Package_Contracts
       - Package_Eventbus
       - Package_HttpClient
@@ -271,6 +295,8 @@ deptrac:
       - HostApp
       - Package_Access
       - Package_Auth
+      - Package_Catalog
+      - Package_Catalog_Tests
       - Package_Contracts
       - Package_Eventbus
       - Package_HttpClient
@@ -311,6 +337,11 @@ deptrac:
     # either, and that omission is AC-30's instrument - a module may reach
     # the workflow engine only through Flexipos\Contracts\Workflow, never
     # through the engine's internals.
+    #
+    # T-027 step 1: Package_Catalog is deliberately NOT granted here either,
+    # and that omission is AC-41's instrument - a module may reach the
+    # catalog only through Flexipos\Contracts\Catalog, never through
+    # DatabaseUnitResolver or the ladder's internals.
     Module_Demo:
       - Package_Auth
       - Package_Contracts
@@ -341,6 +372,21 @@ deptrac:
     Package_Auth:
       - Package_Kernel
       - Package_Contracts
+    # T-027 step 1 (plan Ruling 1). Source reaches the kernel and the
+    # published contracts only - never Package_Access directly.
+    Package_Catalog:
+      - Package_Kernel
+      - Package_Contracts
+    # This package's tests may additionally reach
+    # Flexipos\Access\Tests\Support\AccessTenantFixture and AccessSeed - the
+    # same eventbus-tests/plugin-sdk-tests/workflow-tests precedent -
+    # because the fixture tenant it builds on is access's, not a tenant this
+    # package owns one of.
+    Package_Catalog_Tests:
+      - Package_Catalog
+      - Package_Contracts
+      - Package_Kernel
+      - Package_Access
     Package_Contracts: ~
     # T-018 step 1. Widened from `~` so the writer, the relay and the
     # consumer runner may read the kernel (RunnerClock, Tenancy,

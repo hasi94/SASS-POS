@@ -44,6 +44,9 @@ parameters:
         # registry, which QaToolchainRegistryCoverageTest could not see
         # while it checked src only.
         - ../../packages/auth/tests
+        # T-027, source and tests.
+        - ../../packages/catalog/src
+        - ../../packages/catalog/tests
         - ../../packages/contracts/src
         - ../../packages/eventbus/src
         # T-018, source and tests, for the reason the access package's two

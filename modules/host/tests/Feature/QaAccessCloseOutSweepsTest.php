@@ -114,7 +114,15 @@ function closeOutNewTables(): array
     // sweep's exercise never writes an idempotency row.
     $t021 = ['idempotency_keys'];
 
-    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017, $t019, $t020, $t021));
+    // T-027's twelve catalog tables are excluded the same way: this sweep's
+    // exercise never writes a category, brand, unit, product or any of the
+    // other catalog rows.
+    $t027 = [
+        'brands', 'categories', 'modifier_groups', 'modifiers', 'product_barcodes', 'product_branches',
+        'product_components', 'product_locations', 'product_modifier_groups', 'products', 'unit_conversions', 'units',
+    ];
+
+    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017, $t019, $t020, $t021, $t027));
 }
 
 /**
