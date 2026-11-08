@@ -445,7 +445,7 @@ Notes on the schema:
 
 ### Chunk B: the unit model (the safety-critical core)
 
-- [ ] **Step 5: contracts.**
+- [x] **Step 5: contracts.**
   - The six Ruling 2 files.
   - **`UnitSnapshotShapeTest`:**
     - a well-formed instance is accepted;
@@ -453,7 +453,7 @@ Notes on the schema:
   - **`ResolvedFactorShapeTest`:** the same checks for `factor`.
   - **`FactorSource`:** exactly four cases. **`UnitRefusal`:** exactly the ten of Ruling 2.
   - *(Groundwork for AC-9 and AC-16.)*
-- [ ] **Step 6: `SnapshotCalculator` (pure).**
+- [x] **Step 6: `SnapshotCalculator` (pure).**
   - Every case is a dataset row with the exact string expected:
     - **rounding order:** line precision 0, quantity `2.5`, factor 24 gives quantity `3.0000` and base `72.0000` (the reverse order gives 60). Precision 2, quantity `1.005`, factor 3 gives `1.0100` and `3.0300` (reverse gives 3.0150);
     - **HALF_UP:** `2.5` at precision 0 gives `3` and never 2; `-2.5` gives `-3`;
@@ -467,7 +467,7 @@ Notes on the schema:
     - **M2:** use `HALF_EVEN`. The `2.5` row goes red;
     - **M3:** delete the Q-11 check. That row goes red.
   - *(AC-12, AC-16 arithmetic.)*
-- [ ] **Step 7: `UnitLadder` (pure).** One dataset row per path, over an in-memory `UnitCatalogue` with these units:
+- [x] **Step 7: `UnitLadder` (pure).** One dataset row per path, over an in-memory `UnitCatalogue` with these units:
   - `each` (root, count, p0); `case` (base each, 24, p0); `kg` (root, mass, p3); `g` (base kg, 0.001, p0); `lb` (base kg, 0.453592); `pack3` (base each, 3); `pack10` (base each, 10); `l` (root, volume).
   - **Cases:**
     - **step 1 beats step 2:** a product row case→each of 12 and a global row of 24 give 12, source `product_conversion`;
@@ -490,7 +490,7 @@ Notes on the schema:
     - **M7:** delete the dimension pre-check. The hand-row case goes red;
     - **M8:** round the chain quotient instead of refusing. The inexact row goes red.
   - *(AC-9, AC-10, AC-15 logic.)*
-- [ ] **Step 8: units slices** (`CreateUnit`, `UpdateUnit`; Ruling 6).
+- [x] **Step 8: units slices** (`CreateUnit`, `UpdateUnit`; Ruling 6).
   - **Tests:**
     - the required fields;
     - the dimension enum;

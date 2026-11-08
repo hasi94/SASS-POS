@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Flexipos\Catalog;
 
+use Flexipos\Catalog\Registry\CatalogAuditActions;
+use Flexipos\Contracts\Audit\DeclaresAuditActions;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -18,12 +20,23 @@ use Illuminate\Support\ServiceProvider;
  * catalog through `Flexipos\Contracts\Catalog\*`, so the tables' owner is
  * shared infrastructure rather than a leaf that other modules may not import.
  *
- * **Bindings and audit-action declarations arrive with the slices that earn
- * them** (organization's own precedent) - this step ships the empty shell
- * only, so the package exists, boots and is reachable by `deptrac` before any
- * real code lives under it.
+ * **Bindings arrive with the slices that earn them** (organization's own
+ * precedent). `UnitResolver` is bound to `Units\DatabaseUnitResolver` once
+ * step 12 builds it; nothing here is bound to a stub, because a contract
+ * with no implementation resolves to a binding error, which is a refusal to
+ * answer and never a permissive one.
  */
-final class CatalogServiceProvider extends ServiceProvider
+final class CatalogServiceProvider extends ServiceProvider implements DeclaresAuditActions
 {
     public function register(): void {}
+
+    /**
+     * This package's declared audit actions (T-017 Ruling 3).
+     *
+     * @return array<string, list<string>>
+     */
+    public function auditActions(): array
+    {
+        return [CatalogAuditActions::MODULE => CatalogAuditActions::ALL];
+    }
 }

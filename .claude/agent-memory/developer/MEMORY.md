@@ -76,3 +76,4 @@
 - [T-026 create_owner/verify/activate](project_t026_create_owner_verify_activate.md) - the password side-channel a journalled return value can't carry, the attach-vs-create ordering trap, and the sole-writer scan `activate` collides with.
 - [T-026 end-to-end, abandon, close-out](project_t026_e2e_abandon_and_closeout.md) - why the E2E test lives in modules/host, the generic crash-once decorator, the sole-writer scan recurring, and the final gate numbers.
 - [Gate reads the live filesystem, never edit during it](feedback_gate_reads_live_filesystem_never_edit_during_it.md) - tenantTreeTables()/tenantMigrationFileCount() re-glob at assertion time, not collection time; and tee|tail swallows composer check's real exit code.
+- [T-027 catalog Chunk B unit model](project_t027_catalog_chunk_b_unit_model.md) - ladder/snapshot design that shipped, M1-M8 all green, and the AuditCatalogueTest two-line break every new DeclaresAuditActions provider causes.
