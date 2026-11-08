@@ -4,7 +4,18 @@ declare(strict_types=1);
 
 namespace Flexipos\Catalog\Registry;
 
+use Flexipos\Catalog\Features\CreateBrand\CreateBrandHandler;
+use Flexipos\Catalog\Features\CreateCategory\CreateCategoryHandler;
+use Flexipos\Catalog\Features\CreateProduct\CreateProductHandler;
 use Flexipos\Catalog\Features\CreateUnit\CreateUnitHandler;
+use Flexipos\Catalog\Features\CreateUnitConversion\CreateUnitConversionHandler;
+use Flexipos\Catalog\Features\DeleteBrand\DeleteBrandHandler;
+use Flexipos\Catalog\Features\DeleteCategory\DeleteCategoryHandler;
+use Flexipos\Catalog\Features\DeleteProduct\DeleteProductHandler;
+use Flexipos\Catalog\Features\RemoveUnitConversion\RemoveUnitConversionHandler;
+use Flexipos\Catalog\Features\UpdateBrand\UpdateBrandHandler;
+use Flexipos\Catalog\Features\UpdateCategory\UpdateCategoryHandler;
+use Flexipos\Catalog\Features\UpdateProduct\UpdateProductHandler;
 use Flexipos\Catalog\Features\UpdateUnit\UpdateUnitHandler;
 
 /**
@@ -28,5 +39,16 @@ final class CatalogAuditActions
     public const ALL = [
         CreateUnitHandler::ACTION,
         UpdateUnitHandler::ACTION,
+        CreateCategoryHandler::ACTION,
+        UpdateCategoryHandler::ACTION,
+        DeleteCategoryHandler::ACTION,
+        CreateBrandHandler::ACTION,
+        UpdateBrandHandler::ACTION,
+        DeleteBrandHandler::ACTION,
+        CreateProductHandler::ACTION,
+        UpdateProductHandler::ACTION,
+        DeleteProductHandler::ACTION,
+        CreateUnitConversionHandler::ACTION,
+        RemoveUnitConversionHandler::ACTION,
     ];
 }

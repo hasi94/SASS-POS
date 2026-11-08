@@ -60,6 +60,121 @@ final class CatalogSeed
     }
 
     /**
+     * A category, with its `path`/`depth` computed the same way
+     * `CategoryPath` computes them, so a seeded tree is indistinguishable
+     * from one `CreateCategory` built.
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    public static function category(string $code, ?string $parentId = null, array $overrides = []): string
+    {
+        $id = (string) Str::ulid();
+
+        $path = $id;
+        $depth = 0;
+
+        if ($parentId !== null) {
+            $parent = self::connection()->table('categories')->where('id', $parentId)->first();
+            $path = $parent->path.'/'.$id;
+            $depth = $parent->depth + 1;
+        }
+
+        self::connection()->table('categories')->insert(array_merge([
+            'id' => $id,
+            'created_at' => self::NOW,
+            'updated_at' => self::NOW,
+            'deleted_at' => null,
+            'parent_id' => $parentId,
+            'code' => $code,
+            'name' => 'Category '.$code,
+            'path' => $path,
+            'depth' => $depth,
+            'image_path' => null,
+            'colour' => null,
+            'sort_order' => 0,
+            'is_active' => true,
+        ], $overrides));
+
+        return $id;
+    }
+
+    /**
+     * @param  array<string, mixed>  $overrides
+     */
+    public static function brand(string $code, array $overrides = []): string
+    {
+        $id = (string) Str::ulid();
+
+        self::connection()->table('brands')->insert(array_merge([
+            'id' => $id,
+            'created_at' => self::NOW,
+            'updated_at' => self::NOW,
+            'deleted_at' => null,
+            'code' => $code,
+            'name' => 'Brand '.$code,
+            'logo_path' => null,
+            'is_active' => true,
+        ], $overrides));
+
+        return $id;
+    }
+
+    /**
+     * A minimal, valid product: `simple`, active, sellable, stocked in
+     * `$stockUnitId`.
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    public static function product(string $sku, string $categoryId, string $stockUnitId, array $overrides = []): string
+    {
+        $id = (string) Str::ulid();
+
+        self::connection()->table('products')->insert(array_merge([
+            'id' => $id,
+            'created_at' => self::NOW,
+            'updated_at' => self::NOW,
+            'deleted_at' => null,
+            'created_by' => null,
+            'updated_by' => null,
+            'type' => 'simple',
+            'parent_id' => null,
+            'sku' => $sku,
+            'name' => 'Product '.$sku,
+            'short_name' => null,
+            'description' => null,
+            'category_id' => $categoryId,
+            'brand_id' => null,
+            'stock_unit_id' => $stockUnitId,
+            'purchase_unit_id' => null,
+            'sales_unit_id' => null,
+            'cost_price' => '0.0000',
+            'selling_price' => '0.0000',
+            'min_selling_price' => null,
+            'msrp' => null,
+            'track_stock' => true,
+            'tracking_mode' => 'quantity',
+            'is_weighable' => false,
+            'price_mode' => 'per_unit',
+            'plu_code' => null,
+            'shelf_life_days' => null,
+            'is_sellable' => true,
+            'is_purchasable' => true,
+            'is_active' => true,
+            'allow_price_override' => false,
+            'allow_discount' => true,
+            'weight' => null,
+            'dimensions' => null,
+            'variant_options' => null,
+            'variant_values' => null,
+            'image_path' => null,
+            'sort_order' => 0,
+            'version' => 1,
+        ], $overrides));
+
+        return $id;
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     public static function audit(): array

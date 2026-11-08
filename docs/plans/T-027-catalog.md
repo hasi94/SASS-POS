@@ -507,7 +507,7 @@ Notes on the schema:
 
 ### Chunk C: categories, brands, products, conversions, and the resolver against the database
 
-- [ ] **Step 9: categories** (five slices, `CategoryPath`; Ruling 7).
+- [x] **Step 9: categories** (five slices, `CategoryPath`; Ruling 7).
   - **Pure `CategoryPathTest`:** root, child and grandchild paths and depths; depth 17 accepted and 18 refused.
   - **Handler tests:**
     - AC-1 code refusals (blank, duplicate, duplicate by case);
@@ -520,12 +520,12 @@ Notes on the schema:
     - **M9:** skip the descendant rewrite. The AC-3 test goes red;
     - **M10:** skip the ancestor check. The AC-4 test goes red.
   - *(AC-1 to AC-5, AC-3a.)*
-- [ ] **Step 10: brands** (`CreateBrand`, `UpdateBrand`, `DeleteBrand`).
+- [x] **Step 10: brands** (`CreateBrand`, `UpdateBrand`, `DeleteBrand`).
   - A code shared with different names is refused, and a name shared with different codes is refused (AC-7).
   - Update renames, and uniqueness still applies.
   - Delete is refused while a live product references the brand, and is accepted after that product is soft-deleted (AC-8).
   - *(AC-7, AC-8.)*
-- [ ] **Step 11: products** (`CreateProduct`, `UpdateProduct`, `DeleteProduct`; `ProductRules`; Ruling 8).
+- [x] **Step 11: products** (`CreateProduct`, `UpdateProduct`, `DeleteProduct`; `ProductRules`; Ruling 8).
   - **Pure `ProductRulesTest`:** every type against every parent type (AC-19's matrix), through the `ProductType` cases and **not** string-keyed datasets (Ruling 14).
   - **Handler tests:**
     - **AC-18:** each required field missing is refused; `sku` blank, 51 characters, duplicate, or duplicate by case is refused;
@@ -542,7 +542,7 @@ Notes on the schema:
     - one audit row per write.
   - **Mutation M11:** let `stock_unit_id` through on update. The AC-22 test goes red.
   - *(AC-18 to AC-27, AC-27a: the exact column list has no `custom_fields`, and a `custom_fields` field in a command is refused as unknown.)*
-- [ ] **Step 12: conversions and `DatabaseUnitResolver`** (`CreateUnitConversion`, `RemoveUnitConversion`; the binding).
+- [x] **Step 12: conversions and `DatabaseUnitResolver`** (`CreateUnitConversion`, `RemoveUnitConversion`; the binding).
   - **Handler tests:**
     - AC-13: self-conversion refused; cross-dimension refused; factor ≤ 0 refused; a duplicate global row refused **naming the existing row's id**; a global row and a product row for the same pair are both accepted;
     - **AC-13a:** a product row whose `to_unit` is not that product's stock unit is refused, **naming the product's actual stock unit**. **Control:** a global row with the same `to_unit` is accepted;
@@ -552,7 +552,7 @@ Notes on the schema:
     - a soft-deleted product still resolves;
     - an unknown product gives `unknown_product`.
   - *(AC-9, AC-10, AC-13, AC-13a, AC-14, AC-15 end to end.)*
-- [ ] **Step 13: `snapshot()` end to end.**
+- [x] **Step 13: `snapshot()` end to end.**
   - Through the contract, on the fixture: a case of 24 on an `each` product, quantity `2.5`, `case` precision 0, gives `3.0000`, `24.000000`, `72.0000`, unit code `case` and source `unit_chain`.
   - A `g` line on a `kg` product is refused with `factor_below_one`.
   - A fractional base on an `each` stock unit is refused with `fractional_base_quantity`.
