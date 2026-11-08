@@ -393,16 +393,15 @@ Re-derived from the files, not assumed:
   "deliberately unspecified" by `docs/database.md` itself and belongs to the restaurant workstream —
   this task stores the three columns correctly and enforces the all-or-nothing rule of AC-37, nothing
   about what later reads them to deplete stock.
-- **AC-40a** (doc-inconsistency note, flagged per architect review F-13, not a defect in this spec):
-  `docs/database.md` §6.5 ("Units stop at the document line") states that a depleting modifier's
-  conversion factor is "snapshotted when that row was written (D-62)," which would require a
-  `unit_factor` column on `modifiers`; §3.1 and §14 give `modifiers` **no** such column and exempt it
-  by name from the full `[UOM]` quad, carrying only `linked_unit_id`/`linked_quantity`. This spec (and
-  AC-37/AC-43) follows **§3.1/§14** — `modifiers` ships with no `unit_factor`/`base_quantity` column —
-  because that is the shape the static `[UOM]`-column-set test (AC-43) actually checks against. The
-  §6.5/§3.1 disagreement itself is a documentation defect, not this task's to fix (`ba` cannot edit
-  `docs/database.md`); it is flagged here for the lead/architect as a follow-up, to be resolved when
-  the restaurant workstream actually needs modifier depletion to snapshot a factor.
+- **AC-40a** (doc-inconsistency, flagged per architect review F-13, **resolved by the lead**):
+  `docs/database.md` §6.5's prose previously implied a stored `unit_factor` column on `modifiers`,
+  contradicting §3.1/§14's schema (which exempts `modifiers` by name from the full `[UOM]` quad,
+  carrying only `linked_unit_id`/`linked_quantity`). The lead fixed §6.5's wording directly: a
+  depleting modifier resolves its factor fresh from `linked_unit_id`/`linked_quantity` at the moment
+  of consumption, never stores one. No schema change was needed — only the prose was wrong,
+  generalizing `product_components`' write-time-snapshot behavior to `modifiers` where it doesn't
+  apply. This spec (and AC-37/AC-43) already followed the correct reading (§3.1/§14), so nothing in
+  T-027's own scope changes.
 
 ### I. Framework integrity and the gate
 

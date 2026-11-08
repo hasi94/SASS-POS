@@ -279,6 +279,15 @@ actually snapshot a factor once depletion posting is designed (new AC-40a). `ba`
 `docs/database.md` and does not attempt to silently pick a winner between the two sections. | The
 cheapest, safest reading when two parts of the same design document disagree is the one the
 machine-checked test already enforces, recorded as a flag rather than a silent resolution either way —
+**Addendum (lead, resolved the flagged doc inconsistency):** fixed `docs/database.md` line 670's
+wording directly — it no longer implies a stored `unit_factor` column on `modifiers`. A depleting
+modifier now reads: `product_components` snapshots its factor when the row is written (unchanged,
+matches §14's exemption list), while a depleting `modifiers` row carries no stored factor at all
+and resolves one fresh from `linked_unit_id`/`linked_quantity` at the moment of consumption, never
+at write time. This matches §3.1/§14's schema exactly and needed no schema change — only §6.5's
+prose was wrong, generalizing `product_components`' write-time-snapshot behavior to `modifiers`
+where it doesn't apply. AC-40a can close as resolved rather than stay open as a standing flag.
+
 the same discipline this backlog applies to every other self-contradiction it has found (FP-176,
 FP-181, FP-182). Reversible: yes — whichever way the restaurant workstream resolves §6.5 vs §3.1/§14,
 no column this task ships needs to change.
