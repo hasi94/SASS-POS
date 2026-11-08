@@ -593,7 +593,7 @@ Notes on the schema:
 
 ### Chunk E: scans, engine, documents
 
-- [ ] **Step 18: `QaCatalogSourceRulesTest` (host).**
+- [x] **Step 18: `QaCatalogSourceRulesTest` (host).**
   - **One ladder, one caller (AC-17, NFR):**
     - no file under `packages/*/src`, `modules/*/src` or `modules/host/app`, other than `packages/catalog/src/Units/`, contains the code tokens `unit_conversions` or `base_unit_id`;
     - no file outside `Units/` multiplies by a factor column;
@@ -602,7 +602,7 @@ Notes on the schema:
   - **No surface:** `packages/catalog` has no `routes/` directory, and its source contains no `Route::`, `Cache::`, `dispatch(`, `ShouldQueue` or `HookGateway`. Therefore T-022's four sweeps need no entry (AC-41, NFR).
   - **Contracts purity:** `packages/contracts/src/Catalog` imports nothing outside the contracts namespace and PHP core.
   - *(AC-17, AC-41.)*
-- [ ] **Step 19: `CatalogSchemaEngineTest`** (database `flexipos_t8test_t027_tenant`, created and dropped by name through `EngineDatabase`, never a sweep).
+- [x] **Step 19: `CatalogSchemaEngineTest`** (database `flexipos_t8test_t027_tenant`, created and dropped by name through `EngineDatabase`, never a sweep).
   - With the hold: the "refuses to reach the engine" case runs, and the rest is skipped.
   - Written now, for when G-1 clears:
     - `information_schema` column types equal section 4's decimals;
@@ -613,7 +613,7 @@ Notes on the schema:
     - a case-variant duplicate `sku` is refused by the unique index;
     - migrating twice is a no-op.
   - *(AC-11's `[ENGINE]` CHECK clause, the one exception AC-42 names, stays NOT VERIFIED under `ENGINE_HOLD`. The other engine assertions in this file go beyond any AC, and nothing is claimed for them while the hold is on.)*
-- [ ] **Step 20: documents.**
+- [x] **Step 20: documents.**
   - **`docs/database.md` §6.3, "As built (T-027)":**
     - the deferred columns, with F-2's expand-plus-contract mechanism;
     - the ladder's lookup keys (F-7);
@@ -628,7 +628,7 @@ Notes on the schema:
   - **Backlog notes:** FP-423 (barcode reader; the weighable/stock-dimension note from 0.3), FP-231 (`tax_group_id`: expand, backfill, contract), FP-233 and FP-254 (`snapshotInherited`), FP-240 (Get/List slices and permission keys), and a custom-fields row (F-1).
   - Write each in describe-don't-quote form (memory note: the gate sweeps the tree).
   - *(AC-6, AC-27, AC-35 recorded.)*
-- [ ] **Step 21: final gate.**
+- [x] **Step 21: final gate.**
   - `composer check` from `modules/host`; record the counts and the `test` seconds against step 0.
   - Then `composer test:fast` once more, for the inner-loop figure.
   - *(AC-41, AC-42.)*

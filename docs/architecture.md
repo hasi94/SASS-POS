@@ -85,6 +85,8 @@ A modular monolith, not microservices. Modules are Composer path packages under 
 | **Sync** | Offline push and pull, the POS replica, terminal sync state |
 | **Printing** | Printers, routes, kitchen stations, templates, print jobs, agent heartbeat |
 
+**As built, a shared business domain ships under `packages/`, not as a leaf module under `modules/<module>/`.** This table and the layout below describe the design's eventual module boundaries, but every domain actually shipped so far that later modules read through a contract — organization, access, platform, workflow, eventbus, auth, and now catalog (T-027) — lives under `packages/<name>/src`, with the published contract under `packages/contracts/src/<Name>/`. The rule each of those tasks applied: a domain every later module reads through a contract is shared infrastructure, the same category as the kernel, not a leaf `modules/*` module booted from `MODULES` — and placing it under `packages/` gives it the same deptrac boundary layer the kernel already has, rather than a weaker one. `modules/` currently holds only `host` (the Laravel host application) and `demo` (the boundary check's own negative control).
+
 Boundaries are enforced, not merely described: a module may depend on the kernel and on another module's published contracts, never on its internals. That rule is checked in the gate, which is what keeps later extraction possible.
 
 Because everything lives in one database per tenant, **foreign keys across modules are normal and encouraged**. The projections, reference tables and snapshot endpoints v0.3 needed are deleted. Snapshot *columns* on financial documents stay, because reprinting an old receipt exactly is still a requirement.

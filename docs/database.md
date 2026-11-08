@@ -538,6 +538,53 @@ One rule serves four thousand PLUs. Per-product prefix columns would mean four t
 
 Label printing needs nothing new: `printers.type = label` and `print_templates.type = label` already exist (§6.17).
 
+#### As built (T-027)
+
+T-027 is the first implementation of this section — twelve tenant migrations (`units`, `categories`,
+`brands`, `products`, `unit_conversions`, `product_barcodes`, `product_locations`, `product_branches`,
+`product_components`, `modifier_groups`, `modifiers`, `product_modifier_groups`), `UnitResolver` and
+its snapshot contract, and 33 CRUD slices under `packages/catalog`. `barcode_rules` and its dual-engine
+parser remain out of scope here (FP-423).
+
+**Eight documented columns deferred, by a two-step mechanism rather than one.** `products.tax_group_id`,
+`purchase_tax_group_id`, `income_account_id`, `cogs_account_id`, `inventory_account_id`,
+`kitchen_station_id`, and `categories.income_account_id`, `kitchen_station_id` are not built, because
+`tax_groups`, `accounts` and a kitchen-station table do not exist yet. Each owning task (FP-231,
+FP-260, FP-239) owes an **expand** migration for the column and a separate **contract** migration for
+the foreign key with a data-clean pre-check — a key onto an already-existing table is a contract-phase
+change under this codebase's own migration source rules, never a single step — and `tax_group_id` also
+needs a backfill before it can be made `NOT NULL` as documented. `products.custom_fields` is likewise
+deferred (no `custom_field_definitions` table exists), following `branches`' own precedent.
+`product_suppliers` and `barcode_rules` stay out of scope for the same reasons as their owning tables.
+
+**The ladder's lookup keys, exactly.** `UnitResolver` reads a `unit_conversions` row only as
+`from_unit_id = the line unit, to_unit_id = the product's own stock unit` — never inverted, never
+chained through an intermediate unit. A **product-scoped** row whose `to_unit_id` is not that
+product's own `stock_unit_id` could therefore never be read by the ladder, and creating one is refused
+at write time; a **global** row's `to_unit_id` carries no such constraint, because it serves every
+product whose stock unit happens to equal it. The chain step (step 3) walks `units.base_unit_id`/
+`factor` to a common root and divides exactly, with `brick/math` at unbounded scale — an inexact
+quotient is refused rather than rounded, so an explicit conversion row is always the remedy and always
+read first.
+
+**The snapshot's rounding mode and order.** The entered quantity is rounded to the **line unit's own**
+precision first, `HALF_UP` (MySQL's `ROUND()` on exact values), then `base_quantity` is computed from
+that already-rounded value, also `HALF_UP` — never the reverse order, because FP-237's TypeScript twin
+must match this exactly. `units.precision` **defaults to 4**, the storage scale, not `0` — a `0`
+default would silently round every fractional entry on a unit nobody meant to restrict to whole
+numbers.
+
+**`product_barcodes.primary_product_id`** is the one-primary-per-product backstop: a stored generated
+column, `CASE WHEN is_primary THEN product_id END`, with a plain unique index — NULL on every
+non-primary row (so those stay unconstrained) and the product id on the primary one. Deliberately not
+the §3.3 sentinel, because here NULL-distinctness is exactly the behaviour wanted.
+
+**`categories.path`'s depth limit is 17.** `path VARCHAR(500)` holds root-to-self 26-character ULIDs
+joined by `/`; the 18th ancestor would push a row past 500 characters, so depth 17 is the deepest
+category a create or a move may produce, refused by name rather than silently truncated.
+
+**`modifier_groups.max_select`'s "unlimited" is stored as `NULL`**, not a sentinel integer.
+
 ### 6.4 Pricing and tax
 
 | Table | Columns / notes |
@@ -1802,7 +1849,7 @@ Offline sales are why `sales.business_date_source` and `sync_status` exist, and 
 | **XAMPP / MariaDB 10.4** (this machine) | `flexipos_master` plus 2–3 tenant databases (`flx_t_000001`, `flx_t_000002`, one empty for provisioning tests) created by `infra/scripts/xampp-dev.ps1`. Credential driver `env://`. Differences that matter: no `utf8mb4_0900_ai_ci` (the script substitutes `utf8mb4_unicode_ci`); `JSON` is a `LONGTEXT` alias with working JSON functions; **no functional indexes**, so indexed custom fields use stored generated columns — the same mechanism `stock_movements.batch_key` / `serial_key` use for the v0.5 idempotency key (§6.5), so that key needs no engine branch; `CHECK` constraints and partitioning are supported; `ALTER … ALGORITHM=INSTANT` support differs, which matters for §9.4 rehearsals |
 | **Docker dev and CI** | MySQL 8.4, master + a two-tenant fixture (`TwoTenantFixture`). CI jobs: migrate-from-scratch, migrate-from-previous-release, template-equals-migrations, `tenant:provision` end to end, `tenant:migrate --all` across the fixture including one deliberately broken tenant to prove failure isolation, and a schema-drift diff against the committed dump |
 | **Boundary enforcement** | Deptrac rules keep modules from reaching into each other's models; **cross-module foreign keys are allowed, cross-module direct model access is not** — a module calls another module's service, which is now an in-process call, not an HTTP hop. A static test asserts no `tenant_id` column exists in any tenant migration and no query string contains a second schema name. **Three more static tests come with v0.5:** (1) no `unit_id`, `unit_factor` or `unit_code` column on any of the seven tables §6.5 names as below the document layer — the conversion boundary is an absence, and an absence only stays true if something checks; (2) `decimal()` without a precision argument is forbidden in a tenant migration, because MySQL reads it as `DECIMAL(10,0)` and truncates half a kilogram to zero (§3.2); (3) **the `[UOM]` tag is complete wherever it is claimed** — stated below as something that can actually pass, because a criterion specified so that it must fail is worse than no criterion: the first person to implement it weakens it to green (D-67) |
-| **The `[UOM]` completeness test, exactly** | MEASURED: a literal "all four columns on every tagged table" would fail on **five of the seventeen** on the day it was written — `price_list_items`, `product_barcodes`, `modifiers` (degenerate tags, §3.1) and `stock_count_items`, `stock_transfer_items` (the entered quantity is not called `quantity`). So the test asserts three things instead. **(a)** All seventeen tagged tables declare a unit column (`unit_id`, or `linked_unit_id` on `modifiers`). **(b)** The other **fourteen** — the thirteen document-line tables **plus `product_components`**, see (c) — additionally declare `unit_factor` and **one base column for each entered quantity column they carry**: `quantity`/`base_quantity` on twelve of them, plus `received_quantity`/`received_base_quantity` again on `purchase_order_items`; `counted_quantity`/`base_quantity` on `stock_count_items`; and `qty_sent`/`base_qty_sent` with `qty_received`/`base_qty_received` on `stock_transfer_items`, which records two quantity events (D-58). **(c)** Exactly **three** tables are exempt **by name** — `price_list_items`, `product_barcodes` and `modifiers`, which carry the unit column only. `product_components` is **not** exempt: it is master data, but it carries the whole quad and passes (b) unaided, and exempting a table that would pass is how an exemption list quietly becomes a list of tables nobody checks. An exemption list that is not in the document is an exemption list the implementer invents |
+| **The `[UOM]` completeness test, exactly** | MEASURED: a literal "all four columns on every tagged table" would fail on **five of the seventeen** on the day it was written — `price_list_items`, `product_barcodes`, `modifiers` (degenerate tags, §3.1) and `stock_count_items`, `stock_transfer_items` (the entered quantity is not called `quantity`). So the test asserts three things instead. **(a)** All seventeen tagged tables declare a unit column (`unit_id`, or `linked_unit_id` on `modifiers`). **(b)** The other **fourteen** — the thirteen document-line tables **plus `product_components`**, see (c) — additionally declare `unit_factor` and **one base column for each entered quantity column they carry**: `quantity`/`base_quantity` on twelve of them, plus `received_quantity`/`received_base_quantity` again on `purchase_order_items`; `counted_quantity`/`base_quantity` on `stock_count_items`; and `qty_sent`/`base_qty_sent` with `qty_received`/`base_qty_received` on `stock_transfer_items`, which records two quantity events (D-58). **(c)** Exactly **three** tables are exempt **by name** — `price_list_items`, `product_barcodes` and `modifiers`, which carry the unit column only. `product_components` is **not** exempt: it is master data, but it carries the whole quad and passes (b) unaided, and exempting a table that would pass is how an exemption list quietly becomes a list of tables nobody checks. An exemption list that is not in the document is an exemption list the implementer invents. **As built (T-027):** this test now exists, at `modules/host/tests/Feature/UomColumnSetsTest.php` — run today over the three of the seventeen tables T-027 actually builds (`product_barcodes`, `modifiers`, `product_components`); the other fourteen arrive with their own owning tasks |
 | **Testing** | feature tests run against a real tenant database created per test class and dropped afterwards (transactions alone cannot test provisioning or migrations). A `RefreshTenantDatabase` trait imports the template rather than migrating, to keep the suite fast |
 
 ---
