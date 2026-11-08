@@ -5,6 +5,12 @@ decided and logged rather than left blocking, per the team protocol. `D-1` numbe
 this task's own file, matching the convention most decisions files in this backlog already use
 (T-022, T-023, T-024, T-026).
 
+**Revision note.** D-12 to D-19 below were added after `architect`'s review of the spec against real
+source (`docs/plans/T-027-catalog.md` §0, findings F-1 to F-13). D-1 to D-11 are unchanged in
+substance; where a finding corrected or sharpened one of them, the correction is recorded as its own
+new decision below rather than silently rewriting the original, so the record shows what was found and
+when, the same convention this backlog applies to its own stale-count corrections (FP-171/FP-176).
+
 D-1 | FP-230's own line widens this task to include "the resolver and its snapshot contract" for
 units, but T-006 (DONE) shipped **no code at all** — `docs/decisions/T-006-unit-of-measure.md` and
 `docs/specs/T-006-unit-of-measure.md` both state outright "the deliverable is two Markdown documents,
@@ -163,3 +169,116 @@ correct, consistent with every prior spec in this backlog ("the exact interface 
 the architect's/developer's to design, not restated here," T-026 AC-15). Recorded here only so the
 discrepancy is not mistaken for something this spec settled. | Reversible: yes; not a business
 decision in any case.
+
+---
+
+## Decisions D-12 to D-19 — added after `architect`'s review (findings F-1 to F-13)
+
+D-12 (corrects the premise behind D-3, F-1) | The spec's "Current behaviour" claimed
+`custom_field_definitions` already exists (T-011/T-014), and that `[CF]` applies to `products`,
+`categories` and `brands` alike. `architect` measured both false: no migration creates
+`custom_field_definitions` — T-008 D-4 deliberately left it out of the tenant baseline and nothing
+since has built it — and `docs/database.md` §6.3 tags only `products` with `[CF]`. | **Corrected.**
+`products.custom_fields` is not built by this task (new AC-27a), following T-014's own precedent of
+deferring `branches`' custom fields to their own task; `categories`/`brands` never carried the tag in
+the first place, so nothing is deferred for them. | A finding accepted as measured, not re-argued:
+`architect` read the T-008 migration and its own D-4 docblock directly. Reversible: yes — additive
+when `custom_field_definitions` ships.
+
+D-13 (corrects D-3, F-2) | D-3's own text undercounted and then re-counted itself across the spec
+("three columns," then "six," then "six/seven" in different places) — a defect in the writing, not in
+the underlying call to defer. Separately, "added... as an ordinary expand-step migration" understated
+what the owning tasks actually owe: `architect` found this codebase's migration source rules treat a
+foreign key onto an **already-existing** table as a **contract**-phase migration, distinct from the
+expand step that merely adds the column (precedent: `…000401_add_updated_by_foreign_key_to_settings_
+table.php`, `…000506_add_branch_foreign_keys.php`); and `products.tax_group_id` is documented without
+`NULL`, so FP-231 also owes a backfill before it can be made `NOT NULL`. | **Corrected.** The real
+count is eight: six on `products` (`tax_group_id`, `purchase_tax_group_id`, `income_account_id`,
+`cogs_account_id`, `inventory_account_id`, `kitchen_station_id`) and two on `categories`
+(`income_account_id`, `kitchen_station_id`) — named in AC-6/AC-27 rather than counted, so a future
+reader cannot re-introduce the same arithmetic error. The deferral note now states the owing task
+needs an expand migration (column) **and** a contract migration (the FK, with a data-clean pre-check),
+plus a backfill for `tax_group_id` specifically. The underlying call — defer rather than build a
+key-less placeholder — still holds (confirmed by `architect`: a placeholder would still need that same
+later contract step, so building it now saves nothing). | Reversible: yes.
+
+D-14 (amends D-9, F-3) | D-9 scoped the dimension-only check to `purchase_unit_id`/`sales_unit_id`
+only. `architect` found the identical argument ("no ladder step ever bridges two dimensions") applies
+just as directly to `product_barcodes.unit_id` and `modifiers.linked_unit_id` — a cross-dimension
+value in either is a row that can never resolve from the moment it is written, the same dead-on-
+arrival failure D-9 was written to prevent for the product-level columns. | **Extended, not
+overturned.** AC-29 (barcodes) and AC-38 (modifiers) now carry the same dimension-match check as
+AC-23. D-9's own boundary stands: this is still a dimension check, not a full resolvability check —
+the actual scan-time/depletion-time resolution stays FP-423's and the depleting module's concern
+respectively. | Narrowing the original decision's own stated reasoning to only two of the three places
+it actually applies would have been an inconsistency inside the decision itself, not a deliberate
+boundary. Reversible: yes.
+
+D-15 (amends AC-20/AC-36, F-4) | AC-20, as first written, excused further checks by citing AC-22 and
+AC-24 as containing "reference checks" — `architect` measured that neither criterion contains one; the
+citation pointed at nothing. The real gap it was gesturing at is real: nothing refused deleting a
+product that is still another product's component, or a modifier's linked product, or a modifier
+group still attached to a live product. | **Added real guards**, mirroring the existing AC-5 (category)
+/ AC-8 (brand) delete-guard shape exactly: a product cannot be soft-deleted while it is a live
+`product_components.component_product_id` or a live `modifiers.linked_product_id` (AC-20); a modifier
+group cannot be soft-deleted while attached to a live product via `product_modifier_groups` (AC-36a).
+| This is the same reference-integrity discipline already applied to categories and brands, extended
+to the two places it was missing — not a new policy. Reversible: yes — a guard can always be relaxed.
+
+D-16 (amends AC-34, F-5) | The spec's cycle guard refused only a product being its own **direct**
+component (`parent_product_id = component_product_id`). `architect` pointed out a transitive cycle (A
+contains B, B contains A, or a longer loop) is exactly as broken — any future recursive depletion over
+`product_components` would never terminate. | **Strengthened to the transitive case** (new AC-34a): a
+new component edge is refused if the proposed `component_product_id` already (directly or
+transitively) contains `parent_product_id` among its own components. | The safe, reversible direction:
+refusing a structure that could cause an infinite recursion later is strictly more conservative than
+the original direct-only check, never more permissive. Reversible: yes — a narrower check can always
+be relaxed if a real bundle-of-bundles need appears that this construction wrongly blocks (none is
+documented).
+
+D-17 (amends AC-11/AC-42, F-6) | AC-11 named `CHECK (precision BETWEEN 0 AND 4)` as a plain,
+provable-today criterion. `architect` measured that neither Laravel's schema builder nor SQLite (the
+test stand-in) can express or exercise a `CHECK` constraint — this is the same shape as the existing
+`JsonValidity`/`FullTextIndex` precedents in this codebase, which are MySQL/MariaDB-only and fenced as
+such. AC-42 then separately claimed "no criterion in this spec is marked `[ENGINE]`," which became
+false the moment AC-11 carries one. | **Fenced.** AC-11's handler-level refusal is provable today
+(unchanged); the database `CHECK` clause itself is `[ENGINE]`, NOT VERIFIED until G-1, proven only by a
+real-engine test under `ENGINE_HOLD`'s existing exception path (T-008/T-009/T-023 precedent). AC-42
+corrected to name this one exception rather than claim none exists. | Recorded as a genuine correction,
+not a softening: the handler guard still ships and is still tested today; only the column-level belt
+is deferred to the engine, exactly where every other such constraint in this codebase already sits.
+Reversible: n/a (a finding).
+
+D-18 (informational, confirmed per F-7 to F-12) | Six further points were either silent in the spec or
+read two ways in the source, and `architect`'s plan picked a value/rule for each while building; `ba`
+reviewed each against `docs/database.md`/T-006's decisions and confirms all six: **(F-7)** the ladder
+reads a `unit_conversions` row only as `from = line unit, to = stock unit` — never inverted or chained
+— so a product-scoped row whose `to_unit_id` is not that product's own `stock_unit_id` could never be
+read and is refused at write time (new AC-13a); **(F-8)** `path VARCHAR(500)` over 26-character ULID
+ids joined by `/` makes depth 17 the deepest legal category, refused beyond that (new AC-3a); **(F-9)**
+"unlimited" `max_select` is stored as `NULL`, not a sentinel integer (AC-36, reworded); **(F-10)** "the
+rounding order is enforced at construction" means there is exactly one documented construction path
+(`UnitResolver::snapshot()`) that performs it in order, and Q-11's precision check reads the **stock**
+unit's precision specifically, not the line unit's (AC-12/AC-16, reworded); **(F-11)** `units.precision`
+defaults to `4` (the storage scale), not `0` — a `0` default would silently round every fractional
+entry on a unit nobody meant to restrict to whole numbers (AC-11, corrected); **(F-12)** `brands`' "code,
+name unique" means both columns independently unique, which the spec already had right (AC-7, footnote
+added confirming it, no behavioural change). | Each is accepted as the conventional, intention-matching
+reading, confirmed against the same source `architect` cited, not re-derived independently. Reversible:
+yes — each is a data-shape/validation detail, not a structural commitment.
+
+D-19 (doc-inconsistency flagged, not resolved by `ba`, F-13) | `docs/database.md` §6.5 states a
+depleting modifier's conversion factor is "snapshotted when that row was written (D-62)" — which
+implies a `unit_factor` column on `modifiers` — while §3.1 and §14 give `modifiers` **no** such column
+and exempt it by name from the full `[UOM]` quad. `architect`'s plan builds to §3.1/§14 (no
+`unit_factor` on `modifiers`), which is also what AC-43's static `[UOM]`-column-set test actually
+checks. | **`ba` confirms following §3.1/§14** for this task (AC-37/AC-43 unchanged — they never added
+a `unit_factor` column to `modifiers`), and flags the §6.5-vs-§3.1/§14 disagreement itself as a
+documentation defect for the lead, owed to the restaurant workstream that will need modifiers to
+actually snapshot a factor once depletion posting is designed (new AC-40a). `ba` cannot edit
+`docs/database.md` and does not attempt to silently pick a winner between the two sections. | The
+cheapest, safest reading when two parts of the same design document disagree is the one the
+machine-checked test already enforces, recorded as a flag rather than a silent resolution either way —
+the same discipline this backlog applies to every other self-contradiction it has found (FP-176,
+FP-181, FP-182). Reversible: yes — whichever way the restaurant workstream resolves §6.5 vs §3.1/§14,
+no column this task ships needs to change.

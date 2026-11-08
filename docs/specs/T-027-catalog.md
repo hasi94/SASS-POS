@@ -3,9 +3,21 @@
 Backlog: FP-230, "Catalog: products, variants, barcodes, categories, brands, units, modifiers,"
 widened by T-006 (DONE, documents only — see Current behaviour) to include "unit dimension, the
 resolver and its snapshot contract, the stock/purchase/sales unit split, weighable flags and PLU, and
-`barcode_rules` with a parser in both engines (PHP and TypeScript)." Decisions D-1 to D-11 are in
+`barcode_rules` with a parser in both engines (PHP and TypeScript)." Decisions D-1 to D-19 are in
 `docs/decisions/T-027-catalog.md`. **No BLOCKING questions** — this is autonomous/team-mode work;
 every open design question was decided and logged there rather than left for the human.
+
+**Revision note.** This revision folds in `architect`'s review findings F-1 to F-13 against real
+source (`docs/plans/T-027-catalog.md` §0), each traceable below by its `F-n` tag: F-1 (`custom_field_
+definitions` doesn't exist, `[CF]` is `products`-only), F-2 (the deferred-FK count and mechanism), F-3
+(apply the dimension check to barcode/modifier units too), F-4 (real delete guards, not a reference to
+criteria that contain none), F-5 (transitive component cycles, not only direct self-reference), F-6
+(AC-11's `CHECK` constraint is `[ENGINE]`), F-7 (the ladder's exact lookup key and a write rule it
+implies), F-8 (category depth limit, 17), F-9 (`max_select` unlimited is `NULL`), F-10 (what "the
+rounding order is enforced" means — one construction path, and it is the stock unit's precision for
+Q-11), F-11 (unit precision defaults to 4, not 0), F-12 (brand `code` and `name` both unique,
+confirmed), F-13 (a `docs/database.md` §6.5-vs-§3.1/§14 inconsistency on modifiers, flagged rather than
+silently resolved either way).
 
 **Scoping call, made before writing a single AC (D-2):** this spec covers one slice of FP-230 —
 categories, brands, units/conversions/`UnitResolver`/the snapshot contract, products (including
@@ -66,12 +78,26 @@ Re-derived from the files, not assumed:
   `locations` (T-014, `modules/host/database/migrations-tenant/2026_10_22_000501..502_*.php`),
   `employees` (T-010/T-014, for `created_by`/`updated_by`/`manager_employee_id`-style references where
   this task's tables carry `[BY]`).
-- **Tables six documented columns reference do not exist**, measured directly (no migration creates
-  any of them): `tax_groups` (FP-231, TODO), `accounts` (FP-260, TODO), and whatever table would own a
-  kitchen station (FP-239, TODO). This affects `products.tax_group_id`, `products.
-  purchase_tax_group_id`, `products.income_account_id`, `products.cogs_account_id`, `products.
-  inventory_account_id`, `categories.income_account_id`, and `categories.kitchen_station_id`/
-  `products.kitchen_station_id` — none of the six/seven are built by this task (D-3).
+- **Eight documented columns reference tables that do not exist**, measured directly (no migration
+  creates any of them): `tax_groups` (FP-231, TODO), `accounts` (FP-260, TODO), and whatever table
+  would own a kitchen station (FP-239, TODO). Six are on `products` (`tax_group_id`,
+  `purchase_tax_group_id`, `income_account_id`, `cogs_account_id`, `inventory_account_id`,
+  `kitchen_station_id`) and two are on `categories` (`income_account_id`, `kitchen_station_id`) —
+  named rather than counted, because an earlier draft of this spec miscounted itself twice ("three",
+  "six", "six/seven" in different places) and a name cannot be miscounted the same way. None of the
+  eight are built by this task (D-3). **Deferral is more than "add the column later"**: a foreign key
+  onto an already-existing table is a **contract**-phase migration under this codebase's migration
+  source rules (precedent: `…000401_add_updated_by_foreign_key_to_settings_table.php`,
+  `…000506_add_branch_foreign_keys.php`), so each owning task (FP-231, FP-260, FP-239) owes an
+  **expand** migration (the column) **and a separate contract migration** (the foreign key, with a
+  data-clean pre-check) — not one step. `products.tax_group_id` is additionally documented **without**
+  `NULL`, so FP-231 also owes a backfill before that column can be made `NOT NULL`.
+- `custom_field_definitions` **does not exist** (measured: no migration creates it). T-008 D-4
+  deliberately left it out of the tenant baseline, and nothing since has built it — a draft of this
+  spec wrongly assumed it was already shipped by T-011/T-014. Separately, `docs/database.md` §6.3
+  tags only `products` with `[CF]`; `categories` and `brands` carry no custom-fields column at all.
+  Following T-014's own precedent for `branches` ("deferred its custom fields for their own task"),
+  this task does **not** build `products.custom_fields` either (see Out of scope).
 - **`suppliers` does not exist** (FP-254, TODO, Purchasing) — `product_suppliers`' only reason to
   exist is linking to it, so this task does not build `product_suppliers` either (D-4).
 - `custom_field_definitions` and `settings_registry` (T-011/T-014) already exist, so the `[CF]` tag on
@@ -116,6 +142,11 @@ Re-derived from the files, not assumed:
   every descendant** in the same transaction — a materialised path that goes stale the moment anything
   moves under it is a defect, not a cosmetic gap, since `docs/database.md` names it a reporting
   roll-up's source of truth.
+- **AC-3a** (negative/edge case, added per architect review F-8): `path` is `VARCHAR(500)`, built from
+  root-to-self ids joined by `/`, and every id is a 26-character ULID — so the deepest legal `depth`
+  is **17** (18 ids would need 18×26 + 17 separators = 485, and the 19th ancestor pushes past 500). A
+  create or a move that would push any affected row's `path` past 500 characters is refused by name,
+  naming the row that would overflow, rather than silently truncating it.
 - **AC-4** (negative/edge case): A category cannot be set as its own ancestor — moving category A to be
   a child of one of A's own descendants is refused, never silently creating a cycle a materialised path
   cannot represent.
@@ -125,13 +156,17 @@ Re-derived from the files, not assumed:
   readable by id.
 - **AC-6** (D-3, scope boundary): `categories.income_account_id` and `categories.kitchen_station_id`
   are **not** built by this task — `accounts` (FP-260) and a kitchen-station table (FP-239) do not
-  exist. Each is added by the task that ships its owning table, as an ordinary expand-step migration.
+  exist. Each is added by the task that ships its owning table, as an expand migration for the column
+  **plus a separate contract migration** for the foreign key itself (a key onto an already-existing
+  table is a contract-phase change under this codebase's migration source rules, not a single step).
 
 ### B. Brands
 
 - **AC-7**: Creating a brand requires `code` (unique, non-blank) and `name` (unique, non-blank); a
   blank or duplicate value in either refuses with a validation message naming the field. **Negative
-  case**: two brands may not share a name even with different codes, and vice versa.
+  case**: two brands may not share a name even with different codes, and vice versa. (Confirmed per
+  architect review F-12: `docs/database.md` §6.3 writes `brands` as "code, name unique" — read as
+  **both** columns independently unique, not one.)
 - **AC-8**: Soft-deleting a brand that is referenced by any active product's `brand_id` is refused,
   naming the blocking reference; a brand with none soft-deletes normally.
 
@@ -152,15 +187,26 @@ Re-derived from the files, not assumed:
   global `unit_conversions` row that itself crosses dimensions, which is refused at write time (AC-13),
   not only at resolution time.
 - **AC-11**: Creating a `units` row requires `code` (unique), `name`, and `dimension` (one of `count`,
-  `mass`, `volume`, `length`, `area`); `precision` defaults within `0`–`4` and a value outside that
-  range is refused (the column's own `CHECK`). `base_unit_id`/`factor` are both optional but must be
-  supplied together — a unit with one and not the other is refused. **Negative case**: `base_unit_id`
-  naming a unit of a different `dimension` is refused (gram cannot chain under a litre); a non-positive
-  `factor` is refused; a `base_unit_id` chain containing a cycle (unit A's base is B, B's base is A, or
-  a longer loop) is refused.
-- **AC-12** (Q-11/D-5): A unit with `precision = 0` causes any computed `base_quantity` that is not a
-  whole number to be **rejected**, not rounded — the adopted proposal for "is a fractional base
-  quantity ever legal when the base unit is `each`." This is proved as a property of the snapshot
+  `mass`, `volume`, `length`, `area`). `precision` is an integer `0`–`4`, **defaulting to `4`** (the
+  storage scale, so no rounding beyond storage happens unless an admin deliberately narrows it — a
+  default of `0` would silently round every fractional entry on a mass/volume/length/area unit nobody
+  meant to be whole-number-only, corrected per architect review F-11); a value outside `0`–`4` is
+  refused both by the handler (proven on the stand-in) and, where the engine supports it, by the
+  column's own `CHECK (precision BETWEEN 0 AND 4)`. **[ENGINE] fencing (corrected per architect review
+  F-6):** the handler-level refusal is provable today against the stand-in; the database `CHECK`
+  constraint itself cannot be created or exercised on the SQLite test double (neither Laravel's schema
+  builder nor SQLite expresses it), so that specific clause is written for MySQL/MariaDB and stays
+  **NOT VERIFIED** while `ENGINE_HOLD` is on, proven only once an engine test runs under G-1 — the same
+  fencing T-008/T-009/T-023 already carry for their own engine-only clauses. `base_unit_id`/`factor`
+  are both optional but must be supplied together — a unit with one and not the other is refused.
+  **Negative case**: `base_unit_id` naming a unit of a different `dimension` is refused (gram cannot
+  chain under a litre); a non-positive `factor` is refused; a `base_unit_id` chain containing a cycle
+  (unit A's base is B, B's base is A, or a longer loop) is refused.
+- **AC-12** (Q-11/D-5, clarified per architect review F-10): the question is about the **base**
+  quantity, so the precision that governs it is specifically the product's **stock (base) unit's**
+  `precision`, not the line unit's. When the stock unit's `precision = 0`, any computed `base_quantity`
+  that is not a whole number is **rejected**, not rounded — the adopted proposal for "is a fractional
+  base quantity ever legal when the base unit is `each`." This is proved as a property of the snapshot
   computation (AC-16), since no document-line table exists yet to carry a real quantity.
 - **AC-13**: Creating a `unit_conversions` row requires `from_unit_id`, `to_unit_id` (both existing
   `units` rows, and distinct from each other — a self-conversion is refused), and a positive `factor`;
@@ -170,6 +216,13 @@ Re-derived from the files, not assumed:
   (`COALESCE(product_id, '-')`), so exactly one global rule and exactly one per-product rule may exist
   for any ordered unit pair. **Negative case**: a second global row for the same `(from_unit_id,
   to_unit_id)` pair is refused as a duplicate, naming the existing row.
+- **AC-13a** (added per architect review F-7, the ladder's own lookup key): `UnitResolver`'s ladder
+  reads a `unit_conversions` row only as `from_unit_id = the line unit, to_unit_id = the product's own
+  stock unit` — never inverted, never chained through an intermediate unit. So a **product-scoped**
+  row (`product_id` not null) whose `to_unit_id` is anything other than that product's own
+  `stock_unit_id` could never be read by the ladder for that product. Creating such a row is refused,
+  naming the product's actual stock unit. (A **global** row's `to_unit_id` is not constrained this way
+  — a global rule serves every product whose stock unit happens to equal that `to_unit_id`.)
 - **AC-14**: A `unit_conversions` row naming a non-null `product_id` that does not exist, or that names
   a soft-deleted product, is refused.
 - **AC-15** (negative/edge case, ladder exhaustion): Given a product and a `fromUnit` with no
@@ -180,13 +233,16 @@ Re-derived from the files, not assumed:
   object/DTO (exact name `architect`'s/`dev`'s to choose) captures the `[UOM]` quad `docs/database.md`
   §3.1 defines for any future document line: `unit_id`, `quantity`, `unit_factor` (the resolved factor,
   snapshotted at construction, never re-resolved later), and `base_quantity` computed as `ROUND(quantity
-  × unit_factor, 4)`. Construction enforces the fixed rounding order §3.2 requires: the entered
-  `quantity` is rounded to the **unit's own** `precision` first, and `base_quantity` is computed from
-  that already-rounded value — never the reverse order. **Negative case**: constructing the snapshot
-  with a `unit_factor` the caller supplies directly (bypassing `UnitResolver`) is not this object's
-  concern to prevent — callers are expected to obtain `unit_factor` only from `UnitResolver::resolve()`,
-  stated in the contract's own documentation, the same trust boundary `docs/database.md` already places
-  on every document-line writer.
+  × unit_factor, 4)`. **Construction enforces the fixed rounding order §3.2 requires** (clarified per
+  architect review F-10: this is met by there being exactly one documented construction path,
+  `UnitResolver::snapshot()`, that performs the rounding in order — the published DTO's own constructor
+  checks shape only, never re-derives or re-rounds): the entered `quantity` is rounded to the **line
+  unit's own** `precision` first, and `base_quantity` is computed from that already-rounded value —
+  never the reverse order. **Negative case**: constructing the DTO directly with a `unit_factor` the
+  caller supplies rather than obtaining it from `UnitResolver::resolve()`/`snapshot()` is not something
+  the DTO's own shape check can detect — callers are expected to obtain `unit_factor` only from the
+  resolver, stated in the contract's own documentation, the same trust boundary `docs/database.md`
+  already places on every document-line writer.
 - **AC-17** (out-of-scope boundary, stated for the reader, mirroring T-026's "scope boundary" ACs): This
   task does not build any table that *carries* the `[UOM]` quad on a real document line (`sale_items`,
   `grn_items`, and the other fifteen tables §3.1 names) — those belong to Sales, Purchasing, Inventory
@@ -207,10 +263,14 @@ Re-derived from the files, not assumed:
   row is refused, naming the required type. A `variant_parent`-type product's own `parent_id` must be
   null — a `variant_parent` nested under anything is refused. Every type other than `variant` must have
   `parent_id` null (only a `variant` row is ever a child).
-- **AC-20** (negative/edge case): Soft-deleting a `variant_parent` that still has active (non-deleted)
-  `variant` children is refused, naming the blocking children; soft-deleting a childless
-  `variant_parent`, or any `variant`, `simple`, `service`, `bundle`, or `composite` row, succeeds
-  normally (subject to AC-22/AC-24's own reference checks).
+- **AC-20** (negative/edge case, corrected per architect review F-4 — the earlier draft pointed at
+  AC-22/AC-24, which contain no reference checks at all): Soft-deleting a `variant_parent` that still
+  has active (non-deleted) `variant` children is refused, naming the blocking children. **In addition,
+  mirroring AC-5/AC-8's own delete-guard shape:** soft-deleting **any** product (of any type) is
+  refused while it is the `component_product_id` of a live (non-soft-deleted) `product_components`
+  row, or the `linked_product_id` of a live `modifiers` row — each refusal names the blocking
+  reference. A product with none of the above, and a childless `variant_parent`, soft-deletes
+  normally.
 - **AC-21**: `variant_options`/`variant_values` (JSON) are stored and returned as supplied with no
   server-side schema validation beyond "valid JSON" — this task does not invent a controlled vocabulary
   for variant attributes (size/colour/grade), since none is documented.
@@ -242,9 +302,16 @@ Re-derived from the files, not assumed:
   none` when `track_stock = false` or any other coupling between them, since none is documented and
   Inventory (FP-250 onward) is better placed to state what each combination means operationally.
 - **AC-27** (D-3, scope boundary): `products.tax_group_id`, `purchase_tax_group_id`,
-  `income_account_id`, `cogs_account_id`, `inventory_account_id`, and `kitchen_station_id` are **not**
-  built by this task — `tax_groups` (FP-231), `accounts` (FP-260), and a kitchen-station table (FP-239)
-  do not exist. Each is added by the task that ships its owning table.
+  `income_account_id`, `cogs_account_id`, `inventory_account_id`, and `kitchen_station_id` — six
+  columns — are **not** built by this task — `tax_groups` (FP-231), `accounts` (FP-260), and a
+  kitchen-station table (FP-239) do not exist. Each is added by the task that ships its owning table,
+  as an expand migration for the column plus a separate contract migration for the foreign key;
+  `tax_group_id` is documented `NOT NULL`, so FP-231 additionally owes a backfill before the column
+  can be made non-nullable.
+- **AC-27a** (D-3, scope boundary): `products.custom_fields` is **not** built by this task —
+  `custom_field_definitions`, the table a `[CF]` column validates against, does not exist (T-008 D-4
+  left it out of the baseline; nothing since has built it). Deferred to its own task, following
+  T-014's precedent for `branches`.
 
 ### F. Product barcodes (exact-match only)
 
@@ -253,10 +320,12 @@ Re-derived from the files, not assumed:
   barcode scans as the product's own stock unit," per `docs/database.md` §3.1's nullable-`unit_id`
   table) and `quantity` defaults to `1` when not supplied. **Negative case**: a duplicate `barcode`
   value (even for a different product) is refused, naming the existing product it already belongs to.
-- **AC-29**: `unit_id`, when supplied, is not required to share `stock_unit_id`'s dimension at this
-  layer — a barcode's `unit_id` plus `quantity` is a pack-size statement interpreted through
-  `UnitResolver` at scan time (FP-423's concern), and this table only stores the two values, validated
-  for existence and format.
+- **AC-29** (corrected per architect review F-3): `unit_id`, when supplied, **must share the same
+  `dimension` as the owning product's `stock_unit_id`** — refused otherwise, naming the mismatch. D-9's
+  own argument applies here exactly as it does to `purchase_unit_id`/`sales_unit_id` (AC-23): no ladder
+  step ever bridges two dimensions, so a cross-dimension barcode unit could never resolve and the row
+  would be dead on arrival the moment it is scanned. This is still a dimension-only check, not a full
+  resolvability check — the actual scan-time resolution through `UnitResolver` is FP-423's concern.
 - **AC-30**: At most one `product_barcodes` row per product has `is_primary = true`; setting a second
   row's `is_primary` to `true` for the same product automatically clears the previous primary flag in
   the same transaction, never leaving two.
@@ -277,30 +346,45 @@ Re-derived from the files, not assumed:
   only and is otherwise left null (inherits the product-level price) — this task stores the override,
   it does not implement the pricing ladder that reads it (FP-231's concern).
 - **AC-34**: Creating a `product_components` row requires `parent_product_id` and `component_product_id`
-  (both existing products, and distinct from each other — a product cannot be its own component,
-  refused), `unit_id`, and `quantity`; `unit_factor`/`base_quantity` are computed through `UnitResolver`
-  and **snapshotted at write time** (D-62, `docs/decisions/T-006-unit-of-measure.md`) — a later change
-  to the unit's conversion factor never silently re-scales an already-written recipe row. **Negative
-  case**: a `(parent_product_id, component_product_id)` pair that already exists is refused as a
-  duplicate rather than creating a second line (the unique key `docs/database.md` names).
+  (both existing products, and distinct from each other — a product cannot be its own direct
+  component, refused), `unit_id`, and `quantity`; `unit_factor`/`base_quantity` are computed through
+  `UnitResolver` and **snapshotted at write time** (D-62, `docs/decisions/T-006-unit-of-measure.md`) —
+  a later change to the unit's conversion factor never silently re-scales an already-written recipe
+  row. **Negative case**: a `(parent_product_id, component_product_id)` pair that already exists is
+  refused as a duplicate rather than creating a second line (the unique key `docs/database.md` names).
+- **AC-34a** (negative/edge case, strengthened per architect review F-5 — the earlier draft refused
+  only a direct self-reference): An **indirect** cycle is refused too — if component edges already
+  make `component_product_id` (directly or transitively, through any chain of existing
+  `product_components` rows) an ancestor that would eventually contain `parent_product_id`, adding the
+  new edge is refused, naming the cycle. (Concretely: A already contains B; adding "B contains A" is
+  refused, not only "A contains A".) This is the safe, reversible direction — refusing a structure that
+  would make a future bundle/recipe depletion recurse forever.
 - **AC-35** (out-of-scope boundary): `product_suppliers` is **not** built by this task — `suppliers`
   (FP-254) does not exist (D-4).
 
 ### H. Modifiers
 
-- **AC-36**: Creating a `modifier_groups` row requires `name`; `min_select`/`max_select` default to `0`
-  and unlimited respectively when not supplied, and `min_select > max_select` (both supplied and
-  non-default) is refused as an impossible range.
+- **AC-36**: Creating a `modifier_groups` row requires `name`; `min_select` defaults to `0` and
+  `max_select` defaults to, and "unlimited" is stored as, **`NULL`** (clarified per architect review
+  F-9 — there is no sentinel integer for "unlimited"). When `max_select` is supplied (non-null),
+  `min_select > max_select` is refused as an impossible range.
+- **AC-36a** (negative/edge case, added per architect review F-4, mirroring AC-5/AC-8/AC-20's guard
+  shape): Soft-deleting a `modifier_groups` row is refused while it is attached, via a live
+  `product_modifier_groups` row, to a live (non-soft-deleted) product; a group with no such attachment
+  soft-deletes normally.
 - **AC-37**: Creating a `modifiers` row requires `group_id` (existing) and `name`; `price_delta`/
   `cost_delta` default to `0`. **When `linked_product_id` is supplied, `linked_quantity` and
   `linked_unit_id` are both required** (`docs/database.md` §6.3: "depletes stock' with no quantity and
   no unit was unimplementable") — refused if either is missing while `linked_product_id` is set. When
   `linked_product_id` is null, `linked_quantity`/`linked_unit_id` must also be null (no depletion
   target, no depletion amount).
-- **AC-38** (negative/edge case): `linked_product_id`, when supplied, must reference an existing,
-  non-soft-deleted product; `linked_unit_id` must reference an existing `units` row, with no dimension
-  check against the linked product enforced here (mirrors AC-29's reasoning — the depletion arithmetic
-  belongs to whichever module actually depletes stock, not yet built).
+- **AC-38** (negative/edge case, corrected per architect review F-3): `linked_product_id`, when
+  supplied, must reference an existing, non-soft-deleted product; `linked_unit_id` must reference an
+  existing `units` row **and must share the linked product's own `stock_unit_id` dimension** — refused
+  otherwise, for the identical reason as AC-29/AC-23 (a cross-dimension unit can never resolve). The
+  depletion arithmetic itself — how many units of the linked product a modifier actually removes from
+  stock — still belongs to whichever module actually depletes stock, not yet built; this criterion
+  only guards against storing a link that could never resolve.
 - **AC-39**: `product_modifier_groups` is a simple join (`PK(product_id, group_id)`); creating a
   duplicate pair is refused rather than creating a second row. Both `product_id` and `group_id` must
   reference existing, non-soft-deleted rows.
@@ -309,6 +393,16 @@ Re-derived from the files, not assumed:
   "deliberately unspecified" by `docs/database.md` itself and belongs to the restaurant workstream —
   this task stores the three columns correctly and enforces the all-or-nothing rule of AC-37, nothing
   about what later reads them to deplete stock.
+- **AC-40a** (doc-inconsistency note, flagged per architect review F-13, not a defect in this spec):
+  `docs/database.md` §6.5 ("Units stop at the document line") states that a depleting modifier's
+  conversion factor is "snapshotted when that row was written (D-62)," which would require a
+  `unit_factor` column on `modifiers`; §3.1 and §14 give `modifiers` **no** such column and exempt it
+  by name from the full `[UOM]` quad, carrying only `linked_unit_id`/`linked_quantity`. This spec (and
+  AC-37/AC-43) follows **§3.1/§14** — `modifiers` ships with no `unit_factor`/`base_quantity` column —
+  because that is the shape the static `[UOM]`-column-set test (AC-43) actually checks against. The
+  §6.5/§3.1 disagreement itself is a documentation defect, not this task's to fix (`ba` cannot edit
+  `docs/database.md`); it is flagged here for the lead/architect as a follow-up, to be resolved when
+  the restaurant workstream actually needs modifier depletion to snapshot a factor.
 
 ### I. Framework integrity and the gate
 
@@ -317,10 +411,13 @@ Re-derived from the files, not assumed:
   directory (or the equivalent `architect`/`dev` choose, D-11) and reached from outside the owning
   module only through that published contract, never the concrete implementation's internals — the
   same boundary rule every prior module-owning task follows.
-- **AC-42**: `composer test:fast` and `composer test` both pass, proving every criterion above. No
-  criterion in this spec is marked `[ENGINE]` — every table, constraint and computation this task adds
-  is provable against the stand-in or by static/structural reading, matching how T-008/T-009's engine
-  fencing worked for pure-schema, non-connection-opening work.
+- **AC-42** (corrected per architect review F-6): `composer test:fast` and `composer test` both pass,
+  proving every criterion above **except AC-11's database `CHECK (precision BETWEEN 0 AND 4)` clause**,
+  which stays NOT VERIFIED until G-1 (ENGINE_HOLD) — the SQLite stand-in cannot express or exercise a
+  `CHECK` constraint, so only the handler-level refusal is provable today. This is the one `[ENGINE]`
+  exception in this spec; every other table, constraint and computation this task adds is provable
+  against the stand-in or by static/structural reading, matching how T-008/T-009's engine fencing
+  worked for pure-schema, non-connection-opening work.
 - **AC-43**: A static test asserts every `[UOM]`-tagged column set this task adds (`product_components`'
   full quad; `product_barcodes`' `unit_id`/`quantity` pair; `modifiers`' `linked_unit_id`/
   `linked_quantity` pair) matches §3.1's degenerate-tag table exactly — no extra or missing column —
@@ -341,7 +438,13 @@ Re-derived from the files, not assumed:
 - `income_account_id`/`cogs_account_id`/`inventory_account_id` on `products`, `income_account_id` on
   `categories` — `accounts` does not exist (FP-260, Finance) — D-3.
 - `kitchen_station_id` on `products`/`categories` — no kitchen-station table exists (FP-239,
-  Printing/Restaurant) — D-3.
+  Printing/Restaurant) — D-3. (Eight columns total across these three bullets — six on `products`, two
+  on `categories`, named individually in AC-6/AC-27, corrected per architect review F-2.) Each owning
+  task owes an expand migration for the column plus a separate contract migration for the foreign key
+  itself; `tax_group_id` additionally needs a backfill before it can be made `NOT NULL` as documented.
+- `products.custom_fields` — `custom_field_definitions` does not exist (T-008 D-4 left it out of the
+  baseline); `categories`/`brands` carry no `[CF]` tag at all per §6.3. Deferred to its own task,
+  following T-014's `branches` precedent (AC-27a, corrected per architect review F-1).
 - A TypeScript implementation of `UnitResolver` or the snapshot contract, for the offline till — FP-237
   (D-10).
 - Live-weight scale hardware integration — already deferred to Phase 6 by the owner (U-2,
@@ -368,9 +471,12 @@ Re-derived from the files, not assumed:
   every table and handler operates on the single tenant connection, mirroring T-022's permanent
   cross-tenant sweep (no new route, queued job, cache key, or plugin hook is introduced that would need
   a new sweep entry).
-- **Forward compatibility of deferred columns**: every column/table deferred by D-3/D-4 is deferred as
-  a clean expand step (a later migration adds the column/table once its target exists), never as a
-  placeholder column with no FK that would need to be dropped and re-added.
+- **Forward compatibility of deferred columns**: every column/table deferred by D-3/D-4 is deferred
+  entirely — no key-less placeholder column is added now that would still need its own later contract
+  migration to add the foreign key (corrected per architect review F-2: building the column today
+  would not save the later step, since the FK-onto-an-existing-table contract migration is owed either
+  way, and a placeholder would sit unguarded in the meantime). Each owning task adds the column (expand)
+  and the foreign key (contract, with a data-clean pre-check) together.
 
 ## Assumptions
 
