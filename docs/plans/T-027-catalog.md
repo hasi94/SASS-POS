@@ -1,6 +1,8 @@
 # Plan: T-027 Catalog
 
-Spec: `docs/specs/T-027-catalog.md` (AC-1 to AC-44, groups A to I). Decisions: `docs/decisions/T-027-catalog.md` (D-1 to D-11). Design authority: `docs/database.md` §3.1 to §3.3, §6.3, §6.5 ("Units stop at the document line", "The factor is snapshotted"), §14, §16 Q-9 to Q-12; `docs/decisions/T-006-unit-of-measure.md` U-1 to U-3, D-57 to D-84.
+Spec: `docs/specs/T-027-catalog.md` (AC-1 to AC-44, plus AC-3a, AC-13a, AC-27a, AC-34a, AC-36a and AC-40a; groups A to I). Decisions: `docs/decisions/T-027-catalog.md` (D-1 to D-19), as corrected in `2a58f28`.
+
+**Revision 2.** `ba` folded F-1 to F-13 (section 0.2) into the spec in `2a58f28`, as D-12 to D-19, and each correction matches the resolution this plan proposed. Wherever the original text of this plan offered a "fallback" in case `ba` declined, that fallback is now void: the checks are required by the spec. Design authority: `docs/database.md` §3.1 to §3.3, §6.3, §6.5 ("Units stop at the document line", "The factor is snapshotted"), §14, §16 Q-9 to Q-12; `docs/decisions/T-006-unit-of-measure.md` U-1 to U-3, D-57 to D-84.
 Backlog: FP-230 (FP-423 split out). Branch: `ai/T-027-catalog`. Gate directory: `modules/host`.
 
 **`architect` did not measure the gate baseline.** Step 0 does. The last recorded figure is the `test` step at **1232 s warm** (`composer.json` `extra.flexipos.gate`, 2026-11-05), already over the old 900 s limit and now run under `process-timeout` 7800. This task adds roughly 250 cases. That makes test cost a first-order design constraint here (Ruling 13, risk 1).
@@ -21,12 +23,27 @@ Backlog: FP-230 (FP-423 split out). Branch: `ai/T-027-catalog`. Gate directory: 
 | D-9: purchase and sales units are checked for dimension only | **Holds, and it should be applied consistently (F-3)** | §6.3 calls both "UI defaults for a document line, never authorities". Conversion rows normally follow the product. |
 | "Current behaviour": `custom_field_definitions` exists (T-011/T-014), so `[CF]` on products, categories and brands can validate | **False (F-1)** | No migration creates `custom_field_definitions`. T-008 D-4 lists it as **not** in the baseline, and nothing since has built it. §6.3 also tags only `products` with `[CF]` (and `[BY]`). `categories` and `brands` carry `[ID] [TS] [SOFT]` only. |
 
-### 0.2 Findings to route to `ba` (the lead routes them; the plan is written to the proposed resolution, and each one names its fallback)
+### 0.2 Findings routed to `ba`: all resolved in `2a58f28`
+
+| Finding | Now in the spec as | Decision |
+|---|---|---|
+| F-1 | "Current behaviour" corrected; **AC-27a**; Out of scope | D-12 |
+| F-2 | AC-6, AC-27, Out of scope, the NFR (eight named columns; expand plus contract; `tax_group_id` backfill) | D-13 |
+| F-3 | **AC-29**, **AC-38** (dimension match required) | D-14 |
+| F-4 | **AC-20** (component and modifier guards), **AC-36a** (modifier group guard) | D-15 |
+| F-5 | **AC-34a** (transitive cycle) | D-16 |
+| F-6 | **AC-11** `[ENGINE]` clause; **AC-42** names it as the one exception | D-17 |
+| F-7 to F-12 | **AC-13a**, **AC-3a**, AC-36 (`NULL`), AC-12/AC-16 wording, AC-11 default 4, AC-7 | D-18 |
+| F-13 | **AC-40a** (flagged for `lead`, not resolved) | D-19 |
+
+**One reading this plan applies.** AC-20 blocks deletion while the product is the component of "a live `product_components` row". That table has no `[SOFT]` column, so "live" is read as **a row whose parent product is not soft-deleted**. This is what this plan already said ("a component of a live product"). A component whose only parent is soft-deleted can be deleted.
+
+The original findings follow, unchanged, as the record of what was routed.
 
 - **F-1 (correction).** `custom_field_definitions` does not exist, and `[CF]` sits on `products` alone.
   - **Plan:** `products.custom_fields` is **not built**. This follows T-014's precedent exactly: `branches` deferred its custom fields "for their own task" (`…000501_create_branches_table.php` docblock, T-014 D-10).
   - **Spec edit:** correct the "Current behaviour" bullet and add `custom_fields` to Out of scope.
-  - **Fallback:** if `ba` wants the column now, it becomes a nullable JSON column that the handlers refuse to write. That is one migration line and one refusal.
+  - **Fallback (void, see revision 2):** if `ba` wants the column now, it becomes a nullable JSON column that the handlers refuse to write. That is one migration line and one refusal.
 - **F-2 (correction to D-3, AC-6, AC-27 and the forward-compatibility NFR).** Adding a deferred column later is **not** "an ordinary expand-step migration".
   - `SourceRules` AC-34 makes a foreign key onto an existing table a **contract**-phase migration. The precedents are `…000401_add_updated_by_foreign_key_to_settings_table.php` and `…000506_add_branch_foreign_keys.php`. So FP-231, FP-239 and FP-260 each owe an expand migration (the column) **plus** a contract migration (the key, with a data-clean pre-check).
   - `products.tax_group_id` is documented **without** `NULL`, so FP-231 also owes a backfill before it can be made `NOT NULL`.
@@ -35,12 +52,12 @@ Backlog: FP-230 (FP-423 split out). Branch: `ai/T-027-catalog`. Gate directory: 
 - **F-3 (amend AC-29 and AC-38).** D-9's own argument ("no ladder step ever bridges two dimensions") applies equally to `product_barcodes.unit_id` (resolved against the product's stock unit when scanned) and to `modifiers.linked_unit_id` (resolved against the linked product's stock unit when stock is depleted).
   - A cross-dimension value in either column can **never** resolve, so it is a dead row from the moment it is written.
   - **Plan:** both get the same dimension-only check as purchase and sales units. This is still not a resolvability check.
-  - **Fallback:** if `ba` keeps AC-29 and AC-38 as written, two lines are deleted in steps 14 and 17.
+  - **Fallback (void, see revision 2):** if `ba` keeps AC-29 and AC-38 as written, two lines are deleted in steps 14 and 17.
 - **F-4 (amend AC-20).** "Subject to AC-22/AC-24's own reference checks" points at two criteria that contain no reference checks.
   - **Plan:** the delete guards mirror AC-5 and AC-8 for every soft-deletable entity something still references:
     - a product cannot be soft-deleted while it is a component of a live product, or the linked product of a modifier;
     - a modifier group cannot be soft-deleted while it is attached to a live product.
-  - **Fallback:** drop those guards.
+  - **Fallback (void, see revision 2):** drop those guards.
 - **F-5 (amend AC-34).** The spec refuses only a product being its own component. A **transitive** cycle (A contains B, B contains A) would make every later depletion recursion infinite.
   - **Plan:** refuse any component edge that closes a cycle (Ruling 8). This is the safe direction and reversible.
 - **F-6 (AC-11 and AC-42).** `CHECK (precision BETWEEN 0 AND 4)` cannot exist on the SQLite stand-in. Laravel cannot express it, and SQLite has no `ADD CONSTRAINT`; this is the `JsonValidity` precedent.
@@ -162,7 +179,7 @@ The DTO holds strings. Doing the arithmetic in `packages/contracts` would have g
   1. In one transaction, lock the moving row and the new parent's ancestor rows with `lockForUpdate()`.
   2. Refuse if the new parent is the category itself, or has the category's `path` as a prefix (AC-4).
   3. Refuse if the parent is missing or soft-deleted (AC-2).
-  4. Refuse if the **deepest descendant** would pass 500 characters (F-8).
+  4. Refuse if the **deepest descendant** would pass 500 characters, naming that row (AC-3a, F-8). A create applies the same check to its own path.
   5. Rewrite the row, then every descendant, found by `path LIKE '<old>/%'` with the pattern escaped, **including soft-deleted ones**. They stay readable by id, so their path must stay true (AC-3).
 - Delete: soft. It is refused, naming the blocker, while a live child or a live product references the category (AC-5).
 - Reads: `GetCategory` returns a soft-deleted row by id. `ListCategories` excludes soft-deleted rows and is ordered by (`path`).
@@ -411,7 +428,7 @@ Notes on the schema:
     - the two cascades delete their children;
     - `SourceRules::inspect()` reports nothing for the twelve files, and none of them declares `down`.
   - **Predicted red:** section 9's schema list. Anything else means stop.
-  - *(AC-13, AC-24, AC-28, AC-30 and AC-32 to AC-34 schema halves; AC-6, AC-27 and AC-35 shown by the exact column lists.)*
+  - *(AC-13, AC-24, AC-28, AC-30 and AC-32 to AC-34 schema halves; AC-6, AC-27, AC-27a and AC-35 shown by the exact column lists: no deferred FK column, no `custom_fields`, no `product_suppliers` or `barcode_rules` table.)*
 - [ ] **Step 4: AC-43 and AC-44 static tests (host).**
   - **`UomColumnSetsTest`:**
     - a literal list of §3.1's seventeen `[UOM]` table names, with §14's three by-name exemptions (`price_list_items`, `product_barcodes`, `modifiers`);
@@ -497,12 +514,12 @@ Notes on the schema:
     - AC-2: an unknown parent and a soft-deleted parent are each refused;
     - **AC-3:** move a subtree three levels deep under another root. Every descendant's `path` and `depth` is rewritten, a soft-deleted descendant is rewritten too, and nothing outside the subtree changes;
     - **AC-4:** moving under self is refused, and moving under a grandchild is refused;
-    - **F-8:** a move that would push the deepest descendant past 500 characters is refused;
+    - **AC-3a:** a create at depth 18, and a move that would push the deepest descendant past 500 characters, are each refused, **naming the row that would overflow**. Nothing is written. **Control:** depth 17 is accepted;
     - **AC-5:** delete is refused while there is a live child and while there is a live product; a soft-deleted child and a soft-deleted product do not block; the deleted row is absent from the list and present by id.
   - **Mutations:**
     - **M9:** skip the descendant rewrite. The AC-3 test goes red;
     - **M10:** skip the ancestor check. The AC-4 test goes red.
-  - *(AC-1 to AC-5.)*
+  - *(AC-1 to AC-5, AC-3a.)*
 - [ ] **Step 10: brands** (`CreateBrand`, `UpdateBrand`, `DeleteBrand`).
   - A code shared with different names is refused, and a name shared with different codes is refused (AC-7).
   - Update renames, and uniqueness still applies.
@@ -514,7 +531,7 @@ Notes on the schema:
     - **AC-18:** each required field missing is refused; `sku` blank, 51 characters, duplicate, or duplicate by case is refused;
     - **AC-19:** a variant under a `variant_parent` is accepted; a variant under a simple product or under a variant is refused; a variant with no parent is refused; a `variant_parent` with a parent is refused;
     - **AC-20:** a `variant_parent` with a live variant cannot be deleted; with only a soft-deleted variant it can;
-    - **F-4:** a product that is a live product's component, or a modifier's linked product, cannot be deleted;
+    - **AC-20 reference guards:** a product cannot be deleted while it is the component of a product that is not soft-deleted, or the linked product of a modifier. Each refusal names the blocking reference. **Control:** once the parent is soft-deleted, the component can be deleted (section 0.2's reading);
     - AC-21: options JSON round-trips exactly;
     - **AC-22:** an update with a different `stock_unit_id` is refused **and the row is byte-identical afterwards, including `name` sent in the same request and `version`**; the same `stock_unit_id` is accepted;
     - **AC-23:** a purchase unit of another dimension is refused; null is accepted;
@@ -524,17 +541,17 @@ Notes on the schema:
     - `version` increments;
     - one audit row per write.
   - **Mutation M11:** let `stock_unit_id` through on update. The AC-22 test goes red.
-  - *(AC-18 to AC-27.)*
+  - *(AC-18 to AC-27, AC-27a: the exact column list has no `custom_fields`, and a `custom_fields` field in a command is refused as unknown.)*
 - [ ] **Step 12: conversions and `DatabaseUnitResolver`** (`CreateUnitConversion`, `RemoveUnitConversion`; the binding).
   - **Handler tests:**
     - AC-13: self-conversion refused; cross-dimension refused; factor ≤ 0 refused; a duplicate global row refused **naming the existing row's id**; a global row and a product row for the same pair are both accepted;
-    - **F-7:** a product row whose `to_unit` is not that product's stock unit is refused;
+    - **AC-13a:** a product row whose `to_unit` is not that product's stock unit is refused, **naming the product's actual stock unit**. **Control:** a global row with the same `to_unit` is accepted;
     - AC-14: an unknown product and a soft-deleted product are each refused.
   - **`DatabaseUnitResolverTest`, on the fixture,** with one integration case per ladder step plus one per refusal, proving the three queries load what the pure ladder expects:
     - resolving through the bound **contract** returns the same factor as `UnitLadder`;
     - a soft-deleted product still resolves;
     - an unknown product gives `unknown_product`.
-  - *(AC-9, AC-10, AC-13 to AC-15 end to end.)*
+  - *(AC-9, AC-10, AC-13, AC-13a, AC-14, AC-15 end to end.)*
 - [ ] **Step 13: `snapshot()` end to end.**
   - Through the contract, on the fixture: a case of 24 on an `each` product, quantity `2.5`, `case` precision 0, gives `3.0000`, `24.000000`, `72.0000`, unit code `case` and source `unit_chain`.
   - A `g` line on a `kg` product is refused with `factor_below_one`.
@@ -546,7 +563,7 @@ Notes on the schema:
 
 - [ ] **Step 14: barcodes** (four slices).
   - AC-28: blank refused; 65 characters refused; a duplicate on another product refused **naming that product's sku**; `quantity` defaults to 1.
-  - **F-3:** a `unit_id` of another dimension is refused, and the same dimension is accepted. (Fallback: delete this check if `ba` keeps AC-29.)
+  - **AC-29:** a `unit_id` of another dimension is refused, naming the mismatch. **Control:** the same dimension is accepted, including a unit with no conversion path, because the check is on dimension only.
   - **AC-30:** add A as primary, then B as primary. Afterwards exactly one row is primary and it is B, and this was done in one transaction. The update path behaves the same.
   - **Mutation M12:** skip the clearing. The unique backstop throws, and the test sees a refusal instead of success: red.
   - List: ordered with the primary first.
@@ -561,17 +578,18 @@ Notes on the schema:
     - a duplicate pair is refused;
     - **the snapshot is written:** 250 `g` of a `kg`-stocked flour gives `factor_below_one`, so the test uses a `g`-stocked component: `0.25` `kg` gives factor `1000.000000` and base `250.0000`.
   - **Factor frozen:** remove the global row and add one with a different factor (or change the `units` factor through `UpdateUnit`). The component row is unchanged.
-  - **F-5:** A→B, then B→A refused; A→B→C, then C→A refused.
+  - **AC-34a:** A→B, then B→A refused; A→B→C, then C→A refused. Each refusal names the cycle, and nothing is written. **Control:** A→B and A→C, then B→C, is accepted: a diamond is not a cycle.
   - **Source scan:** the handler type-hints `Contracts\Catalog\UnitResolver`, never `DatabaseUnitResolver`.
-  - *(AC-34.)*
+  - *(AC-34, AC-34a.)*
+  - **Mutation M13:** limit the cycle search to direct edges. The A→B→C→A case goes red.
 - [ ] **Step 17: modifiers** (six slices).
-  - AC-36: the defaults; min 3 with max 2 refused; max null is accepted.
+  - AC-36: the defaults (`min_select` 0, `max_select` stored as `NULL`); min 3 with max 2 refused; max null with any min is accepted.
   - AC-37: each partial triple (linked product only, product plus quantity, product plus unit) is refused; unit and quantity without a product is refused; all three is accepted; none is accepted.
-  - AC-38: a soft-deleted linked product is refused; **F-3:** a cross-dimension linked unit is refused (fallback: delete this check).
+  - AC-38: a soft-deleted linked product is refused; a linked unit whose dimension differs from the linked product's stock unit is refused. **Control:** the same dimension is accepted.
   - AC-39: a duplicate attach is refused; a soft-deleted side is refused.
-  - **F-4:** deleting a group attached to a live product is refused.
+  - **AC-36a:** deleting a group attached to a live product is refused. **Control:** when the only attached product is soft-deleted, the delete is accepted.
   - **Gate: `composer check` (end of chunk D).**
-  - *(AC-36 to AC-40.)*
+  - *(AC-36 to AC-40, AC-36a. AC-40a needs no test: it is the documentation note, F-13.)*
 
 ### Chunk E: scans, engine, documents
 
@@ -594,7 +612,7 @@ Notes on the schema:
     - the sentinel key and the `primary_product_id` key refuse on MySQL;
     - a case-variant duplicate `sku` is refused by the unique index;
     - migrating twice is a no-op.
-  - *(AC-11 CHECK half, AC-44 engine half: NOT VERIFIED under `ENGINE_HOLD`, F-6.)*
+  - *(AC-11's `[ENGINE]` CHECK clause, the one exception AC-42 names, stays NOT VERIFIED under `ENGINE_HOLD`. The other engine assertions in this file go beyond any AC, and nothing is claimed for them while the hold is on.)*
 - [ ] **Step 20: documents.**
   - **`docs/database.md` §6.3, "As built (T-027)":**
     - the deferred columns, with F-2's expand-plus-contract mechanism;
@@ -633,21 +651,21 @@ Notes on the schema:
 
 | ACs | Proved by |
 |---|---|
-| 1–5 | step 9 |
-| 6, 27, 35 | step 3 exact column lists, plus step 20 |
+| 1–5, 3a | step 9 |
+| 6, 27, 27a, 35 | step 3 exact column lists (and step 11 for 27a), plus step 20 |
 | 7, 8 | step 10 |
 | 9, 10, 15 | steps 7 and 12 |
-| 11 | step 8, plus step 19 for the CHECK |
+| 11 | step 8; the CHECK clause is `[ENGINE]` (step 19, NOT VERIFIED under the hold) |
 | 12, 16 | steps 6 and 13 |
-| 13, 14 | steps 3 and 12 |
+| 13, 13a, 14 | steps 3 and 12 |
 | 17 | step 18 |
-| 18–26 | step 11 |
+| 18–26 (incl. 20's reference guards) | step 11 |
 | 28–31 | steps 3 and 14 |
 | 32, 33 | step 15 |
-| 34 | step 16 |
-| 36–40 | step 17 |
+| 34, 34a | step 16 |
+| 36–40, 36a | step 17 (40a is a documentation note) |
 | 41 | steps 1, 18 and 21 |
-| 42 | step 21 |
+| 42 | step 21 (every criterion except AC-11's CHECK clause) |
 | 43, 44 | step 4, plus step 19 |
 
 ## 8. Risks & rollback
@@ -657,7 +675,7 @@ Notes on the schema:
    - If a chunk adds more than 10 % to the `test` step, stop and report to `lead`, because FP-328 is a lead decision. Do not trim tests.
 2. **Stand-in and engine divergence.** The CHECK, FULLTEXT, JSON validity, case-insensitive collation and `lockForUpdate` serialisation of concurrent category moves are proven only on the engine (F-6). Ruling 12's `lower()` pre-check narrows the collation gap. The rest is NOT VERIFIED until G-1, and recorded so.
 3. **The arithmetic contract is now fixed for FP-237's TypeScript twin** (HALF_UP, round first, exact chain or refuse). Changing it later changes stored base quantities. It is recorded in database.md in step 20.
-4. **F-3, F-4 and F-5 add refusals the spec did not list.** If `ba` declines any of them, the fallback is a deletion in one step (named in each).
+4. **AC-20's word "live" on `product_components`**, a table with no `[SOFT]`, is read as "the parent is not soft-deleted" (section 0.2). If `lead` or `ba` reads it differently, only step 11's guard query and its control change.
 5. **Vocabulary sweep** (Ruling 14): a quoted product type in key position turns the gate red in an unrelated-looking file.
 6. **`composer.lock`.** Only the path package entry may change. `brick/math` must not move version; if it does, revert and use `composer update flexipos/catalog --no-install` diagnostics.
 
@@ -697,4 +715,4 @@ Anything red that is not in this table means stop and report to `architect`.
 
 ## Questions for the human
 
-None. F-1 to F-12 go to `ba` through `lead`. F-13 is a document inconsistency for `lead`. Q-9 to Q-12 remain the owner's, adopted as D-5 states.
+None. F-1 to F-12 were resolved by `ba` in `2a58f28`. F-13 (AC-40a) remains a document inconsistency for `lead`. Q-9 to Q-12 remain the owner's, adopted as D-5 states.
