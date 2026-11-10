@@ -106,6 +106,48 @@ failures, 3255 passed) stands as the gate result.
 
 - Round 1: **PASS**, 0 defects. `docs/qa/T-027-catalog.md`.
 
+## Round 2 — APPROVE (fix commit `103a7fc`, QA `262388c`)
+
+Reviewer read every changed line and ran targeted tests (`pest --filter="R-1|W-2|AC-17"`: 55
+passed, 320 assertions, 0 failed). All 6 round-1 items confirmed fixed:
+
+- **R-1** refused at the earliest point — `$productId`/`$newParentId` are folded identically
+  (`Identifier::fold`/`foldNullable`) before the `===` check, so a case/format variant can't
+  slip past it. Test uses the real exploit shape and checks the row is byte-identical afterward.
+- **W-1** fixed for every read named. The `product_components` whole-table lock genuinely
+  closes the two-edge (A→B/C→D) cycle race under InnoDB REPEATABLE READ's gap-locking behavior
+  — reviewer traced through why: a whole-table `SELECT ... FOR UPDATE` locks every existing
+  edge plus the gaps around them (including an empty table), so any transaction that could
+  complete a cycle must contend on at least one already-locked row.
+- **W-2** fixed — `SnapshotCalculator` always returns quantity at `toScale(4)`, so the zero-check
+  regex matches every zero form it can produce; runs after rounding, test matches the exact
+  case raised.
+- **W-3** fixed — two full-path exemption lists, each scoped to only its own rule, the
+  factor-multiplication rule gets none; the new scoping test proves the exemption itself (not
+  an accident of the scan's shape) is what keeps it green.
+- **W-4** fixed — D-62 citation gone from the corrected locations, the addendum no longer
+  splices a sentence, cites the current line.
+- **W-5** fixed — 31 everywhere in the live docs (historical `docs/qa/`/`docs/reviews/` records
+  correctly left untouched, since those describe what was true when written).
+
+**New Warning (non-blocking, filed as a follow-up): W-6** `UpdateProductHandler.php:165` has
+the same kind of gap as W-1, missed in round 1 — the new-parent read in `UpdateProduct` is
+still unlocked, unlike `CreateProduct`'s now-locked equivalent. Not blocking (no HTTP surface
+yet, FP-240).
+
+**New Suggestions (non-blocking):**
+- `AddProductComponentHandler.php:72-73` — concurrent adds of A→B and B→A take the two product
+  locks in opposite order (a classic deadlock shape); MySQL detects and rolls one back with
+  error 1213 rather than a named refusal — sorting the two ids before locking would avoid it.
+- The edge-set lock reasoning assumes InnoDB REPEATABLE READ's gap locks — revisit if tenant
+  connections ever move to READ COMMITTED.
+- The whole-table component lock serializes all component writes in a tenant — fine for
+  catalog write volume, noted so the pattern isn't copied onto a hot path without re-checking.
+
+## Final verdict
+
+**APPROVE. T-027 is DONE.**
+
 ## Verdict after Round 1
 
 **CHANGES REQUESTED.** R-1 plus all 5 Warnings folded into one fix round — R-1 is a real
