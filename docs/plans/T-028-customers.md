@@ -529,7 +529,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 ### Chunk C: groups, customers, the credit ledger
 
-- [ ] **Step 8: groups** (four slices; Ruling 7).
+- [x] **Step 8: groups** (four slices; Ruling 7).
   - **AC-1:** a blank code, a duplicate code, a duplicate by case, and a negative value for each of the four numerics are each refused, naming the field; the defaults hold.
   - **AC-2:** create A as default, then set B as default. Exactly one default remains, and it is B. Create, update, and soft delete of the default (F-19) each behave the same way.
   - **AC-3:** a delete is refused while a live customer references the group, naming that customer. After that customer is soft-deleted, the delete is accepted.
@@ -538,7 +538,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - The list is paged (Ruling 11): 3 rows at size 2 give 2 rows plus a cursor, then 1 row and no cursor.
   - **M11:** skip the default-clearing. The backstop refuses, and the AC-2 test goes red.
   - *(AC-1 to AC-5.)*
-- [ ] **Step 9: customers CRUD** (`CreateCustomer`, `UpdateCustomer`, `DeleteCustomer`, `ListCustomers`). The opening entry comes in step 11.
+- [x] **Step 9: customers CRUD** (`CreateCustomer`, `UpdateCustomer`, `DeleteCustomer`, `ListCustomers`). The opening entry comes in step 11.
   - **AC-6:** blank name; a duplicate code; two NULL codes accepted; an unknown group; a soft-deleted group; a bad status.
   - **AC-7 and F-10:** limit, terms and `credit_allowed` are copied from the group when not supplied, and explicit values win. A later change to the group leaves the customer unchanged.
   - **AC-8 and F-12:** each of `credit_balance`, `loyalty_points`, `loyalty_tier` and `merged_into_id` on create and on update is refused **whole**. The row is byte-identical afterwards, including a `name` sent in the same request and `version`, and no audit row is written. `opening_balance` on update is refused the same way.
@@ -551,7 +551,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - AC-4 for customers. The list is paged and filtered.
   - **M12:** let `credit_balance` through on update. The AC-8 test goes red.
   - *(AC-4, AC-6, AC-6a, AC-7 to AC-12; D-27, D-29.)*
-- [ ] **Step 10: `RecordCreditLedgerEntry`, the writer, the contract adapter and `ListCreditLedgerEntries`** (Ruling 6).
+- [x] **Step 10: `RecordCreditLedgerEntry`, the writer, the contract adapter and `ListCreditLedgerEntries`** (Ruling 6).
   - **AC-20:** an unknown customer; a missing reference; an unknown branch; an unknown employee; a soft-deleted or merged customer (F-13); currency null, and currency mismatch (F-8).
   - **AC-23:** after an entry, `customer_ledger.balance_after` = `customers.credit_balance`, written in one transaction.
   - **AC-24 end to end:** an over-limit sale writes nothing, with no row, no balance change and no audit row, and is refused with `over_limit`.
@@ -571,7 +571,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - **M14:** return the original without comparing the payload. The conflict test goes red;
     - **M15:** remove both the pre-check and the catch. The backstop test goes red.
   - *(AC-19 to AC-24; AC-22 apart from its `[ENGINE]` clause.)*
-- [ ] **Step 11: the opening balance on `CreateCustomer`** (AC-7a, D-28).
+- [x] **Step 11: the opening balance on `CreateCustomer`** (AC-7a, D-28).
   - Non-zero `opening_balance` gives one `opening` row through the writer, reference `customer`/id. `credit_balance` = `opening_balance`, set in the create transaction.
   - A negative opening is a credit entry.
   - No currency gives `currency_required`, and nothing is written, **including no customer row**.

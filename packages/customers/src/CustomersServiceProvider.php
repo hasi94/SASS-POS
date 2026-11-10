@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Flexipos\Customers;
 
+use Flexipos\Contracts\Audit\DeclaresAuditActions;
+use Flexipos\Contracts\Customers\CustomerCreditLedger;
+use Flexipos\Customers\Ledger\ContractCreditLedger;
+use Flexipos\Customers\Registry\CustomersAuditActions;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -18,17 +22,26 @@ use Illuminate\Support\ServiceProvider;
  * tables' owner is shared infrastructure rather than a leaf other modules
  * may not import.
  *
- * **Empty for now, deliberately** (plan step 1; T-027/`CatalogServiceProvider`'s
- * own precedent, "bindings arrive with the slices that earn them"). The two
- * ledger contract bindings (`CustomerCreditLedger`/`LoyaltyLedger`) and the
- * `DeclaresAuditActions` implementation land once their own slices exist
- * (plan chunks B and C) - there is no earlier stub, and a contract with no
- * implementation resolves to a binding error, never a permissive default.
+ * **`CustomerCreditLedger` is bound to `Ledger\ContractCreditLedger`**
+ * (plan chunk C, Ruling 2/6). `LoyaltyLedger`'s own binding lands with
+ * chunk D's loyalty slices - there is no earlier stub, and a contract with
+ * no implementation resolves to a binding error, never a permissive
+ * default.
  */
-final class CustomersServiceProvider extends ServiceProvider
+final class CustomersServiceProvider extends ServiceProvider implements DeclaresAuditActions
 {
     public function register(): void
     {
-        //
+        $this->app->singleton(CustomerCreditLedger::class, ContractCreditLedger::class);
+    }
+
+    /**
+     * This package's declared audit actions (T-017 Ruling 3).
+     *
+     * @return array<string, list<string>>
+     */
+    public function auditActions(): array
+    {
+        return [CustomersAuditActions::MODULE => CustomersAuditActions::ALL];
     }
 }
