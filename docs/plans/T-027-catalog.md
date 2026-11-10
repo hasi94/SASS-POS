@@ -243,7 +243,7 @@ The DTO holds strings. Doing the arithmetic in `packages/contracts` would have g
 | Components | `AddProductComponent`, `RemoveProductComponent` | 34 |
 | Modifiers | `CreateModifierGroup`, `DeleteModifierGroup`, `CreateModifier`, `RemoveModifier`, `AttachModifierGroup`, `DetachModifierGroup` | 36–39 |
 
-That is 33 slices. Each is `Features/<X>/{X.php, XHandler.php}`, plus `XResult.php` where it returns an id, with a mirrored `tests/Features/<X>/` (`VerticalSliceLayoutTest`).
+That is 31 slices. Each is `Features/<X>/{X.php, XHandler.php}`, plus `XResult.php` where it returns an id, with a mirrored `tests/Features/<X>/` (`VerticalSliceLayoutTest`).
 - Commands take `array $fields` and `?string $actorId`, the organization shape. An unknown field is refused, not ignored (`Fields::only`).
 - **No routes, no console commands, no jobs, no cache, no hooks** (spec Out of scope; T-022's sweeps unchanged).
 - Get and List slices for brands, units, products and the child tables are follow-up work for the API/admin task (FP-240).
@@ -280,7 +280,7 @@ The safe form is a backed enum, `case Service = '…';`, referenced as `ProductT
 2. Twelve forward-only tenant migrations implement §6.3 column for column, minus the eight deferred FK columns, `custom_fields`, `product_suppliers` and `barcode_rules`. The tree goes from 31 files to 43.
 3. `UnitResolver` is the one ladder. Steps 1 to 5 run in §6.3's order behind a dimension pre-check and Q-9's ≥ 1 output guard, the chain step is exact, and it never defaults to 1.
 4. `snapshot()` produces the `[UOM]` quad (plus `unit_code`): round the entered quantity to the line unit first, then compute base, HALF_UP, with Q-11's fractional-base rejection. `brick/math` does the arithmetic and no float is ever involved.
-5. There are 33 CRUD slices, each in one transaction with one audit row and named refusals:
+5. There are 31 CRUD slices, each in one transaction with one audit row and named refusals:
    - category paths are recomputed for the whole subtree on a move;
    - variants are checked against `variant_parent`;
    - `stock_unit_id` is immutable;
@@ -325,7 +325,7 @@ The safe form is a backed enum, `case Service = '…';`, referenced as `ProductT
 | `src/Support/{TenantConnection,Fields,Money,Identifier,Lookup,CatalogRefusal}.php` | the seventh copy of the FP-331 tenant-connection helper. Field and decimal-string validation. Live and any-row fetchers |
 | `src/Exceptions/CatalogRefused.php` | named constructors: `validation`, `notFound`, `duplicate`, `inUse`, `immutable`, `cycle`, `tooDeep`, `dimensionMismatch` |
 | `src/Registry/CatalogAuditActions.php` | Ruling 11 |
-| `src/Features/<33 slices>/…` | Ruling 10 |
+| `src/Features/<31 slices>/…` | Ruling 10 |
 | `tests/Support/{CatalogSeed.php,catalog-fixture.php}` | raw-insert seeds for units (`each`, `case`, `kg`, `g`, `l`), categories, products, a branch and a location. `catalogEnterTenant()` enters only and never calls `boot()` (memory note) |
 | `tests/Units/{UnitLadderTest,SnapshotCalculatorTest,DatabaseUnitResolverTest}.php` | steps 6, 7, 12 and 13 |
 | `tests/Categories/CategoryPathTest.php`, `tests/Products/{ProductRulesTest,ComponentGraphTest}.php` | pure |

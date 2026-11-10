@@ -60,7 +60,9 @@ final class CreateCategoryHandler
             $parentDepth = 0;
 
             if ($parentId !== null) {
-                $parent = Lookup::live($connection, 'categories', $parentId, 'parent category');
+                // W-1: locked, because two concurrent creates under the same
+                // parent must not both read its path/depth before either commits.
+                $parent = Lookup::live($connection, 'categories', $parentId, 'parent category', lock: true);
                 $parentPath = (string) $parent->path;
                 $parentDepth = (int) $parent->depth;
             }

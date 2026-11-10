@@ -158,6 +158,22 @@ it('freezes the factor: a later conversion or unit change does not retro-change 
         ->and((float) $row['base_quantity'])->toBe(250.0);
 });
 
+it('refuses a quantity that rounds to zero at the line unit\'s precision (W-2), after rounding not before', function () {
+    $each = CatalogSeed::unit('each', 'count', ['precision' => 0]);
+    $category = CatalogSeed::category('drinks');
+    $parent = CatalogSeed::product('bundle', $category, $each);
+    $component = CatalogSeed::product('part', $category, $each);
+
+    // "0.4" passes the raw quantity > 0 check, but rounds HALF_UP to "0" at
+    // a precision-0 line unit - the row must still be refused, and nothing
+    // written.
+    CatalogRefusals::expect(CatalogRefusal::Validation, fn () => addProductComponent([
+        'parent_product_id' => $parent, 'component_product_id' => $component, 'unit_id' => $each, 'quantity' => '0.4',
+    ]));
+
+    expect(CatalogSeed::connection()->table('product_components')->count())->toBe(0);
+});
+
 it('refuses an unknown parent or component', function () {
     $each = CatalogSeed::unit('each');
     $category = CatalogSeed::category('drinks');

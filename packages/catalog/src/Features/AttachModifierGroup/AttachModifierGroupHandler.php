@@ -42,8 +42,10 @@ final class AttachModifierGroupHandler
         $connection = $this->tenant->get();
 
         $connection->transaction(function () use ($connection, $command, $productId, $groupId, $sortOrder): void {
-            Lookup::live($connection, 'products', $productId, 'product_id');
-            Lookup::live($connection, 'modifier_groups', $groupId, 'group_id');
+            // W-1: locked, because two concurrent attaches of the same pair
+            // must not both read these rows as live before either commits.
+            Lookup::live($connection, 'products', $productId, 'product_id', lock: true);
+            Lookup::live($connection, 'modifier_groups', $groupId, 'group_id', lock: true);
 
             if ($connection->table('product_modifier_groups')->where('product_id', $productId)->where('group_id', $groupId)->exists()) {
                 throw CatalogRefused::duplicate("Product [{$productId}] is already attached to modifier group [{$groupId}].");

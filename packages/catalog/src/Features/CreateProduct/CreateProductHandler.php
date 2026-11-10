@@ -123,7 +123,9 @@ final class CreateProductHandler
             }
 
             if ($parentId !== null) {
-                $parent = $connection->table('products')->where('id', $parentId)->whereNull('deleted_at')->first();
+                // W-1: locked, because two concurrent creates naming the same
+                // variant_parent must not both read it before either commits.
+                $parent = $connection->table('products')->where('id', $parentId)->whereNull('deleted_at')->lockForUpdate()->first();
 
                 ProductRules::checkParent($parentId, $parent !== null, $parent === null ? null : ProductType::from($parent->type));
             }

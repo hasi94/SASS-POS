@@ -130,6 +130,21 @@ it('refuses a type change on a variant_parent with live children', function () {
     CatalogRefusals::expect(CatalogRefusal::Validation, fn () => updateProduct($parent, ['type' => ProductType::Simple->value]));
 });
 
+it('refuses an update that makes a product its own variant parent (R-1), leaving the row byte-identical', function () {
+    $category = CatalogSeed::category('drinks');
+    $each = CatalogSeed::unit('each');
+    $product = CatalogSeed::product('sku1', $category, $each, ['type' => 'variant_parent']);
+
+    $before = (array) CatalogSeed::connection()->table('products')->where('id', $product)->first();
+
+    CatalogRefusals::expect(CatalogRefusal::Validation, fn () => updateProduct($product, [
+        'type' => 'variant', 'parent_id' => $product,
+    ]));
+
+    $after = (array) CatalogSeed::connection()->table('products')->where('id', $product)->first();
+    expect($after)->toBe($before);
+});
+
 it('increments version on every write', function () {
     $category = CatalogSeed::category('drinks');
     $each = CatalogSeed::unit('each');

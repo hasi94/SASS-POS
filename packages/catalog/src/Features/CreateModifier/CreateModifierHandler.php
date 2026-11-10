@@ -76,10 +76,12 @@ final class CreateModifierHandler
         $connection = $this->tenant->get();
 
         return $connection->transaction(function () use ($connection, $command, $groupId, $name, $priceDelta, $costDelta, $kitchenNote, $sortOrder, $isActive, $linkedProductId, $linkedQuantity, $linkedUnitId): CreateModifierResult {
-            Lookup::live($connection, 'modifier_groups', $groupId, 'group_id');
+            // W-1: locked, because two concurrent creates must not both read
+            // these referenced rows as live before either commits.
+            Lookup::live($connection, 'modifier_groups', $groupId, 'group_id', lock: true);
 
             if ($linkedProductId !== null) {
-                $linkedProduct = Lookup::live($connection, 'products', $linkedProductId, 'linked_product_id');
+                $linkedProduct = Lookup::live($connection, 'products', $linkedProductId, 'linked_product_id', lock: true);
 
                 self::checkUnitDimension($connection, (string) $linkedUnitId, (string) $linkedProduct->stock_unit_id);
             }

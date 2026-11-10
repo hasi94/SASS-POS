@@ -150,6 +150,11 @@ final class UpdateProductHandler
 
         if (Fields::has($fields, 'parent_id')) {
             $newParentId = Identifier::foldNullable($fields['parent_id'], 'parent_id');
+
+            if ($newParentId === $productId) {
+                throw CatalogRefused::validation("Product [{$productId}] cannot be its own parent.");
+            }
+
             $changes['parent_id'] = $newParentId;
         }
 

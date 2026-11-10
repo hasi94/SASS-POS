@@ -67,14 +67,26 @@ final class AddProductComponentHandler
         $connection = $this->tenant->get();
 
         return $connection->transaction(function () use ($connection, $command, $parentId, $componentId, $unitId, $quantity, $wastagePercent, $isOptional, $sortOrder): AddProductComponentResult {
-            Lookup::live($connection, 'products', $parentId, 'parent_product_id');
-            Lookup::live($connection, 'products', $componentId, 'component_product_id');
+            // W-1: locked, because two concurrent adds must not both read
+            // these referenced rows as live before either commits.
+            Lookup::live($connection, 'products', $parentId, 'parent_product_id', lock: true);
+            Lookup::live($connection, 'products', $componentId, 'component_product_id', lock: true);
 
             if ($connection->table('product_components')->where('parent_product_id', $parentId)->where('component_product_id', $componentId)->exists()) {
                 throw CatalogRefused::duplicate("Product [{$parentId}] already has component [{$componentId}].");
             }
 
-            $edges = $connection->table('product_components')->get(['parent_product_id', 'component_product_id'])
+            // W-1: the whole edge set `ComponentGraph` reads is locked, not
+            // just the two product rows above - a cycle can be closed by two
+            // edges with no products in common (e.g. A->B and C->D, given
+            // existing B->C and D->A), so locking only the rows one edge
+            // touches would not stop two concurrent adds from jointly
+            // closing a cycle neither alone would have been refused for.
+            // This race can't be demonstrated on the SQLite stand-in, which
+            // serializes writes at the connection/process level - there is
+            // no new test here for that reason; see W-1 in the round-1
+            // review (docs/reviews/T-027-catalog.md).
+            $edges = $connection->table('product_components')->lockForUpdate()->get(['parent_product_id', 'component_product_id'])
                 ->map(static fn (object $row): array => ['parent' => (string) $row->parent_product_id, 'component' => (string) $row->component_product_id])
                 ->all();
 
@@ -83,6 +95,16 @@ final class AddProductComponentHandler
             }
 
             $snapshot = self::snapshot($this->resolver, $componentId, $unitId, $quantity);
+
+            // W-2: checked on the snapshot's own (already-rounded) quantity,
+            // not the raw input - a tiny entered quantity, or a precision-0
+            // line unit, can round down to zero and must still be refused.
+            // Compared as a decimal string, never by multiplying, so this
+            // stays clear of QaCatalogSourceRulesTest's factor-multiplication
+            // scan.
+            if (self::isZero($snapshot->quantity)) {
+                throw CatalogRefused::validation("The quantity [{$quantity}] rounds to zero at unit [{$unitId}]'s precision.");
+            }
 
             $componentRowId = (string) Str::ulid();
 
@@ -149,6 +171,16 @@ final class AddProductComponentHandler
         }
 
         return $value;
+    }
+
+    /**
+     * `$value` is {@see UnitSnapshot}'s `quantity`/`baseQuantity` shape:
+     * a `DECIMAL(18,4)` string, optionally signed. True for `0.0000`,
+     * `-0.0000` or any sign-and-zeros-only variant.
+     */
+    private static function isZero(string $value): bool
+    {
+        return preg_match('/^-?0\.0*$/', $value) === 1;
     }
 
     /**

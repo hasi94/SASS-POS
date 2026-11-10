@@ -61,46 +61,80 @@ function qaCatalogSourceFiles(string $directory): array
 }
 
 /**
- * The four CRUD slices that legitimately own the exact table/column the
- * ladder reads, and so legitimately name it in code without re-implementing
- * any step of the resolution ladder itself.
- *
- * `DatabaseUnitResolver`'s own docblock states the rule this scan enforces
- * as "no file outside Units/ may read `unit_conversions` or `units.
- * base_unit_id`/`factor`" - a rule about the five-step **resolution** ladder
- * (AC-9/AC-10/AC-15), never about CRUD of the very table/column each token
- * names. `CreateUnitConversion`/`RemoveUnitConversion` (plan Ruling 10) are
- * `unit_conversions`' own writers, and `CreateUnit`/`UpdateUnit` (plan
- * Ruling 6) write and cycle-check `units.base_unit_id` directly, because it
- * is a column on the very table those two slices manage. Measured directly
- * (2026-11-08): these are the *only* four files under `packages/catalog/src`
- * outside `Units/` naming either token, and neither reads a row to compute a
- * factor - `assertNoCycle()` walks the chain to refuse a loop, which is a
- * write-time structural check, not resolution.
+ * `unit_conversions`' own writers (plan Ruling 10): the only two files under
+ * `packages/catalog/src` outside `Units/` legitimately naming that table in
+ * code, because it is the very table each manages, not the resolution
+ * ladder. Matched by **full path**, never basename - a future unrelated
+ * file sharing one of these names, in another package or module, must not
+ * silently inherit the exemption.
  *
  * @var list<string>
  */
-const QA_CATALOG_LADDER_SCAN_TABLE_OWNERS = [
-    'CreateUnitHandler.php',
-    'UpdateUnitHandler.php',
-    'CreateUnitConversionHandler.php',
-    'RemoveUnitConversionHandler.php',
+const QA_CATALOG_UNIT_CONVERSIONS_TOKEN_EXEMPT = [
+    'packages/catalog/src/Features/CreateUnitConversion/CreateUnitConversionHandler.php',
+    'packages/catalog/src/Features/RemoveUnitConversion/RemoveUnitConversionHandler.php',
 ];
+
+/**
+ * `units.base_unit_id`'s own writers (plan Ruling 6): the only two files
+ * under `packages/catalog/src` outside `Units/` legitimately naming that
+ * column in code, because `base_unit_id` is a column on the very table
+ * these two slices manage, including the cycle check each runs by walking
+ * the chain it writes - a write-time structural check, not resolution.
+ * Matched by full path, for the same reason as the list above.
+ *
+ * Measured directly (2026-11-08): neither this list nor the one above needs
+ * the factor-multiplication exemption below - none of these four files
+ * computes a resolution factor.
+ *
+ * @var list<string>
+ */
+const QA_CATALOG_BASE_UNIT_ID_TOKEN_EXEMPT = [
+    'packages/catalog/src/Features/CreateUnit/CreateUnitHandler.php',
+    'packages/catalog/src/Features/UpdateUnit/UpdateUnitHandler.php',
+];
+
+/**
+ * Resolve each of the given repo-relative paths to its real, absolute path,
+ * asserting every one exists - a rename or move of one of these files must
+ * fail this assertion loudly, rather than silently widening the scan by
+ * dropping the exemption out of the (then non-matching) list.
+ *
+ * @param  list<string>  $relativePaths
+ * @return list<string>
+ */
+function qaCatalogResolveExemptPaths(array $relativePaths): array
+{
+    $root = qaCatalogRepoRoot();
+
+    return array_map(static function (string $relativePath) use ($root): string {
+        $full = $root.'/'.$relativePath;
+        $real = realpath($full);
+
+        if ($real === false) {
+            throw new \RuntimeException("Expected an exempt file at [{$full}]; it does not exist.");
+        }
+
+        return $real;
+    }, $relativePaths);
+}
 
 /**
  * Every file this scan reads, other than the ones under
  * `packages/catalog/src/Units` (the one place allowed to hold the ladder's
- * own lookup keys) and the four files named in
- * `QA_CATALOG_LADDER_SCAN_TABLE_OWNERS` above.
+ * own lookup keys) and whichever full paths `$exemptPaths` names - each
+ * caller passes only the exemption its own rule needs (W-3), never a blanket
+ * list shared by every rule.
  *
  * `packages/catalog/src` is walked as one tree (so `CatalogServiceProvider.
  * php`, which sits directly in `src/`, is not silently skipped) and the
  * `Units/` subtree is excluded by its real path prefix rather than by a
  * directory-depth assumption.
  *
+ * @param  list<string>  $exemptPaths  full, real paths - see {@see qaCatalogResolveExemptPaths()}
  * @return array<string, string>
  */
-function qaCatalogLadderScanFiles(): array
+function qaCatalogLadderScanFiles(array $exemptPaths = []): array
 {
     $root = qaCatalogRepoRoot();
     $unitsPath = (string) realpath($root.'/packages/catalog/src/Units');
@@ -124,7 +158,7 @@ function qaCatalogLadderScanFiles(): array
                 continue;
             }
 
-            if (in_array(basename($path), QA_CATALOG_LADDER_SCAN_TABLE_OWNERS, true)) {
+            if (in_array($path, $exemptPaths, true)) {
                 continue;
             }
 
@@ -196,6 +230,14 @@ it('every scanned directory actually exists, so an absent one cannot silently em
         expect(is_dir($directory))->toBeTrue("Expected a directory at [{$directory}].");
     }
 
+    // W-3: every exempt path named below resolves to a real file, so a
+    // rename of one fails this assertion loudly rather than silently
+    // widening the scan (the then-stale entry would match nothing, and the
+    // renamed file would fall straight back into the scanned set - this
+    // just makes sure that is never mistaken for "still exempt").
+    qaCatalogResolveExemptPaths(QA_CATALOG_UNIT_CONVERSIONS_TOKEN_EXEMPT);
+    qaCatalogResolveExemptPaths(QA_CATALOG_BASE_UNIT_ID_TOKEN_EXEMPT);
+
     // Anti-vacuity: the ladder-scan file set itself is non-empty (it holds
     // every other package's and module's source) and excludes every file
     // under Units/.
@@ -210,7 +252,9 @@ it('every scanned directory actually exists, so an absent one cannot silently em
 });
 
 it('AC-17: no file outside packages/catalog/src/Units contains the code token unit_conversions', function () {
-    expect(qaCatalogLadderTokenOffenders('unit_conversions'))->toBe([]);
+    $files = qaCatalogLadderScanFiles(qaCatalogResolveExemptPaths(QA_CATALOG_UNIT_CONVERSIONS_TOKEN_EXEMPT));
+
+    expect(qaCatalogLadderTokenOffenders('unit_conversions', $files))->toBe([]);
 
     $directory = qaCatalogFreshTempDirectory();
     File::put($directory.'/Planted.php', "<?php\n\$x->table('unit_conversions')->get();\n");
@@ -225,7 +269,9 @@ it('AC-17: no file outside packages/catalog/src/Units contains the code token un
 });
 
 it('AC-17: no file outside packages/catalog/src/Units contains the code token base_unit_id', function () {
-    expect(qaCatalogLadderTokenOffenders('base_unit_id'))->toBe([]);
+    $files = qaCatalogLadderScanFiles(qaCatalogResolveExemptPaths(QA_CATALOG_BASE_UNIT_ID_TOKEN_EXEMPT));
+
+    expect(qaCatalogLadderTokenOffenders('base_unit_id', $files))->toBe([]);
 
     $directory = qaCatalogFreshTempDirectory();
     File::put($directory.'/Planted.php', "<?php\n\$x->base_unit_id;\n");
@@ -237,6 +283,30 @@ it('AC-17: no file outside packages/catalog/src/Units contains the code token ba
     } finally {
         File::deleteDirectory($directory);
     }
+});
+
+it('AC-17: each exemption list is scoped to only its own rule - the other rule still scans an exempt file', function () {
+    // W-3: QA_CATALOG_UNIT_CONVERSIONS_TOKEN_EXEMPT buys a pass from the
+    // unit_conversions scan only, never from the base_unit_id scan (and
+    // vice versa for QA_CATALOG_BASE_UNIT_ID_TOKEN_EXEMPT) - proven here by
+    // not removing the other rule's exemption, so if either file ever grew
+    // a bare `base_unit_id`/`unit_conversions` token it does not need, this
+    // scan would still see it.
+    $unitConversionsExempt = qaCatalogResolveExemptPaths(QA_CATALOG_UNIT_CONVERSIONS_TOKEN_EXEMPT);
+    $baseUnitIdExempt = qaCatalogResolveExemptPaths(QA_CATALOG_BASE_UNIT_ID_TOKEN_EXEMPT);
+
+    // Scanning with only the unit_conversions exemption still reports
+    // CreateUnitHandler/UpdateUnitHandler for base_unit_id - that exemption
+    // buys them no pass from this rule. Symmetrically for the other pair.
+    expect(qaCatalogLadderTokenOffenders('base_unit_id', qaCatalogLadderScanFiles($unitConversionsExempt)))->toEqualCanonicalizing($baseUnitIdExempt)
+        ->and(qaCatalogLadderTokenOffenders('unit_conversions', qaCatalogLadderScanFiles($baseUnitIdExempt)))->toEqualCanonicalizing($unitConversionsExempt);
+
+    // Each list exempts only the files it names - scanning with no
+    // exemption at all still reports exactly those files for the token
+    // each actually contains, confirming the exemption (not some broader
+    // rule) is what currently keeps the suite green.
+    expect(qaCatalogLadderTokenOffenders('unit_conversions', qaCatalogLadderScanFiles()))->toEqualCanonicalizing($unitConversionsExempt)
+        ->and(qaCatalogLadderTokenOffenders('base_unit_id', qaCatalogLadderScanFiles()))->toEqualCanonicalizing($baseUnitIdExempt);
 });
 
 it('AC-17 control: a docblock mentioning unit_conversions in prose is not reported, because codeOnly strips it', function () {
