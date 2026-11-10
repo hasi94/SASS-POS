@@ -156,6 +156,14 @@ it('refuses blocked without a reason, and active with a reason (AC-9)', function
     expect($row['status'])->toBe('blocked')->and($row['blocked_reason'])->toBe('because');
 });
 
+it('accepts status inactive, and refuses it carrying a blocked_reason (AC-6, AC-9)', function () {
+    CustomersRefusals::expect(CustomersRefusal::Validation, fn () => createCustomer(createCustomerInput(['status' => 'inactive', 'blocked_reason' => 'because'])));
+
+    $result = createCustomer(createCustomerInput(['status' => 'inactive']));
+    $row = (array) CustomersSeed::connection()->table('customers')->where('id', $result->customerId)->first();
+    expect($row['status'])->toBe('inactive')->and($row['blocked_reason'])->toBeNull();
+});
+
 it('refuses a command field naming a sale field or a [SYNC] column as unknown (AC-11, AC-6/F-14)', function () {
     foreach (['first_sale_at', 'last_sale_at', 'lifetime_value', 'origin', 'sync_status', 'terminal_id'] as $field) {
         CustomersRefusals::expect(CustomersRefusal::Validation, fn () => createCustomer(createCustomerInput([$field => 'x'])), $field);

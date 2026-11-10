@@ -81,3 +81,4 @@
 - [T-028 customers chunk B](project_t028_customers_chunk_b.md) - the float/TypeError precedent over the plan's literal wording, a 78% gate-timing jump likely from contention, and a `;`-chained exit-code trap.
 - [T-028 customers chunk C](project_t028_customers_chunk_c.md) - groups/customers CRUD, the real credit ledger writer and replay semantics, the second AuditCatalogueTest predicted-red gap, and a SQLite-numeric-affinity re-canonicalize gotcha.
 - [T-028 customers chunk E (final)](project_t028_customers_chunk_e.md) - the one-writer scan's real exemption list, the two-connection lock-contention engine test shape, and the final gate numbers (T-028 now fully built).
+- [T-028 BUG-1 fix (missing CustomerStatus::Inactive)](project_t028_customers_bug1_fix.md) - the second-hidden-branch pattern, and why this gate's exit code is never "0 means clean" against a known baseline.

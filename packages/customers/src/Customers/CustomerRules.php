@@ -24,8 +24,8 @@ final class CustomerRules
             throw CustomersRefused::validation('A blocked customer requires a blocked_reason.');
         }
 
-        if ($status === CustomerStatus::Active && $blockedReason !== null) {
-            throw CustomersRefused::validation('An active customer may not carry a blocked_reason.');
+        if ($status !== CustomerStatus::Blocked && $blockedReason !== null) {
+            throw CustomersRefused::validation("A {$status->value} customer may not carry a blocked_reason.");
         }
     }
 

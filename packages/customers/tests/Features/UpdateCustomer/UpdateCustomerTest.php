@@ -103,6 +103,16 @@ it('refuses blocked without a reason, active with a reason, and a patch clearing
     expect($row['status'])->toBe('active')->and($row['blocked_reason'])->toBeNull();
 });
 
+it('accepts status inactive, and refuses it carrying a blocked_reason (AC-6, AC-9)', function () {
+    $customerId = CustomersSeed::customer();
+
+    CustomersRefusals::expect(CustomersRefusal::Validation, fn () => updateCustomer($customerId, ['version' => 1, 'status' => 'inactive', 'blocked_reason' => 'because']));
+
+    updateCustomer($customerId, ['version' => 1, 'status' => 'inactive']);
+    $row = (array) CustomersSeed::connection()->table('customers')->where('id', $customerId)->first();
+    expect($row['status'])->toBe('inactive')->and($row['blocked_reason'])->toBeNull();
+});
+
 it('refuses a currency change once a ledger row exists, and accepts it before one (AC-6a)', function () {
     $customerId = CustomersSeed::customer('Jane', ['currency' => 'USD']);
 
