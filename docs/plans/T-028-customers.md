@@ -1,10 +1,32 @@
 # Plan: T-028 Customers: groups, credit ledger and loyalty
 
-Spec: `docs/specs/T-028-customers.md` (AC-1 to AC-41, groups A to G). Decisions: `docs/decisions/T-028-customers.md` (D-1 to D-17), at `1d9a34a`.
+Spec: `docs/specs/T-028-customers.md` (AC-1 to AC-41 plus AC-6a and AC-7a, groups A to G). Decisions: `docs/decisions/T-028-customers.md` (D-1 to D-30), as corrected in `f116c1e`.
 Design authority: `docs/database.md` §3.1 to §3.3, §6.7 (`approval_requests`), §6.9, §6.16 (`deliveries`), §6.18, §12.1 and §12.2. Also `Refference/ARCH.md` §5 (CUSTOMER module) and §12, and the T-027 plan's Rulings 1, 5 and 10 to 13, which carry over unchanged unless restated here.
 Backlog: FP-232. Branch: `ai/T-028-customers`. Gate directory: `modules/host`.
 
-**Revision 1.** Section 0.2 lists findings F-1 to F-19, which go back to `ba`. Thirteen of them need a spec or decision edit. Every step below is designed on the resolution this plan proposes, and each finding notes how small the change is if `ba` declines it. **`dev` does not start chunk B until `ba` has committed the spec revision** (step 0).
+**Revision 2.** `ba` folded F-1 to F-19 (section 0.2) into the spec in `f116c1e`, as D-18 to D-30 plus AC-6a and AC-7a. Each correction matches the resolution this plan proposed; the table below maps each finding to where it now lives. Wherever the original text of section 0.2 offered a "fallback" or an "if `ba` declines" alternative, that alternative is now **void**: the behaviour is required by the spec. No step's design changed between revisions. Only the AC and decision references were updated.
+
+| Finding | Now in the spec as | Decision |
+|---|---|---|
+| F-1 | "Current behaviour", Out of scope | D-18 |
+| F-2 | "Current behaviour", AC-15, AC-25, AC-33, AC-36, Out of scope | D-19 |
+| F-3 | **AC-13** (rewritten), AC-14 | **D-20** (overturns D-10's merge) |
+| F-4 | **AC-21** | D-21 |
+| F-5 | **AC-26**, AC-32 | D-22 |
+| F-6 | **AC-28** | D-23 |
+| F-7 | **AC-40** (complete map) | D-24 |
+| F-8 | **AC-6a**, AC-13, AC-20, AC-7a, NFR "single-currency" | D-25 |
+| F-9 | **AC-20**, AC-23, AC-30, NFR "no inferred sign" | D-26 |
+| F-10 | **AC-7** | D-27 |
+| F-11 | **AC-7a**, AC-8 | D-28 |
+| F-12 | **AC-8**, AC-12 | D-29 |
+| F-13 | **AC-20**, AC-28 | D-30 |
+| F-14, F-15, F-16, F-17, F-19 | AC-6, AC-33, Assumptions, AC-2 | informational, accepted |
+| F-18 | AC-32 (no edit needed) | confirmed |
+
+**Two stale lines in the revised spec, neither of which changes this plan** (informational, for `ba` or `lead`; non-blocking):
+- The spec's header still says "Decisions D-1 to D-17"; the file now runs to D-30.
+- "Current behaviour" says T-027 put per-tenant migrations "under the package's own `database/migrations-tenant/` directory". **As built, T-027's twelve migrations live in `modules/host/database/migrations-tenant/`** (measured). This plan follows what was built: section 3 puts T-028's eight there.
 
 **Gate baseline (not re-measured by `architect`).** T-027's QA re-run recorded `composer check` at **13 failed (pre-existing) / 3258 passed / 31 skipped, `test` step 2408.65 s**, against the 7800 s limit. Step 0 measures it again. This task adds roughly 220 cases, most of them pure. Ruling 12 applies.
 
@@ -29,7 +51,9 @@ Backlog: FP-232. Branch: `ai/T-028-customers`. Gate directory: `modules/host`.
 | D-16: `customer_addresses` has no `[SOFT]`, so delete is a real delete | **Holds** | Line 1230: `[ID] [TS]` |
 | Spec assumption: `restaurant_tables.version` and `payment_methods.version` are codebase precedents | **False (F-16)** | Neither table exists. The precedent is `products.version` (T-027) |
 
-### 0.2 Findings routed to `ba`
+### 0.2 Findings routed to `ba`: all resolved in `f116c1e`
+
+The findings follow unchanged, as the record of what was routed. The resolution in each is now the spec's own text (see the mapping table above), and every "fallback" or "if `ba` declines" clause below is void.
 
 **Spec or decision edits needed (F-1 to F-13):**
 
@@ -243,7 +267,7 @@ Further rules:
 - **Notes:** `pinned` defaults to false; `follow_up_date` is a valid date or null.
 - **Communications:** `occurred_at` defaults to now, using a `DATETIME(3)` UTC string that matches `RunnerClock::PRECISION`. A communication has no update, because it is a log of what happened.
 
-**Ruling 9: `MergeCustomers`** (AC-13, AC-14, as amended by F-3, F-8, F-12, F-13). One transaction:
+**Ruling 9: `MergeCustomers`** (AC-13, AC-14; D-20, D-25, D-29, D-30). This matches D-20's final wording point for point: reference names `customer_merge_out` and `customer_merge_in`, both with the source's id as `reference_id`; the loyalty transfer under the program of the source's latest loyalty row; the target required to be live and unmerged. One transaction:
 1. Fold both ids. `source = target` gives `self_merge`.
 2. Lock both rows in ascending id order.
 3. Each row must exist (`notFound`), and must be live and unmerged (`alreadyMerged` / `notLive`).
@@ -383,7 +407,7 @@ Notes on the schema:
 - **Not built:**
   - `receivable_account_id`, `ar_document_id`, `sale_id` (with its unique key) and `delivery_id` (D-6, F-2);
   - `custom_fields` (F-1).
-- **Complete precision map** for `TenantDecimalPrecisionTest` (AC-40 as amended by F-7):
+- **Complete precision map** for `TenantDecimalPrecisionTest` (AC-40, D-24; identical to the spec's revised list):
   - (18,4): `credit_limit`, `credit_balance`, `opening_balance`, `lifetime_value`, `loyalty_points`, `default_credit_limit`, `debit`, `credit`, both `balance_after`, `points`, `value`;
   - (9,4): `discount_percent`, `loyalty_multiplier`.
 - `APP_REQUIRED_SCHEMA_VERSION` goes from 43 to 51, and the catalogue is republished (`php artisan schema:publish --write-fixture`).
@@ -418,10 +442,9 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 ### Chunk A: plumbing, schema, static instruments
 
-- [ ] **Step 0: baseline and the spec revision.**
+- [ ] **Step 0: baseline.**
   - `composer check`: record passed, failed and skipped, the `test` seconds, and the process list.
-  - Confirm `ba`'s revision answering F-1 to F-13 is committed.
-  - Record any finding `ba` declined, and apply the fallback that finding names.
+  - The spec revision is already committed (`f116c1e`), and every F-1 to F-19 resolution was accepted, so no fallback applies.
   - *(No AC.)*
 - [ ] **Step 1: package plumbing.**
   - `composer.json`, an empty provider, the config file, and the section 5 edits. Add `'customers'` to `QaToolchainRegistryCoverageTest`'s literal.
@@ -523,10 +546,11 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - **AC-10:** with a seeded balance of 0.0001, the delete is refused, naming it. At 0 the delete is accepted even with history rows seeded.
   - **AC-11:** the three sale fields are null or 0, and **a command field naming one is refused as unknown**.
   - **AC-12:** `possible_duplicate_of` is set by update; pointing it at the row itself, or at an unknown id, is refused.
-  - **F-8:** a currency change is refused once a ledger row exists. **Control:** before any ledger row, it is accepted.
+  - **AC-6a (D-25):** a currency change is refused once a ledger row exists. **Control:** before any ledger row, it is accepted.
+  - **AC-6 (F-14):** the `[SYNC]` defaults are `origin = online` and `sync_status = synced`, and the rest are null. A command field naming any `[SYNC]` column is refused as unknown.
   - AC-4 for customers. The list is paged and filtered.
   - **M12:** let `credit_balance` through on update. The AC-8 test goes red.
-  - *(AC-4, AC-6 to AC-12.)*
+  - *(AC-4, AC-6, AC-6a, AC-7 to AC-12; D-27, D-29.)*
 - [ ] **Step 10: `RecordCreditLedgerEntry`, the writer, the contract adapter and `ListCreditLedgerEntries`** (Ruling 6).
   - **AC-20:** an unknown customer; a missing reference; an unknown branch; an unknown employee; a soft-deleted or merged customer (F-13); currency null, and currency mismatch (F-8).
   - **AC-23:** after an entry, `customer_ledger.balance_after` = `customers.credit_balance`, written in one transaction.
@@ -547,13 +571,14 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - **M14:** return the original without comparing the payload. The conflict test goes red;
     - **M15:** remove both the pre-check and the catch. The backstop test goes red.
   - *(AC-19 to AC-24; AC-22 apart from its `[ENGINE]` clause.)*
-- [ ] **Step 11: the opening balance on `CreateCustomer`** (F-11).
+- [ ] **Step 11: the opening balance on `CreateCustomer`** (AC-7a, D-28).
   - Non-zero `opening_balance` gives one `opening` row through the writer, reference `customer`/id. `credit_balance` = `opening_balance`, set in the create transaction.
   - A negative opening is a credit entry.
   - No currency gives `currency_required`, and nothing is written, **including no customer row**.
   - Zero gives no ledger row.
+  - An update supplying `opening_balance` is refused whole (covered in step 9, AC-8).
   - **Gate: `composer check` (end of chunk C).**
-  - *(F-11.)*
+  - *(AC-7a.)*
 
 ### Chunk D: loyalty, addresses, notes and communications, the merge
 
@@ -581,7 +606,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - **AC-36:** there is no `delivery_id` (step 3).
   - **AC-37:** both lists are paged, with the same 3-at-2 boundary case and a malformed cursor refused.
   - *(AC-34 to AC-37.)*
-- [ ] **Step 15: `MergeCustomers`** (Ruling 9).
+- [ ] **Step 15: `MergeCustomers`** (Ruling 9, which is AC-13 and D-20 as now written: compensating `adjustment` and `transfer` pairs; ledger rows never move; only addresses, notes and communications are reassigned).
   - **Refusals:** self; an unknown id on either side; a source already merged; a target merged or soft-deleted; currency mismatch with a non-zero balance. Each writes nothing.
   - **Success**, with a source holding balance 150 and 40 points plus two addresses (one a default billing), a note and a communication, and a target holding balance 50, a default billing address and 10 points:
     - the source's old ledger and loyalty rows **still** carry `customer_id = source`, byte-identical;
@@ -599,7 +624,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - **M18:** add the source's balance straight onto the target with no entries. The oracle goes red for both;
     - **M19:** reassign the ledger rows. The "byte-identical" assertion goes red.
   - **Gate: `composer check` (end of chunk D).**
-  - *(AC-10, AC-13, AC-14 as amended.)*
+  - *(AC-10, AC-13, AC-14; D-20, D-25, D-30.)*
 
 ### Chunk E: scans, engine, documents
 
@@ -672,13 +697,14 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 | ACs | Proved by |
 |---|---|
 | 1–5 | step 8 (AC-5 also step 16) |
-| 6–12 | step 9 |
-| 13, 14 | step 15 (as amended by F-3), plus step 16 |
+| 6, 6a, 7–12 | step 9 |
+| 7a | step 11 (the update refusal is in step 9) |
+| 13, 14 | step 15, plus step 16 |
 | 15, 25, 33, 36 | step 3 exact column lists, plus step 18 |
 | 16–18 | step 13 |
 | 19 | steps 10 and 16 |
 | 20 | step 10; the CHECK is `[ENGINE]` (step 17) |
-| 21 | step 10 (as amended by F-4) |
+| 21 | step 10 |
 | 22, 29 | steps 10 and 12; the lock holding is `[ENGINE]` (step 17) |
 | 23, 24 | steps 6 and 10 |
 | 26–28, 30–32 | steps 7 and 12 |
@@ -692,7 +718,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 ## 8. Risks & rollback
 
 1. **Gate time (highest).** `test` was 2408 s at T-027's close, and about 220 cases are added. Mitigations: pure-first design (Ruling 12) and measurement at each chunk boundary. If a chunk adds more than 10 %, stop and report to `lead`.
-2. **The spec revision.** F-3, F-4, F-5 and F-7 change behaviour that ACs state outright. If `ba` declines any of them, the named fallback applies. F-3 is the costly one (step 15 changes, and append-only is broken by design). `dev` must not start chunk B until step 0 records the outcome.
+2. **The spec revision is settled** (`f116c1e`, D-18 to D-30). The residual risk is drift: `dev` must read AC-13, AC-20, AC-21, AC-26 and AC-28 as revised, not the original draft quoted in `1d9a34a`.
 3. **Stand-in and engine divergence.** The row lock, the CHECK, JSON validity and case-insensitive collation are proven only on the engine. On SQLite, `lockForUpdate()` is a no-op, so **no stand-in test can catch a writer that reads the balance before locking**. That is why Ruling 6 fixes the order in code, M13 to M15 cover the arithmetic consequences, and step 17 holds the real proof for G-1.
 4. **Merge history reads.** A merged customer's statement now spans two customer ids. This is correct, but FP-240 and FP-264 must follow `merged_into_id` (section 10). Until they do, a list for the target shows only the `merge_in` line for the source's history.
 5. **Offline credit sales (FP-233, FP-237).** §12.2 records an offline sale "because it already happened". An offline `credit_sale` arriving over the limit will be refused by AC-24 as written. FP-233 needs a recorded-anyway path, which is the `approval_requests` override or a conflict row. The contract is designed so that an additive `?override` argument is enough (section 10).
@@ -743,4 +769,4 @@ Anything red that is not in this table means stop and report to `architect`.
 
 ## Questions for the human
 
-None directly. F-1 to F-13 go to `ba` under the team protocol (section 0.2), and F-14 to F-19 are informational. If `ba` cannot settle F-3 (merge by compensating entries) without the owner, `lead` should put it to the product owner: it is the one finding that changes what a user sees, because a merged customer's history spans two records.
+None. F-1 to F-19 were resolved by `ba` in `f116c1e` (D-18 to D-30). Two stale lines remain in the spec, both informational (see the head of this plan). `lead` may still want to tell the product owner about D-20: it is the one decision that changes what a user sees, because a merged customer's history spans two records until FP-240 or FP-264 builds the combined statement.
