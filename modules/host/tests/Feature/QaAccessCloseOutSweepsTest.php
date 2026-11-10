@@ -122,7 +122,15 @@ function closeOutNewTables(): array
         'product_components', 'product_locations', 'product_modifier_groups', 'products', 'unit_conversions', 'units',
     ];
 
-    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017, $t019, $t020, $t021, $t027));
+    // T-028's eight customer tables are excluded the same way: this sweep's
+    // exercise never writes a customer, group, address, ledger entry,
+    // loyalty row, note or communication.
+    $t028 = [
+        'customer_addresses', 'customer_communications', 'customer_groups', 'customer_ledger',
+        'customer_notes', 'customers', 'loyalty_programs', 'loyalty_transactions',
+    ];
+
+    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017, $t019, $t020, $t021, $t027, $t028));
 }
 
 /**

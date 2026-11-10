@@ -48,6 +48,9 @@ parameters:
         - ../../packages/catalog/src
         - ../../packages/catalog/tests
         - ../../packages/contracts/src
+        # T-028, source and tests.
+        - ../../packages/customers/src
+        - ../../packages/customers/tests
         - ../../packages/eventbus/src
         # T-018, source and tests, for the reason the access package's two
         # lines above are here.

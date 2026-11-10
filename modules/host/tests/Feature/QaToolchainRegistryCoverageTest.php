@@ -441,8 +441,9 @@ it('finds the packages this guard is supposed to protect', function () {
             // master table edits masterApplicationTables()'s counts.
             // 'organization' is T-014's, for the same reason. 'platform' is
             // T-016's. 'workflow' is T-020's.
-            // 'catalog' is T-027's, for the same reason.
-            'access', 'auth', 'catalog', 'contracts', 'eventbus', 'http-client', 'kernel', 'organization', 'platform', 'plugin-sdk', 'testing', 'workflow',
+            // 'catalog' is T-027's, for the same reason. 'customers' is
+            // T-028's.
+            'access', 'auth', 'catalog', 'contracts', 'customers', 'eventbus', 'http-client', 'kernel', 'organization', 'platform', 'plugin-sdk', 'testing', 'workflow',
         ]);
 });
 

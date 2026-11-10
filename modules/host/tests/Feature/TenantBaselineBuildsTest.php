@@ -329,6 +329,21 @@ it('holds exactly the declared foreign keys, and the branch keys of T-014 (AC-3,
         'branches.updated_by -> employees.id',
         // T-027 step 3: the twelve catalog tables' 27 foreign keys.
         'categories.parent_id -> categories.id',
+        // T-028 step 3: the eight customer tables' 17 foreign keys.
+        'customer_addresses.customer_id -> customers.id',
+        'customer_communications.customer_id -> customers.id',
+        'customer_communications.employee_id -> employees.id',
+        'customer_ledger.branch_id -> branches.id',
+        'customer_ledger.customer_id -> customers.id',
+        'customer_ledger.employee_id -> employees.id',
+        'customer_notes.created_by -> employees.id',
+        'customer_notes.customer_id -> customers.id',
+        'customer_notes.updated_by -> employees.id',
+        'customers.created_by -> employees.id',
+        'customers.group_id -> customer_groups.id',
+        'customers.merged_into_id -> customers.id',
+        'customers.possible_duplicate_of -> customers.id',
+        'customers.updated_by -> employees.id',
         'devices.revoked_by -> employees.id',
         'devices.terminal_id -> terminals.id',
         'employee_branches.branch_id -> branches.id',
@@ -346,6 +361,9 @@ it('holds exactly the declared foreign keys, and the branch keys of T-014 (AC-3,
         'locations.created_by -> employees.id',
         'locations.manager_employee_id -> employees.id',
         'locations.updated_by -> employees.id',
+        'loyalty_transactions.customer_id -> customers.id',
+        'loyalty_transactions.employee_id -> employees.id',
+        'loyalty_transactions.program_id -> loyalty_programs.id',
         'modifiers.group_id -> modifier_groups.id',
         'modifiers.linked_product_id -> products.id',
         'modifiers.linked_unit_id -> units.id',
@@ -415,6 +433,9 @@ it('holds exactly the declared foreign keys, and the branch keys of T-014 (AC-3,
     sort($referencing);
 
     expect($referencing)->toBe([
+        // T-028 step 3: customer_ledger.branch_id joins the list of tables
+        // with a key to branches.
+        'customer_ledger',
         'employee_branches', 'employee_permissions', 'employee_roles', 'locations', 'number_sequences',
         // T-027 step 3: product_branches.branch_id joins the list of tables
         // with a key to branches.

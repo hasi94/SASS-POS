@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "86e7abd4bb5f9bc0eca1c5b4c0945af2",
+    "content-hash": "3fe5bf60adfd21dab1975c0bfc9e4036",
     "packages": [
         {
             "name": "brick/math",
@@ -685,6 +685,33 @@
                 "proprietary"
             ],
             "description": "FlexiPOS shared contracts: DTOs, client interfaces, event classes and error codes.",
+            "transport-options": {
+                "relative": true
+            }
+        },
+        {
+            "name": "flexipos/customers",
+            "version": "0.1.0",
+            "dist": {
+                "type": "path",
+                "url": "../../packages/customers",
+                "reference": "61c06ef50133ffc7cfba90f589a16f7a3b8b8e30"
+            },
+            "require": {
+                "brick/math": "^0.14",
+                "flexipos/contracts": "*",
+                "php": "^8.2"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Flexipos\\Customers\\": "src/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "FlexiPOS customers: groups, customers, addresses, the credit ledger, loyalty programs and transactions, and notes/communications.",
             "transport-options": {
                 "relative": true
             }

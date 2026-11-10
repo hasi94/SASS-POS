@@ -442,20 +442,20 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 ### Chunk A: plumbing, schema, static instruments
 
-- [ ] **Step 0: baseline.**
+- [x] **Step 0: baseline.**
   - `composer check`: record passed, failed and skipped, the `test` seconds, and the process list.
   - The spec revision is already committed (`f116c1e`), and every F-1 to F-19 resolution was accepted, so no fallback applies.
   - *(No AC.)*
-- [ ] **Step 1: package plumbing.**
+- [x] **Step 1: package plumbing.**
   - `composer.json`, an empty provider, the config file, and the section 5 edits. Add `'customers'` to `QaToolchainRegistryCoverageTest`'s literal.
   - **`CustomersProviderTest`:** the provider is loaded and `BigDecimal` autoloads.
   - **Negative control:** a scratch class in `modules/demo/src` importing `Flexipos\Customers\Ledger\CreditLedgerCalculator` fails `deptrac`, and the same class importing `Flexipos\Contracts\Customers\CustomerCreditLedger` passes. Delete both.
   - *(AC-38 instrument.)*
-- [ ] **Step 2: `CheckConstraint::oneSided`.**
+- [x] **Step 2: `CheckConstraint::oneSided`.**
   - The exact-text test; the SQLite no-op; a bad identifier refused.
   - **Mutation K1:** remove the driver guard, and the no-op test throws.
   - *(Groundwork for AC-20 and D-15.)*
-- [ ] **Step 3: the eight migrations, with `CustomersTenantSchemaTest`** (its own SQLite stand-in, the T-027 shape).
+- [x] **Step 3: the eight migrations, with `CustomersTenantSchemaTest`** (its own SQLite stand-in, the T-027 shape).
   - Each table's sorted column list equals section 4 **exactly**, with nullability. That **proves the absence** of the four D-6 columns, `custom_fields` and `sale_id` (AC-15, AC-25, AC-33, AC-36, F-1).
   - Every unique key, by raw double insert:
     - the ledger triple;
@@ -467,7 +467,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - `SourceRules::inspect()` reports nothing, and no file declares `down`.
   - **Predicted red:** section 9's schema list. Anything else means stop.
   - *(The schema halves of AC-2, AC-6, AC-17, AC-21 and AC-40, and AC-15, AC-25, AC-33 and AC-36 by absence.)*
-- [ ] **Step 4: AC-40 static precision.**
+- [x] **Step 4: AC-40 static precision.**
   - Extend `TenantDecimalPrecisionTest` with T-028's exact column map (section 4) under a T-028 comment. The allow-list stays at four pairs.
   - **Red-first:** a fixture `decimal('points', 18, 2)` is reported. This is the F-7 point, proven.
   - **Gate: `composer check` (end of chunk A).**

@@ -96,6 +96,12 @@ it('has no down() and passes SourceRules::inspect()', function () {
 });
 
 it('is the catalogue top entry, phase expand, version 43', function () {
+    // T-028 step 3 republished the catalogue with its own eight migrations
+    // on top (43 becomes 51), the way T-027 did the same to this very test
+    // when it landed on top of this file's own idempotency_keys migration.
+    // This test's own name is now one task stale - stated here rather than
+    // renamed, so the "whoever ships next updates this" pattern stays
+    // visible in the diff instead of being silently absorbed.
     $catalogue = json_decode(
         (string) file_get_contents(base_path('database/catalogue/tenant_schema_versions.json')),
         true
@@ -103,7 +109,7 @@ it('is the catalogue top entry, phase expand, version 43', function () {
 
     $top = end($catalogue);
 
-    expect($top['version'])->toBe(43)
-        ->and($top['migration'])->toBe('2026_11_08_002712_create_product_modifier_groups_table')
+    expect($top['version'])->toBe(51)
+        ->and($top['migration'])->toBe('2026_11_10_002808_create_customer_communications_table')
         ->and($top['phase'])->toBe('expand');
 });

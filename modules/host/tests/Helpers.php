@@ -563,6 +563,16 @@ function tenantTreeTables(): array
         'workflow_instances',
         'workflow_steps',
         'workflow_tasks',
+        // T-028 step 3: the eight customer tables (docs/database.md section
+        // 6.9).
+        'customer_groups',
+        'customers',
+        'customer_addresses',
+        'customer_ledger',
+        'loyalty_programs',
+        'loyalty_transactions',
+        'customer_notes',
+        'customer_communications',
     ]);
 
     sort($tables);

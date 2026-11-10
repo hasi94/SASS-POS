@@ -342,5 +342,69 @@
         "checksum": "20a56fa0787796c5ba8f559f2a53e398c081e2e2f7721c0ed38cc8ee729c9a9e",
         "is_destructive": false,
         "requires_offline": false
+    },
+    {
+        "version": 44,
+        "migration": "2026_11_10_002801_create_customer_groups_table",
+        "phase": "expand",
+        "checksum": "ca75e6a01952f67f7b425bbf436a342c1d41273229d6b023218f3261001d0323",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 45,
+        "migration": "2026_11_10_002802_create_customers_table",
+        "phase": "expand",
+        "checksum": "363204aa6f5afcbb4a674e1e3ed4e7e0112f17393732ee3fc9b2064a529a1e0c",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 46,
+        "migration": "2026_11_10_002803_create_customer_addresses_table",
+        "phase": "expand",
+        "checksum": "39616c999b0f4640ae072d5fd0a52bab3971f5926fa30e2c97c35256cdc6c9f0",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 47,
+        "migration": "2026_11_10_002804_create_customer_ledger_table",
+        "phase": "expand",
+        "checksum": "73b35d4e6b03fa2dea8d7d94e072994e38a1a5a5e938c81fe76cb2c4284c69c1",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 48,
+        "migration": "2026_11_10_002805_create_loyalty_programs_table",
+        "phase": "expand",
+        "checksum": "445341566cba3c872bc6956183c40990ab9efa9392c6363c5ebbbf2a4ca64f63",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 49,
+        "migration": "2026_11_10_002806_create_loyalty_transactions_table",
+        "phase": "expand",
+        "checksum": "cb1e0f2372c2459fc1e22ee9a7c65c602f4c447c7a06c90bbc9dbb7d8611ba0c",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 50,
+        "migration": "2026_11_10_002807_create_customer_notes_table",
+        "phase": "expand",
+        "checksum": "9fedb43e1b29cd151be735f9b416b7e3c77a60055126111689652775d78b14f9",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 51,
+        "migration": "2026_11_10_002808_create_customer_communications_table",
+        "phase": "expand",
+        "checksum": "16bc4a407b18e685faac196d244105cc3358f9ebcf0f63e543a5007e699172e1",
+        "is_destructive": false,
+        "requires_offline": false
     }
 ]

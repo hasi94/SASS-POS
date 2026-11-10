@@ -38,3 +38,32 @@ it('refuses a table or column name that is not [a-z_]+', function () {
         ->and(fn () => CheckConstraint::statement('units', 'preci-sion', 0, 4))->toThrow(InvalidArgumentException::class)
         ->and(fn () => CheckConstraint::statement('units; drop table units', 'precision', 0, 4))->toThrow(InvalidArgumentException::class);
 });
+
+/**
+ * T-028 plan step 2: `oneSided()`, ahead of its first real caller
+ * (`customer_ledger`, D-15).
+ */
+it('builds the exact one-sided statement text, named after the table and the two columns', function () {
+    expect(CheckConstraint::oneSidedStatement('customer_ledger', 'debit', 'credit'))
+        ->toBe('ALTER TABLE `customer_ledger` ADD CONSTRAINT `customer_ledger_debit_credit_one_sided`'
+            .' CHECK ((`debit` = 0 OR `credit` = 0) AND `debit` >= 0 AND `credit` >= 0)');
+});
+
+it('is a no-op on SQLite for the one-sided constraint too', function () {
+    expect(Schema::getConnection()->getDriverName())->toBe('sqlite');
+
+    CheckConstraint::oneSided('customer_ledger', 'debit', 'credit');
+});
+
+it('mutation K1: removing the driver guard makes the SQLite one-sided no-op throw', function () {
+    expect(Schema::getConnection()->getDriverName())->toBe('sqlite');
+
+    expect(fn () => Schema::getConnection()->statement(CheckConstraint::oneSidedStatement('customer_ledger', 'debit', 'credit')))
+        ->toThrow(Exception::class);
+});
+
+it('refuses a table or column name for the one-sided constraint that is not [a-z_]+', function () {
+    expect(fn () => CheckConstraint::oneSidedStatement('Customer_Ledger', 'debit', 'credit'))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => CheckConstraint::oneSidedStatement('customer_ledger', 'de-bit', 'credit'))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => CheckConstraint::oneSidedStatement('customer_ledger', 'debit', 'credit; drop table customer_ledger'))->toThrow(InvalidArgumentException::class);
+});

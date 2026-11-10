@@ -99,6 +99,22 @@ it('matches T-027s own exact column map: quantities/money (18,4), factor columns
         '2026_11_08_002711_create_modifiers_table.php' => [
             ['price_delta', 18, 4], ['cost_delta', 18, 4], ['linked_quantity', 18, 4],
         ],
+        // T-028 step 4: the eight customer tables' exact column map (F-7,
+        // D-24): points at (18,4), not (18,2) - that would turn this test
+        // red on arrival.
+        '2026_11_10_002801_create_customer_groups_table.php' => [
+            ['discount_percent', 9, 4], ['default_credit_limit', 18, 4], ['loyalty_multiplier', 9, 4],
+        ],
+        '2026_11_10_002802_create_customers_table.php' => [
+            ['credit_limit', 18, 4], ['credit_balance', 18, 4], ['loyalty_points', 18, 4],
+            ['opening_balance', 18, 4], ['lifetime_value', 18, 4],
+        ],
+        '2026_11_10_002804_create_customer_ledger_table.php' => [
+            ['debit', 18, 4], ['credit', 18, 4], ['balance_after', 18, 4],
+        ],
+        '2026_11_10_002806_create_loyalty_transactions_table.php' => [
+            ['points', 18, 4], ['value', 18, 4], ['balance_after', 18, 4],
+        ],
     ];
 
     foreach ($expected as $file => $columns) {

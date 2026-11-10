@@ -5,6 +5,7 @@ use App\Providers\ModuleHostServiceProvider;
 use Flexipos\Access\AccessServiceProvider;
 use Flexipos\Auth\AuthServiceProvider;
 use Flexipos\Catalog\CatalogServiceProvider;
+use Flexipos\Customers\CustomersServiceProvider;
 use Flexipos\Eventbus\EventbusServiceProvider;
 use Flexipos\Kernel\Api\ApiServiceProvider;
 use Flexipos\Kernel\Schema\SchemaServiceProvider;
@@ -28,4 +29,5 @@ return [
     PluginSdkServiceProvider::class,
     WorkflowServiceProvider::class,
     CatalogServiceProvider::class,
+    CustomersServiceProvider::class,
 ];

@@ -209,7 +209,15 @@ it('creates the eight tables and nothing else, and the listing check can tell ot
         'product_components', 'product_locations', 'product_modifier_groups', 'products', 'unit_conversions', 'units',
     ];
 
-    $new = array_values(array_diff(qaT10Tables(), tenantBaselineTables(), ['migrations'], $t014, $t017, $t019, $t020, $t021, $t027));
+    // T-028's eight customer tables are excluded the same way: this is
+    // still a claim about T-010's eight, unaffected by a later task's
+    // table.
+    $t028 = [
+        'customer_addresses', 'customer_communications', 'customer_groups', 'customer_ledger',
+        'customer_notes', 'customers', 'loyalty_programs', 'loyalty_transactions',
+    ];
+
+    $new = array_values(array_diff(qaT10Tables(), tenantBaselineTables(), ['migrations'], $t014, $t017, $t019, $t020, $t021, $t027, $t028));
 
     expect($new)->toBe([
         'access_log', 'employee_branches', 'employee_permissions', 'employee_roles',

@@ -68,6 +68,52 @@ final class CheckConstraint
     }
 
     /**
+     * The `journal_lines`-shape `CHECK ((debit = 0 OR credit = 0) AND
+     * debit >= 0 AND credit >= 0)`, named after the table and the two
+     * columns (T-028 plan Ruling 4/D-15, `customer_ledger`'s own copy of
+     * `journal_lines`' CHECK).
+     *
+     * Exactly one of the two columns may be non-zero on any row, and
+     * neither may be negative - a ledger's debit/credit side is never
+     * inferred from a sign. The same engine-only guard as `between()`: this
+     * issues nothing on SQLite, the suite's own driver, since neither
+     * Laravel's schema builder nor SQLite can express `ADD CONSTRAINT …
+     * CHECK (…)` at all.
+     */
+    public static function oneSided(string $table, string $debit, string $credit): void
+    {
+        if (! in_array(Schema::getConnection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            return;
+        }
+
+        self::assertIdentifier($table);
+        self::assertIdentifier($debit);
+        self::assertIdentifier($credit);
+
+        // Built inline, the same shape `between()` uses: the statement's
+        // verb has to be a literal a source scan can read (AC-33(c)), so
+        // this cannot be `DB::statement(self::oneSidedStatement(...))` -
+        // the argument would be a call, not text starting with a quote.
+        // `oneSidedStatement()` below is kept in step with this by
+        // `CheckConstraintTest`'s exact text assertion.
+        DB::statement('ALTER TABLE `'.$table.'` ADD CONSTRAINT `'.$table.'_'.$debit.'_'.$credit.'_one_sided`'
+            .' CHECK ((`'.$debit.'` = 0 OR `'.$credit.'` = 0) AND `'.$debit.'` >= 0 AND `'.$credit.'` >= 0)');
+    }
+
+    /**
+     * The exact statement `oneSided()` issues, pure - no connection needed.
+     */
+    public static function oneSidedStatement(string $table, string $debit, string $credit): string
+    {
+        self::assertIdentifier($table);
+        self::assertIdentifier($debit);
+        self::assertIdentifier($credit);
+
+        return 'ALTER TABLE `'.$table.'` ADD CONSTRAINT `'.$table.'_'.$debit.'_'.$credit.'_one_sided`'
+            .' CHECK ((`'.$debit.'` = 0 OR `'.$credit.'` = 0) AND `'.$debit.'` >= 0 AND `'.$credit.'` >= 0)';
+    }
+
+    /**
      * The one shape a table or column name here may take: lower-case ASCII
      * letters and underscores, matching every identifier this codebase
      * already writes.
