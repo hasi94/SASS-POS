@@ -184,3 +184,198 @@ offset-or-cursor pagination from its first version**, stated as a non-functional
 left to be found later by `qa` a second time. | Cheapest possible fix is building it in from the start;
 FP-308 already measured the cost of not doing so once. Reversible: n/a (a built-in requirement, not a
 reversible trade-off).
+
+---
+
+## Decisions D-18 to D-30 — added after `architect`'s plan-stage review (findings F-1 to F-19)
+
+Committed plan: `docs/plans/T-028-customers.md` (`ab78fa3`). Thirteen findings (F-1 to F-13) needed a
+spec or decision edit; six more (F-14 to F-19) are informational and are either accepted outright or
+recorded as confirmed without changing this task's design. Numbering continues from D-17 rather than
+restarting, since these are corrections to and extensions of the decisions above, not a fresh file.
+
+D-18 (corrects the premise behind D-6, F-1) | The spec's "Current behaviour" claimed
+`custom_field_definitions` exists (T-008/T-011), so `[CF]` on `customers` had somewhere to validate
+against. `architect` measured this false: no migration creates it — T-008 D-4 deliberately left it out
+of the tenant baseline, and nothing since has built it. T-027's own F-1 found the identical error on
+that task. | **Corrected.** `customers.custom_fields` is not built by this task, following T-027/
+AC-27a's precedent exactly; a `custom_fields` field in a create/update command is refused as unknown. |
+A finding accepted as measured, not re-argued — `architect` read the same absence T-027's own review
+already found once on a sibling task. Reversible: yes — additive once `custom_field_definitions` ships.
+
+D-19 (corrects D-6, F-2) | D-6's own text said each owning task adds "the column and the constraint
+together", and separately miscounted its own four deferred columns as "eight" in one place. `architect`
+found (1) this codebase's migration source rules treat a foreign key onto an **already-existing** table
+as a **contract**-phase migration, distinct from the expand step that adds the column — the identical
+correction T-027's own F-2 made there; and (2) `docs/database.md` §6.16 makes `deliveries.id` a
+**BIGINT AUTO** key, so `customer_communications.delivery_id` will be `BIGINT UNSIGNED` when built, not
+a ULID like every other identifier column in this schema. | **Corrected.** Every D-6 deferral now states
+"an expand migration (the column) followed by a separate contract migration (the foreign key)"; the
+count is stated as "four" (named individually, never counted loosely again, per this backlog's own
+FP-181/FP-184 convention); `delivery_id`'s eventual `BIGINT UNSIGNED` shape is flagged explicitly so the
+owning task does not have to rediscover it. | Reversible: yes.
+
+D-20 (corrects AC-13/D-10, F-3 — the important one) | D-10's original resolution had `MergeCustomers`
+reassign `customer_ledger.customer_id` and `loyalty_transactions.customer_id` directly and then
+recompute the target's balances by a fresh sum. `architect` found this **edits append-only financial
+rows**, contradicting this task's own AC-19/AC-27 and `docs/database.md` §3.3 ("financial rows are
+immutable after posting; a correction is a new row"), and corrupts every moved row's `balance_after`,
+which describes the *source's* running balance, not the target's. | **Overturned, not merely corrected
+— D-10's `MergeCustomers` design is replaced.** The merge moves the **balance**, not the rows, through
+the same writers every other entry already uses: a compensating `adjustment` pair for credit (one entry
+zeroing the source, a mirror entry crediting the target, references `customer_merge_out`/
+`customer_merge_in`), and a compensating `transfer` pair for loyalty (the enum value exists for exactly
+this). Only `customer_addresses`/`customer_notes`/`customer_communications` — which carry no append-only
+constraint — move by a direct `customer_id` update. The source's ledger/loyalty rows **stay on the
+source** as its permanently-closed history. The target must also be live and unmerged (merging onto a
+dead record would let merges chain). | `architect`'s own alternative ("accept rows whose `balance_after`
+no longer matches their own customer's running balance") was explicitly advised against, and rightly —
+it would make the one invariant this entire domain exists to protect provably false on disk. The
+compensating-entry mechanism is strictly safer and uses no writer this task does not already build for
+an unrelated reason. Reversible: n/a (a correctness defect, not a preference).
+
+D-21 (corrects AC-21, F-4) | AC-21's original wording ("a no-op that returns the original row, never an
+error") would silently drop a second `payment` recorded against the same `(reference_type, reference_id,
+type)` key but with a **different amount** — exactly the kind of silent data loss idempotency is meant
+to prevent, not cause. `architect` cited `T-021`'s `RequireIdempotencyKey` precedent: a reused key whose
+fingerprint differs is a refusal (`IDEMPOTENCY_KEY_REUSED`), not a silent success. | **Corrected.** A
+replay is only a no-op when `customer_id`, `debit`, `credit` and `currency` all match the stored row;
+any mismatch is refused as `replay_conflict`, naming the existing row's id. | The cheapest, safest
+reading once a real precedent exists in this same codebase: match it rather than invent a softer rule.
+Reversible: yes — loosening to "always accept silently" is additive if ever wanted, though nothing
+documents a reason to want it.
+
+D-22 (resolves a tension between AC-26 and AC-32, F-5) | AC-26 stored `tier_rules` as fully opaque JSON
+with "no server-side schema validation beyond valid JSON," while AC-32 needs to evaluate that same JSON
+against a points balance to produce a tier. As originally written, neither criterion could be
+implemented without contradicting the other — opaque data cannot be evaluated, and an evaluation rule
+needs something to evaluate. | **One minimal validated shape, decided rather than left opaque**: `null`,
+or a non-empty list of `{tier: string ≤ 50 chars, min_points: decimal string ≥ 0, ≤ 4 dp}` objects, with
+unique tier names and unique thresholds; the tier for a given balance is the entry with the greatest
+`min_points` at or below it. `earn_rule`/`redeem_rule` stay fully opaque, because nothing in this task
+ever evaluates either — the caller supplies `points` directly (AC-28). | The narrowest fix that makes
+AC-32 implementable without inventing anything AC-26 didn't already imply by existing at all (a column
+named `tier_rules` that nothing reads was always going to need *some* shape the moment AC-32 was
+written). Reversible: yes — widening the shape (e.g. date-bounded tiers) is additive.
+
+D-23 (corrects AC-28, F-6) | AC-28's original wording required an "existing, non-soft-deleted"
+`loyalty_programs` row. `architect` measured `loyalty_programs` carries **no `[SOFT]` tag** in
+`docs/database.md` §6.9 (`[ID] [TS]` only) — there is no `deleted_at` column for "non-soft-deleted" to
+read. Separately, the earlier draft's retirement rule blocked only `redeem` against an inactive program,
+leaving `earn` still possible against a program nobody can redeem from any more. | **Corrected on both
+counts.** A program is retired via `is_active = false`, not soft-deleted; an inactive program refuses
+**both** `earn` and `redeem` (`program_inactive`). `adjust`, `expire` and `transfer` remain allowed
+against an inactive program, so a customer merge (D-20) and ordinary corrections still work after a
+program is retired. | The asymmetric earn/redeem gate in the original draft was simply incomplete, not a
+deliberate boundary — nothing documents a reason a retired program should still accrue new points.
+Reversible: yes.
+
+D-24 (corrects D-14/AC-40, F-7) | D-14 chose `DECIMAL(18,2)` for `loyalty_transactions.points`, reasoning
+that a fractional earn rate is legitimate and no integer type is documented. `architect` measured that
+`(18,2)` is **not** one of the four precision/scale pairs `TenantDecimalPrecisionTest` already allows
+(§3.2: `(18,4)`, `(18,6)`, `(9,4)`, `(18,8)`), so building it would turn that static test red on arrival
+— a self-inflicted gate failure, not a finding about business rules. Separately, AC-40's own column list
+omitted five columns that exist in the real schema: `customers.loyalty_points`, `customer_groups.
+default_credit_limit` (both `(18,4)`), and `customer_groups.discount_percent`/`loyalty_multiplier` (both
+`(9,4)`, the rate/percentage pair). | **`points` corrected to `DECIMAL(18,4)`** — D-14's own underlying
+reasoning (fractional accrual is legitimate) is satisfied just as well at scale 4, matching every
+quantity column elsewhere in this schema, with zero cost. **AC-40's list corrected to the complete,
+named set** across both precision pairs this task actually uses. | Keeping the fractional capability
+while landing on a scale the gate's own allow-list already recognises is strictly better than either
+inventing an integer-only rule or adding a fifth pair to the allow-list for one column. Reversible:
+yes — tightening to an integer later is a data migration, not a design change, if the owner states
+points are always whole.
+
+D-25 (gap, F-8) | Neither the original spec nor D-2/D-14 addressed currency at all, despite
+`customers.currency` and `customer_ledger.currency` both being documented columns — and a single
+`credit_balance` cannot sum two different currencies without silently misrepresenting what it holds.
+No company-currency table exists yet (`company_profile` is not built) to fall back on. | **An entry's
+currency must equal its customer's own `currency`**, refused otherwise (`currency_mismatch`); a customer
+with no `currency` set cannot take any ledger entry (`currency_required`); `UpdateCustomer` refuses a
+currency change once any ledger row already exists for that customer; `MergeCustomers` refuses when the
+two customers' currencies differ and the source's balance is not zero. | The safe, reversible direction
+for a domain with no multi-currency conversion mechanism built anywhere yet: refuse mixing currencies
+rather than silently add two numbers that mean different things. Reversible: yes — a real conversion
+step is additive once `company_profile`/`exchange_rates` exist and are wired to this domain.
+
+D-26 (gap, F-9) | AC-23/AC-30 as originally written described debit/credit sides and point signs as
+what each type "normally" carries, which is not a rule a safety calculator can enforce — "normally"
+has no refusal attached to it. | **Hard rules, enforced by the calculator before any row is written**:
+credit ledger — debit-only (`credit_sale`, `debit_note`), credit-only (`payment`, `refund`,
+`credit_note`, `write_off`), either-side (`opening`, `adjustment`); loyalty — `earn` positive, `redeem`
+negative, `expire` negative, `adjust`/`transfer` either sign. A violation is refused (`wrong_side`/
+`wrong_sign`). | Turning a descriptive "normally" into a checked rule is the whole point of building a
+pure, testable calculator (AC-41) rather than leaving the arithmetic to each handler's own judgment call
+every time. Reversible: yes — `refund` could be loosened to either-side later (a cash refund of an
+overpayment is a plausible real case) with a one-row, one-table-cell change to the rule, not a redesign.
+
+D-27 (gap, F-10) | AC-7 originally copied only `credit_limit`/`payment_terms_days` from the customer's
+group at creation, leaving `credit_allowed` to default independently — so a customer created in a
+credit-enabled group would still be refused credit until someone set the flag by hand, defeating the
+point of a group default existing at all. Separately, nothing stated whether `credit_limit` could be
+null, and "no limit" has no representation in a schema whose refusal rule is `balance_after >
+credit_limit`. | **`credit_allowed` is copied from the group exactly like the other two** (defaulting to
+`false` with no group); **`customers.credit_limit` is `NOT NULL DEFAULT 0`** — a customer needing no
+practical ceiling is given a large literal limit, not a null one, and a customer marked
+`credit_allowed = true` with a limit of `0` is refused every credit sale, which is the safe direction
+when no real limit was ever set. | The original gap would have made every group's `credit_allowed`
+default inert for any customer who didn't also get the flag set by hand — not a boundary, an oversight.
+Reversible: yes.
+
+D-28 (gap, F-11) | `customers.opening_balance` is a documented column that nothing in the original spec
+addressed — a free-standing balance sitting beside a ledger-maintained `credit_balance` is exactly the
+two-sources-of-truth problem D-2 exists to prevent, and leaving it unaddressed would have shipped that
+problem by omission rather than by decision. | **`CreateCustomer` with a non-zero `opening_balance`
+posts an `opening` entry through the credit ledger writer** in the same transaction as the customer row,
+reference `customer`/the new id; this requires a `currency` to be set (D-25). `opening_balance` is
+immutable after creation — an update supplying it is refused in full, the same shape as the other
+maintained columns (AC-8). | The alternative — plain data nothing reads — would have been a silent
+no-op feature: a shop could set an opening balance that never shows up in the ledger or the maintained
+`credit_balance`, which is worse than not building the column at all. Reversible: yes — this is an
+additive write path, not a schema change, if ever revisited.
+
+D-29 (gap, F-12) | `merged_into_id` was described only as "settable manually" in AC-12's original
+wording, with no statement that it was exempt from the ordinary customer update path — meaning an admin
+could set it by hand and mark a merge that moved nothing. | **`merged_into_id` is writable only by
+`MergeCustomers`** (D-20); the ordinary create/update handler refuses it whole, the identical shape AC-8
+already uses for `credit_balance`/`loyalty_points`/`loyalty_tier`. `possible_duplicate_of` remains
+manually settable and must reference another existing customer, never the row itself. | The same
+"maintained column, refused on the ordinary path" discipline D-8 already established for three columns,
+extended to the one more that needed it. Reversible: yes.
+
+D-30 (gap, F-13) | Neither AC-20 nor AC-28 as originally written stated which customers may take a
+ledger or loyalty write at all — nothing refused posting against a soft-deleted or already-merged
+customer, and nothing distinguished `credit_sale`/`debit_note` (which should require an active customer)
+from every other type (which should not, since a blocked customer can still have a payment or refund
+recorded against them). | **Every ledger and loyalty write requires a live, unmerged customer**
+(`customer_not_live` otherwise); **`credit_sale` and `debit_note` additionally require `status =
+active`** (`customer_not_active`); every other type is allowed regardless of `status`. A merge's own
+source-side compensating entries (D-20) are written before the source is soft-deleted, so they are not
+refused by this same rule. | The precondition a financial write needs on its subject was simply absent
+before; stating it explicitly, and narrowly (only the two credit-extending types need "active"), is the
+safe default rather than either refusing everything or refusing nothing. Reversible: yes.
+
+**Informational findings (F-14 to F-19), accepted or confirmed without a structural change:**
+
+- **F-14** (accepted): `[SYNC]` columns on `customers`/`loyalty_transactions` are built present but
+  inert — defaulted, carrying no foreign key, read by nothing in this task — rather than deferred
+  entirely, since D-6's own test for deferring a column ("its target table is missing") does not apply
+  to columns with no target table at all. AC-6 states this.
+- **F-15** (accepted): `RecordLoyaltyTransaction` accepts an optional caller-supplied `id` as a replay
+  key (the same id and payload is a replay; the same id with a different payload is `replay_conflict`),
+  giving loyalty a real idempotency guarantee today rather than none, narrowing AC-33's "known
+  limitation." Declining this would have left loyalty with no replay key at all until FP-233 ships
+  `sale_id` — accepted as the clear improvement.
+- **F-16** (corrects Assumptions): the `version`-column precedent cited was wrong — `restaurant_tables`
+  and `payment_methods` do not exist in this codebase; the real precedent is `products.version` (T-027).
+  Corrected in the spec's Assumptions section.
+- **F-17** (confirmed): `customer_groups.code` uniqueness is this task's own addition, not something
+  `docs/database.md` §6.9 states explicitly (only `customers.code` is marked unique there) — accepted as
+  the same reasonable addition T-027/F-12 made for `brands`.
+- **F-18** (confirmed, no edit needed): AC-32 evaluates `tier_rules` against the **program of the
+  transaction just written**, not some notion of "the customer's one program" — a customer can
+  legitimately accrue under more than one program, and inventing a "one active program" rule would be a
+  business rule nobody documented. The spec's AC-32 already states this explicitly after D-22.
+- **F-19** (accepted): soft-deleting the current default `customer_groups` row clears its `is_default`
+  in the same transaction, so AC-2's backstop never has to represent "the default is a deleted row."
+  AC-2 states this.
