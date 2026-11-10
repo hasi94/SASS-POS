@@ -1,6 +1,45 @@
 # Plan: T-030 Sales: cart, tenders, hold and recall, refunds, voids, cash shifts
 
-Spec: `docs/specs/T-030-sales.md` (AC-1 to AC-41). Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-28). Branch `ai/T-030-sales`, planned at `a2e6631`. This is revision 1, written **spec-ahead**: no code is written from it until T-028 and T-029 are DONE and this branch is rebased onto their tip.
+Spec: `docs/specs/T-030-sales.md` (AC-1 to AC-46, plus AC-23a). Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-50). Branch `ai/T-030-sales`. Revision 1 was planned at `a2e6631` and committed as `4614645`; this revision is planned at `be48613`. It is written **spec-ahead**: no code is written from it until T-028 and T-029 are DONE and this branch is rebased onto their tip.
+
+**Revision 2.** `ba` folded F-1 to F-21 (section 0.2) into the spec in `be48613`, as spec revision 2 with D-29 to D-50. I read the full diff, not the summary. Every resolution matches this plan's proposal, including the lead's two rulings: bill discounts deferred (D-35) and refunds priced at the original sale's instant (D-38). So **no step's design changed**, and the "Contingent" markers are gone. What did change:
+- **The ACs were renumbered.** Every AC reference in this plan now uses the revision-2 numbers. The moves that matter:
+
+  | Revision 1 | Revision 2 | What |
+  |---|---|---|
+  | AC-38 | **AC-42** | the source-rules scan |
+  | AC-39 | **AC-43** | schema absences |
+  | AC-40 | **AC-44** | the precision map |
+  | AC-41 | **AC-38** | `snapshotInherited()` |
+  | (new) | **AC-39** | `PinVerifier` |
+  | (new) | **AC-40** | `DocumentNumbers` |
+  | (new) | **AC-41** | `DiscountUsage` |
+  | (new) | **AC-45** | `loyalty_transactions.sale_id` |
+  | (new) | **AC-46** | the three schema additions |
+  | (new) | **AC-23a** | the discount approval |
+- **Four new drift points**, F-22 to F-25 (section 0.2, the end of the list). F-22 changes one step (16). The other three are wording, and the plan applies a reading for each.
+
+| Finding | Now lives in |
+|---|---|
+| F-1 (bill discount deferred) | D-35, AC-8 |
+| F-2, F-3, F-4 (ledger key, timing, `credit_note`) | D-29, AC-11, AC-13, AC-14, AC-21, AC-22 |
+| F-5 (`PinVerifier`, permission keys) | D-30, AC-23, AC-36, AC-39 |
+| F-6 (`DocumentNumbers`) | D-31, AC-14, AC-25, AC-32, AC-40 |
+| F-7 (`snapshotInherited` rule) | D-32, AC-26, AC-38 |
+| F-8 (not built) | D-33, AC-9, AC-16, AC-33, AC-43 |
+| F-9 (loyalty `sale_id`) | D-34, AC-45 |
+| F-10 (held-from-pending locked) | D-36, AC-6 |
+| F-11 (zero tolerance) | D-42, AC-8, AC-14 |
+| F-12 (discount approval, usage) | D-37, AC-23a, AC-14, AC-41 |
+| F-13 (refund instant) | D-38, AC-27 |
+| F-14 (refund signs) | D-43, AC-30 |
+| F-15 (shift edges) | D-39, AC-18, AC-22, AC-33 to AC-35 |
+| F-16 (override rules) | D-40, AC-7 |
+| F-17 (loyalty/voucher refused) | D-41, AC-12 |
+| F-18 (three additions) | D-44, AC-46 |
+| F-19 (cross-references, precision wording) | D-45, AC-44 |
+| F-20 (`discount_percent` null) | D-46, AC-10 |
+| F-21 (approval binding) | D-47, AC-24 |
 
 **Branch baseline (read this first).** This branch was cut from `main` at `4ece505`. That tree has **no** `packages/access`, `catalog`, `organization`, `customers` or `pricing`, and its `docs/` predate v0.5. Every contract below was read on the sibling worktrees:
 - `build-56f213` (T-028 at `180544b`, chunks A to D committed): `packages/contracts/src/{Catalog,Customers,Access,Organization}`, `packages/catalog/src/Units`, `packages/access/src/Features/VerifyPin`, and the tenant migrations;
@@ -8,13 +47,15 @@ Spec: `docs/specs/T-030-sales.md` (AC-1 to AC-41). Decisions: `docs/decisions/T-
 
 The rebase is therefore not optional. It brings in about 60 tenant migrations, and step 0 recomputes every number in this plan that depends on them.
 
-**`ba6` could not be messaged.** I have no messaging tool in this session. Every finding is in section 0.2 for `lead` to route. Where a finding is a small inconsistency, the plan applies the resolution and says so. Where it changes behaviour, the plan builds the **proposed** resolution and marks the step contingent, the same way T-028 and T-029 revision 1 did.
+**Routing.** Revision 1's findings went to `ba` through `lead` (I had no messaging tool). F-22 to F-25 go the same way. None of them blocks: the plan applies a reading for each.
 
 ---
 
 ## 0. Verification and findings
 
 ### 0.1 The spec's premises, re-read against source
+
+*Sections 0.1 and 0.2 (F-1 to F-21) are revision 1's record and cite revision-1 AC numbers: AC-38 there is today's AC-42, AC-39 is AC-43, AC-40 is AC-44, and AC-41 is AC-38. F-22 onward, and everything from section 0.3 on, use revision-2 numbers.*
 
 | Spec claim | Verdict | Evidence |
 |---|---|---|
@@ -32,7 +73,9 @@ The rebase is therefore not optional. It brings in about 60 tenant migrations, a
 
 ### 0.2 Findings for `ba` (routed through `lead`)
 
-**Changes behaviour. The plan builds the proposal and marks the step contingent.**
+F-1 to F-21 below are the record of what revision 1 routed. All of them are **resolved in `be48613`**, and the mapping table at the head of this plan gives where each now lives. The spec's text governs, not this paraphrase. Every "proposal" or "alternative" clause in F-1 to F-21 is now void: the proposal is required by the spec, and F-1's allocator alternative is a follow-up row (D-35).
+
+**Changed behaviour (resolved in `be48613`):**
 
 - **F-1 (AC-8, AC-38): bill-level discount.** `billDiscount()` returns a single amount. To be correct, it must be split across lines and each line re-taxed through `computeTax()`. Otherwise an exclusive tax is charged on the undiscounted base, and the stored tax is wrong. The split is discount arithmetic (a proportional share plus a residue rule), which AC-38 forbids in this package. T-029 D-19 ruled no allocation rule either. Refunding a line from a bill-discounted sale then needs that line's share, which is undefined too.
   - **Proposal (the plan default):** defer bill-level discounts to a follow-up row. `sales.bill_discount_id` and `bill_discount_value` are built, nullable and never written. `CreateSale` refuses both fields as unknown.
@@ -107,7 +150,7 @@ The rebase is therefore not optional. It brings in about 60 tenant migrations, a
   - `price_mode = open_price` is a follow-up too: such a product goes through an approved override today.
 - **F-17 (AC-12): `loyalty` and `voucher` tenders are refused** (`unsupported_method_type`). Neither has a backing ledger in this task: a loyalty tender redeems no points and a voucher burns no voucher, so either would be free money.
 
-**Small inconsistencies. The plan applies these, and `ba` folds them in.**
+**Small inconsistencies (resolved in `be48613`):**
 
 - **F-8:** `sales.ar_document_id`, `cash_movements.financial_account_id`, `sale_tenders.gateway_transaction_id`/`payment_id`, `payment_methods.financial_account_id`/`gateway`/`settings`, `sale_items.batch_id`/`serial_id`/`kitchen_station_id`, `sales.sales_order_id`/`order_id`/`journal_entry_id`, `cash_shifts.journal_entry_id` and every `[CF]` `custom_fields` are **not built**. AC-9's `kitchen_station_id` contradicts D-9; D-9 wins. AC-33's "stays unset" becomes "not built". AC-39's absence list grows to match.
 - **F-9:** `loyalty_transactions.sale_id` plus `unique(sale_id, type)` (expand) and its FK onto `sales` (contract) are built here, discharging T-028's debt. Wiring `RecordLoyaltyTransaction` to accept a `sale_id` is left to its first caller (D-5 builds no earn). Maintaining `first_sale_at`/`last_sale_at`/`lifetime_value` and reassigning `sales.customer_id` on merge are follow-ups; all three can be recomputed from `sales` at any time, so nothing is lost by deferring them.
@@ -129,6 +172,18 @@ The rebase is therefore not optional. It brings in about 60 tenant migrations, a
   - AC-40's "all at (18,4)" should be "money and quantity at (18,4)" (see 0.1).
 - **F-20:** `sale_items.discount_percent` is written `null`. `PricedLine` has no item-discount percent, and its `listDiscountPercent` is the price-list percent (T-029 F-11), which is a different thing. AC-4's column list does not include it either.
 - **F-21 (AC-23, AC-24): what an approval is bound to.** An approval is consumed only when its `type`, `branch_id`, `reference_type`/`reference_id` and (where stated) payload all match the write. The binding is in section 4 under `approval_requests`. A refund approval carries no amount ceiling (risk 5).
+
+**New in revision 2, found reading `be48613`. None blocks; the plan applies the reading given.**
+
+- **F-22 (AC-11 vs D-49): tendering a held sale.**
+  - AC-11 accepts `AddTender` directly on a sale `held` from `pending_payment`. D-49 says that transition happens "after recall and re-tender".
+  - Taken literally, AC-11 would unpark the sale with no `recall` row in `sale_holds` (breaking AC-19's "who picked it up") and without moving `terminal_id`/`shift_id` (breaking AC-18 and D-39). The cash would then be counted in a shift the sale no longer belongs to.
+  - **Plan reading:** `AddTender` on a sale held from `pending_payment` performs AC-18's recall first, in the same transaction: a `recall` row, `terminal_id` and `shift_id` moved to the tendering terminal, and `no_open_shift` if it has none. Then it records the tender. That satisfies both texts.
+  - A sale held from `draft` is still refused `sale_not_editable` (recall it first).
+  - `ba` may instead rule "refuse; recall first", which removes one branch in step 16.
+- **F-23 (AC-24): its first two clauses contradict each other.** One sends a second decide to `approval_not_pending`; the next sends "deciding an already-decided row a second time" to `approval_already_used`. **Plan reading:** deciding a row that is not `pending` is `approval_not_pending`, and `approval_already_used` is reserved for consuming a row whose `consumed_at` is already set. That is the only split under which each code names one condition.
+- **F-24 (AC-2): wrong owner named.** AC-2 says the line salesperson is validated "against Organization's employee directory". The contract is `Contracts\Access\EmployeeDirectory` (implemented by `packages/access`). Nothing else changes.
+- **F-25 (AC-41 vs D-37): the usage-limit boundary.** AC-41 says `usage_limit_reached` fires "once `used_count` would reach `usage_limit`", which would allow only `usage_limit − 1` uses. D-37 says "would exceed", and T-029's engine refuses at `used_count = usage_limit`. **Plan reading:** `consume()` refuses when the stored `used_count ≥ usage_limit`, so exactly `usage_limit` uses succeed. Step 5 has a boundary row for it.
 
 ### 0.3 Rulings
 
@@ -155,7 +210,7 @@ The rebase is therefore not optional. It brings in about 60 tenant migrations, a
 - additions and subtractions of stored 4-dp amounts (rollups, balance, change, expected cash, variance);
 - the single price-override product `round(unitPrice × quantity, 4)`, HALF_UP (F-16).
 
-None of it is tax, discount or factor arithmetic, so AC-38 needs no exemption, unless F-1's alternative is chosen.
+None of it is tax, discount or factor arithmetic, so AC-42 needs no exemption (D-35 deferred the only case that would have needed one).
 
 **Ruling 4: the sale state machine.**
 
@@ -163,7 +218,7 @@ None of it is tax, discount or factor arithmetic, so AC-38 needs no exemption, u
 |---|---|---|
 | — | `CreateSale` | `draft` |
 | `draft` | first `AddTender` | `pending_payment` |
-| `held` | first `AddTender` | `pending_payment`, only when held from `pending_payment`; a sale held from `draft` must be recalled first |
+| `held` | first `AddTender` | `pending_payment`, only when held from `pending_payment`, through an implicit recall (F-22); a sale held from `draft` must be recalled first |
 | `pending_payment` | last `RemoveTender` | `draft` |
 | `draft`, `pending_payment` | `HoldSale` | `held` (records `from_status`) |
 | `held` | `RecallSale` | the recorded `from_status` |
@@ -172,7 +227,7 @@ None of it is tax, discount or factor arithmetic, so AC-38 needs no exemption, u
 | `completed`, shift still open | `VoidSale` (approval) | `voided` |
 | `completed`, `partially_refunded` | `RefundSale` against it | `partially_refunded` or `refunded` |
 
-- AC-11 lists `held` among the statuses `AddTender` accepts. The plan allows that only for a sale held from `pending_payment`. A sale held from `draft` must be recalled first, which keeps the hold/recall trail honest.
+- AC-11 accepts `AddTender` on a sale held from `pending_payment`. Under F-22's reading, that call runs AC-18's recall first (a `sale_holds` recall row, `terminal_id` and `shift_id` moved), so the hold/recall trail and the shift attribution stay honest. A sale held from `draft` is refused `sale_not_editable`.
 - `failed` and `exchange` are unreachable.
 - Every write locks the `sales` row `FOR UPDATE` first, so concurrent tenders cannot both pass the balance check.
 
@@ -221,7 +276,7 @@ There are **26 slices**, and none of them has an HTTP route: the till (FP-236) a
 |---|---|---|
 | Payment methods | `CreatePaymentMethod`, `UpdatePaymentMethod`, `DeletePaymentMethod` | 16 |
 | Shifts | `OpenCashShift`, `RecordCashMovement`, `CloseCashShift`, `ReconcileCashShift` | 32–37 |
-| Approvals | `RequestApproval`, `DecideApproval` | 23, 24 |
+| Approvals | `RequestApproval`, `DecideApproval` | 23, 23a, 24 |
 | Cart | `CreateSale`, `AddSaleLine`, `UpdateSaleLine`, `RemoveSaleLine` | 1–10 |
 | Tenders | `AddTender`, `RemoveTender`, `CompleteSale` | 11–15 |
 | Hold | `HoldSale`, `RecallSale` | 17–20 |
@@ -237,11 +292,11 @@ There are **26 slices**, and none of them has an HTTP route: the till (FP-236) a
 3. Four small cross-package contracts are added first: `snapshotInherited()` (owed by FP-233), `PinVerifier`, `DocumentNumbers` and `DiscountUsage`. T-028's `loyalty_transactions.sale_id` debt is discharged in schema.
 4. Eight new tenant tables, plus two migrations on `loyalty_transactions`. Undocumented additions are named (F-18). Deferred columns are deferred by not building them (F-8).
 5. Credit is posted to the customer ledger once per credit tender at completion, and compensated with `credit_note` on void or `refund` on refund (F-2 to F-4).
-6. Static instruments cover the precision map, schema absences and the source-rules scan (AC-38), plus one engine test.
+6. Static instruments cover the precision map (AC-44), schema absences (AC-43) and the source-rules scan (AC-42), plus one engine test.
 
 ## Alternatives rejected
 
-- **Building bill discounts with an allocator now:** it invents an unruled business rule and needs an AC-38 exemption (F-1; kept as `ba`'s alternative).
+- **Building bill discounts with an allocator now:** it invents an unruled business rule and needs an AC-42 exemption (F-1; the lead deferred it, D-35, and it is a follow-up row).
 - **Posting credit at `AddTender`:** it makes `RemoveTender` corrupt the ledger (F-3).
 - **Calling `VerifyPinHandler` from Sales directly:** deptrac denies it, and done inside a transaction it would roll back the lockout counter (F-5).
 - **A Sales-local number counter:** it would make a second numbering scheme, which D-20 forbids. Allocation belongs to `number_sequences`' owner.
@@ -330,7 +385,7 @@ The `[SYNC]` columns (`origin` default `online`, `device_id`, `client_seq`, `cli
 | price override | `sale` | the sale | `{product_id, unit_id, unit_price}`, which must equal the write |
 | discount | `sale` | the sale | `{discount_id}` |
 
-**Precision map (AC-40).** No fifth pair.
+**Precision map (AC-44).** No fifth pair.
 
 | Pair | Columns |
 |---|---|
@@ -371,7 +426,7 @@ These rules carry over from T-027 to T-029 unchanged:
 - unique test basenames;
 - list foreign `php.exe` processes before each gate run.
 
-Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red-then-green counts. **Contingent** marks a step whose design rests on a section 0.2 finding that `ba` has not yet folded in. If `ba` rules otherwise, that step changes and no other does.
+Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red-then-green counts. Every step builds from the revision-2 ACs. Where a step applies one of the F-22 to F-25 readings, it says so, and `ba` ruling otherwise changes that step only.
 
 ### Chunk A: reconciliation, plumbing, owed contracts, schema, statics
 
@@ -388,12 +443,12 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
     **Stop and report to `architect`** on any difference that changes a step. Renames are fixed in place.
   - Recompute the schema version and the FK inventory baseline.
-  - Read `ba`'s answers to F-1 to F-21 if they have landed. Build from the revised ACs, never from this plan's paraphrase.
+  - Build from spec revision 2 (`be48613`, AC-1 to AC-46 plus AC-23a, D-1 to D-50), never from the first draft (`a2e6631`, whose AC numbers differ) and never from this plan's paraphrase. Check whether `ba` has since ruled on F-22 to F-25. If so, apply that ruling to steps 5, 10, 14 and 16.
 - [ ] **Step 1: package plumbing.** *(Groundwork.)*
   - `composer.json`, an empty provider, the deptrac/PHPStan/`providers.php` edits, host `composer.json` (`require`, `autoload-dev`), `composer update flexipos/sales`, and `'sales'` added to `QaToolchainRegistryCoverageTest`'s literal.
   - **`SalesProviderTest`:** the provider is loaded and `BigDecimal` autoloads.
   - **Negative control:** a scratch class in `modules/demo/src` importing `Flexipos\Sales\Support\Money` fails deptrac; one importing `Flexipos\Contracts\Pricing\PricingEngine` passes. Delete both.
-- [ ] **Step 2: `snapshotInherited()`.** *(D-3, AC-26's unit half, AC-41; F-7.)*
+- [ ] **Step 2: `snapshotInherited()`.** *(AC-38, AC-26's unit half; D-32.)*
   - The contract method, `FactorSource::Inherited`, `UnitRefusal::InheritedUnitMismatch`, the pure `InheritedFactor`, and the `DatabaseUnitResolver` method (it calls `SnapshotCalculator::compute()` and never `UnitLadder`).
   - **`SnapshotInheritedTest`:**
     - (a) same unit, referenced factor `24.000000`, quantity 2: base `48.0000`, source `inherited`, **after** `unit_conversions` is edited to 12 (the §6.5 walk-through);
@@ -405,13 +460,13 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - **Fixtures:** at least 4 `inherited-*.json` files (the T-029 F-15 format, decimals as strings), replayed by the extended `UnitFixtureReplayTest`.
   - **Mutation U1:** call `resolve()` in the same-unit branch. Row (a) goes red. Revert.
   - **Predicted red:** catalog's `FactorSource`/`UnitRefusal` enum-list tests (contract-enum tests, the T-027 shape).
-- [ ] **Step 3: `PinVerifier`.** *(AC-23's PIN half; F-5.)*
+- [ ] **Step 3: `PinVerifier`.** *(AC-39, AC-23's PIN half; D-30.)*
   - Interface, `HandlerPinVerifier`, binding.
   - **Test:**
     - the right code and PIN return the id;
     - a wrong PIN, an unknown code and a locked employee each return null, and the three nulls are indistinguishable;
     - **the hazard, pinned:** a wrong PIN verified inside an outer transaction that is then rolled back loses its `pin_failed_attempts` increment. The test asserts that loss, which is why Ruling 5 calls the verifier outside any transaction, and the contract's docblock says so.
-- [ ] **Step 4: `DocumentNumbers`.** *(AC-14's and AC-25's numbering; F-6.)*
+- [ ] **Step 4: `DocumentNumbers`.** *(AC-40; the numbering for AC-14, AC-25 and AC-32; D-31.)*
   - **Test:**
     - first use creates the company-wide default and returns `S000001`, then `S000002`;
     - a branch row, when present, wins over the company row;
@@ -420,13 +475,14 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - a call inside a rolled-back transaction leaves `next_number` unchanged;
     - the duplicate-insert race is simulated by pre-inserting between the read and the insert, and the retry succeeds.
   - **Mutation N1:** drop the lock. The SQL-shape assertion (`for update`) goes red.
-- [ ] **Step 5: `DiscountUsage`.** *(Contingent on F-12.)*
+- [ ] **Step 5: `DiscountUsage`.** *(AC-41; D-37; F-25's reading.)*
   - **Test:**
     - `consume()` increments `used_count` by one;
-    - at `used_count = usage_limit` it refuses `usage_limit_reached` and writes nothing;
+    - **boundary (F-25):** with `usage_limit = 2`, two calls succeed (`used_count` 0 → 1 → 2), and the third refuses `usage_limit_reached` and writes nothing;
+    - a null `usage_limit` never refuses;
     - an unknown or soft-deleted discount gives `unknown_discount`;
     - the lock is pinned in the SQL shape.
-- [ ] **Step 6: migrations 01 to 08, with `SalesTenantSchemaTest`.** *(The schema halves of AC-1 to AC-36; AC-39; F-8, F-18.)*
+- [ ] **Step 6: migrations 01 to 08, with `SalesTenantSchemaTest`.** *(The schema halves of AC-1 to AC-37; AC-43, AC-46; D-33, D-44.)*
   - Each table's sorted column list equals the Data section **exactly**, with nullability. That proves every F-8 absence, `journal_entry_id` included.
   - **Unique keys, by raw double insert:**
     - `open_terminal_key`: two `open` shifts on one terminal are refused; an `open` and a `closed` shift are accepted;
@@ -436,7 +492,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - (`sale_id`, `line_no`).
   - The FK set equals the recounted list, and the three cascades delete their children.
   - `SourceRules::inspect()` reports nothing, and no file declares `down`.
-- [ ] **Step 7: migrations 09 and 10, with `LoyaltySaleIdMigrationsTest`.** *(F-9.)*
+- [ ] **Step 7: migrations 09 and 10, with `LoyaltySaleIdMigrationsTest`.** *(AC-45; D-34.)*
   - **Expand:**
     - a nullable column and the unique key;
     - existing loyalty rows survive with `sale_id` null;
@@ -446,9 +502,17 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - when clean, the key exists;
     - a re-run is a no-op.
   - The catalogue rows read: 09 `expand`, 10 `contract`, **both `is_destructive = false`**.
-- [ ] **Step 8: AC-39 and AC-40 statics.** *(AC-39, AC-40.)*
+- [ ] **Step 8: AC-43 and AC-44 statics.** *(AC-43, AC-44.)*
   - Extend `TenantDecimalPrecisionTest`'s column map with the Data section's map, under a T-030 comment. The allow-list stays at four pairs. **Red-first:** a fixture `decimal('amount', 18, 2)` is reported.
-  - AC-39: no tenant migration declares `journal_entry_id` on `sales`, or `financial_account_id`, `ar_document_id`, `gateway_transaction_id` or `payment_id` on this task's tables. **Red-first:** a scratch migration under a fixture directory declaring one of them is reported. Delete it.
+  - AC-43, AC-46: the static half of AC-43's full absence list. No migration of this task's declares any of:
+    - `journal_entry_id` (on `sales` or `cash_shifts`);
+    - `ar_document_id`, `sales_order_id`, `order_id`, `custom_fields` (on `sales`);
+    - `financial_account_id` (on `cash_movements` or `payment_methods`);
+    - `gateway`, `settings` (on `payment_methods`);
+    - `gateway_transaction_id`, `payment_id` (on `sale_tenders`);
+    - `batch_id`, `serial_id`, `kitchen_station_id` (on `sale_items`).
+
+    Step 6's column-list equality is the runtime half. **Red-first:** a scratch migration under a fixture directory declaring one of them is reported. Delete it.
   - **Gate: `composer check` (end of chunk A).**
 
 ### Chunk B: building blocks (bottom-up)
@@ -484,7 +548,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - for a `sale` reference, the decider equal to the sale's `employee_id` is refused;
     - a goodwill refund has no sale, so only the `requested_by` check applies.
   - **AC-24:**
-    - deciding twice is `approval_not_pending`;
+    - deciding a row that is no longer `pending` (approved, rejected or expired) is `approval_not_pending` (F-23's reading);
     - consuming twice is `approval_already_used`;
     - consuming a `rejected` row is `approval_not_approved`;
     - a type, branch or reference mismatch is `approval_mismatch`.
@@ -540,10 +604,10 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - `price_from_label = false` and `modifiers = null` on every row;
     - `unit_cost`, `line_cost` and `cost_total` null, and `stock_applied` false;
     - those fields are refused if supplied.
-  - Optional `employee_id` (line salesperson) is validated via `EmployeeDirectory`.
+  - Optional `employee_id` (line salesperson) is validated via `Contracts\Access\EmployeeDirectory::isLive()` (F-24).
   - **Mutation M4:** compute `base_quantity` locally. The AC-2 row still passes, but step 23's scan goes red, which is the point of that scan.
   - *(AC-2 to AC-6, AC-8 to AC-10.)*
-- [ ] **Step 15: price override and the discount approval.** *(Contingent on F-12, F-16.)*
+- [ ] **Step 15: price override and the discount approval.** *(AC-7, AC-23a; D-37, D-40, D-47.)*
   - **AC-7:**
     - an override without an approval is `approval_required`;
     - with a matching approval, the stored `unit_price` is the override, `subtotal` = override × quantity, tax from `computeTax()`, `line_total = net + total` (one exclusive and one inclusive row);
@@ -554,8 +618,14 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - an override plus a `discount_id` is `discount_with_override`;
     - a payload `unit_price` different from the write is `approval_mismatch`.
   - **F-12:** a line discount with `requires_approval = true` is `approval_required` without a matching consumed approval and accepted with one; a discount without the flag needs none.
-  - *(AC-7; D-13, D-15.)*
-- [ ] **Step 16: `AddTender`, `RemoveTender`.** *(Contingent on F-3.)*
+  - *(AC-7, AC-23a; D-13, D-15.)*
+- [ ] **Step 16: `AddTender`, `RemoveTender`.** *(AC-11 to AC-13, AC-37's tender half; D-29, D-41; F-22's reading.)*
+  - **F-22, implicit recall:** a tender on a sale held from `pending_payment` at terminal B, which has an open shift:
+    - writes one `recall` row in `sale_holds`;
+    - moves `terminal_id` and `shift_id` to B's;
+    - leaves the sale `pending_payment` with the tender recorded.
+
+    The same call at a terminal without an open shift is `no_open_shift`, and nothing is written. A sale held from `draft` is `sale_not_editable`.
   - **AC-11:**
     - the method snapshots are copied;
     - the first tender moves `draft` to `pending_payment`;
@@ -584,7 +654,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - **F-12:** `DiscountUsage::consume()` runs once per distinct discount; `usage_limit_reached` refuses the whole completion.
   - **AC-15:** no `stock_*` table is touched (asserted by query count on stock tables, which do not exist, plus a source scan in step 23); `stock_applied` stays false.
   - **Mutation M5:** post the ledger before the balance check, with the balance short. A ledger row survives, and the "nothing written" assertion goes red.
-  - *(AC-14, AC-15; D-20; F-2, F-3, F-12.)*
+  - *(AC-14, AC-15; D-29, D-31, D-37, D-42.)*
 - [ ] **Step 18: `HoldSale`, `RecallSale`, `ListSales`, `GetSale`.**
   - **AC-17:** `draft` and `pending_payment` can be held, and one `sale_holds` row records `from_status`; any other status is refused.
   - **AC-18:**
@@ -602,7 +672,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 ### Chunk D: corrections and shift close
 
-- [ ] **Step 19: `VoidSale`.** *(Contingent on F-4, F-15.)*
+- [ ] **Step 19: `VoidSale`.** *(AC-21, AC-22; D-29, D-39, D-47.)*
   - **AC-21:**
     - a `draft`, `held` or `pending_payment` sale voids without approval, sets `voided_by`, `void_reason` and `voided_at`, and gets one negative mirror per tender;
     - the original tender rows are byte-identical afterwards;
@@ -616,7 +686,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - no stock or GL effect.
   - **Mutation M6:** edit the original tender to a zero amount instead of mirroring. The byte-identity assertion goes red.
   - *(AC-21, AC-22; D-14 to D-16.)*
-- [ ] **Step 20: `RefundSale`.** *(Contingent on F-13, F-14.)*
+- [ ] **Step 20: `RefundSale`.** *(AC-25 to AC-31; D-32, D-38, D-43, D-47.)*
   - **AC-25:**
     - a new `type = refund` row, number `R000001`, `reference_sale_id` set;
     - a goodwill refund has a null reference;
@@ -673,13 +743,13 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - the shift's `expected_cash` equals a hand-checked figure.
   - *(The NFRs; AC-14, AC-21, AC-28.)*
 - [ ] **Step 23: `QaSalesSourceRulesTest` (host),** code-only via `SourceRules::codeOnly`.
-  - **AC-38 (a):** no file under `packages/sales/src` contains `tax_rates`, `tax_group_taxes`, `price_list_items`, `price_list_assignments`, `is_inclusive`, `is_compound`, `unit_conversions`, `base_unit_id`, `customer_ledger`, `credit_balance`, `balance_after`, `number_sequences` or `used_count`.
-  - **AC-38 (b):** no `*`, `/`, `multipliedBy(` or `dividedBy(` in `packages/sales/src` outside `Support/Money.php` (Ruling 3).
-  - **AC-38 (c), anti-vacuity:** T-027's factor scan and T-029's AC-25 scan both enumerate at least one `packages/sales/src` file, and both report zero hits with **no** sales entry in either exemption list.
+  - **AC-42 (a), D-48's token list:** no file under `packages/sales/src` contains `tax_rates`, `tax_group_taxes`, `price_list_items`, `price_list_assignments`, `is_inclusive`, `is_compound`, `unit_conversions`, `base_unit_id`, `customer_ledger`, `credit_balance`, `balance_after`, `number_sequences` or `used_count`.
+  - **AC-42 (b):** no `*`, `/`, `multipliedBy(` or `dividedBy(` in `packages/sales/src` outside `Support/Money.php` (Ruling 3).
+  - **AC-42 (c), anti-vacuity:** T-027's factor scan and T-029's AC-25 scan both enumerate at least one `packages/sales/src` file, and both report zero hits with **no** sales entry in either exemption list.
   - **AC-15/AC-31:** no `stock_` table name and no `journal_` token in the package.
   - The package has no `routes/`, `Route::`, `Cache::` or `dispatch(`.
   - **Red-first:** planted files for each rule, then deleted.
-  - *(AC-38, AC-15, AC-31.)*
+  - *(AC-42, AC-15, AC-31.)*
 - [ ] **Step 24: `SalesSchemaEngineTest`** (database `flexipos_t8test_t030_tenant`, created and dropped by **exact name** through `EngineDatabase`, never with `LIKE`). Under `ENGINE_HOLD`, only the refusal case runs. Written for G-1:
   - the `information_schema` decimals equal the precision map;
   - `open_terminal_key` refuses on MySQL;
@@ -719,27 +789,33 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 | ACs | Proved by |
 |---|---|
 | 1 | 13 |
-| 2–6, 8–10 | 14 (6 also by F-10's rows) |
+| 2–6, 8–10 | 14 (AC-6 also by D-36's rows) |
 | 7 | 15 |
 | 11–13 | 9, 16 |
-| 14, 15 | 4, 17, 23 |
+| 14, 15 | 4, 5, 17, 23 |
 | 16 | 11 |
-| 17–20 | 18 |
+| 17–20 | 18 (and 16 for F-22's implicit recall) |
 | 21, 22 | 19 |
 | 23, 24 | 3, 10, 15 |
+| 23a | 15 |
 | 25–31 | 2, 20, 23 |
-| 32, 33 | 12 |
+| 32, 33 | 4, 12 |
 | 34–36 | 9, 21 |
-| 37 | 12, 21 |
-| 38 | 23 |
-| 39 | 6, 8 |
-| 40 | 8, 24 |
-| 41 | 2 |
+| 37 | 12, 16, 21 |
+| 38 | 2 |
+| 39 | 3 |
+| 40 | 4, 24 |
+| 41 | 5 |
+| 42 | 23 |
+| 43 | 6, 8 |
+| 44 | 8, 24 |
+| 45 | 7, 24 |
+| 46 | 6, 10, 18 |
 
 ## Risks & rollback
 
 1. **Contract drift (highest).** `PricingEngine` is known only from T-029's plan. Step 0's reconciliation table is the control, and a mismatch that changes a step is a stop.
-2. **Spec drift.** Fifteen findings change or sharpen behaviour. If `dev` builds from `a2e6631`'s text instead of `ba`'s revision, F-2 (a silent ledger replay) and F-3 (an orphaned debit) produce code that passes its own tests and corrupts a customer balance. Steps 16, 17 and 22 assert the corrected shapes specifically.
+2. **Spec drift.** Revision 2 (`be48613`) is settled. The residual risk is that `dev` reads the first draft (`a2e6631`), which is still in history and numbers its ACs differently. There, D-5's sale-keyed ledger entry (a silent replay) and its tender-time posting (an orphaned debit) produce code that passes its own tests and corrupts a customer balance. Steps 16, 17 and 22 assert the corrected shapes specifically.
 3. **Merge conflicts.** These shared files are edited by T-028, T-029 and this task:
    - `deptrac.yaml`, `phpstan.neon.dist`, `providers.php`, host `composer.json`/`.lock`;
    - `QaToolchainRegistryCoverageTest`, `TenantDecimalPrecisionTest`, `tests/Helpers.php`, `TenantBaselineBuildsTest`, `MigrationTreeDisciplineTest`;
@@ -748,7 +824,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
    Rebase only after both have landed. Republish the catalogue; never hand-merge it.
 4. **Four edits in packages this task does not own** (catalog, access, organization, pricing), plus one schema change on customers'. Each is additive and tested by its owner's suite. Rollback is per contract. `qa` should review them as their owners' code, not as Sales code.
 5. **Approval scope.** A refund approval carries no amount ceiling (F-21), so one approval covers whatever refund it is consumed by, against its bound sale. Approvals are single-use and sale-bound, which caps the exposure at one refund. A ceiling is a follow-up if the owner wants it.
-6. **Held sale with tenders, recalled at another terminal** (F-15). Its cash tender is counted in the completing drawer, not the one that took the cash. This is rare and visible as a variance pair. Fix options: refuse holding a sale with cash tenders, or move tenders with the shift. That is the owner's call.
+6. **Held sale with tenders, recalled at another terminal** (F-15). Its cash tender is counted in the completing drawer, not the one that took the cash. This is rare and visible as a variance pair. Fix options: refuse holding a sale with cash tenders, or move tenders with the shift. That is the owner's call. F-22's implicit recall gives the same attribution, never a different one.
 7. **A customer merged after a credit sale** makes the void's `credit_note` refuse (`customer_not_live`), so `VoidSale` refuses `credit_refused`. The refund path has the same limit. T-028 follow-up: re-point to `merged_into_id`.
 8. **Gate time.** This task adds roughly 300 cases. Measure at each chunk boundary (Ruling 11 of T-029).
 9. **Query cost.** `UnitResolver::snapshot()` loads `units` twice (FP-426). A 50-line sale is about 250 queries plus the engine's. That is acceptable for the online till, and FP-426's batch API is the remedy.
@@ -777,7 +853,8 @@ Anything red that is not in this table means stop and report to `architect`.
 
 ## Follow-ups for `lead` (backlog rows or notes, not built here)
 
-- **Bill-level discounts** (F-1): the allocation rule, re-tax, `bill_discount_amount`, and refund share.
+- **Bill-level discounts** (D-35): the allocation rule, re-tax, `bill_discount_amount`, and refund share.
+- **Unversioned price-list rows** (D-38's residual gap) make an edited row change a later refund.
 - **T-028 debts still open (F-9):**
   - `RecordLoyaltyTransaction` accepting `sale_id`;
   - `first_sale_at`/`last_sale_at`/`lifetime_value` (recomputable from `sales`);
@@ -802,7 +879,8 @@ Anything red that is not in this table means stop and report to `architect`.
 
 ## Questions for the human
 
-1. **Refund price (F-13).** Should a refund pay back what the customer was charged, or today's price? The plan re-quotes at the original sale's instant, which matches the original price unless a price-list row was edited since. Price lists are not versioned, so "exactly what was paid" would instead need a pro-rata of the stored line, which is arithmetic AC-38 forbids today. Which does the owner want?
-2. **Bill-level discounts (F-1).** Ship the cart without them (the plan default) and add them once an allocation rule is agreed, or agree the rule now: proportional to each line's pre-tax amount, with the rounding remainder on the largest line?
+None. Revision 1's two questions were ruled by `lead` and recorded as decisions:
+- bill discounts are deferred (D-35);
+- refunds are re-quoted at the original sale's instant (D-38).
 
-Everything else in section 0.2 is a plan-stage correction for `ba` to fold into the spec, not a product question.
+F-22 to F-25 are spec-wording points for `ba`, and the plan applies a reading for each. `lead` may still want to tell the product owner about D-38's one named gap: a price-list row **edited** (rather than replaced) after a sale still changes that sale's refund amount, because price lists are not versioned.
