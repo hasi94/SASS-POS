@@ -1,6 +1,6 @@
 # QA Report: T-027 Catalog
 
-## Verdict: PASS
+## Verdict: PASS (round 1); PASS (round 2 — review-fix verification)
 
 ## Acceptance criteria coverage
 
@@ -83,3 +83,133 @@
 - `FP-316`'s rotating cluster remains a standing, cross-task gate-hygiene issue (tracked in the backlog) — unaffected by and unrelated to this task.
 - The `CHECK (precision BETWEEN 0 AND 4)` clause on `units.precision`, and the handful of other MySQL-only assertions in `CatalogSchemaEngineTest` (FULLTEXT, JSON validity, case-insensitive collation, a case-variant duplicate-sku refusal), remain genuinely NOT VERIFIED until `ENGINE_HOLD` clears (G-1) — this is the one explicitly-acknowledged gap in the spec itself (AC-42), not an oversight.
 - `FP-423` (barcode_rules), `FP-240` (Get/List + permission keys), and the other filed follow-ups are correctly out of this task's scope and were not expected to be built here.
+
+---
+
+## Round 2 — review-fix verification (commit `103a7fc`)
+
+**Verdict: PASS.** All 6 items from round-1 review (`docs/reviews/T-027-catalog.md`, 1 Critical + 5
+Warnings) verified independently — not trusted from the commit message. Each code-level item was
+mutation-tested: implementation read, the new/updated test confirmed to exist and match the claim,
+the guard removed/disabled, the test reddened for the exact stated reason, the guard restored, the
+test re-confirmed green, and `git status`/`git diff --stat` confirmed the worktree was left clean
+after every round-trip.
+
+### R-1 (self-referencing product) — PASS
+
+- `UpdateProductHandler.php:154-156` now refuses `$newParentId === $productId` immediately after
+  folding `parent_id`, before `checkParentage`/the parent lookup run.
+- `UpdateProductTest.php:133-146` sends `{type: 'variant', parent_id: self}` on a childless
+  `variant_parent` and asserts the row is byte-identical afterward (`toBe($before)`).
+- Mutation check: removed the 3-line guard → `UpdateProductTest` reddened on exactly that test
+  ("The operation was expected to be refused and succeeded", 1 failed/8 passed). Restored → 9
+  passed (24 assertions). `git diff --stat` empty after restore.
+
+### W-1 (unlocked referenced-row reads) — PASS
+
+Read all 5 named locations directly; every one now reads with `lockForUpdate()` (via `Lookup::live(...,
+lock: true)` or a direct query builder call), reading the same rows the review named:
+- `CreateProductHandler.php:128` — variant-parent read.
+- `CreateCategoryHandler.php:65` (`Lookup::live(..., 'categories', $parentId, 'parent category', lock: true)`) — parent-path read.
+- `AttachModifierGroupHandler.php:47-48` — both product and group lookups.
+- `CreateModifierHandler.php:81,84` — group and linked-product lookups.
+- `AddProductComponentHandler.php:72-73,89` — parent/component lookups plus the whole
+  `product_components` edge-set read (`->lockForUpdate()->get(...)`), matching the review's note
+  that locking only the two per-edge rows would not stop a joint-cycle race.
+- `Lookup::live()` itself (`packages/catalog/src/Support/Lookup.php:28-38`) applies `lockForUpdate()`
+  to the query before `->first()`, correctly — not after the row is already read. No test possible on
+  the single-process SQLite stand-in, as the review itself states; accepted per the task brief as a
+  code-reading verification, not a forced race.
+
+### W-2 (zero-quantity component) — PASS
+
+- `AddProductComponentHandler.php:97-107` now calls `SnapshotCalculator::compute()` (via
+  `self::snapshot()`) **before** the zero check, and checks `self::isZero($snapshot->quantity)` — a
+  decimal-string regex (`/^-?0\.0*$/`), never a multiplication — comparing the already-rounded
+  snapshot quantity.
+- `AddProductComponentTest.php:161-175` uses a precision-0 unit and quantity `'0.4'` (passes the raw
+  `> 0` check, rounds HALF_UP to `0`), asserts `CatalogRefusal::Validation` and that nothing was
+  written (`product_components`count === 0`).
+- Mutation check: commented out the post-rounding check (simulating a pre-rounding check) → reddened
+  on exactly that test (1 failed/9 passed). Restored → 10 passed (25 assertions). Worktree clean
+  after restore.
+
+### W-3 (loosely-scoped scan exemption) — PASS
+
+- `QaCatalogSourceRulesTest.php` now has two separate, full-path exemption lists
+  (`QA_CATALOG_UNIT_CONVERSIONS_TOKEN_EXEMPT`, `QA_CATALOG_BASE_UNIT_ID_TOKEN_EXEMPT`), each matched
+  by real, resolved path (`qaCatalogResolveExemptPaths()` calls `realpath()` and throws
+  `RuntimeException` if a named file is missing — verified by reading the function, not just the
+  claim).
+- Each exemption is scoped to only the rule its files need: the `unit_conversions` scan takes only
+  the first list, the `base_unit_id` scan takes only the second, proven mutually by
+  `qaCatalogLadderTokenOffenders()` calls in the test's own "each exemption list is scoped to only
+  its own rule" case (passing).
+- The factor-multiplication scan (`qaCatalogFactorMultiplicationOffenders()`) takes **no** exemption
+  parameter anywhere it's called — confirmed by reading every call site in the test file.
+- Mutation check (going further than static reading, per the task's "would the scan actually catch
+  it" instruction): added a dead private method computing `$quantity * $row->factor` to
+  `CreateUnitHandler.php` (one of the 4 exempted files) → `QaCatalogSourceRulesTest`'s
+  factor-multiplication test reddened, reporting exactly that file as an offender (1 failed/8 passed,
+  "Failed asserting that two arrays are identical" with `CreateUnitHandler.php` in the actual array).
+  Reverted → 9 passed (894 assertions). Worktree clean after revert. This proves the factor scan
+  genuinely has zero exemption for any of the 4 files — a real bug introduced in one of them today
+  would be caught.
+
+### W-4 (doc fix corrections) — PASS
+
+- `docs/database.md:717`: no `D-62` citation anywhere in the file (`grep -n "D-62" docs/database.md`
+  → no matches); text now reads "a depleting `modifiers` row carries no stored factor at all... How
+  and when that factor gets resolved is the depletion posting rule itself, which is deliberately
+  unspecified here and belongs to the restaurant workstream (AC-40, §6.3)" — matches AC-40/§6.3
+  exactly, no overstated settled-design claim.
+- `docs/decisions/T-027-catalog.md`'s D-19 addendum (lines 286-296) is now a clean, standalone
+  paragraph after D-19's own closing sentence (not spliced mid-sentence into it), cites the current
+  line 717 (verified against the actual current line number in `docs/database.md`, not the stale
+  670), and explicitly states the old prose was wrong for "generalizing `product_components`'
+  write-time-snapshot behavior to `modifiers`... and overstating consumption-time resolution as this
+  task's own settled design."
+
+### W-5 (slice count) — PASS
+
+- `docs/database.md:546` now reads "31 CRUD slices."
+- `docs/plans/T-027-catalog.md` lines 246, 283, 328 all now read "31" (confirmed via grep across the
+  whole file — no remaining "33" in the plan).
+- Verified 31 is correct: `ls packages/catalog/src/Features` → exactly 31 directories, matching the
+  plan's own listed set exactly (28 write slices + `GetCategory`/`ListCategories`/
+  `ListProductBarcodes`).
+- Note: `docs/qa/T-027-catalog.md` (this file, round 1, above) and `docs/reviews/T-027-catalog.md`
+  still say "33" in two places — correctly untouched, since those are historical records of what was
+  said at the time, not the locations W-5's fix scope named (the plan and `docs/database.md:546`
+  only). Not a defect.
+
+### Full gate — PASS, baseline reproduced exactly
+
+- `php.exe` processes checked before the run: none referenced this worktree (6 unrelated processes
+  from other local projects — `flexi-crm`, `Scriber`, a `SimplePos-System` dev server, a `tinker`
+  script, plus 2 `artisan serve`). Checked again repeatedly during the run (CPU-time growth on the
+  `pest` child process confirmed real progress, not a hang, despite a long wall-clock duration driven
+  by contention from those unrelated processes) — none ever referenced this worktree.
+- `cd modules/host && composer check` run in full. `check` runs `probes:clean, engine:clean, lint,
+  stan, deptrac, test` in strict sequence and stops at the first failing step — reaching `test`'s own
+  completed summary line confirms `lint`, `stan` and `deptrac` all passed.
+- `test` step result: **13 failed, 31 skipped, 3258 passed (22688 assertions)**, duration 2408.65s.
+  This is an **exact match** to the lead's stated known-clean baseline for commit `103a7fc` (13
+  failed / 3258 passed / 31 skipped) — no new failure, no newly-passing test masking a regression,
+  no count drift.
+- The 13 failures are the known baseline signature: `QaModuleRegistryContractTest` (FP-316 cluster,
+  confirmed by name in the captured output) and `QaVocabularyRenameSweepTest` (the standing two
+  non-production survivors). Both pre-exist this fix round and are unrelated to any of the 6 changed
+  files.
+- Benign Windows SQLite teardown warnings (`unlink(...): Resource temporarily unavailable` on
+  `tenancy-fixture/tenant-a.sqlite`) appeared in the tail of the output — a known flake pattern on
+  this machine during cleanup, not a test failure (no failing assertion tied to them; the final
+  Tests: line accounts for all 13 failures by name as the known cluster).
+- No targeted test file touched during mutation testing was left modified; `git status`/`git diff
+  --stat` confirmed empty on the production-code side both after each individual mutation round-trip
+  and before the full gate run.
+
+### Defects: none.
+
+**Run 2: PASS → PASS** (round 1 clean pass; round 2 confirms all 6 review-fix items hold up to
+mutation testing / direct verification, full gate reproduces the exact known baseline, 0 defects).
