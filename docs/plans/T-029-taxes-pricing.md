@@ -1,14 +1,42 @@
 # Plan: T-029 Taxes, price lists and discounts (the PHP calculation engine)
 
-Spec: `docs/specs/T-029-taxes-pricing.md` (AC-1 to AC-29). Decisions: `docs/decisions/T-029-taxes-pricing.md` (D-1 to D-11). Branch `ai/T-029-taxes-pricing`, cut from `ai/T-028-customers` at `8f8295e`, planned at `4194ce2`.
+Spec: `docs/specs/T-029-taxes-pricing.md` (AC-1 to AC-29, plus AC-16a and AC-24a). Decisions: `docs/decisions/T-029-taxes-pricing.md` (D-1 to D-24). Branch `ai/T-029-taxes-pricing`, cut from `ai/T-028-customers` at `8f8295e`. Revision 1 was planned at `4194ce2`; this revision is planned at `85dc7ab`.
 
-**Revision 1.** `architect` re-read `ba`'s findings in source. The scoping (D-1), the D-5 backlog correction, D-4, D-6 and the AC-16 transcription all hold. Section 0.2 lists **18 findings for `ba`** (F-1 to F-18). Eleven of them change the spec. Three of those would otherwise ship a wrong number or a broken migration:
+**Revision 2.** `ba` folded F-1 to F-18 (section 0.2) into the spec in `85dc7ab`. Each resolution matches the one this plan proposed, so **no step's design changed** between revisions. Only the AC and decision references were updated, plus one scope clarification on AC-25 (below).
 
-- **F-1:** AC-22 multiplies by the wrong quantity.
-- **F-2:** AC-15 steps 5 and 6 would sell a case for the price of a single.
-- **F-3:** AC-1's `NOT NULL` tighten counts as a **destructive** migration, so every bulk run and **every new-tenant provisioning** would be refused while `schema.backups.available` is false.
+Wherever section 0.2 offered an "if `ba` prefers" alternative, that alternative is now **void**: the proposed behaviour is required by the spec. That covers F-8's three-scope check, F-9's compounding, F-11's `discount_percent` and F-3's application-only enforcement (no `CHECK` constraint).
 
-The plan is written against the resolutions it proposes. If `ba` decides otherwise, the affected steps are named in each finding. No step needs a human answer.
+| Finding | Now lives in |
+|---|---|
+| F-1 (subtotal × line quantity) | D-12, AC-22.1 |
+| F-2 (steps 5–6 derive by factor) | D-13, AC-15.5–6 |
+| F-3 (no `NOT NULL` tighten; FK-only contract; application enforcement) | D-14, AC-1, AC-3, AC-29.2, Out of scope |
+| F-4 (`purchase_tax_group_id` contract FK) | D-5 (edited), AC-2 |
+| F-5 (count-only pre-check message) | AC-1 |
+| F-6 (`tax_groups` deactivation only) | D-22, AC-10 |
+| F-7 (`currency` required) | D-23, AC-12 |
+| F-8 (polymorphic `scope_id`; check all three scopes) | D-24, AC-14 |
+| F-9 (percent rates, compounding, fixed, `applies_to`, inclusive residue, breakdown shape) | D-15, AC-5, AC-6, AC-7, AC-11 |
+| F-10 (ladder filtering and ordering) | D-16, AC-15 |
+| F-11 (`discount_percent`) | D-17, **AC-16a** |
+| F-12 (discount refusal order, `allow_discount`, document instant) | D-18, AC-20 |
+| F-13 (pre-tax bill base) | D-19, AC-23 |
+| F-14 (measurable AC-25, named exemption) | D-20, AC-25 |
+| F-15 (string decimals; unit fixtures) | D-21, AC-24, **AC-24a** |
+| F-16 (§8 `seed_core` premise) | D-6 (edited), AC-1 |
+| F-17 (account columns not built) | D-7 (reversed), AC-4, AC-19, AC-29.3 |
+| F-18 (`TaxGroupDirectory`) | D-21, AC-3, AC-26 |
+
+**One scope clarification `dev` must apply (AC-25).** The revised AC-25 scopes the scan to files "outside the pricing package's own `Engine/` sub-namespace". Read literally, its token half (a) would report the CRUD slices under `packages/pricing/src/Features/`. Those slices must name `tax_rates`, `tax_group_taxes`, `price_list_items`, `price_list_assignments` and `is_inclusive` to write them. The plan therefore applies the two halves at different scopes:
+- **(a) the tokens:** excluded for all of `packages/pricing/src`, and enforced everywhere else (catalog included);
+- **(b) multiplication by a `rate`/`percent` token:** excluded only for `packages/pricing/src/Engine/`, so the CRUD slices may not do tax arithmetic either.
+
+This keeps the spec's intent (the arithmetic lives only in `Engine/`), and step 17 records it. It is informational for `ba`.
+
+**Three stale lines in the revised decisions, none of which changes this plan** (informational, for `ba` or `lead`; non-blocking):
+- D-5 says the deferred tighten is "see D-13/F-3"; it should say **D-14**.
+- D-6 calls `seed_core` "tenant provisioning step 8"; §8 numbers it **step 9**.
+- D-21's heading cites F-15 and F-18, but its third bullet is F-18 alone. That is harmless.
 
 **Branch baseline note.** This branch already contains T-028 chunks A and B (eight customer migrations, `packages/customers`) because it was cut from that tip. `APP_REQUIRED_SCHEMA_VERSION` is therefore **51** here, not 43. Every shared file this plan edits (section 9) is also being edited by T-028 on its own branch, so the merge will conflict there (risk 3).
 
@@ -35,7 +63,9 @@ The plan is written against the resolutions it proposes. If `ba` decides otherwi
 | Spec: `products.selling_price` at steps 5–6 is used directly | **Unsafe (F-2)** | §6.3 line 491: "cost_price, selling_price, min_selling_price, msrp (**all four per stock unit**)". `product_branches.selling_price` is the branch override of the same figure (its migration docblock: "null inherits `products.selling_price`"). |
 | Spec: AC-22 `subtotal = unit_price × base_quantity` | **Wrong (F-1)** | §6.7: `unit_price` is "per the line's `unit_id`". 1 case at 179 with `base_quantity` 24 would charge 4296. |
 
-### 0.2 Findings routed to `ba`
+### 0.2 Findings routed to `ba`: all resolved in `85dc7ab`
+
+The findings follow unchanged, as the record of what was routed. The resolution in each is now the spec's own text (see the mapping table at the head of this plan), and every "if `ba` prefers" or "alternative" clause below is void.
 
 **Spec or decision edits needed (F-1 to F-11):**
 
@@ -344,13 +374,14 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 - [ ] **Step 0: baseline.**
   - `composer check`: record passed, failed and skipped, the `test` seconds, and the process list.
-  - Confirm that `ba`'s spec revision for F-1 to F-17 is committed, and read the revised ACs, not this plan's paraphrase.
+  - The spec revision is committed (`85dc7ab`, D-12 to D-24, AC-16a, AC-24a). Build from the revised ACs, not from this plan's paraphrase, and not from the first draft in `0d840cf`.
   - *(No AC.)*
 - [ ] **Step 1: package plumbing.**
   - `composer.json`, an empty provider, and the section 5 edits. Add `'pricing'` to `QaToolchainRegistryCoverageTest`'s literal.
   - **`PricingProviderTest`:** the provider is loaded and `BigDecimal` autoloads.
   - **Negative control:** a scratch class in `modules/demo/src` importing `Flexipos\Pricing\Engine\PriceLadder` fails deptrac; the same class importing `Flexipos\Contracts\Pricing\PricingEngine` passes. Delete both.
-  - *(AC-26 instrument.)*
+  - **AC-25 baseline:** run step 17's pattern (b) (multiplication next to a `rate`/`percent` token) over the real tree **now**, before any pricing source exists, and record the hit list in the hand-back. A non-empty list is reported to `architect`.
+  - *(AC-26 instrument; AC-25's pre-code measurement.)*
 - [ ] **Step 2: the nine table migrations (01–05, 08–11), with `PricingTenantSchemaTest`.**
   - Each table's sorted column list equals section 4 **exactly**, with nullability. That proves the **absence** of the three account columns (F-17).
   - Every unique key, by raw double insert:
@@ -376,12 +407,14 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - The catalogue rows read: 06 `expand`, 07 `backfill`, 12 `contract`, **all three `is_destructive = false`** (F-3's proof).
   - **Mutation S1:** write the tighten as `->change()` in 12, and the destructive assertion goes red. Revert.
   - **Predicted red:** section 9's schema list.
-  - *(AC-1 as revised by F-3 and F-5, AC-2 as revised by F-4.)*
+  - *(AC-1, AC-2; D-5, D-6, D-14.)*
 - [ ] **Step 4: AC-28 and AC-29 statics.**
   - Extend `TenantDecimalPrecisionTest`'s column map with section 4's precision map, under a T-029 comment. The allow-list stays at four pairs. **Red-first:** a fixture `decimal('rate', 9, 2)` is reported.
   - AC-29, in `ProductTaxGroupMigrationsTest`:
-    - the file that adds the columns (06) contains no FK call and no `change`;
-    - no tenant migration names `accounts` in a key, and none declares `payable_account_id`, `receivable_account_id` or `sales_discount_account_id` (F-17).
+    - **AC-29.1:** the file that adds the columns (06) contains no FK call and no `change`;
+    - **AC-29.2:** the contract file (12) contains no `change` (and step 3 asserts `is_destructive = false` from its catalogue row);
+    - **AC-29.3:** no tenant migration names `accounts` in a key, and none declares `payable_account_id`, `receivable_account_id` or `sales_discount_account_id` (D-7 reversed).
+    - **Red-first:** a scratch migration under a fixture directory declaring `payable_account_id` is reported. Delete it.
   - **Gate: `composer check` (end of chunk A).**
   - *(AC-28, AC-29.)*
 
@@ -441,10 +474,11 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - **P4:** ignore the window. The out-of-window row goes red;
     - **P5:** promotions ascending. The priority row goes red;
     - **P6:** fall through to the next step when a list has a NULL-row match. The derived row goes red.
-  - *(AC-15 to AC-17.)*
+  - *(AC-15 to AC-17, AC-16a; D-13, D-16, D-17.)*
 - [ ] **Step 9: `DiscountCalculator`, `LineCalculator`, bill.**
   - **Percentage:** 10 % of 179 gives 17.9000, capped at `max_discount` 15. **Fixed:** 200 on 179 gives 179 (never negative).
-  - **F-12 refusals,** each with the earlier reasons satisfied: scope mismatch, inactive, not yet started, expired (at `ends_at` + 1 ms; at exactly `ends_at` it is accepted), usage limit reached (`used_count = usage_limit`), `allow_discount = false`, `not_applicable` (and accepted by category, and by brand), below `min_amount`, `buy_x_get_y`.
+  - **AC-20 refusals,** each with the earlier reasons satisfied: unknown, scope mismatch (both directions), inactive, not yet started, expired (at `ends_at` + 1 ms; at exactly `ends_at` it is accepted), usage limit reached (`used_count = usage_limit`), `allow_discount = false`, `not_applicable` (and accepted by category, by brand, and with a null or empty `applies_to`), below `min_amount`, `buy_x_get_y`.
+  - **AC-20's order is pinned:** a discount that is both `expired` and `not_applicable` reports `expired`; one that is both `discount_not_allowed` and `below_min_amount` reports `discount_not_allowed`.
   - **Line, F-1:**
     - 1 case at 179, 10 % discount, 15 % exclusive gives subtotal 179, discount 17.9, discounted 161.1, tax 24.165 rounded to 24.1650, total 185.2650;
     - **3 singles at 7.50** gives subtotal 22.5000, not ×base;
@@ -456,7 +490,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - **D3:** drop the fixed cap. The 200-on-179 row goes red;
     - **D4:** wall-clock time instead of `at`. The expired row goes red when its `at` is in the past;
     - **D5:** bill base from line totals. The bill row goes red.
-  - *(AC-20, AC-22, AC-23.)*
+  - *(AC-20, AC-22, AC-23; D-12, D-18, D-19.)*
 - [ ] **Step 10: the fixture set and its replay.**
   - At least 30 files covering AC-24's list: tax (exclusive and inclusive × compound and non-compound, fixed, empty group, no rate), price (unit-matched, derived, each of the six steps, F-2, F-10, F-11, no price), discount (percentage, fixed, capped, each refusal), line (three composed, including case-of-24 and inclusive), bill.
   - **`FixtureSetTest`:**
@@ -469,7 +503,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - delete both.
   - **Catalog's `UnitFixtureReplayTest`** (F-15): about 8 snapshot cases (precision-first rounding, HALF_UP, factor 24, mass 0.001 chain) replayed through `SnapshotCalculator`, with the same lint.
   - **Gate: `composer check` (end of chunk B).**
-  - *(AC-24.)*
+  - *(AC-24, AC-24a; D-21.)*
 
 ### Chunk C: CRUD and the catalog edge
 
@@ -539,8 +573,8 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - *(AC-15 to AC-17 and AC-22 end to end.)*
 - [ ] **Step 17: statics.**
   - **`QaPricingSourceRulesTest` (host),** code-only via `SourceRules::codeOnly`:
-    - F-14 (a): outside `packages/pricing/src`, no file under `packages/*/src`, `modules/*/src` or `modules/host/app` contains the six tokens, and migrations are excluded by path. `tax_groups` is additionally banned in `packages/catalog/src` (F-18);
-    - F-14 (b): the multiplication-by-`rate`/`percent` pattern, **measured first**. Any pre-existing hit is reported to `architect`, not exempted;
+    - **AC-25 (a), the tokens:** no file under `packages/*/src`, `modules/*/src` or `modules/host/app` outside **`packages/pricing/src`** contains the six tokens; migrations are excluded by path. The CRUD slices write these tables, hence the package-wide scope (see the head of this plan). `tax_groups` is additionally banned in `packages/catalog/src` (AC-3);
+    - **AC-25 (b), the arithmetic:** the multiplication-by-`rate`/`percent` pattern over the same directories outside **`packages/pricing/src/Engine/`**, so `Features/` is scanned too. It is **measured on the real tree before any pricing code lands** (run the scan at step 1 and record the result in the hand-back). A pre-existing hit is reported to `architect`, not exempted;
     - `packages/pricing/src/Engine/` imports nothing from `Illuminate\` except in `DatabasePricingEngine.php` (purity);
     - there is no `routes/`, `Route::`, `Cache::`, `dispatch(` or `HookGateway` in the package;
     - `Contracts\Pricing` imports nothing outside contracts and PHP core;
@@ -585,18 +619,19 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 | ACs | Proved by |
 |---|---|
-| 1, 2 | step 3 (as revised by F-3 to F-5) |
-| 3 | step 13 |
+| 1, 2 | step 3 (the tighten is deferred, D-14; the contract adds FKs only) |
+| 3 | step 13 (application-level `NOT NULL`, via `TaxGroupDirectory`) |
 | 4–6 | steps 2 and 11 |
 | 7 | steps 6 and 10 |
 | 8–10 | steps 2 and 12 |
 | 11 | steps 7 and 10 |
 | 12–14, 18 | steps 2 and 14 |
-| 15–17 | steps 8, 10 and 16 |
+| 15–17, 16a | steps 8, 10 and 16 |
 | 19, 21 | steps 2 and 15 |
 | 20, 22, 23 | steps 9, 10 and 16 |
-| 24 | step 10 |
-| 25 | step 17 |
+| 24 | step 10 (pricing fixtures, lint and replay) |
+| 24a | step 10 (catalog `UnitFixtureReplayTest`) |
+| 25 | step 17 (two scopes, per the head of this plan), plus the `QaCatalogSourceRulesTest` exemption |
 | 26 | steps 1 and 17 |
 | 27 | step 20 |
 | 28 | step 4 |
@@ -604,7 +639,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 ## 8. Risks & rollback
 
-1. **The spec revision (highest).** F-1, F-2 and F-3 change what the engine charges and what the migrations do. If `dev` builds from the unrevised spec, the result passes its own tests and is wrong. Step 0 refuses to start without the revision.
+1. **Spec drift (highest).** The revision is settled (`85dc7ab`). The residual risk is that `dev` reads the first draft (`0d840cf`), which is still in history. There, AC-22, AC-15 steps 5–6 and AC-1 each produce code that passes its own tests and charges or migrates wrongly. Mutations D1 (base-quantity subtotal), P3 (step 6 used as typed) and S1 (`->change()` in the contract file) exist specifically to catch that.
 2. **Gate time.** The `test` step was 2408 s at T-027's close, and T-028 is adding about 220 cases. This task adds roughly 250 more, mostly pure datasets. Measure at each chunk; if a chunk adds more than 10 %, stop and report.
 3. **Merge conflicts with T-028.** Both branches edit `deptrac.yaml`, `phpstan.neon.dist`, `providers.php`, host `composer.json`/`.lock`, `QaToolchainRegistryCoverageTest`, `TenantDecimalPrecisionTest`, `tests/Helpers.php`, `TenantBaselineBuildsTest`, `MigrationTreeDisciplineTest`, the catalogue JSON and `.env.example`. The migrations themselves cannot collide (`0028xx` against `0029xx`, and file-name order puts T-029 after T-028), but the catalogue must be **republished after merging**, never hand-merged.
 4. **The deferred `NOT NULL`.** Until the backup facility ships, a raw SQL insert can write a product without a group. Mitigation: every application path is guarded and tested (step 13), and the follow-up row is explicit.
@@ -658,4 +693,4 @@ Anything red that is not in this table means stop and report to `architect`.
 
 ## Questions for the human
 
-None. F-1 to F-18 go to `ba` under the autonomous protocol. One point `lead` may want to raise with the product owner is **F-3**. It is a consequence of T-008 D-10, which the owner approved: `products.tax_group_id` stays nullable in the database until a backup facility exists, with the application enforcing it in the meantime.
+None. F-1 to F-18 were resolved by `ba` in `85dc7ab` (D-12 to D-24, AC-16a, AC-24a). The AC-25 scope clarification and the three stale decision lines at the head of this plan are informational. One point `lead` may want to raise with the product owner is **F-3**. It is a consequence of T-008 D-10, which the owner approved: `products.tax_group_id` stays nullable in the database until a backup facility exists, with the application enforcing it in the meantime.
