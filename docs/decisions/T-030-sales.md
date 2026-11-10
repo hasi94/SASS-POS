@@ -803,3 +803,70 @@ lock, except what must be inside the lock" ordering `docs/database.md` §12.1 al
 is no stock lock in this task's own scope (D-1), so there is no ordering conflict with Inventory's
 future lock sequence to reconcile. | A consolidation of an ordering rule that otherwise would be
 restated, inconsistently, inside every individual feature's own decision. Reversible: n/a.
+
+---
+
+## Decisions D-51 to D-54 — added after `architect6`'s reconciliation of plan revision 2
+(findings F-22 to F-25, none blocking)
+
+These four were found while reconciling the committed plan (`2b44b8c`) against spec revision 2 —
+each is a small drift between an AC's literal wording and the plan's own, more precise reading.
+None changes this task's scope or any decision D-1 to D-50 already made; each is folded in here
+so the spec matches the plan exactly rather than leaving a wording gap for `qa`/`dev` to resolve
+differently than `architect6` already did.
+
+D-51 (corrects AC-11/AC-18; F-22) | AC-11 (revision 2) allows `AddTender` on a sale `held` with
+`from_status = pending_payment`, and AC-18 (`RecallSale`) is the feature that moves a `held` sale
+back to that status. As written, the two left it unstated whether a cashier must call `RecallSale`
+explicitly before tendering a held-from-`pending_payment` sale, or whether tendering it directly is
+itself allowed. | **Tendering a sale held from `pending_payment` performs an implicit recall**:
+`AddTender` on such a sale, in the same transaction as recording the tender, runs exactly
+`RecallSale`'s own status/terminal/shift reassignment (AC-18) before recording the tender — a
+separate explicit `RecallSale` call first is not required, though still legal and a no-op status-
+wise if the recalling terminal is the same one tendering. A sale held from `draft` still has **no**
+implicit recall path (D-49's state machine is unchanged for that case) — only a sale already
+holding at `pending_payment` has tenders to resume adding to, which is the only case where
+"add a tender" and "resume this sale" are the same cashier action in practice. | The conventional
+till behaviour (a cashier does not perform two separate taps to resume a part-paid sale and then
+tender the rest) applied narrowly, to the one case where the two actions are otherwise
+indistinguishable in intent. Reversible: yes — requiring an explicit recall first is a stricter,
+additive tightening if ever wanted.
+
+D-52 (corrects AC-24; F-23) | AC-24's original wording used `approval_already_used` for both "a
+`DecideApproval` call against a row that is no longer `pending`" and "a consuming write against an
+`approved` row whose `consumed_at` is already set" — two different causes collapsed into one
+refusal code, which makes a caller's retry logic unable to tell "someone already approved/rejected
+this" from "this approval was already spent." | **Split by cause, matching `ApprovalGate`'s own
+refusal list (Ruling 5 of the plan):** `DecideApproval` against a row whose `status` is no longer
+`pending` is refused `approval_not_pending`; a consuming write (`VoidSale`/`RefundSale`/the price-
+override or discount-approval check) against a row whose `consumed_at` is already set is refused
+`approval_already_used`; a consuming write against a row whose `status` is not `approved` at all
+(e.g. still `pending`, or `rejected`) is refused `approval_not_approved`. Three distinct causes,
+three distinct codes. | The same "a refusal code is a fact a caller can act on" discipline this
+whole backlog applies elsewhere — collapsing two different failures into one code would make a
+caller's own retry/reporting logic guess. Reversible: yes — a future caller-facing simplification
+could remerge codes, but nothing today asks for that.
+
+D-53 (corrects AC-2; F-24) | AC-2's original wording validated a line's optional salesperson
+`employee_id` against "Organization's employee directory." `architect6` measured this imprecise:
+the published contract that actually exposes an employee-existence/validity check is
+`Contracts\Access\EmployeeDirectory` (Identity/Access, T-010, DONE) — employees are an Access
+concept in this codebase's own module split (`docs/architecture.md` §6: "employees... live in the
+tenant database," owned by Identity, not Organization, which owns branches/terminals/number
+sequences). | **Corrected.** AC-2 now names `Contracts\Access\EmployeeDirectory` as the contract
+this task validates a line-level `employee_id` against, matching every other named contract in
+this spec being named precisely rather than by its owning concept loosely stated. | A factual
+correction (the right package, not a different rule), found by checking the real contract rather
+than restating this spec's own first-pass assumption. Reversible: n/a (naming correction).
+
+D-54 (corrects AC-41; F-25) | AC-41's original wording described `DiscountUsage::consume()`
+refusing `usage_limit_reached` "once `used_count` would reach `usage_limit`" — read literally, that
+refuses the call that brings a discount from `usage_limit − 1` **to** `usage_limit`, meaning a
+discount with `usage_limit = 10` could only ever be used 9 times, one short of what the column
+name states. | **Corrected: exactly `usage_limit` uses succeed; the `usage_limit + 1`th is
+refused.** `consume()` refuses only the call that would push `used_count` **past** `usage_limit`
+(i.e. the call made when `used_count` already equals `usage_limit`), not the call that brings it
+to exactly that figure. | The literal meaning of a column named `usage_limit`: it is the count of
+uses allowed, not the count of uses allowed minus one. A boundary-off-by-one found by `architect6`
+checking the exact arithmetic rather than the prose. Reversible: n/a (a correctness fix to an
+off-by-one, not a judgement call).

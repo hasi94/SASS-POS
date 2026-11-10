@@ -1,14 +1,19 @@
 # T-030: Sales — cart, tenders, hold and recall, refunds, voids, cash shifts
 
-**Revision 2.** `architect6` reviewed revision 1 against the real shipped T-027/T-028 code and
-T-029's committed plan (not this spec's assumptions about either) and found 21 inconsistencies —
-4 serious enough to change behaviour (F-2 to F-5), 8 more that change behaviour in a smaller way
-(F-1, F-6, F-7, F-10, F-12, F-13, F-15 to F-17), and 9 small corrections (F-8, F-9, F-11, F-14,
-F-18 to F-21). Every one is resolved below and logged in `docs/decisions/T-030-sales.md` D-29 to
-D-50; two were offered as product questions (bill-level discounts, refund pricing) and the lead
-ruled on both directly rather than escalating further (D-35, D-38). Nothing in this revision
-changes the task's outer scope boundary from revision 1 — the same things stay out (D-1, D-6,
-D-7, D-10).
+**Revision 3.** Revision 2: `architect6` reviewed revision 1 against the real shipped T-027/T-028
+code and T-029's committed plan (not this spec's assumptions about either) and found 21
+inconsistencies — 4 serious enough to change behaviour (F-2 to F-5), 8 more that change behaviour
+in a smaller way (F-1, F-6, F-7, F-10, F-12, F-13, F-15 to F-17), and 9 small corrections (F-8,
+F-9, F-11, F-14, F-18 to F-21). Every one was resolved and logged in `docs/decisions/
+T-030-sales.md` D-29 to D-50; two were offered as product questions (bill-level discounts, refund
+pricing) and the lead ruled on both directly rather than escalating further (D-35, D-38).
+Revision 3: `architect6` reconciled the committed plan revision 2 against spec revision 2 and
+found 4 more, small, non-blocking drift points (F-22 to F-25 — an implicit recall on tendering a
+held-from-`pending_payment` sale; splitting `approval_already_used` from `approval_not_pending`/
+`approval_not_approved` by cause; naming the real employee-directory contract; an off-by-one on
+the discount usage-limit boundary) — logged as D-51 to D-54 and folded in here. Nothing in either
+revision changes the task's outer scope boundary from revision 1 — the same things stay out
+(D-1, D-6, D-7, D-10).
 
 Spec written **spec-ahead** of two unfinished dependencies: T-029/FP-231 (Taxes, price lists,
 discounts — `packages/pricing`) and T-028/FP-232 (Customers — `packages/customers`), both still
@@ -18,7 +23,7 @@ it is naming intent, not a literal signature, and `dev` reconciles against the r
 interface before writing code (see decisions D-4/D-5, and the plan's own step 0 reconciliation
 table).
 
-Backlog: FP-233, `docs/backlog.md`. Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-50).
+Backlog: FP-233, `docs/backlog.md`. Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-54).
 Design inputs read directly: `docs/architecture.md` v0.5 §1, §3, §8, §11, §12, §15, §21-22;
 `docs/database.md` v0.5 §3, §6.4 to §6.9 (Catalog, Pricing/tax, Inventory's unit-inheritance
 rule, Sales/POS, Payments, Customers, §12.1's credit-sale transaction shape); T-027's decisions/
@@ -114,7 +119,8 @@ shape.
   product at the moment the line is added (so a later rename/recategorisation does not change an
   existing line, matching `docs/database.md` §6.7's own stated reason for those columns). An
   optional line-level `employee_id` (salesperson, for category-based commission) is validated
-  against Organization's employee directory.
+  against `Contracts\Access\EmployeeDirectory` (D-53/F-24 — employees are an Access/Identity
+  concept in this codebase's module split, not Organization's).
 - AC-3: `AddSaleLine` refuses `unit_unresolvable` when `UnitResolver::snapshot()` throws (the line
   unit does not convert to the product's stock unit at all), naming the requested unit and the
   product's stock unit.
@@ -179,8 +185,13 @@ shape.
   doubling as the idempotency key, AC-37) against a sale whose `status` is `draft`, `pending_
   payment`, or `held` **only when its recorded `from_status = pending_payment`** (a sale held from
   `draft` must be recalled first — Ruling 4's state machine, D-49); adding the first tender to a
-  `draft` sale, or re-tendering a recalled `pending_payment` sale, moves/keeps it at `pending_
-  payment`. A `credit` (store-credit) tender requires the sale to carry a `customer_id`, refused
+  `draft` sale moves it to `pending_payment`. **Tendering a sale currently `held` with `from_
+  status = pending_payment` performs an implicit recall** (D-51/F-22): in the same transaction as
+  recording the tender, `AddTender` runs exactly `RecallSale`'s own status/terminal/shift
+  reassignment (AC-18) before the tender is recorded — a separate explicit `RecallSale` call first
+  is not required for this one case, though still legal and a no-op status-wise if the recalling
+  terminal is the one already tendering. A `credit` (store-credit) tender requires the sale to
+  carry a `customer_id`, refused
   `customer_required` otherwise — it posts **no ledger entry at this step** (D-29/F-3; posting
   happens at completion, AC-14).
 - AC-12: A sale accepts more than one tender (split payment) in any combination of active
@@ -270,13 +281,17 @@ shape.
   `reason`. `decision_method = remote`, and `type` in `{credit_limit, negative_stock, custom}`, are
   not reachable through any feature this task ships (D-12, D-13) — the enum values exist for
   forward compatibility only.
-- AC-24: A `pending`-row decide call twice is refused `approval_not_pending`; deciding an already-
-  decided row a second time (or consuming an `approved` row twice) is refused `approval_already_
-  used`, enforced by the new `approval_requests.consumed_at` column (D-44/F-18) which the
-  consuming write sets in the same transaction as its own change; consuming a `rejected` row is
-  refused `approval_not_approved`; and a type/`reference_type`/`reference_id`/payload mismatch
-  against the fixed binding table (D-47, AC-7/AC-22/AC-23's own references) is refused `approval_
-  mismatch` — naming nothing the approval itself did not already carry.
+- AC-24: Three distinct causes, three distinct refusal codes, split by cause rather than collapsed
+  (D-52/F-23): `DecideApproval` against a row whose `status` is no longer `pending` (already
+  decided, either way) is refused `approval_not_pending`; a **consuming** write (`VoidSale`/
+  `RefundSale`/the price-override or discount-approval check) against a row whose `consumed_at` is
+  already set is refused `approval_already_used`, enforced by the new `approval_requests.
+  consumed_at` column (D-44/F-18), which the consuming write sets in the same transaction as its
+  own change; a consuming write against a row whose `status` is not `approved` at all (still
+  `pending`, or `rejected`) is refused `approval_not_approved`; and a type/`reference_type`/
+  `reference_id`/payload mismatch against the fixed binding table (D-47, AC-7/AC-22/AC-23's own
+  references) is refused `approval_mismatch` — naming nothing the approval itself did not already
+  carry.
 - AC-23a: A discount requiring approval — `discounts.requires_approval = true` on the discount a
   line's `discount_id` names, read directly as a fact (D-37/F-12) — refuses that line's add/update
   with `approval_required` unless a consumed `discount`-type approval exists whose payload
@@ -391,9 +406,10 @@ shape.
   `unsupported_reset_period`; a call inside a rolled-back transaction leaving the counter
   unchanged; and a concurrent first-use race retried once rather than failing.
 - AC-41: `Contracts\Pricing\DiscountUsage` is added, implemented in `packages/pricing`, proven for:
-  `consume()` incrementing `used_count` by exactly one; refusing `usage_limit_reached` with
-  nothing written once `used_count` would reach `usage_limit`; and refusing `unknown_discount` for
-  an unknown or soft-deleted discount id.
+  `consume()` incrementing `used_count` by exactly one; **exactly `usage_limit` uses succeed — the
+  call made when `used_count` already equals `usage_limit` is the one refused `usage_limit_
+  reached`, with nothing written** (D-54/F-25 — `usage_limit` is the count of uses allowed, not
+  one fewer); and refusing `unknown_discount` for an unknown or soft-deleted discount id.
 
 ### H — Static and schema instruments
 
@@ -483,7 +499,7 @@ shape.
 
 None left blocking — every judgement call this spec needed, including the two `architect6` raised
 as product questions (bill-level discounts, refund pricing), is resolved and logged in
-`docs/decisions/T-030-sales.md` (D-1 to D-50), per the team protocol: the lead ruled on both
+`docs/decisions/T-030-sales.md` (D-1 to D-54), per the team protocol: the lead ruled on both
 directly (D-35, D-38) rather than escalating further. Two items are **not** blocking but stay
 genuinely unconfirmed until their owning dependency lands, and are called out rather than silently
 assumed correct:
