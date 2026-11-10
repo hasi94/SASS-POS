@@ -582,7 +582,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 ### Chunk D: loyalty, addresses, notes and communications, the merge
 
-- [ ] **Step 12: loyalty** (`CreateLoyaltyProgram`, `UpdateLoyaltyProgram`, `RecordLoyaltyTransaction`, `ListLoyaltyTransactions`).
+- [x] **Step 12: loyalty** (`CreateLoyaltyProgram`, `UpdateLoyaltyProgram`, `RecordLoyaltyTransaction`, `ListLoyaltyTransactions`).
   - **AC-26:** a missing name; `earn_rule` and `redeem_rule` round-trip any JSON; invalid `tier_rules` refused (F-5); `is_active` defaults to true.
   - **AC-28:** an unknown program; zero points; an unknown employee. **F-6:** `earn` or `redeem` on an inactive program gives `program_inactive`, while `adjust` on it is accepted.
   - **AC-30:** `loyalty_points` = `balance_after`.
@@ -594,19 +594,19 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - The list is paged.
   - **M16:** skip the tier update. The AC-32 test goes red.
   - *(AC-26 to AC-33; AC-29 apart from its `[ENGINE]` clause.)*
-- [ ] **Step 13: addresses** (four slices).
+- [x] **Step 13: addresses** (four slices).
   - **AC-16:** an unknown or soft-deleted customer; a bad type; JSON round-trips.
   - **AC-17:** a default billing plus a default delivery coexist; a second default billing clears the first, by add and by update; another customer's default is unaffected.
   - **AC-18:** remove is a real delete (the row is gone); an unknown id is refused, naming it.
   - **M17:** skip the clearing. The backstop refuses, and the test goes red.
   - *(AC-16 to AC-18.)*
-- [ ] **Step 14: notes and communications** (five slices).
+- [x] **Step 14: notes and communications** (five slices).
   - **AC-34:** a blank note; the `pinned` default; a bad date.
   - **AC-35:** each enum checked; `occurred_at` defaults to now when absent, and a supplied value is kept; an unknown employee is refused.
   - **AC-36:** there is no `delivery_id` (step 3).
   - **AC-37:** both lists are paged, with the same 3-at-2 boundary case and a malformed cursor refused.
   - *(AC-34 to AC-37.)*
-- [ ] **Step 15: `MergeCustomers`** (Ruling 9, which is AC-13 and D-20 as now written: compensating `adjustment` and `transfer` pairs; ledger rows never move; only addresses, notes and communications are reassigned).
+- [x] **Step 15: `MergeCustomers`** (Ruling 9, which is AC-13 and D-20 as now written: compensating `adjustment` and `transfer` pairs; ledger rows never move; only addresses, notes and communications are reassigned).
   - **Refusals:** self; an unknown id on either side; a source already merged; a target merged or soft-deleted; currency mismatch with a non-zero balance. Each writes nothing.
   - **Success**, with a source holding balance 150 and 40 points plus two addresses (one a default billing), a note and a communication, and a target holding balance 50, a default billing address and 10 points:
     - the source's old ledger and loyalty rows **still** carry `customer_id = source`, byte-identical;

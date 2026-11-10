@@ -6,7 +6,9 @@ namespace Flexipos\Customers;
 
 use Flexipos\Contracts\Audit\DeclaresAuditActions;
 use Flexipos\Contracts\Customers\CustomerCreditLedger;
+use Flexipos\Contracts\Customers\LoyaltyLedger;
 use Flexipos\Customers\Ledger\ContractCreditLedger;
+use Flexipos\Customers\Loyalty\ContractLoyaltyLedger;
 use Flexipos\Customers\Registry\CustomersAuditActions;
 use Illuminate\Support\ServiceProvider;
 
@@ -23,16 +25,15 @@ use Illuminate\Support\ServiceProvider;
  * may not import.
  *
  * **`CustomerCreditLedger` is bound to `Ledger\ContractCreditLedger`**
- * (plan chunk C, Ruling 2/6). `LoyaltyLedger`'s own binding lands with
- * chunk D's loyalty slices - there is no earlier stub, and a contract with
- * no implementation resolves to a binding error, never a permissive
- * default.
+ * (plan chunk C, Ruling 2/6), and **`LoyaltyLedger` to
+ * `Loyalty\ContractLoyaltyLedger`** (plan chunk D).
  */
 final class CustomersServiceProvider extends ServiceProvider implements DeclaresAuditActions
 {
     public function register(): void
     {
         $this->app->singleton(CustomerCreditLedger::class, ContractCreditLedger::class);
+        $this->app->singleton(LoyaltyLedger::class, ContractLoyaltyLedger::class);
     }
 
     /**

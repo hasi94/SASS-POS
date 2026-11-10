@@ -148,6 +148,130 @@ final class CustomersSeed
     }
 
     /**
+     * @param  array<string, mixed>  $overrides
+     */
+    public static function program(string $name = 'Base', array $overrides = []): string
+    {
+        $id = (string) Str::ulid();
+
+        self::connection()->table('loyalty_programs')->insert(array_merge([
+            'id' => $id,
+            'created_at' => self::NOW,
+            'updated_at' => self::NOW,
+            'name' => $name,
+            'earn_rule' => null,
+            'redeem_rule' => null,
+            'tier_rules' => null,
+            'expiry_months' => null,
+            'is_active' => true,
+        ], $overrides));
+
+        return $id;
+    }
+
+    /**
+     * Directly a `loyalty_transactions` row, bypassing the writer, the same
+     * backstop seam {@see self::ledgerEntry()} offers the credit ledger.
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    public static function loyaltyTransaction(string $customerId, string $programId, array $overrides = []): string
+    {
+        $id = (string) Str::ulid();
+
+        self::connection()->table('loyalty_transactions')->insert(array_merge([
+            'id' => $id,
+            'origin' => 'online',
+            'terminal_id' => null,
+            'device_id' => null,
+            'client_seq' => null,
+            'client_created_at' => null,
+            'sync_status' => 'synced',
+            'synced_at' => null,
+            'customer_id' => $customerId,
+            'program_id' => $programId,
+            'type' => 'earn',
+            'points' => '0.0000',
+            'value' => null,
+            'balance_after' => '0.0000',
+            'expires_at' => null,
+            'employee_id' => null,
+            'notes' => null,
+            'created_at' => self::NOW,
+        ], $overrides));
+
+        return $id;
+    }
+
+    /**
+     * @param  array<string, mixed>  $overrides
+     */
+    public static function address(string $customerId, array $overrides = []): string
+    {
+        $id = (string) Str::ulid();
+
+        self::connection()->table('customer_addresses')->insert(array_merge([
+            'id' => $id,
+            'created_at' => self::NOW,
+            'updated_at' => self::NOW,
+            'customer_id' => $customerId,
+            'type' => 'billing',
+            'label' => null,
+            'address' => null,
+            'is_default' => false,
+            'geo' => null,
+        ], $overrides));
+
+        return $id;
+    }
+
+    /**
+     * @param  array<string, mixed>  $overrides
+     */
+    public static function note(string $customerId, array $overrides = []): string
+    {
+        $id = (string) Str::ulid();
+
+        self::connection()->table('customer_notes')->insert(array_merge([
+            'id' => $id,
+            'created_at' => self::NOW,
+            'updated_at' => self::NOW,
+            'created_by' => null,
+            'updated_by' => null,
+            'customer_id' => $customerId,
+            'note' => 'A note.',
+            'pinned' => false,
+            'follow_up_date' => null,
+        ], $overrides));
+
+        return $id;
+    }
+
+    /**
+     * @param  array<string, mixed>  $overrides
+     */
+    public static function communication(string $customerId, array $overrides = []): string
+    {
+        $id = (string) Str::ulid();
+
+        self::connection()->table('customer_communications')->insert(array_merge([
+            'id' => $id,
+            'created_at' => self::NOW,
+            'updated_at' => self::NOW,
+            'customer_id' => $customerId,
+            'channel' => 'call',
+            'direction' => 'out',
+            'subject' => null,
+            'body' => null,
+            'campaign_ref' => null,
+            'employee_id' => null,
+            'occurred_at' => self::NOW,
+        ], $overrides));
+
+        return $id;
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     public static function audit(): array
