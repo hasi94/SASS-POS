@@ -475,11 +475,11 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 ### Chunk B: the arithmetic core (safety-critical)
 
-- [ ] **Step 5: contracts.** Ruling 2's 12 files.
+- [x] **Step 5: contracts.** Ruling 2's 12 files.
   - **`CreditLedgerEntryShapeTest` and `LoyaltyTransactionShapeTest`:** well-formed instances are accepted; a malformed ULID, a `reference_type` of 51 characters, a 4-letter currency and a malformed caller `id` are each refused by name.
   - **`CustomersEnumsTest`:** `CreditEntryType` is exactly the eight values, `LoyaltyTransactionType` exactly the five, and the two refusal enums exactly Ruling 2's lists.
   - *(Groundwork for AC-20, AC-28 and AC-41.)*
-- [ ] **Step 6: `CreditLedgerCalculator` (pure).** One dataset row per case, each with the exact expected string or reason.
+- [x] **Step 6: `CreditLedgerCalculator` (pure).** One dataset row per case, each with the exact expected string or reason.
   - **Arithmetic:**
     - 0 + debit 100 gives `100.0000`;
     - 100 − credit 30.5 gives `69.5000`;
@@ -509,7 +509,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - **M5:** round 5 decimals with `HalfUp` instead of refusing. The 5-decimal row goes red;
     - **M6:** apply the limit check to `adjustment`. The control row goes red.
   - *(AC-23, AC-24, AC-41.)*
-- [ ] **Step 7: `LoyaltyCalculator` and `TierRules` (pure).**
+- [x] **Step 7: `LoyaltyCalculator` and `TierRules` (pure).**
   - **Arithmetic:** 10 + earn 2.5 gives `12.5000`; redeem −12.5 gives `0.0000`, accepted; redeem −12.5001 gives `insufficient_points`.
   - **Control:** `expire` and `adjust` going below zero are accepted.
   - **Signs (F-9):** a negative `earn`, a positive `redeem` and a positive `expire` each give `wrong_sign`. `transfer` and `adjust` take either sign. Zero gives `zero_points`. Five decimals give `invalid_points`.

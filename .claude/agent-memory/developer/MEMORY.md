@@ -78,3 +78,4 @@
 - [Gate reads the live filesystem, never edit during it](feedback_gate_reads_live_filesystem_never_edit_during_it.md) - tenantTreeTables()/tenantMigrationFileCount() re-glob at assertion time, not collection time; and tee|tail swallows composer check's real exit code.
 - [T-027 catalog Chunk B unit model](project_t027_catalog_chunk_b_unit_model.md) - ladder/snapshot design that shipped, M1-M8 all green, and the AuditCatalogueTest two-line break every new DeclaresAuditActions provider causes.
 - [T-028 customers chunk A](project_t028_customers_chunk_a.md) - baseline numbers, the IdempotencyKeysSchemaTest hardcoded-top-entry gap the plan missed, and the oneSided() literal-statement gotcha.
+- [T-028 customers chunk B](project_t028_customers_chunk_b.md) - the float/TypeError precedent over the plan's literal wording, a 78% gate-timing jump likely from contention, and a `;`-chained exit-code trap.
