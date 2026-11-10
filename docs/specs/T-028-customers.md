@@ -2,7 +2,7 @@
 
 Backlog: FP-232, "Customers, groups, credit ledger and loyalty" (`docs/backlog.md`), matching
 `docs/architecture.md` §3's one-line module description for **Customers**: "Customers, groups, credit
-ledger, loyalty." Decisions D-1 to D-17 are in `docs/decisions/T-028-customers.md`. **No BLOCKING
+ledger, loyalty." Decisions D-1 to D-30 are in `docs/decisions/T-028-customers.md`. **No BLOCKING
 questions** — this is autonomous/team-mode work; every open design question was decided and logged
 there rather than left for the human.
 
@@ -111,7 +111,9 @@ Re-derived from the files, not assumed:
 - T-027 (Catalog, DONE) is the only precedent for this task's shape: a new `packages/customers` package
   following the identical vertical-slice convention (`Features/<Verb><Noun>/<Verb><Noun>`,
   `<Verb><Noun>Handler`, `<Verb><Noun>Result`), `IdentifierColumn`-style ULIDs, `[SOFT]`/`[BY]`/`[TS]`
-  tagging, and per-tenant migrations under the package's own `database/migrations-tenant/` directory.
+  tagging, and per-tenant migrations filed under the host's own `modules/host/database/
+  migrations-tenant/` directory — every package's tenant migrations live there, not under the owning
+  package itself.
 
 ## User stories
 
