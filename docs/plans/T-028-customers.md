@@ -665,7 +665,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - the inert `[SYNC]` columns;
     - the two generated backstops.
   - **Backlog notes** (section 10).
-- [ ] **Step 19: final gate.** `composer check` from `modules/host`, with counts and `test` seconds compared against step 0, then `composer test:fast` once.
+- [x] **Step 19: final gate.** `composer check` from `modules/host`, with counts and `test` seconds compared against step 0, then `composer test:fast` once.
   - *(AC-38, AC-39.)*
 
 ## 7. Test strategy

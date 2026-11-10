@@ -1234,6 +1234,70 @@ Split bill: several `sales` sharing `order_id` and `split_group`. Merge: source 
 | customer_notes | `[ID]` `[TS]` `[BY]`, customer_id FK CASCADE, note TEXT, pinned BOOL, follow_up_date NULL |
 | customer_communications | `[ID]` `[TS]`, customer_id FK, channel enum(call, email, sms, whatsapp, visit, campaign), direction enum(in, out), subject, body, campaign_ref, employee_id FK NULL, occurred_at, delivery_id FK NULL |
 
+#### As built (T-028)
+
+T-028 is the first implementation of this section — eight tenant migrations (`customer_groups`,
+`customers`, `customer_addresses`, `customer_ledger`, `loyalty_programs`, `loyalty_transactions`,
+`customer_notes`, `customer_communications`), the credit-ledger and loyalty calculators, the two
+append-only writers, and 24 CRUD slices under `packages/customers`.
+
+**Five documented columns deferred, by the same two-step mechanism as T-027.** `customers.
+receivable_account_id` (`accounts`, Finance), `customer_ledger.ar_document_id` (`ar_documents`,
+Finance), `loyalty_transactions.sale_id` (`sales`, plus its own `unique(sale_id, type)`) and
+`customer_communications.delivery_id` (`deliveries`, as `BIGINT UNSIGNED` — §6.16 gives `deliveries.
+id` a BIGINT AUTO key, not a ULID) are not built, because none of their target tables exist yet. Each
+owning task (FP-260, FP-264, FP-233, FP-295) owes an **expand** migration for the column and a
+separate **contract** migration for the foreign key — never a single combined step, under this
+codebase's own migration source rules. `customers.custom_fields` is likewise deferred, following
+`products`' own precedent: no `custom_field_definitions` table exists.
+
+**Points are `DECIMAL(18,4)`, not `(18,2)`.** `customer_groups.default_credit_limit`, `customers.
+credit_limit`/`credit_balance`/`opening_balance`/`lifetime_value`/`loyalty_points`, both ledgers'
+`debit`/`credit`/`balance_after`/`points`/`value` are all `(18,4)`; `customer_groups.discount_percent`
+and `loyalty_multiplier` are `(9,4)`, the rate/percentage pair. Every amount is an exact `brick/math`
+`BigDecimal` and is never rounded — the one exception, reserved for a future earn engine that
+multiplies money by a rate before calling the loyalty writer, rounds `HALF_UP` to 4 decimals **before**
+that call; neither calculator shipped here ever multiplies.
+
+**Debit/credit side and points sign are hard rules, not conventions.** Credit-ledger entry types are
+fixed to one side (`credit_sale`/`debit_note` debit-only; `payment`/`refund`/`credit_note`/`write_off`
+credit-only) or either side (`opening`, `adjustment`); loyalty `earn` is always positive, `redeem` and
+`expire` always negative, and `adjust`/`transfer` take either sign. A breach is refused by name
+(`wrong_side`/`wrong_sign`) before anything is written.
+
+**`loyalty_programs.tier_rules` carries one minimal validated shape**: `null`, or a non-empty list of
+`{"tier": <string, ≤ 50 chars>, "min_points": <decimal string, ≤ 4 dp>}` with unique tier names and
+unique `min_points` values. The tier is the entry with the greatest `min_points` at or below the
+customer's balance; no qualifying entry, or `null` rules, gives tier `null`. `earn_rule` and
+`redeem_rule` stay fully opaque — nothing in this task evaluates either, since the caller supplies
+`points` directly.
+
+**Merging two customers moves balances by compensating ledger entries, never by rewriting history.**
+A non-zero source balance posts a credit-ledger `adjustment` pair (reference `customer_merge_out` on
+the source, `customer_merge_in` on the target, both keyed by the source's id) and a loyalty `transfer`
+pair under the program of the source's most recent loyalty row; the source's own ledger and loyalty
+rows never change `customer_id`. Only `customer_addresses`, `customer_notes` and
+`customer_communications` are reassigned to the target. The source ends with `merged_into_id` set and
+is soft-deleted, its balances already zero by the ledger itself.
+
+**Replay is a named outcome, not silent.** A `customer_ledger` write is keyed by
+`(reference_type, reference_id, type)`; the same key with the same `customer_id`/`debit`/`credit`/
+`currency` returns the original row with `replayed = true` and writes nothing more, while a different
+payload under the same key is refused as `replay_conflict`, naming the existing row. A
+`loyalty_transactions` write may additionally carry a caller-supplied `id` (the `[SYNC]`-entity shape
+in §3.1) as the same kind of replay key.
+
+**`[SYNC]` is built present but inert** on `customers` and `loyalty_transactions`: `origin` defaults to
+`online`, `sync_status` defaults to `synced`, every other `[SYNC]` column defaults to null, and none
+carries a foreign key, because §3.1's tag states none. Nothing in this task reads or branches on any of
+them; FP-237 (Sync) is the first consumer.
+
+**Two generated-column backstops, the `product_barcodes.primary_product_id` shape.**
+`customer_groups.default_marker` (`CASE WHEN is_default THEN 1 END`, unique) keeps exactly one default
+group; `customer_addresses.default_customer_id` (`CASE WHEN is_default THEN customer_id END`, unique
+with `type`) keeps exactly one default address per `(customer, type)`. Both leave every non-default row
+unconstrained, because NULLs are distinct in a unique index on both engines.
+
 ### 6.10 Finance — general ledger, AR, AP, cash and bank
 
 This is the domain that the v0.3 split made impractical and that one database makes ordinary: the ledger joins the subledgers.
