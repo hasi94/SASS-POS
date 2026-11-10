@@ -1,19 +1,32 @@
 # T-030: Sales — cart, tenders, hold and recall, refunds, voids, cash shifts
 
+**Revision 2.** `architect6` reviewed revision 1 against the real shipped T-027/T-028 code and
+T-029's committed plan (not this spec's assumptions about either) and found 21 inconsistencies —
+4 serious enough to change behaviour (F-2 to F-5), 8 more that change behaviour in a smaller way
+(F-1, F-6, F-7, F-10, F-12, F-13, F-15 to F-17), and 9 small corrections (F-8, F-9, F-11, F-14,
+F-18 to F-21). Every one is resolved below and logged in `docs/decisions/T-030-sales.md` D-29 to
+D-50; two were offered as product questions (bill-level discounts, refund pricing) and the lead
+ruled on both directly rather than escalating further (D-35, D-38). Nothing in this revision
+changes the task's outer scope boundary from revision 1 — the same things stay out (D-1, D-6,
+D-7, D-10).
+
 Spec written **spec-ahead** of two unfinished dependencies: T-029/FP-231 (Taxes, price lists,
 discounts — `packages/pricing`) and T-028/FP-232 (Customers — `packages/customers`), both still
 being implemented on their own branches. No code is built from this spec until both are DONE
 and this branch is rebased onto their tip. Every place this spec names either package's contract,
 it is naming intent, not a literal signature, and `dev` reconciles against the real shipped
-interface before writing code (see decisions D-4/D-5).
+interface before writing code (see decisions D-4/D-5, and the plan's own step 0 reconciliation
+table).
 
-Backlog: FP-233, `docs/backlog.md`. Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-28).
+Backlog: FP-233, `docs/backlog.md`. Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-50).
 Design inputs read directly: `docs/architecture.md` v0.5 §1, §3, §8, §11, §12, §15, §21-22;
 `docs/database.md` v0.5 §3, §6.4 to §6.9 (Catalog, Pricing/tax, Inventory's unit-inheritance
-rule, Sales/POS, Payments, Customers); T-027's decisions/plan (`UnitResolver`, `SnapshotCalculator`,
-the published `Contracts\Catalog\UnitResolver`); T-029's decisions/plan (`PricingEngine`, the
-six-step price ladder, discount calculator, fixture discipline); T-028's decisions (the customer
-credit ledger, the `loyalty_transactions.sale_id` deferral it left for this task).
+rule, Sales/POS, Payments, Customers, §12.1's credit-sale transaction shape); T-027's decisions/
+plan (`UnitResolver`, `SnapshotCalculator`, the published `Contracts\Catalog\UnitResolver`);
+T-029's decisions/plan (`PricingEngine`, the six-step price ladder, discount calculator, fixture
+discipline); T-028's decisions/plan (the customer credit ledger's real unique key and contract,
+and the `loyalty_transactions.sale_id` deferral it left for this task); `docs/plans/T-030-sales.md`
+section 0 (`architect6`'s findings against all three).
 
 ## Problem / goal
 
@@ -28,15 +41,16 @@ and the offline sync layer (FP-237, separate) will call once they exist.
 This task deliberately does **not** build: real-time stock validation/decrement (FP-234, its own
 backlog row), COGS/GL posting (Finance, FP-260/FP-263, not yet built), the full payment-gateway/
 settlement apparatus (§6.8, no live gateway at launch), quotations/sales orders, the restaurant
-domain, or `exchange`-type sales. See Out of scope and `docs/decisions/T-030-sales.md` D-1, D-6,
-D-7, D-10 for why each is a clean boundary rather than an oversight.
+domain, `exchange`-type sales, or bill-level discount splitting (deferred by the lead's own
+ruling, D-35). See Out of scope and `docs/decisions/T-030-sales.md` D-1, D-6, D-7, D-10, D-35 for
+why each is a clean boundary rather than an oversight.
 
 ## Users affected
 
 - **Cashiers**, who build and complete a sale, hold and recall a parked sale, open and close their
   own cash shift, and request a supervisor's approval when a rule requires one.
-- **Supervisors/managers**, who decide (approve or reject) a pending approval request by PIN, and
-  who reconcile a closed shift.
+- **Supervisors/managers**, who decide (approve or reject) a pending approval request by PIN plus
+  a checked permission (D-30), and who reconcile a closed shift.
 - **Customers**, whose purchase history, store-credit balance and (where a later caller chooses to
   record it) loyalty points are affected by a completed sale, a void, or a refund.
 - **Downstream modules not yet built**: Inventory (FP-250)/stock-validation (FP-234) read this
@@ -61,10 +75,12 @@ D-7 exists in the shipped tree. This is new functionality, not a change to exist
 - As a cashier, I want to void a sale I have not yet completed, so that an abandoned or mis-rung
   cart leaves no financial trace.
 - As a cashier or manager, I want to refund a completed sale, fully or in part, so that a returned
-  item is handled as its own document without editing the original receipt.
-- As a cashier, I want a supervisor's PIN to unlock an action the rules restrict (voiding a
-  completed sale, an over-threshold discount, a price override), so that sensitive corrections are
-  never a unilateral cashier action.
+  item is handled as its own document without editing the original receipt, and so that the
+  customer gets back what they actually paid.
+- As a cashier, I want a supervisor's PIN **and** the right permission to unlock an action the
+  rules restrict (voiding a completed sale, an over-threshold discount, a price override), so that
+  sensitive corrections are never a unilateral cashier action and never just "whoever knows a
+  second PIN."
 - As a cashier, I want to open my cash drawer at the start of a shift and close it at the end with
   a counted-cash figure, so that any shortage or overage is visible the same day.
 - As a supervisor, I want to mark a closed shift reconciled, so that the shift's own lifecycle has
@@ -72,142 +88,225 @@ D-7 exists in the shipped tree. This is new functionality, not a change to exist
 
 ## Acceptance criteria
 
-Decimal/date conventions throughout: every money and quantity value is `DECIMAL(18,4)` (D-27);
-every refusal is a named code, writing nothing, with the existing field(s) and reason stated; every
-list feature supports offset-or-cursor pagination from day one (D-26); every write is attributed to
-an actor id and audited, one row per write, matching the T-027/T-028/T-029 slice shape.
+Decimal/date conventions throughout: every money and quantity column this task adds is
+`DECIMAL(18,4)` **except** the three columns that reuse this schema's other already-allowed
+pairs — `sale_items.unit_factor` at `(18,6)`, `sale_items.discount_percent`/`payment_methods.
+surcharge_percent` at `(9,4)`, `sales.exchange_rate` at `(18,8)` — and no fifth pair is introduced
+(D-45/F-19). Every refusal is a named code, writing nothing, with the existing field(s) and reason
+stated. Every list feature supports offset-or-cursor pagination from day one (D-26). Every write
+is attributed to an actor id and audited, one row per write, matching the T-027/T-028/T-029 slice
+shape.
 
 ### A — Sale header and cart lines
 
-- AC-1: `CreateSale` opens a new `sales` row with `status = draft`, `branch_id`, `location_id`,
-  `terminal_id`, `employee_id` (the cashier), `business_date` (server date — D-23's scope; no
-  client-submitted date is accepted by this task), and an optional `customer_id`. It refuses
-  `no_open_shift` when the terminal has no `cash_shifts` row with `status = open` (D-22).
+- AC-1: `CreateSale` opens a new `sales` row with `status = draft`, `branch_id`/`location_id`
+  taken from the terminal (never client-supplied), `employee_id` (the cashier/actor),
+  `business_date` from the branch's own timezone (server-resolved — D-23's scope; no
+  client-submitted date is accepted by this task), `business_date_source = server`, `currency`
+  from the branch, and `shift_id` set to the terminal's currently open shift. It refuses
+  `no_open_shift` when the terminal has no `cash_shifts` row with `status = open` (D-22), and
+  `not_found` when an optional supplied `customer_id` is unknown, soft-deleted or already merged
+  into another customer.
 - AC-2: `AddSaleLine` adds a `sale_items` row carrying the full `[UOM]` quad — `unit_id` (any unit
   convertible to the product's stock unit), the resolved `unit_factor` and `base_quantity` from
   `Contracts\Catalog\UnitResolver::snapshot()` (never hand-computed) — plus `product_id`, and the
   snapshot columns `product_name`, `sku`, `unit_code`, `category_id`, `brand_id` taken from the
   product at the moment the line is added (so a later rename/recategorisation does not change an
-  existing line, matching `docs/database.md` §6.7's own stated reason for those columns).
+  existing line, matching `docs/database.md` §6.7's own stated reason for those columns). An
+  optional line-level `employee_id` (salesperson, for category-based commission) is validated
+  against Organization's employee directory.
 - AC-3: `AddSaleLine` refuses `unit_unresolvable` when `UnitResolver::snapshot()` throws (the line
   unit does not convert to the product's stock unit at all), naming the requested unit and the
   product's stock unit.
-- AC-4: Every `AddSaleLine`/`UpdateSaleLine` call prices the line by calling `Contracts\Pricing\
-  PricingEngine::quoteLine()` (D-4) with the line's `UnitSnapshot`, the sale's `customer_id`/
-  `branch_id` and the sale's `business_date`, and stores the returned `listPrice`, `unitPrice`,
-  `discountAmount`/`discountId`, `taxGroupId`, `taxAmount`/`taxBreakdown` and `lineTotal` verbatim
-  onto `sale_items`' matching columns. This task performs no tax or discount arithmetic of its own
-  anywhere.
+- AC-4: Every `AddSaleLine`/`UpdateSaleLine` call (other than an approved price override, AC-7)
+  prices the line by calling `Contracts\Pricing\PricingEngine::quoteLine()` with the line's
+  `UnitSnapshot`, the sale's `customer_id`, `customer_id`'s own `group_id` (read as a fact, not
+  re-derived), `branch_id`, the sale's `business_date` as the engine's `documentDate`, the current
+  UTC instant as `at`, and the sale's `currency`, and stores the returned `listPrice`, `unitPrice`,
+  `subtotal`, `discountAmount`/`discountId`, `taxGroupId`, `taxAmount`/`taxBreakdown` and
+  `lineTotal` verbatim onto `sale_items`' matching columns (including the new `subtotal` column,
+  D-44/F-18). This task performs no tax, discount or factor arithmetic of its own anywhere outside
+  the one override multiplication AC-7/D-40 names.
 - AC-5: `AddSaleLine`/`UpdateSaleLine` refuses `unresolvable_price` when `quoteLine()` throws
   `no_price_resolved`, and surfaces every other `PricingRefused` reason the engine raises
-  (`unknown_product`, `unknown_tax_group`, `no_effective_rate`, etc.) under its own name, naming
-  nothing this task did not receive from the engine.
-- AC-6: `UpdateSaleLine` changes quantity, unit or an explicit price override and re-prices through
-  AC-4; `RemoveSaleLine` removes a line entirely. Both are refused (`sale_not_editable`) once the
-  sale's `status` is anything other than `draft` or `held` — a `pending_payment` sale (one or more
-  tenders already recorded) can still have tenders removed (AC-13) but not have its lines edited,
-  because a line change after money is on the table would silently invalidate an already-recorded
-  tender amount.
+  (`unknown_product`, `unknown_tax_group`, `no_effective_rate`, `not_applicable`, etc.) under its
+  own name, naming nothing this task did not receive from the engine.
+- AC-6: `UpdateSaleLine` changes quantity, unit or (via AC-7) a price override, and re-prices
+  through AC-4; `RemoveSaleLine` removes a line entirely. Both are refused `sale_not_editable`
+  once the sale's `status` is `pending_payment`, **and also refused `sale_not_editable` for a sale
+  `held` with a recorded `from_status` of `pending_payment`** (D-36/F-10) — only `draft`, and
+  `held` recorded `from_status = draft`, allow a line edit. A `pending_payment` sale can still have
+  tenders removed (AC-13) but never have its lines edited, because a line change after money is on
+  the table would silently invalidate an already-recorded tender amount, and recalling it first
+  does not change that: recall only restores the sale's prior status, it does not unlock its lines.
 - AC-7: A price override (a cashier typing a different `unitPrice` than the engine resolved) is
-  accepted only when accompanied by a decided `approval_requests` row of `type = price_override`
-  (D-13/D-14), refused `approval_required` otherwise, and the line's `price_overridden_by` is set
-  to the approving employee (never the requesting cashier — D-15's segregation rule applies here
-  too, enforced by the same approval-decide feature, AC-23).
-- AC-8: `sales.total`/`subtotal`/`discount_total`/`tax_total`/`rounding` are recomputed as a
-  rollup over current `sale_items` on every add/update/remove — never independently editable —
-  and a bill-level discount (`sales.bill_discount_id`/`bill_discount_value`) is applied through
-  `PricingEngine::billDiscount()` (D-4) against the sum of each line's `discountedSubtotal`
-  (matching T-029/D-19's own pre-tax base rule, read, not re-derived, by this task).
-- AC-9: `sale_items.price_from_label`, `kitchen_station_id` and `modifiers` are written only with
-  their schema default (`false`/`null`/`null`) by every path this task ships (D-8, D-9) — no
-  feature in this task sets any of the three to a caller-supplied value.
+  refused `price_override_not_allowed` when the product's `allow_price_override` is `false`, and
+  refused `discount_with_override` when the line also carries an item `discount_id` — an
+  overridden line carries no item discount. Accepted only when accompanied by a decided
+  `approval_requests` row of `type = price_override` whose payload matches `{product_id, unit_id,
+  unit_price}` exactly (D-47), refused `approval_required` otherwise. On success: `quoteLine()` is
+  still called once, to obtain `listPrice` and `taxGroupId` only; `subtotal = round(unitPrice ×
+  quantity, 4)` (the one multiplication this task's own code performs, confined to `Support/
+  Money.php`, D-40); tax is computed on that `subtotal` via the engine's `computeTax()`;
+  `lineTotal = tax.net + tax.total` (holds for an inclusive or exclusive tax group alike, so this
+  task never branches on inclusivity). The line's `price_overridden_by` is set to the **approving**
+  employee, never the requesting cashier (D-15's segregation rule, enforced by the same
+  approval-decide feature, AC-23).
+- AC-8: `sales.total`/`subtotal`/`discount_total`/`tax_total` are recomputed as a plain rollup
+  (sum) over current `sale_items`' own stored columns — including the new `sale_items.subtotal`
+  column (D-44/F-18), so the rollup never has to re-derive or branch on tax inclusivity — on every
+  add/update/remove, and are never independently editable. `sales.rounding` and `service_charge`
+  are always written `0.0000` (D-42/F-11 — no rounding policy or service-charge rule is documented
+  anywhere this task can read). **Bill-level discounts are not built in this task** (D-35/F-1):
+  `sales.bill_discount_id` and `bill_discount_value` exist as documented columns but are never
+  written by any feature here, and `CreateSale` refuses either as an unknown field if supplied.
+- AC-9: `sale_items.price_from_label` and `modifiers` are written only with their schema default
+  (`false`/`null`) by every path this task ships (D-8) — no feature in this task sets either to a
+  caller-supplied value. `sale_items.kitchen_station_id`, `batch_id`, `serial_id`, and every
+  Finance/gateway-adjacent column named in D-6/D-7/D-33 are **not built at all** on any table this
+  task migrates — not present with a default, simply absent, which AC-39's schema test proves.
 - AC-10: `sale_items.unit_cost`, `line_cost` and `sales.cost_total` stay `NULL` on every row this
-  task writes (D-1, D-2); `sales.stock_applied` stays `false`.
+  task writes (D-1, D-2); `sales.stock_applied` stays `false`. `sale_items.discount_percent` is
+  written `null` on every row (D-46/F-20 — `PricingEngine`'s `PricedLine` carries no item-level
+  discount-percent fact; its `listDiscountPercent` is the price list's own markdown rate, a
+  different number).
 
 ### B — Tenders
 
-- AC-11: `AddTender` records a `sale_tenders` row (`payment_method_id`, `method_code`/`method_type`
-  snapshotted from `payment_methods`, `amount`, `tendered`, `change_given`, an optional caller
-  identifier used as an idempotency key — AC-27) against a sale whose `status` is `draft`, `held`
-  or `pending_payment`; adding the first tender to a `draft`/`held` sale moves it to `pending_
-  payment`.
+- AC-11: `AddTender` records a `sale_tenders` row (`payment_method_id`, `method_code`/
+  `method_type` snapshotted from `payment_methods`, `amount`, `tendered`, `change_given`, a
+  caller-supplied ULID as the row's own id — `docs/database.md` §6.8's own stated precedent,
+  doubling as the idempotency key, AC-37) against a sale whose `status` is `draft`, `pending_
+  payment`, or `held` **only when its recorded `from_status = pending_payment`** (a sale held from
+  `draft` must be recalled first — Ruling 4's state machine, D-49); adding the first tender to a
+  `draft` sale, or re-tendering a recalled `pending_payment` sale, moves/keeps it at `pending_
+  payment`. A `credit` (store-credit) tender requires the sale to carry a `customer_id`, refused
+  `customer_required` otherwise — it posts **no ledger entry at this step** (D-29/F-3; posting
+  happens at completion, AC-14).
 - AC-12: A sale accepts more than one tender (split payment) in any combination of active
-  `payment_methods` rows; `sale_tenders.amount` for a `credit` (store-credit) method additionally
-  calls the Customers credit-ledger contract (D-5) to post a `credit_sale` entry for that amount,
-  refused (`credit_refused`, naming the contract's own reason) when Customers refuses it (no
-  credit allowed, over limit, inactive/merged customer).
+  `payment_methods` rows whose `type` is not `loyalty` or `voucher` (refused `unsupported_
+  method_type` — D-41/F-17, since neither has a backing deduction mechanism this task can call).
 - AC-13: `RemoveTender` reverses a mistakenly entered tender while the sale is still `pending_
-  payment` (not yet completed) by deleting the row outright (no money has moved outside this
-  task's own ledger-free bookkeeping at this stage) — never allowed once the sale is `completed`
-  (AC-16's void/refund paths are the only corrections after that point).
-- AC-14: `CompleteSale` is refused (`balance_due`, naming the remaining amount) unless the sum of
-  `sale_tenders.amount` equals `sales.total` within the sale's configured rounding tolerance; on
-  success it sets `status = completed`, `completed_at`, `paid_total`, `change_due`, and allocates
-  `sales.number` through Organization's existing `number_sequences` mechanism (D-20) — never a
-  second numbering scheme.
+  payment` (not yet completed) by deleting the row outright — including a `credit`-type tender,
+  which is now safe to delete plainly because no ledger entry was ever posted for it (D-29/F-3
+  corrects revision 1's claim here) — never allowed once the sale is `completed` (AC-21/AC-25's
+  void/refund paths are the only corrections after that point).
+- AC-14: `CompleteSale` is refused `balance_due` (naming the remaining amount) unless the sum of
+  `sale_tenders.amount` equals `sales.total` exactly (D-42 — no rounding tolerance is configured);
+  on success, inside one transaction, it: posts one `credit_sale` entry per **credit tender**
+  present on the sale through the Customers credit-ledger contract, keyed `reference_type =
+  'sale_tender'`, `reference_id = <that tender's own id>` (D-29/F-2/F-3 — never keyed on the sale
+  itself, so a sale with two credit tenders posts two independently-replayable entries), refused
+  `credit_refused` (carrying the ledger's own refusal reason) with nothing written on failure;
+  calls `Contracts\Pricing\DiscountUsage::consume()` once per **distinct** `discount_id` actually
+  used on the sale (D-37/F-12), refused `usage_limit_reached` with nothing written; allocates
+  `sales.number` through the new `Contracts\Organization\DocumentNumbers::next('sale', $branchId)`
+  contract (D-31/F-6 — never a second numbering scheme); and sets `status = completed`,
+  `completed_at`, `paid_total`, `change_due`.
 - AC-15: `CompleteSale` performs no stock check, no stock write, and no GL/journal posting (D-1,
-  D-6) — it is a pure status/number/paid-total transition over this task's own tables.
+  D-6) — every write it makes is to this task's own tables plus the two named cross-package calls
+  in AC-14.
 - AC-16: `payment_methods` (code, name, type, `is_active`, `opens_drawer`, `requires_reference`,
   `allows_change`, `allows_refund`, `allows_partial`, `rounding_rule`, `surcharge_percent`) is
-  built as ordinary CRUD, soft-deletable, with a reference guard refusing deactivation while any
-  `pending_payment`/`draft` sale references it as a tender candidate — `gateway`/`settings`/
-  `financial_account_id` stay unbuilt or unused (D-6, D-7).
+  built as ordinary CRUD, soft-deletable, with a reference guard refusing deactivation/deletion
+  while any `draft`/`held`/`pending_payment` sale holds a tender on the method (`in_use`, naming
+  the count) — accepted again once every such sale completes, voids, or is otherwise resolved.
+  `financial_account_id`/`gateway`/`settings` are refused as unknown fields, not silently dropped
+  (D-6/D-33) — they are not built columns at all.
 
 ### C — Hold and recall
 
 - AC-17: `HoldSale` moves a `draft` or `pending_payment` sale to `status = held`, recording the
-  status it held from.
-- AC-18: `RecallSale` moves a `held` sale back to exactly the status recorded at AC-17 (D-25), and
-  may be called from a different `terminal_id`/employee session than the one that created or held
-  it — `sales.terminal_id` is updated to the recalling terminal; `sales.employee_id` (the original
-  cashier) is never changed by this feature (D-24).
-- AC-19: Every hold and every recall is appended to an audit trail naming the acting employee, the
-  terminal, and the timestamp, independent of the sale's own `updated_at` (which a status column
-  change already touches) — so "who parked this and who picked it up" is answerable without
-  diffing audit-log rows against unrelated edits.
+  status it held from (a new `sale_holds` row, D-44/F-18, `action = hold`, `from_status`,
+  `to_status = held`, the acting terminal and employee) — this `from_status` is exactly what
+  AC-6/D-36 and AC-11 each read to decide whether the sale's lines are editable or a tender may be
+  added once it is later recalled.
+- AC-18: `RecallSale` moves a `held` sale back to exactly the status recorded at AC-17 (D-25),
+  reassigning `sales.terminal_id` to the recalling terminal and `sales.shift_id` to that
+  terminal's own currently open shift (refused `no_open_shift` if it has none, D-39/F-15) — it may
+  be called from a different terminal/employee session than the one that created or held it;
+  `sales.employee_id` (the original cashier) is never changed by this feature (D-24). A second
+  `sale_holds` row is appended (`action = recall`).
+- AC-19: Every hold and every recall is appended to the `sale_holds` audit trail naming the acting
+  employee, the terminal, and the timestamp, independent of the sale's own `updated_at` — so "who
+  parked this and who picked it up" is answerable without diffing audit-log rows against unrelated
+  edits.
 - AC-20: A list of currently held sales (for a "recall" screen) is scoped to the branch, not the
   terminal that created them — any terminal in the branch can see and recall any held sale in that
-  branch, matching the user story's "possibly a different terminal."
+  branch, matching the user story's "possibly a different terminal," and is paginated (D-26).
 
 ### D — Voids
 
-- AC-21: `VoidSale` on a `draft`, `held` or `pending_payment` sale requires no approval (D-14),
+- AC-21: `VoidSale` on a `draft`, `held`, or `pending_payment` sale requires no approval (D-14),
   sets `status = voided`, `voided_by`, `void_reason`, `voided_at`, and reverses every recorded
   tender with a mirror, opposite-signed `sale_tenders` row rather than deleting or editing the
-  original (D-16) — including reversing any `credit_sale` ledger entry AC-12 posted, through the
-  same Customers contract (D-5), as a compensating entry.
-- AC-22: `VoidSale` on a `completed` sale requires a decided, `approved` `approval_requests` row of
-  `type = void` (D-13/D-14), refused `approval_required` otherwise, and the decider must not be the
-  sale's own `employee_id` (D-15, `self_approval_not_allowed`). On success it behaves exactly as
-  AC-21 for the tender-reversal and ledger-compensation steps, and additionally does **not** write
-  any stock or GL effect (D-16 — there is none to reverse under this task's own scope).
+  original (D-16) — a credit tender has no ledger entry to compensate at this stage, because none
+  was ever posted before completion (AC-11/D-29).
+- AC-22: `VoidSale` on a `completed` sale requires: a decided, `approved` `approval_requests` row
+  of `type = void` whose binding matches `{reference_type: 'sale', reference_id: <the sale>}`
+  (D-47), refused `approval_required` otherwise; the decider must not be the sale's own
+  `employee_id` nor the request's own `requested_by` (D-15, `self_approval_not_allowed`); and the
+  sale's own `shift_id` must still be `open` (D-39/F-15, refused `shift_closed` otherwise —
+  directing the cashier to a refund instead, since a mirror tender on an already-closed, already-
+  counted shift would never be reflected in any drawer count). On success it behaves exactly as
+  AC-21 for the tender-reversal step, **and additionally compensates any `credit_sale` ledger
+  entry AC-14 posted for this sale with a `credit_note`-type entry** (D-29/F-4 — never `payment`,
+  which the ledger's own enum documents as a customer-initiated payment, not a credit correction),
+  keyed `('sale_tender', <the mirror tender's own id>, credit_note)`. It writes no stock or GL
+  effect (D-16 — there is none to reverse under this task's own scope), and does not release any
+  `DiscountUsage::consume()` already recorded (D-37 — usage is never released on void, a
+  conservative, reversible default).
 - AC-23: `RequestApproval`/`DecideApproval` build `approval_requests` for `type` in `{discount,
-  void, refund, price_override}` only (D-13); `DecideApproval` verifies the deciding employee's PIN
-  through Identity's existing PIN-verification mechanism (D-12), sets `decision_method = pin_local`,
-  and refuses `pin_invalid` on a failed verification without revealing which part failed. `type =
-  credit_limit`, `negative_stock` and `custom`, and `decision_method = remote`, are not reachable
-  through any feature this task ships (D-12, D-13) — the enum values exist in the schema for
+  void, refund, price_override}` only (D-13); every other `type` value is refused `validation`.
+  `DecideApproval` runs in a fixed order (D-30/F-5, Ruling 5): first, **outside any transaction**,
+  it calls the new `Contracts\Access\PinVerifier::verify()` — a null result (wrong PIN, unknown
+  code, or a locked employee, indistinguishable to this caller) is refused `pin_invalid` with
+  nothing in the sales tables written, while Access's own lockout counter still increments exactly
+  as it would for a direct PIN attempt; then, inside one transaction, it checks the decider is not
+  `requested_by` nor (for a `sale`-referenced request) the sale's own `employee_id`
+  (`self_approval_not_allowed`, D-15), checks the decider holds the new `sales.approvals.decide`
+  permission at the request's own branch via `PermissionResolver::decide()` (`not_authorised`,
+  D-30), and only then sets `status`, `decided_by`, `decided_at`, `decision_method = pin_local`,
+  `reason`. `decision_method = remote`, and `type` in `{credit_limit, negative_stock, custom}`, are
+  not reachable through any feature this task ships (D-12, D-13) — the enum values exist for
   forward compatibility only.
-- AC-24: A `pending`/`expired` `approval_requests` row cannot be reused for a second, unrelated
-  write once decided — `DecideApproval` is a one-time transition (`pending` → `approved`/
-  `rejected`), and the write that consumed an `approved` row marks it consumed so a second write
-  cannot replay the same approval (`approval_already_used`).
+- AC-24: A `pending`-row decide call twice is refused `approval_not_pending`; deciding an already-
+  decided row a second time (or consuming an `approved` row twice) is refused `approval_already_
+  used`, enforced by the new `approval_requests.consumed_at` column (D-44/F-18) which the
+  consuming write sets in the same transaction as its own change; consuming a `rejected` row is
+  refused `approval_not_approved`; and a type/`reference_type`/`reference_id`/payload mismatch
+  against the fixed binding table (D-47, AC-7/AC-22/AC-23's own references) is refused `approval_
+  mismatch` — naming nothing the approval itself did not already carry.
+- AC-23a: A discount requiring approval — `discounts.requires_approval = true` on the discount a
+  line's `discount_id` names, read directly as a fact (D-37/F-12) — refuses that line's add/update
+  with `approval_required` unless a consumed `discount`-type approval exists whose payload
+  `{discount_id}` matches. `approval_threshold`/`workflow_definition_id` are not evaluated by
+  anything in this task (a forward note, D-37).
 
 ### E — Refunds
 
-- AC-25: `RefundSale` creates a new `sales` row, `type = refund`, its own `number` (D-20, a
-  distinct sequence key from `sale`), and `reference_sale_id` pointing at the original sale when
-  one is supplied, or `null` for a goodwill refund with no original (D-19).
-- AC-26: Each refund line sets `refund_of_item_id` to the original line's id (when a
-  `reference_sale_id` is given) and resolves its `UnitSnapshot` through `UnitResolver::
-  snapshotInherited()` (D-3) — reusing the original line's `unit_factor` when the refund is taken
-  in the same unit, converting base-to-base otherwise, and never re-walking the price/unit ladder
-  for the unit factor. A goodwill refund line (AC-19/D-19, no `refund_of_item_id`) resolves its
-  `UnitSnapshot` through the ordinary `snapshot()` instead.
-- AC-27: Every refund line is re-priced through `PricingEngine::quoteLine()` for the refunded
-  quantity (D-17) — never copied verbatim from the original line's stored price — because a
-  partial refund's quantity can legitimately re-resolve a different price-list step than the
-  original full-quantity line did.
+- AC-25: `RefundSale` creates a new `sales` row, `type = refund`, its own `number` allocated
+  through `DocumentNumbers::next('refund', $branchId)` (D-31/F-6 — a distinct prefix/sequence from
+  `sale`), and `reference_sale_id` pointing at the original sale when one is supplied, or `null`
+  for a goodwill refund with no original (D-19).
+- AC-26: Each refund line sets `refund_of_item_id` to the original line's id (when a `reference_
+  sale_id` is given) and resolves its `UnitSnapshot` through `UnitResolver::snapshotInherited
+  (productId, referencedUnitId, referencedUnitFactor, unitId, quantity)` (D-32/F-7) — reusing the
+  original line's `unit_factor` when the refund's own requested unit equals the referenced line's
+  unit, using a factor of exactly `1.000000` when the requested unit is the product's own stock
+  unit (read by the resolver itself, never trusted from the caller), and refusing
+  `inherited_unit_mismatch` (naming both units) for any third unit — never re-walking `UnitLadder`
+  for any case. A goodwill refund line (no `refund_of_item_id`, D-19) resolves its `UnitSnapshot`
+  through the ordinary `snapshot()` instead, since there is nothing to inherit from.
+- AC-27: A referenced refund line (one with `refund_of_item_id` set) is re-quoted through
+  `PricingEngine::quoteLine()` using the **original sale's own `completed_at` as `at`, the
+  original sale's own `business_date` as `documentDate`, and the original line's own `discount_id`**
+  (D-38/F-13 — refunds pay back what was actually charged, the standard retail convention, not
+  today's price) — never copied verbatim from the original line's stored price, because a partial
+  refund's smaller quantity can legitimately land on a different price-list step than the
+  original full-quantity line did; it is the engine's input *instant*, not the pricing *method*,
+  that is anchored to the original sale. A goodwill refund line is quoted at the refund's own
+  current instant, having no original sale to anchor to.
 - AC-28: `RefundSale` refuses `over_refund` (naming the line's remaining refundable quantity) when
   the requested refunded quantity on any line, added to that line's existing `refunded_quantity`,
   would exceed the original line's `base_quantity`; it refuses `fully_refunded` when every line of
@@ -215,61 +314,116 @@ an actor id and audited, one row per write, matching the T-027/T-028/T-029 slice
   lines' `refunded_quantity` and the original sale's own `status` to `refunded` (every line fully
   refunded) or `partially_refunded` (some, not all).
 - AC-29: `RefundSale` requires a decided, `approved` `approval_requests` row of `type = refund`
-  (D-14), with the same self-approval restriction as AC-22 where the original sale's `employee_id`
-  is known (a goodwill refund with no original sale has no `employee_id` to compare against, and
-  is refused `approval_required` on the same `type = refund` gate with no self-approval check to
-  apply).
-- AC-30: `RefundSale`'s own tenders (`sale_tenders`, negative-signed — money paid back to the
-  customer) follow AC-12's rule set exactly, including a `credit` refund method posting a
-  compensating `refund` entry through the Customers contract (D-5).
+  (D-14), bound per D-47: `{reference_type: 'sale', reference_id: <the original sale>}` when one
+  is named, or `{reference_type: 'goodwill_refund', reference_id: null}` for a goodwill refund —
+  with the same self-approval restriction as AC-22 where the original sale's `employee_id` is
+  known (a goodwill refund has no sale to compare the decider against, so only the `requested_by`
+  check applies).
+- AC-30: `RefundSale`'s own `sale_items` carry unsigned (positive) quantities and money — the
+  document's own `type = refund` carries the direction, not the numbers inside it (D-43/F-14) —
+  while its `sale_tenders` are negative-signed (money paid back to the customer), following AC-12's
+  method rules exactly, including a `credit` refund method posting a compensating `refund`-type
+  entry through the Customers contract, keyed on that refund tender's own id. A refund completes
+  when `Σ sale_tenders.amount = −sales.total`.
 - AC-31: `RefundSale` writes no stock movement and no GL posting (D-1, D-6, D-17) — identical
-  scope boundary to Void.
+  scope boundary to Void — and does not release any `DiscountUsage::consume()` the original sale
+  recorded (D-37).
 
 ### F — Cash shifts
 
 - AC-32: `OpenCashShift` creates a `cash_shifts` row (`status = open`, `branch_id`, `terminal_id`,
-  `employee_id`, `opening_cash`) and refuses `shift_already_open` when the terminal already has one
-  open (D-22).
+  `employee_id`, `opening_cash`, `number` allocated through `DocumentNumbers::next('cash_shift',
+  $branchId)`, D-31/F-6) and refuses `shift_already_open` when the terminal already has one open
+  (D-22, backed by a generated unique column so the race is caught at the database, not only in
+  application logic).
 - AC-33: `RecordCashMovement` appends a `cash_movements` row (`type` in `{cash_in, cash_out,
-  float_in, float_out, drop, petty_cash, bank_deposit}`, `amount`, `reason`, `employee_id`) against
-  an `open` shift only, refused `shift_not_open` otherwise; `financial_account_id` stays unset
-  (D-6).
-- AC-34: `CloseCashShift` requires a caller-supplied `counted_cash`, computes `expected_cash`
-  (opening cash plus every cash-method tender and cash-type movement recorded against the shift,
-  minus any cash refund tenders) and `variance = counted_cash − expected_cash`, sets `status =
-  closed`, `closed_at`, `closed_by`, and refuses `shift_not_open` on a shift that is not currently
-  `open`.
-- AC-35: `CloseCashShift` also computes and stores `totals_by_method` (a JSON map of payment-method
-  code to summed tendered amount for the shift), `sales_count`, `refunds_count`, `gross`,
-  `discounts`, `tax`, `net` — all as a rollup over this task's own `sales`/`sale_tenders` rows for
-  the shift, with no GL posting (D-6).
+  float_in, float_out, drop, petty_cash, bank_deposit}`, `amount` (always stored positive — the
+  sign is a property of `type`, D-39/F-15: `cash_in`/`float_in` add to expected cash, the other
+  four subtract), `reason`, `employee_id`, a caller-supplied id doubling as the idempotency key)
+  against an `open` shift only, refused `shift_not_open` otherwise; `financial_account_id` is not
+  a built column at all (D-6/D-33).
+- AC-34: `CloseCashShift` is refused `shift_has_open_sales` while any `draft` or `pending_payment`
+  sale still names the shift (D-39/F-15 — a `held` sale does not block the close, since it carries
+  no open tender to reconcile against). It otherwise requires a caller-supplied `counted_cash`,
+  computes `expected_cash` (opening cash, plus every cash-method tender and every `cash_in`/
+  `float_in` movement, minus every `cash_out`/`float_out`/`drop`/`petty_cash`/`bank_deposit`
+  movement and every cash-method refund tender recorded against the shift) and `variance =
+  counted_cash − expected_cash`, sets `status = closed`, `closed_at`, `closed_by`, and refuses
+  `shift_not_open` on a shift that is not currently `open`.
+- AC-35: `CloseCashShift` also computes and stores, each precisely defined (D-39/F-15):
+  `sales_count` (every `type = sale` row with `status` in `{completed, refunded, partially_
+  refunded}` on this shift); `refunds_count` (every `type = refund` row on this shift);
+  `gross`/`discounts`/`tax` (the sum of `subtotal`/`discount_total`/`tax_total` over the same sale
+  rows); `net` (`Σ sale.total − Σ refund.total`); `totals_by_method` (a JSON map of payment-method
+  code to the summed, signed `sale_tenders.amount` for the shift — never `tendered`, which would
+  double-count change already paid back out of the drawer as a separate method entry). None of
+  this posts to a GL (D-6).
 - AC-36: `ReconcileCashShift` moves a `closed` shift to `status = reconciled`, recording
   `reconciled_by`, and performs no comparison against any external record (D-21) — it is a status
-  marker only, callable by any authorised supervisor regardless of whether they closed the shift.
-- AC-37: `RecordCashMovement`/`CloseCashShift`/`ReconcileCashShift` are each independently
-  idempotent by a caller-supplied identifier (the same replay-safety discipline every other
-  financial write in this codebase already carries) — a replay with an identical payload is a
-  no-op returning the original result; a replay with a different payload under the same identifier
-  is refused `replay_conflict`.
+  marker only, callable by any employee holding the new `sales.shifts.reconcile` permission
+  (D-30) at the shift's own branch, regardless of whether they closed it, refused `not_authorised`
+  otherwise.
+- AC-37: `RecordCashMovement` is idempotent by its own caller-supplied id (AC-33); a replay with an
+  identical payload is a no-op returning the original row, a replay with a different payload under
+  the same id is refused `replay_conflict`. `CloseCashShift`/`ReconcileCashShift` are each
+  idempotent using **the shift's own id** as the natural key (D-50) — a replayed close against an
+  already-`closed`/`reconciled` shift with the same `counted_cash` returns the stored result
+  unchanged; a different `counted_cash` is `replay_conflict`; a replayed reconcile against an
+  already-`reconciled` shift is a plain no-op. `AddTender` is likewise idempotent by its own
+  caller-supplied id (AC-11), on the same rule.
 
-### G — Static and engine instruments
+### G — Owed cross-package contracts (built by this task)
 
-- AC-38: A source-rules test asserts no file under this task's package computes tax, discount or
+- AC-38: `Contracts\Catalog\UnitResolver` gains `snapshotInherited()` exactly as D-32/F-7
+  specifies, plus `FactorSource::Inherited` and `UnitRefusal::InheritedUnitMismatch`, implemented
+  in `packages/catalog` (the backlog's own "owes, per T-027" line, discharged here) and proven
+  against the catalog unit-fixture discipline T-029/D-21 already established — at minimum one
+  same-unit-inherit case, one stock-unit case, and one refused third-unit case.
+- AC-39: `Contracts\Access\PinVerifier` is added, implemented in `packages/access` by delegating to
+  the existing `VerifyPinHandler`, proven to return an indistinguishable `null` for a wrong PIN, an
+  unknown employee code, and a locked employee, and proven that calling it **inside** a
+  transaction that later rolls back would lose Access's own lockout-counter increment (the reason
+  D-30 requires it be called outside one).
+- AC-40: `Contracts\Organization\DocumentNumbers` is added, implemented in `packages/organization`,
+  proven for: first use creating a company-wide default row and returning the correctly-prefixed
+  first number; a branch-scoped row winning over the company-wide row when both exist; `sale`/
+  `refund`/`cash_shift` allocating independently; a `reset_period` other than `never` refused
+  `unsupported_reset_period`; a call inside a rolled-back transaction leaving the counter
+  unchanged; and a concurrent first-use race retried once rather than failing.
+- AC-41: `Contracts\Pricing\DiscountUsage` is added, implemented in `packages/pricing`, proven for:
+  `consume()` incrementing `used_count` by exactly one; refusing `usage_limit_reached` with
+  nothing written once `used_count` would reach `usage_limit`; and refusing `unknown_discount` for
+  an unknown or soft-deleted discount id.
+
+### H — Static and schema instruments
+
+- AC-42: A source-rules test asserts no file under `packages/sales` computes tax, discount or
   unit-factor arithmetic itself — every such computation is a call into `Contracts\Pricing\
-  PricingEngine` or `Contracts\Catalog\UnitResolver`, mirroring T-029's own AC-25 instrument and
-  T-027's factor-multiplication scan, which this task's package must pass with zero exemptions
-  needed (it performs no arithmetic of its own to exempt).
-- AC-39: A schema test asserts every table this task migrates has exactly the column set this spec
-  and `docs/database.md` document — including the **absence** of `journal_entry_id` on `sales`
-  (D-6) and of the three deferred `accounts`/`financial_accounts` FK columns (D-6, D-7) — the same
-  "prove the absence" shape T-027/T-029 already use for their own deferred columns.
-- AC-40: `TenantDecimalPrecisionTest`'s column map is extended with every money/quantity column
-  this task adds, all at `(18,4)` (D-27); no fifth precision pair is introduced.
-- AC-41: `UnitResolver::snapshotInherited()` (D-3) is proven against the same catalog unit-fixture
-  discipline T-029/D-21 already established for `SnapshotCalculator` — at minimum one case that
-  reuses the inherited factor (refund in the same unit) and one that converts base-to-base (refund
-  in a different, but still resolvable, unit), checked in beside `packages/catalog/fixtures/
-  units/`.
+  PricingEngine`/`DiscountUsage` or `Contracts\Catalog\UnitResolver`, and the package's **only**
+  self-performed arithmetic (sums, differences, and the single override-price multiplication,
+  AC-7/D-40) lives in exactly one file, `Support/Money.php` — the scan reports any multiplication,
+  division, or `multipliedBy`/`dividedBy` call anywhere else in the package.
+- AC-43: A schema test asserts every table this task migrates has exactly the column set this
+  spec and `docs/database.md`'s eventual "As built (T-030)" note document — including the
+  **absence** of `journal_entry_id` on `sales`/`cash_shifts`, of `ar_document_id`/`sales_order_id`/
+  `order_id` on `sales`, of `financial_account_id` on `cash_movements`/`payment_methods`, of
+  `gateway_transaction_id`/`payment_id` on `sale_tenders`, of `gateway`/`settings` on `payment_
+  methods`, and of `batch_id`/`serial_id`/`kitchen_station_id` on `sale_items` (D-6, D-7, D-33) —
+  the same "prove the absence" shape T-027/T-029 already use for their own deferred columns.
+- AC-44: `TenantDecimalPrecisionTest`'s column map is extended with every money/quantity column
+  this task adds, at the correct one of this schema's four already-allowed pairs (D-45/F-19 —
+  `(18,4)` for money/quantity, `(18,6)` for `unit_factor`, `(9,4)` for the two percent columns,
+  `(18,8)` for `exchange_rate`); no fifth pair is introduced.
+- AC-45: `loyalty_transactions.sale_id` (nullable) plus `unique(sale_id, type)` is added by this
+  task as an expand migration, and its foreign key onto `sales` as a separate contract migration
+  (D-34/F-9 — discharging T-028's own named debt to this task). `RecordLoyaltyTransaction` itself
+  is not modified to accept it automatically; wiring a real `sale_id` through is left to whichever
+  future caller wants automatic earning (D-5, unchanged).
+- AC-46: `sale_holds` (D-44/F-18: `id`, `sale_id` cascade, `action`, `from_status`, `to_status`,
+  `terminal_id`, `employee_id`, `created_at`), `approval_requests.consumed_at` (D-44/F-18), and
+  `sale_items.subtotal` (D-44/F-18) are built exactly as decided, each proven present by AC-43's
+  schema test and exercised by the AC that reads it (AC-6/AC-11/AC-17/AC-18/AC-19 for `sale_
+  holds`; AC-24 for `consumed_at`; AC-8 for `subtotal`).
 
 ## Out of scope
 
@@ -279,66 +433,90 @@ an actor id and audited, one row per write, matching the T-027/T-028/T-029 slice
 - The full payment-gateway/settlement/AR-allocation apparatus of `docs/database.md` §6.8 beyond
   `payment_methods` and `sale_tenders` — `payments`, `payment_allocations`, `gateway_configs`,
   `gateway_transactions`, `settlements` (D-7).
+- **Bill-level discounts** (`sales.bill_discount_id`/`bill_discount_value`) — deferred by the
+  lead's own ruling (D-35/F-1): the engine's single returned amount needs a cross-line splitting
+  and re-taxing rule this package is forbidden from inventing (AC-42); filed as a named follow-up
+  for whichever task next owns it.
+- `discounts.approval_threshold`/`workflow_definition_id` evaluation, and `min_selling_price`/
+  `price_mode = open_price` enforcement (D-37, D-40 — each needs arithmetic or a rule this task
+  does not have a documented basis for).
+- `payment_methods.rounding_rule`/`surcharge_percent` application, and any rounding tolerance on
+  `CompleteSale`'s balance check (D-42/F-11 — stored, not applied; the balance check is exact).
+- `loyalty`/`voucher` tenders (D-41/F-17) and any live-gateway tender (D-7).
 - Barcode-rule parsing and scale-label-derived quantities (FP-423 — D-8).
-- Kitchen-station routing on a sale line (FP-239 — D-9).
+- Kitchen-station routing, batch/serial tracking on a sale line (FP-239/Inventory — D-9/D-33).
 - Quotations, sales orders, the restaurant domain (floor areas, tables, orders, KOTs), and
   `type = exchange` sales (D-10) — each filed as its own forward note, not built here.
 - Automatic loyalty-point earning on sale completion (no documented trigger rule exists — D-5); a
-  caller may invoke Customers' own loyalty feature directly once both exist.
+  caller may invoke Customers' own loyalty feature directly once both exist, now with a real
+  `sale_id` to pass it (AC-45).
 - A forced header-level price-list override via `sales.price_list_id` (D-11) — the column is
   stored but not yet read as a forcing parameter, because the pricing contract does not expose one.
 - `approval_requests.decision_method = remote`, and `type` in `{credit_limit, negative_stock,
-  custom}` (D-12, D-13).
-- Real offline sync of any kind (FP-237) — `[SYNC]` columns are built present but inert (D-28).
-- The Till frontend itself (FP-236) and the Angular/offline client (FP-237) — this is a backend-
-  only spec.
+  custom}` (D-12, D-13); a refund-approval amount ceiling (D-47).
+- Maintaining `customers.first_sale_at`/`last_sale_at`/`lifetime_value` and reassigning `sales.
+  customer_id` on a customer merge, and a credit-limit override/approval-and-retry path (D-34/F-9)
+  — each re-derivable later, no documented urgency.
+- Real offline sync of any kind (FP-237) — `[SYNC]` columns are built present but inert (D-28);
+  per-terminal reserved number prefixes for the offline case (§12) also stay with FP-237.
+- An outbox `sale.completed` event — a follow-up once FP-234 or Finance needs one.
+- The Till frontend itself (FP-236), its routes/permission wiring, and the Angular/offline client
+  (FP-237) — this is a backend-only spec with no HTTP routes or console commands of its own.
 
 ## Non-functional requirements
 
 - Every list feature ships with offset-or-cursor pagination from its first version (D-26).
-- Every money/quantity column is `DECIMAL(18,4)`, matching this schema's existing allow-list; no
-  new precision pair is introduced (D-27, AC-40).
+- Every money/quantity column uses one of this schema's four already-allowed precision pairs
+  (D-45/F-19, AC-44); no new pair is introduced.
 - Every financial write (tender, void-reversal, refund, shift close/reconcile) is attributed to an
   actor and audited, one row per write, writing nothing on refusal — the same discipline every
   prior task in this backlog applies.
-- `CloseCashShift`/`RecordCashMovement`/`ReconcileCashShift` are idempotent by caller-supplied
-  identifier (AC-37), matching the precedent this codebase already sets for financial replay safety
-  (T-021's `RequireIdempotencyKey`, T-028's ledger-write replay rule).
+- `AddTender`/`RecordCashMovement`/`CloseCashShift`/`ReconcileCashShift` are each idempotent by a
+  caller-supplied identifier or (for the shift lifecycle) the shift's own id (AC-37, D-50),
+  matching the precedent this codebase already sets for financial replay safety.
+- `Contracts\Access\PinVerifier` is always called outside any transaction this task opens, so a
+  failed verification's lockout effect is never rolled back by an unrelated later refusal in the
+  same request (D-30, AC-39).
 - No new `(precision, scale)` pair is added to `TenantDecimalPrecisionTest`'s allow-list.
 
 ## Open questions
 
-None left blocking — every judgement call this spec needed is resolved and logged in
-`docs/decisions/T-030-sales.md` (D-1 to D-28), per the team protocol. Two items are **not**
-blocking but stay genuinely unconfirmed until their owning dependency lands, and are called out
-rather than silently assumed correct:
+None left blocking — every judgement call this spec needed, including the two `architect6` raised
+as product questions (bill-level discounts, refund pricing), is resolved and logged in
+`docs/decisions/T-030-sales.md` (D-1 to D-50), per the team protocol: the lead ruled on both
+directly (D-35, D-38) rather than escalating further. Two items are **not** blocking but stay
+genuinely unconfirmed until their owning dependency lands, and are called out rather than silently
+assumed correct:
 
-1. The exact method/DTO names on `Contracts\Pricing\PricingEngine` (D-4) and the exact published
-   shape of Customers' credit-ledger contract (D-5) are still moving on T-029's and T-028's own
-   branches respectively. This spec names the *call shape and intent* (quote a line/bill discount
-   from a `UnitSnapshot`; post/compensate a `credit_sale`/`refund`/`payment`-type ledger entry
-   keyed on this task's own `sales.id`), and `dev` reconciles the literal interface against each
-   package's real, committed contract before writing any Sales code — the same reconciliation step
-   the task brief itself calls for ("read it directly... once committed").
-2. Identity's exact PIN-verification contract name (D-12/AC-23) is read directly from the shipped
-   `packages/access`/Identity source at build time; T-010 (DONE) is the owning task, so this is a
-   lookup, not an open dependency, but the literal symbol is not restated here to avoid this spec
-   going stale the moment that package's own internals are refactored.
+1. The exact method/DTO names on `Contracts\Pricing\PricingEngine`/`DiscountUsage` (D-4, D-37) and
+   the exact published shape of Customers' credit-ledger contract (D-5/D-29) are still moving on
+   T-029's and T-028's own branches respectively. This spec names the *call shape and intent*, and
+   `dev` reconciles the literal interface against each package's real, committed contract before
+   writing any Sales code — the plan's own step 0 already builds a reconciliation table for this
+   exact purpose.
+2. Identity's exact `PermissionResolver`/`TerminalAuthority` symbol shapes (D-30, Ruling 5 of the
+   plan) are read directly from the shipped `packages/access`/`packages/organization` source at
+   build time; both owning tasks (T-010, T-014) are DONE, so this is a lookup, not an open
+   dependency, but the literal signature is not restated here to avoid this spec going stale the
+   moment either package's own internals are refactored.
 
 ## Assumptions
 
 - `packages/pricing` (T-029) and `packages/customers` (T-028) will each ship the published
-  contracts their own decisions/plans describe (`PricingEngine`, `TaxGroupDirectory`-adjacent
-  machinery; a customer credit-ledger writer) before this task's own code is written — this spec
-  is written to consume both, not to redesign either, and carries no fallback if either ships a
-  materially different shape (that would be a plan-stage finding for this task's own `architect`
-  to route back to `ba`, exactly as happened on T-027/T-028/T-029 themselves).
-- Organization's `number_sequences` mechanism (T-010/T-014, DONE) can be extended with `'refund'`
-  as a second document-type key alongside `'sale'` without a structural change to that package —
-  if it cannot, that is a plan-stage finding, not a blocking question here.
-- Identity's PIN-verification mechanism (T-010, DONE) is callable from another package through a
-  published contract, following this codebase's consistent "contract, not direct read" rule for
-  every other cross-package dependency named in this spec.
+  contracts their own decisions/plans describe (`PricingEngine`, `DiscountUsage`; a customer
+  credit-ledger writer keyed per `customer_ledger`'s real unique index) before this task's own
+  code is written — this spec is written to consume both, not to redesign either, and carries no
+  fallback if either ships a materially different shape (that would be a further plan-stage
+  finding for this task's own `architect` to route back to `ba`, exactly as happened on
+  T-027/T-028/T-029 themselves, and as `architect6` has already done once for this task).
+- `Contracts\Access\PinVerifier` and `Contracts\Organization\DocumentNumbers` (both new,
+  D-30/D-31) can be added to their respective packages as purely additive contracts without a
+  structural change to either package — if either cannot be, that is a further plan-stage finding,
+  not a blocking question here.
 - No tenant has a payment gateway configured at launch (`docs/architecture.md` §23, open question
   3's stated default), which is what makes D-7's narrower scope ("tenders only, no gateway
   apparatus") a safe, reversible cut rather than a feature gap anyone depends on today.
+- Price-list rows are not versioned anywhere in this schema (confirmed against `docs/database.md`
+  §6.4), which is why D-38's "refund at the original price" still has one residual, named gap (a
+  list row edited rather than replaced after the sale) rather than a fully closed guarantee — closing
+  that gap needs arithmetic this task's own AC-42 forbids it from performing.

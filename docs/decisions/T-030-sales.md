@@ -375,3 +375,431 @@ for the identical reason: the offline sync mechanism itself is FP-237's row, not
 column with no target table to defer against (unlike an FK) is built present rather than omitted.
 | Consistent with the established "defer the mechanism, not the column, when there is no missing
 table to point the column at" rule. Reversible: yes, additive once FP-237 wires real sync.
+
+---
+
+## Decisions D-29 to D-50 — added after `architect6`'s review of the plan (findings F-1 to F-21)
+
+Committed plan: `docs/plans/T-030-sales.md`. `architect6` read T-027/T-028's real shipped code
+and T-029's committed plan directly (not this spec's paraphrase of either) and found 21
+inconsistencies (4 serious — F-2 to F-5 — plus F-1, F-6, F-7, F-10, F-12, F-13, F-15 to F-17 that
+change behaviour, and F-8, F-9, F-11, F-14, F-18 to F-21 that are small corrections). Each is
+resolved below rather than left blocking, per the team protocol, continuing the numbering from
+D-28 rather than restarting, since these are corrections to and extensions of the decisions above.
+Two items (F-1's bill-discount question and F-13's refund-price question) were offered to the
+lead as product questions; the lead ruled on both directly and D-35/D-38 below record that ruling
+rather than leaving it open.
+
+D-29 (corrects D-5, D-16, AC-12/AC-21; F-2, F-3, F-4 — the important ones) | Three defects in the
+original credit-ledger design, found by `architect6` reading `packages/customers`' real shipped
+contract rather than this spec's assumption of its shape:
+1. **The ledger key was wrong (F-2).** `customer_ledger` is unique on `(reference_type,
+   reference_id, type)`. D-5 keyed a `credit_sale` entry on `sales.id` — a sale with **two**
+   credit tenders would collide on that key (a silent replay for the same amount, `replay_conflict`
+   for a different one), losing the second tender's debit entirely.
+2. **The timing was wrong (F-3).** D-5/AC-12 posted the debit when the tender was *added*. AC-13
+   then let that same tender be deleted outright (a plain `DELETE`), orphaning the debit — the
+   stated reason ("no money has moved outside this task's own bookkeeping") was false for a
+   credit tender specifically, which *is* this task's own bookkeeping.
+3. **The void-compensation type was wrong (F-4).** D-16 compensated a reversed credit tender with
+   a `payment`-type entry. `payment` is documented as "a customer-initiated payment"; a void is a
+   credit correction reducing what is owed, which is `credit_note`'s own documented description.
+   Both sit on the credit side of the ledger (so either would pass the `wrong_side` calculator
+   check, D-26 of T-028), but only one matches what actually happened.
+
+| **Corrected, all three:**
+- The ledger key is `reference_type = 'sale_tender'`, `reference_id = sale_tenders.id` — one row
+  per credit **tender**, never per sale, so a true replay guard survives a second credit tender
+  on the same sale.
+- The debit is posted inside `CompleteSale`'s own transaction, once per credit tender on the sale
+  — not at `AddTender`. `AddTender` itself only checks that the sale has a customer
+  (`customer_required` otherwise); it writes no ledger row and risks nothing by being deleted.
+  `RemoveTender` goes back to being a plain delete with nothing to orphan, because nothing was
+  posted yet. This is `docs/database.md` §12.1's own documented shape for a credit sale: resolve
+  and lock, then insert the ledger row, inside the completion step — not the tender-capture step.
+- A void's compensating entry is `credit_note`, keyed `('sale_tender', <the mirror tender's id>,
+  credit_note)`. A refund's compensating entry (D-17 unaffected) stays `refund`, since a refund
+  genuinely returns the customer's money rather than merely cancelling a debit that should never
+  have posted.
+| Each is a correctness fix against the real contract and the real unique key, not a preference —
+`architect6` read `Contracts\Customers\CustomerCreditLedger` and `customer_ledger`'s actual
+migration directly. Reversible: no for the key/timing shape (a correctness fix); yes for which
+compensating type a future case might use, if ever a documented reason emerges.
+
+D-30 (corrects D-12, AC-23; F-5) | D-12 assumed PIN verification was "callable through a published
+contract." `architect6` measured this false: no `Contracts\Access` symbol verifies a PIN at all —
+`Flexipos\Access\Features\VerifyPin\VerifyPinHandler` is internal to `packages/access`, denied to
+other packages by deptrac, and it writes its own `access_log` row plus a lockout counter **inside
+its own transaction**. Separately, D-12's own text already noted "a correct PIN proves who is
+deciding, not that they may decide" without following through on what stops any cashier
+approving any other cashier's void. | **Three corrections:**
+1. **A new published contract, `Contracts\Access\PinVerifier`** (`verify(string $employeeCode,
+   string $pin, ?string $ip = null): ?string`, returning the employee id or null — never throwing,
+   never distinguishing *why* it failed, so a wrong PIN, an unknown code and a locked employee are
+   indistinguishable to the caller). `packages/access` implements it by delegating to the existing
+   `VerifyPinHandler`.
+2. **It is called before this task opens its own approval-decision transaction**, never inside
+   one. Calling it inside a transaction that later rolls back (for example on `self_approval_not_
+   allowed`, decided after the PIN check) would roll back Access's own lockout-counter increment
+   with it, defeating the lockout the instant it matters most — a wrong PIN on a self-approval
+   attempt. The contract's own docblock states the caller's obligation.
+3. **A correct PIN alone is not authority to decide.** Two new branch-scoped permission keys,
+   `sales.approvals.decide` and `sales.shifts.reconcile`, declared by this task's service provider
+   and checked through the existing `PermissionResolver::decide()` contract (Identity/Access,
+   T-010, DONE) before a decision is accepted, refused `not_authorised` otherwise. Without this,
+   D-15's segregation rule (the decider must differ from the requester/sale's cashier) is only
+   half a control — any cashier who happens to know a second employee's PIN could still decide.
+| Each closes a real gap `architect6` found by reading the actual package boundary and the actual
+transaction shape, not a preference. Reversible: yes — the contract and the permission keys are
+both additive; nothing about either forecloses a future second decision transport.
+
+D-31 (corrects D-20, AC-14/AC-25; F-6) | D-20 assumed "Organization's existing `number_sequences`
+mechanism" could simply be called. `architect6` measured only the **table** exists — no package
+reads or writes `number_sequences`, and no contract allocates from it; nothing in this codebase
+has ever needed to before this task. | **A new published contract,
+`Contracts\Organization\DocumentNumbers`** (`next(string $documentType, ?string $branchId):
+string`, throwing `DocumentNumbersRefused`), implemented in `packages/organization` (the existing
+owner of §6.1's sequence table). It locks the branch-scoped row if one exists, otherwise the
+company-wide row, inserting a company-wide default row on first use; it uses a portable
+`lockForUpdate()` plus increment (not a MySQL-only trick, since the suite runs on SQLite), and a
+concurrent first-use race on the unique key retries once rather than failing. **Prefixes, because
+`sales.number` is unique across both `sale` and `refund` rows and a shared counter with no prefix
+would collide the moment both types exist**: `sale` → `S` (6-digit pad, `S000001`), `refund` → `R`
+(`R000001`), and a new `cash_shift` document type → `SH` (`SH000001`) for `cash_shifts.number` —
+`cash_shift` is a plain new enum value on an existing `VARCHAR(30)` application-level column, not
+a schema change. `reset_period` values other than `never` are refused
+(`unsupported_reset_period`) — nothing can create a sequence row with one today, since there is no
+numbering CRUD yet, so refusing it is the safe default rather than building for a case nobody can
+reach. The architecture's own "allocated per terminal from a reserved prefix" (§12) describes the
+**offline** case, which is FP-237's, and stays unbuilt here. | Reading what the schema actually
+has (a table, nothing else) rather than what the first-pass spec assumed was already wired, the
+same measured-not-assumed discipline every prior task's `architect` review already applied.
+Reversible: yes — the prefix scheme and padding are configuration-shaped choices a future task
+could widen without a structural change.
+
+D-32 (corrects D-3, AC-26/AC-41; F-7) | D-3's proposed `snapshotInherited()` signature had no
+`productId` and no `quantity`, and trusted a caller-supplied `stockUnitId` — none of which the
+pure `SnapshotCalculator::compute()` call it delegates to can actually work with, and trusting a
+caller's stock-unit id would let a wrong one silently mis-convert a refund. Separately, AC-41's
+"a different, but still resolvable, unit" was never pinned down to a specific rule, and §6.5's own
+text ("inherits... when it uses the same `unit_id`, and otherwise converts base to base... never
+re-resolves through the ladder") only has **one** reading that genuinely never touches the ladder:
+the requested unit is either the referenced line's own unit (take its factor) or the product's
+stock unit (factor exactly `1.000000`) — anything else has no base-to-base path that avoids the
+ladder. | **Corrected signature and rule:** `snapshotInherited(string $productId, string
+$referencedUnitId, string $referencedUnitFactor, string $unitId, int|string $quantity):
+UnitSnapshot`. The resolver reads the product's own stock unit itself (never a caller-supplied
+one). If `$unitId` equals `$referencedUnitId`, the factor is the referenced one, unchanged
+(`FactorSource::Inherited`, a new enum case). If `$unitId` equals the product's stock unit, the
+factor is `1.000000`. Any third unit is refused `inherited_unit_mismatch` (a new
+`UnitRefusal::InheritedUnitMismatch` case), naming both units — never re-walked through
+`UnitLadder`. AC-41's fixture set is corrected to this exact shape (same-unit-inherit, stock-unit,
+and a refused third-unit case). | The only reading of §6.5's own stated constraint that is
+actually implementable without touching the ladder; found by `architect6` checking the real
+`SnapshotCalculator` signature directly rather than trusting this spec's first-pass guess at what
+it needed. Reversible: no for the refusal rule (it is what "never re-resolves through the ladder"
+requires); yes for the exact enum/exception names, which are `dev`'s to finalise.
+
+D-33 (corrects AC-9, D-8/D-9; F-8) | The original spec's AC-9 said `sale_items.kitchen_station_id`
+is "written only with its schema default" — implying the column is built. D-9 already said the
+column is **not built at all**, the identical contradiction `architect6` flagged. Separately,
+`architect6`'s own schema read found several more columns this spec never addressed at all:
+`sales.ar_document_id`/`sales_order_id`/`order_id`/`journal_entry_id`, `cash_shifts.journal_
+entry_id`, `cash_movements.financial_account_id`, `sale_tenders.gateway_transaction_id`/
+`payment_id`, `payment_methods.financial_account_id`/`gateway`/`settings`, `sale_items.batch_id`/
+`serial_id`, and every `[CF]` `custom_fields` column this task's tables carry. | **D-9 wins.**
+`kitchen_station_id` is not built on `sale_items` (AC-9 corrected to drop the claim it is). Every
+column named above is likewise **not built** — the same "defer the whole column, not a key-less
+placeholder" rule D-6/D-7 already state, now named exhaustively rather than partially, so AC-39's
+absence proof has a complete list to check against. | Consistent application of an
+already-established rule to a longer, more completely measured list than the first pass found.
+Reversible: yes, additive once each owning module ships.
+
+D-34 (new; F-9) | `architect6` read T-028's own plan (section 10, its forward-notes list) and
+found four items it explicitly named as debts owed to this task, none of which the first-pass
+spec picked up: `loyalty_transactions.sale_id` plus `unique(sale_id, type)` (T-028/D-6's own
+deferred FK); maintaining `customers.first_sale_at`/`last_sale_at`/`lifetime_value`; reassigning
+`sales.customer_id` on a customer merge; and a credit-limit override path. | **The FK is
+discharged here** (this task's own migration set adds `loyalty_transactions.sale_id` as an expand
+step and its FK onto `sales` as a contract step, exactly the shape T-027/T-029 already use for an
+FK onto a table that didn't exist at the time the nullable column was first justified) —
+`RecordLoyaltyTransaction` itself stays Customers' feature; wiring a real `sale_id` through it is
+left to whichever caller wants automatic earning (D-5 unchanged: no automatic earning is built
+here). **The other three are logged as forward notes, not built**: `first_sale_at`/`last_sale_at`/
+`lifetime_value` and a merge-time `sales.customer_id` reassignment can each be recomputed from
+`sales` rows at any later point, so nothing is lost by deferring them, and a credit-limit override
+needs a real approval-and-retry caller this task is free to become later but does not pre-build
+blind today (same reasoning as D-13's `credit_limit` approval-type deferral). | The FK is a
+concrete, already-designed schema debt with a named owner (this task, by construction — nothing
+else can supply a real `sale_id`); the other three are genuinely re-derivable and have no
+documented urgency. Reversible: yes, all four.
+
+D-35 (new; F-1, the lead's ruling) | `PricingEngine::billDiscount()` (T-029) returns one amount
+for a whole bill; correctly applying it needs splitting that amount across lines in proportion to
+each line's pre-tax amount and then re-taxing every line, because an exclusive tax charged on an
+undiscounted base is simply wrong. That splitting-and-residue rule is itself discount arithmetic,
+which this task's own AC-38 forbids living in `packages/sales`, and T-029's own D-19 explicitly
+left the allocation rule to "the future Sales caller" with no rule stated. The lead ruled directly
+rather than asking the product owner: **defer bill-level discounts by default.** | `sales.bill_
+discount_id` and `bill_discount_value` are built as columns (matching the documented schema) but
+are **never written by any feature in this task** — `CreateSale` refuses both as unknown fields
+if supplied. The allocator design `architect6` sketched (proportional to `discountedSubtotal`,
+HALF_UP residue on the largest line, ties to the lowest `line_no`, a refund line taking its
+share in proportion to refunded base quantity, one named AC-38 exemption) is filed as a named
+follow-up backlog row for whichever task next owns bill-level discount splitting — not silently
+dropped, and not built speculatively against a rule nobody has actually ratified. | The safe,
+reversible default for a cross-cutting arithmetic rule with no documented precedent and a real
+AC-38 boundary conflict: ship the cart without the feature, rather than invent the splitting rule
+inside the one package explicitly forbidden from doing exactly that arithmetic. Reversible: yes —
+additive the moment an allocation rule is agreed and a package boundary is chosen for it.
+
+D-36 (corrects AC-6/AC-17; F-10) | AC-6's original wording allowed line edits on any `held` sale.
+`architect6` found this inconsistent with AC-6's own stated reason: a sale held from `pending_
+payment` already has one or more tenders recorded against it, and editing its lines after that
+would silently invalidate an already-recorded tender amount — exactly the failure AC-6 exists to
+prevent for `pending_payment` itself. | **Corrected.** A sale's lines are editable only when
+`status = draft`, or `status = held` **with its own recorded `from_status = draft`** (D-39/F-18
+below is what records that). A sale held from `pending_payment` refuses every line edit
+(`sale_not_editable`) exactly as a `pending_payment` sale itself already does — recalling it first
+(back to `pending_payment`) is the only path to changing anything about it, and even then its
+lines stay locked, only its tenders are editable (AC-13). | Closing the one case the original
+wording's own stated reason already implied but the literal status list did not enforce.
+Reversible: yes — narrowing further or relaxing this is ordinary handler logic, not a schema
+change.
+
+D-37 (new; F-12) | No feature in the first-pass spec consumed a `type = discount` `approval_
+requests` row at all, despite `discount` being one of the four approval types D-13 names as built.
+Separately, T-029's own plan (section 10) named `discounts.used_count`/`usage_limit` as a debt
+owed to this task — without an increment, a discount's usage limit can never actually fire, making
+the column pure decoration. | **Two features, both built:**
+- When a line's `discount_id` names a `discounts` row with `requires_approval = true`
+  (`discounts.requires_approval`, read directly as a read-only fact through the established
+  `Lookup` precedent — T-029/Ruling 1, not a new contract), the line is refused `approval_
+  required` unless a consumed `discount`-type approval exists whose `payload.discount_id` matches
+  (F-21's binding rule, D-47). `approval_threshold`/`workflow_definition_id` are **not** evaluated
+  — what a threshold compares against is undocumented, and this is filed as a forward note rather
+  than guessed.
+- A new published contract, `Contracts\Pricing\DiscountUsage::consume(string $discountId): void`
+  (implemented in `packages/pricing`, under a row lock, throwing `PricingRefused(usage_limit_
+  reached)` once `used_count` would exceed `usage_limit`), called once per distinct discount
+  actually used on the sale, inside `CompleteSale`'s own transaction. Usage is never released on a
+  later void or refund — the conservative, safe direction (a used slot stays used even if the sale
+  is later undone), reversible if the owner later wants usage returned on a full void.
+| Closing a real functional gap `architect6` found by reading T-029's own stated debts rather than
+this task's first-pass silence on them. Reversible: yes, both — the threshold/workflow deferral and
+the no-release-on-void rule are each additive/reversible independently.
+
+D-38 (new; F-13, the lead's ruling) | Re-quoting a refund line through `PricingEngine::quoteLine()`
+"now" (at the refund's own instant) would pay the customer back today's price, not what they
+actually paid — wrong the moment a price-list row changes between the sale and the refund, which
+is exactly the ordinary case a promotion's `ends_at` creates. The lead ruled directly: **refund at
+the original sale's price**, the standard retail convention. | **A referenced refund line (one
+with `refund_of_item_id` set) is re-quoted with the original sale's own `completed_at` as the
+engine's `at`, the original sale's `business_date` as `documentDate`, and the original line's own
+`discount_id`** — so the ladder resolves against the state of the world at the moment of the
+original sale, not today's. A **goodwill** refund line (D-19, no original line to read) has
+nothing to anchor to and is quoted at the refund's own instant, since there is no "original price"
+for a sale that never existed in this system. This still re-quotes **through the engine** rather
+than copying the stored price verbatim (AC-27's own original reasoning stands: a partial refund's
+smaller quantity can legitimately land on a different price-list step than the original full
+quantity did) — it is the *instant*, not the *method*, that changes. One residual gap, named
+rather than hidden: price-list **rows themselves are not versioned**, so a list row edited (not
+replaced) after the sale still changes the answer even quoted at the original instant; closing
+that would need a pro-rata-of-the-stored-line calculation, which is discount/price arithmetic
+AC-38 forbids in this package, and is filed as a forward note, not solved today. | The
+conventional, customer-facing-correct default for "what does a refund pay back," decided directly
+rather than escalated, per the team protocol — reversible if the owner later states a different
+rule (e.g., always current price) is wanted. Reversible: yes.
+
+D-39 (new; F-15) | Several shift-lifecycle edges were left open by the first pass, each with a
+real failure mode `architect6` traced through: closing a shift that still has in-flight sales,
+recalling a sale onto a terminal with a different (or no) open shift, voiding a completed sale
+after its shift has already closed, the sign convention for each `cash_movements.type`, and the
+exact source rows behind `AC-35`'s shift-close figures. | **Resolved, each:**
+- `CloseCashShift` refuses `shift_has_open_sales` while any `draft` or `pending_payment` sale still
+  names the shift — a `held` sale does not block the close (it carries no open tender yet to
+  reconcile against).
+- `RecallSale` moves the recalled sale's `shift_id` to the **recalling terminal's own open
+  shift**, refused `no_open_shift` if that terminal has none (D-22's existing rule, applied at the
+  recall boundary too, since "possibly a different terminal" (the user story) means the shift
+  changes along with the terminal).
+- Voiding a **completed** sale (AC-22) is allowed only while its original shift is still `open` —
+  refused `shift_closed` once the shift has moved past that, directing the cashier to a refund
+  instead. Without this, a void's mirror tender (D-16/AC-21) would land on a shift that has
+  already been counted and closed, and the drawer that actually has to pay it out would never see
+  it reflected.
+- **Movement signs** (`cash_movements.type`): `cash_in` and `float_in` **add** to expected cash;
+  `cash_out`, `float_out`, `drop`, `petty_cash` and `bank_deposit` **subtract**. `amount` itself is
+  always stored positive; the sign is a property of `type`, never of the stored number, so a
+  report can always recover "how much was ever handled" without needing to know the sign rule
+  first.
+- **AC-35's figures**, stated precisely rather than left to each implementation to interpret:
+  `sales_count` counts `type = sale` rows with `status` in `{completed, refunded, partially_
+  refunded}`; `refunds_count` counts `type = refund` rows; `gross`/`discounts`/`tax` sum `subtotal`
+  /`discount_total`/`tax_total` over those same sale rows; `net` is `Σ sale.total − Σ refund.
+  total`; `totals_by_method` sums each tender's **`amount`**, never `tendered` (which would
+  double-count the change that already left the drawer again as a separate payment-method entry).
+| Each is a concrete rule for an edge the first pass left implicit, found by `architect6` tracing
+what each figure's own source rows actually are rather than accepting the column names at face
+value. Reversible: yes, each independently — none is a schema change.
+
+D-40 (new; F-16) | AC-7's price-override rule, as first drafted, did not state what gates an
+override, how it interacts with an item discount, or how its tax is computed, and `min_selling_
+price` (a documented floor) was never addressed at all. | **Resolved:**
+- An override is refused `price_override_not_allowed` when the product's `allow_price_override`
+  (a T-027 column) is `false` — read directly as a fact, the same `Lookup` precedent D-37 uses.
+- An overridden line carries **no** item discount — `discount_with_override` refuses the
+  combination outright, rather than leaving an undefined interaction between two price-changing
+  mechanisms on the same line.
+- It is priced by calling `quoteLine()` once (for `listPrice` and `taxGroupId` only, never for the
+  final price), then `subtotal = round(override × quantity, 4)` — the **one** multiplication this
+  task's own arithmetic performs, confined to `Support/Money.php` (Ruling 3) — and `computeTax()`
+  on that subtotal; `lineTotal = tax.net + tax.total`, a formula that holds for an inclusive or
+  exclusive tax group alike, so this task never branches on inclusivity itself.
+- `min_selling_price` is documented **per stock unit**, so enforcing it against a line-unit price
+  needs a factor multiplication — arithmetic AC-38 forbids outside the two named contracts — and
+  is filed as a forward note rather than built with an ad hoc exception to that rule.
+  `price_mode = open_price` products are not specially handled either; such a product can still be
+  sold through an approved override today, which is sufficient until a real open-price flow is
+  designed.
+| Each closes an interaction the first pass left undefined, resolved the same way every other
+undefined interaction in this spec is: refuse rather than guess, and name the one piece of
+arithmetic this task's own calculator is allowed. Reversible: yes, each.
+
+D-41 (new; F-17) | `payment_methods.type` includes `loyalty` and `voucher`, and the first pass
+never stated whether a tender of either type is accepted. | **Refused, `unsupported_method_type`.**
+Neither has a backing ledger this task can call: a `loyalty` tender would need to actually redeem
+points (Customers' feature, not invoked automatically per D-5), and a `voucher` tender would need
+to actually burn a voucher (no voucher table exists anywhere in this schema). Accepting either
+without a real deduction happening somewhere would be free money. | The safe default for a tender
+type with no backing mechanism: refuse it rather than silently accept money that was never really
+taken from anywhere. Reversible: yes, additive once either mechanism exists.
+
+D-42 (small; F-11) | Neither `payment_methods.rounding_rule`/`surcharge_percent` nor `sales.
+rounding`/`service_charge` had a stated behaviour. | **No rounding tolerance is configured
+anywhere in this task, so it is treated as exactly zero** — `CompleteSale`'s balance check (AC-14)
+requires tenders to sum to `sales.total` exactly, and `sales.rounding`/`service_charge` are always
+written `0.0000`. `payment_methods.rounding_rule` and `surcharge_percent` are stored, returned, and
+not applied by anything in this task — a forward note, not a silent no-op nobody can see (the
+columns are visibly present and visibly unused, not hidden). | The safe default when no rounding
+policy is documented: exact balance, not an invented tolerance. Reversible: yes, additive.
+
+D-43 (small; F-14) | Are a refund's own line quantities and money columns signed, given the
+original sale's `type` already carries the direction? | **Unsigned on the refund's own `sale_
+items` (quantities and amounts are positive, exactly like an ordinary sale line — the document's
+own `type = refund` carries the direction, not the numbers inside it), and signed on its `sale_
+tenders` (negative — money leaving the till back to the customer, the same signed-`amount`
+column every tender already uses).** A refund completes when `Σ sale_tenders.amount = −sales.
+total`. | Matches the engine's own inputs (unsigned) and the existing signed-tender column exactly,
+without inventing a second sign convention for the same fact. Reversible: n/a (a reading of the
+existing column shapes).
+
+D-44 (small; F-18) | Three ACs needed a schema element the first pass's Data section never named:
+the hold/recall audit trail (AC-19), marking an approval consumed (AC-24), and a plain-sum header
+rollup that never has to branch on tax inclusivity (AC-8). | **Three additions, each documented in
+`docs/database.md`'s eventual "As built (T-030)" note:**
+- `sale_holds` (new table): `id`, `sale_id` (cascade), `action` (`hold`/`recall`), `from_status`,
+  `to_status`, `terminal_id`, `employee_id`, `created_at` — the append-only trail AC-19 needs, and
+  the source of the `from_status` D-36/D-25 both read.
+- `approval_requests.consumed_at` (new nullable column) — set by the write that actually consumes
+  an approved request (D-47's `ApprovalGate`), so a second write cannot replay the same approval
+  (AC-24).
+- `sale_items.subtotal` (new column, pre-discount/pre-tax line amount) — so the header rollup
+  (AC-8) is a plain sum of stored columns and never has to re-derive or branch on an inclusive vs.
+  exclusive tax group to know what a line's "before discount" figure was.
+| Each is a genuine gap between what the ACs require and what the originally-read schema already
+had a column for — not an invented business rule, a missing storage location for a fact this
+spec's own ACs already needed. Reversible: n/a (additive schema, needed for correctness as
+written).
+
+D-45 (small; F-19) | Several cross-references inside the first-pass spec and this decisions file
+pointed at the wrong AC/decision number (an artefact of drafting order, not a substantive error).
+| **Corrected directly in the revised spec** rather than left as a known error: AC-11's reference
+to a later AC is now AC-37 (idempotency); AC-13's reference to "AC-16's void/refund paths" is now
+AC-21/AC-25; AC-26's reference is now AC-25/D-19; AC-40's "all at (18,4)" is restated as "every
+money and quantity column," since `unit_factor`/`discount_percent`/`surcharge_percent`/`exchange_
+rate` correctly use the schema's other three already-allowed pairs, not a fifth. D-13's own text
+("refunding without the original sale present") is corrected to match D-14/AC-29's actual rule
+(every refund needs an approval, not only a goodwill one). | Bookkeeping corrections with no
+behavioural content of their own. Reversible: n/a.
+
+D-46 (small; F-20) | `sale_items.discount_percent` had no stated value in the first pass, and
+`PricingEngine`'s `PricedLine` carries no *item*-level discount percent field at all — its
+`listDiscountPercent` is the **price-list's own** percent (T-029/D-17/F-11), a different fact
+entirely (a price-list row's own markdown, not this line's applied discount's rate). | **`sale_
+items.discount_percent` is written `null` on every row this task creates.** Nothing this task
+reads or computes maps onto it, and inventing a value (e.g., backing it out from `discount_
+amount`/`subtotal`) would be manufacturing a number nothing asked for. | The honest statement that
+a documented column has no source this task can honestly fill, rather than a guessed-at
+backfill. Reversible: yes, additive if a real source for this fact is identified later.
+
+D-47 (small; F-21) | What exactly does an `approval_requests` row have to match before a write may
+consume it? The first pass stated the general shape (D-14/D-22's approval gate) without pinning
+down the exact `reference_type`/`reference_id`/payload per approval `type`. | **A fixed binding
+table, enforced by `ApprovalGate::consume()` before any write proceeds:**
+
+| Approval type | `reference_type` | `reference_id` | Payload match |
+|---|---|---|---|
+| void | `sale` | the sale being voided | — |
+| refund, against a sale | `sale` | the original sale | — |
+| refund, goodwill | `goodwill_refund` | `null` | — |
+| price override | `sale` | the sale | `{product_id, unit_id, unit_price}`, must equal the write |
+| discount | `sale` | the sale | `{discount_id}`, must equal the write |
+
+A mismatch on any of these refuses `approval_mismatch`, naming nothing the approval itself did not
+already carry. **A refund approval carries no amount ceiling** — approving a refund authorises the
+refund request as a whole, not a maximum amount; a request for a materially different amount than
+what was approved is still only checked against the fields in the table above. This gap is named
+as a forward note (a future "approval amount must be within X% of the requested amount" rule is
+additive) rather than invented today, since nothing documents what tolerance, if any, is wanted. |
+Makes "what is this approval actually authorising" a checked, enumerable fact instead of an
+implicit assumption buried in each handler. Reversible: yes — the binding table can gain new rows
+or tighter payload matches (including an amount ceiling) without a structural change.
+
+D-48 (new; package/package-boundary notes, informational) | Where does this task's code live, and
+what may it read from other packages? Not previously stated explicitly. | **A new path package,
+`packages/sales` (`flexipos/sales`), publishing no contract of its own yet** — nothing outside it
+calls into Sales today; FP-234 is free to add one when it needs to read a completed sale's lines
+for stock depletion. Direct reads outside its own tables are limited to existence checks and
+read-only facts (the established `Lookup` precedent every prior task in this backlog already
+uses): `products`, `customers`, `terminals`, `branches`, and `discounts.requires_approval` (D-37).
+Sales never names `customer_ledger`, `credit_balance`, `balance_after`, `number_sequences`,
+`used_count`, `unit_conversions`, `base_unit_id`, or any T-029 tax/price-table token directly — a
+source-rules scan (this spec's AC-38, unchanged in substance) enforces that. | Not `ba`'s call to
+make structurally (architect/dev's placement decision, per T-027/D-11's own precedent), recorded
+here only so the boundary is not mistaken for something left unstated. Reversible: yes; not a
+business decision in any case.
+
+D-49 (new; the state machine, informational, consolidating D-1, D-6, D-11 to D-19, D-21 to D-25,
+D-36, D-39) | Several decisions above each state one transition or one edge of the sale/shift
+state machine in isolation. For a single point of truth, the full `sales.status` machine this
+task's handlers implement is: `—` →(`CreateSale`)→ `draft`; `draft` →(first `AddTender`)→
+`pending_payment`; `held`, when held from `pending_payment`, →(first `AddTender` after recall and
+re-tender)→ `pending_payment`; `pending_payment` →(last `RemoveTender`)→ `draft`; `draft` or
+`pending_payment` →(`HoldSale`)→ `held` (recording `from_status`, D-44); `held` →(`RecallSale`)→
+exactly its recorded `from_status` (D-25); `pending_payment`, or `draft` with a zero total and at
+least one line, →(`CompleteSale`)→ `completed`; `draft`/`held`/`pending_payment` →(`VoidSale`, no
+approval, D-14)→ `voided`; `completed`, only while its shift is still open (D-39), →(`VoidSale`,
+approval required, D-14/D-22)→ `voided`; `completed` or `partially_refunded` →(`RefundSale`
+against it)→ `partially_refunded` or `refunded` (D-18, depending on whether every line is now
+fully refunded). `failed` and `exchange` are not reachable through any feature this task ships
+(D-10). | A consolidation, not a new rule — stated once so a future reader does not have to
+reassemble it from nine separate decisions. Reversible: n/a.
+
+D-50 (new; idempotency and locking, informational, consolidating Rulings 6-7 of the plan) | How is
+replay-safety and concurrency-safety achieved across this task's writes, stated once rather than
+per-feature? | **Caller-supplied ids double as the idempotency key** for `AddTender` and
+`RecordCashMovement` (`docs/database.md` §6.8's own stated precedent: "the row id equals the POS
+tender ULID") — a replay with an identical payload under the same id is a no-op returning the
+original row; a different payload under that id is `replay_conflict` (T-028/D-21's shape). `Close
+CashShift`/`ReconcileCashShift` use the **shift's own id** as their natural key, since a shift can
+only be closed/reconciled once in substance — no separate idempotency-key table is introduced
+anywhere in this task. **Every write locks the `sales` row `FOR UPDATE` first**, so two concurrent
+tenders on the same sale cannot both pass the balance check; `UnitResolver`/`PricingEngine` calls
+happen **before** that lock is taken (they touch no row this task's own transaction needs to
+protect), and `DocumentNumbers`/`DiscountUsage`/the customer-ledger write happen **inside** it,
+after the sale (and, for a refund, the original sale) is locked — the same "resolve before you
+lock, except what must be inside the lock" ordering `docs/database.md` §12.1 already states. There
+is no stock lock in this task's own scope (D-1), so there is no ordering conflict with Inventory's
+future lock sequence to reconcile. | A consolidation of an ordering rule that otherwise would be
+restated, inconsistently, inside every individual feature's own decision. Reversible: n/a.
