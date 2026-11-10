@@ -32,6 +32,7 @@
 
 | ID | Title | Covers | Branch | Status |
 |---|---|---|---|---|
+| T-030 | Sales: cart, tenders, hold and recall, refunds, voids, cash shifts | FP-233 | `ai/T-030-sales` (from main) | SPEC — started spec-ahead while T-029 (taxes/pricing) and T-028 (customers) finish on their own branches, since FP-233 depends on both. Spec/plan only right now: no code until both dependencies are DONE and this branch is rebased onto their tip. This worktree's own `docs/backlog.md` is forked from a stale main tip (T-013) and does not yet show T-014 through T-029 — known, accepted divergence, reconciled at merge time like the other worktree forks |
 | T-001 | Monorepo, backend toolchain and module host skeleton | old FP-003 to FP-005 | `ai/T-001-monorepo-service-host` | **DONE** — QA 32/32, review APPROVE, commit `741307c` |
 | T-002 | Host hardening from the T-001 review | old FP-146 to FP-153 | `ai/T-002-service-host-hardening` | **DONE** — QA 19/19, review APPROVE, commit `ad7fb27` |
 | T-003 | Convert the skeleton to master plus tenant connections | FP-201 | `ai/T-003-tenant-connections` (from T-002) | **DONE** — QA PASS 25/25, review APPROVE |
