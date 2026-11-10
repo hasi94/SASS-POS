@@ -190,6 +190,76 @@ it('merges a source with balance 150 and 40 points into a target holding 50 and 
     }
 });
 
+it('R-1: refuses a merge when a pre-seeded customer_merge_out collision would make the compensating post replay as a no-op, writing nothing', function () {
+    // The exact reproduction R-1 describes: `reference_type` is free text
+    // on the public ledger entry points, so a prior row keyed exactly like
+    // the merge's own compensating `customer_merge_out` post makes
+    // CreditLedgerWriter::post() replay (write nothing) instead of
+    // zeroing the source - the source would otherwise be soft-deleted
+    // while still holding its balance.
+    $source = CustomersSeed::customer('Source', ['currency' => 'USD', 'credit_balance' => '100.0000']);
+    $target = CustomersSeed::customer('Target', ['currency' => 'USD', 'credit_balance' => '0.0000']);
+
+    CustomersSeed::ledgerEntry($source, [
+        'customer_id' => $source,
+        'type' => 'adjustment',
+        'reference_type' => 'customer_merge_out',
+        'reference_id' => $source,
+        'debit' => '0.0000',
+        'credit' => '100.0000',
+        'balance_after' => '0.0000',
+        'currency' => 'USD',
+    ]);
+
+    expectMergeRefusal(CustomersRefusal::Validation, fn () => mergeCustomers($source, $target));
+
+    $sourceRow = (array) CustomersSeed::connection()->table('customers')->where('id', $source)->first();
+    $targetRow = (array) CustomersSeed::connection()->table('customers')->where('id', $target)->first();
+
+    expect($sourceRow['deleted_at'])->toBeNull()
+        ->and($sourceRow['merged_into_id'])->toBeNull()
+        ->and((float) $sourceRow['credit_balance'])->toBe(100.0)
+        ->and((float) $targetRow['credit_balance'])->toBe(0.0)
+        // Only the pre-seeded row - the merge wrote nothing of its own,
+        // including no `customer_merge_in` row on the target.
+        ->and(CustomersSeed::connection()->table('customer_ledger')->where('customer_id', $source)->count())->toBe(1)
+        ->and(CustomersSeed::connection()->table('customer_ledger')->where('customer_id', $target)->count())->toBe(0);
+});
+
+it('R-1: refuses a merge when a pre-seeded customer_merge_in collision on the target would make the compensating credit replay instead of crediting it, writing nothing', function () {
+    // The mirror case R-1 names: a pre-existing (customer_merge_in,
+    // sourceId, adjustment) row on the target makes the target's own
+    // compensating credit replay - the money would otherwise disappear
+    // (zeroed off the source, never credited to the target).
+    $source = CustomersSeed::customer('Source', ['currency' => 'USD', 'credit_balance' => '100.0000']);
+    $target = CustomersSeed::customer('Target', ['currency' => 'USD', 'credit_balance' => '0.0000']);
+
+    CustomersSeed::ledgerEntry($target, [
+        'customer_id' => $target,
+        'type' => 'adjustment',
+        'reference_type' => 'customer_merge_in',
+        'reference_id' => $source,
+        'debit' => '100.0000',
+        'credit' => '0.0000',
+        'balance_after' => '0.0000',
+        'currency' => 'USD',
+    ]);
+
+    expectMergeRefusal(CustomersRefusal::Validation, fn () => mergeCustomers($source, $target));
+
+    $sourceRow = (array) CustomersSeed::connection()->table('customers')->where('id', $source)->first();
+    $targetRow = (array) CustomersSeed::connection()->table('customers')->where('id', $target)->first();
+
+    expect($sourceRow['deleted_at'])->toBeNull()
+        ->and($sourceRow['merged_into_id'])->toBeNull()
+        ->and((float) $sourceRow['credit_balance'])->toBe(100.0)
+        ->and((float) $targetRow['credit_balance'])->toBe(0.0)
+        // Only the pre-seeded row - the merge's own customer_merge_out
+        // post on the source was rolled back along with everything else.
+        ->and(CustomersSeed::connection()->table('customer_ledger')->where('customer_id', $source)->count())->toBe(0)
+        ->and(CustomersSeed::connection()->table('customer_ledger')->where('customer_id', $target)->count())->toBe(1);
+});
+
 it('a source with a negative balance produces a debit-side merge_out', function () {
     $source = CustomersSeed::customer('Source', ['currency' => 'USD', 'credit_balance' => '-30.0000']);
     $target = CustomersSeed::customer('Target', ['currency' => 'USD', 'credit_balance' => '0.0000']);

@@ -8,6 +8,8 @@ use Flexipos\Access\Tests\Support\AccessTenantFixture;
 use Flexipos\Contracts\Customers\CreditLedgerPosting;
 use Flexipos\Contracts\Customers\CreditLedgerRefused;
 use Flexipos\Contracts\Customers\CreditRefusal;
+use Flexipos\Customers\Exceptions\CustomersRefusal;
+use Flexipos\Customers\Exceptions\CustomersRefused;
 use Flexipos\Customers\Features\RecordCreditLedgerEntry\RecordCreditLedgerEntry;
 use Flexipos\Customers\Features\RecordCreditLedgerEntry\RecordCreditLedgerEntryHandler;
 use Flexipos\Customers\Tests\Support\CustomersSeed;
@@ -171,6 +173,25 @@ it('a replay with a different amount is refused as replay_conflict, naming the e
     expect($refused)->not->toBeNull()
         ->and($refused->reason)->toBe(CreditRefusal::ReplayConflict)
         ->and($refused->getMessage())->toContain($first->entryId);
+});
+
+it('R-1: refuses customer/customer_merge_out/customer_merge_in as reference_type - reserved for internal callers', function () {
+    $customerId = CustomersSeed::customer('Jane', ['currency' => 'USD']);
+
+    foreach (['customer', 'customer_merge_out', 'customer_merge_in'] as $reserved) {
+        $refused = null;
+
+        try {
+            recordEntry(recordEntryInput(['customer_id' => $customerId, 'reference_type' => $reserved]));
+        } catch (CustomersRefused $e) {
+            $refused = $e;
+        }
+
+        expect($refused)->not->toBeNull("Expected a refusal for reference_type [{$reserved}].")
+            ->and($refused->reason)->toBe(CustomersRefusal::Validation);
+    }
+
+    expect(CustomersSeed::connection()->table('customer_ledger')->count())->toBe(0);
 });
 
 it('the backstop: a row seeded by a raw insert still resolves as a replay when the pre-check is bypassed (AC-21)', function () {

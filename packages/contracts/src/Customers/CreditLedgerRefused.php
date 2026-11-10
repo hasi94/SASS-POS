@@ -98,4 +98,9 @@ final class CreditLedgerRefused extends RuntimeException
     {
         return new self(CreditRefusal::ReplayConflict, $message);
     }
+
+    public static function reservedReferenceType(string $message): self
+    {
+        return new self(CreditRefusal::ReservedReferenceType, $message);
+    }
 }

@@ -46,12 +46,12 @@ final class CreateCustomerGroupHandler
 
         $code = Fields::requiredText($fields, 'code', 50);
         $name = Fields::requiredText($fields, 'name', 150);
-        $discountPercent = Fields::decimal($fields, 'discount_percent', 4, false, null);
+        $discountPercent = Fields::decimal($fields, 'discount_percent', 4, false, null, 5);
         $creditAllowed = Fields::flag($fields, 'credit_allowed', false);
-        $defaultCreditLimit = Fields::decimal($fields, 'default_credit_limit', 4, false, null);
+        $defaultCreditLimit = Fields::decimal($fields, 'default_credit_limit', 4, false, null, 14);
         $defaultPaymentTermsDays = Fields::unsignedSmallInt($fields, 'default_payment_terms_days', null);
         $isDefault = Fields::flag($fields, 'is_default', false);
-        $loyaltyMultiplier = Fields::decimal($fields, 'loyalty_multiplier', 4, false, null);
+        $loyaltyMultiplier = Fields::decimal($fields, 'loyalty_multiplier', 4, false, null, 5);
 
         $connection = $this->tenant->get();
 

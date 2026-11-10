@@ -142,7 +142,11 @@ final class LoyaltyWriter
                     'created_at' => $now,
                 ]);
             } catch (UniqueConstraintViolationException) {
-                $existing = $connection->table('loyalty_transactions')->where('id', $transactionId)->first();
+                // A locking read (W-1): a plain `first()` here can still see
+                // the pre-transaction REPEATABLE READ snapshot and miss the
+                // row the other connection just committed, reporting a
+                // false `replay_conflict` for a legitimate concurrent retry.
+                $existing = $connection->table('loyalty_transactions')->where('id', $transactionId)->lockForUpdate()->first();
 
                 if ($existing === null) {
                     throw LoyaltyLedgerRefused::replayConflict('The transaction could not be read back after a unique-key conflict.');

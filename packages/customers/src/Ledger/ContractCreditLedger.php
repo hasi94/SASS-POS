@@ -29,6 +29,10 @@ final class ContractCreditLedger implements CustomerCreditLedger
      */
     public function record(CreditLedgerEntry $entry): CreditLedgerPosting
     {
+        if (in_array($entry->referenceType, CreditLedgerWriter::RESERVED_REFERENCE_TYPES, true)) {
+            throw CreditLedgerRefused::reservedReferenceType("The reference type [{$entry->referenceType}] is reserved for internal use.");
+        }
+
         return $this->writer->post(
             $this->tenant->get(),
             $entry->customerId,

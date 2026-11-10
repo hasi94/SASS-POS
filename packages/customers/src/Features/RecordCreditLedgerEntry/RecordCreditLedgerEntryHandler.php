@@ -46,6 +46,11 @@ final class RecordCreditLedgerEntryHandler
         $customerId = Identifier::fold(Fields::requiredText($fields, 'customer_id', 26), 'customer_id');
         $type = self::type($fields);
         $referenceType = Fields::requiredText($fields, 'reference_type', 50);
+
+        if (in_array($referenceType, CreditLedgerWriter::RESERVED_REFERENCE_TYPES, true)) {
+            throw CustomersRefused::validation("The reference type [{$referenceType}] is reserved for internal use.");
+        }
+
         $referenceId = Identifier::fold(Fields::requiredText($fields, 'reference_id', 26), 'reference_id');
         $debit = $fields['debit'] ?? 0;
         $credit = $fields['credit'] ?? 0;

@@ -58,4 +58,7 @@ enum CreditRefusal: string
 
     /** The replay key matches a stored row with a different payload (D-21, F-4). */
     case ReplayConflict = 'replay_conflict';
+
+    /** `reference_type` names one of the internal-only replay keys reserved for `MergeCustomers`/`CreateCustomer` (R-1). */
+    case ReservedReferenceType = 'reserved_reference_type';
 }

@@ -9,6 +9,7 @@ use Flexipos\Contracts\Audit\AuditTrail;
 use Flexipos\Contracts\Customers\CreditEntryType;
 use Flexipos\Contracts\Customers\CreditLedgerPosting;
 use Flexipos\Contracts\Customers\CreditLedgerRefused;
+use Flexipos\Customers\Features\RecordCreditLedgerEntry\RecordCreditLedgerEntryHandler;
 use Flexipos\Customers\Registry\CustomersAuditActions;
 use Flexipos\Customers\Support\Decimal;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
@@ -43,6 +44,20 @@ use Illuminate\Support\Str;
 final class CreditLedgerWriter
 {
     public const ACTION = 'customers_credit_ledger_entry_recorded';
+
+    /**
+     * `reference_type` values reserved for internal callers only (R-1):
+     * `CreateCustomer`'s opening entry and `MergeCustomers`' compensating
+     * pair. `reference_type` is otherwise free text on the public entry
+     * points ({@see RecordCreditLedgerEntryHandler},
+     * {@see ContractCreditLedger}), so without
+     * this reservation a caller could pre-seed one of these replay keys and
+     * make the merge's own compensating post silently replay as a no-op
+     * while the source still holds a balance.
+     *
+     * @var list<string>
+     */
+    public const RESERVED_REFERENCE_TYPES = ['customer', 'customer_merge_out', 'customer_merge_in'];
 
     public function __construct(
         private readonly RunnerClock $clock,
@@ -131,10 +146,16 @@ final class CreditLedgerWriter
                     'created_at' => $now,
                 ]);
             } catch (UniqueConstraintViolationException) {
+                // A locking read, not the plain `first()` above: under
+                // InnoDB REPEATABLE READ a plain read here would still see
+                // the pre-transaction snapshot and could miss the row the
+                // other connection just committed (W-1), reporting a false
+                // `replay_conflict` for a legitimate concurrent retry.
                 $existing = $connection->table('customer_ledger')
                     ->where('reference_type', $referenceType)
                     ->where('reference_id', $referenceId)
                     ->where('type', $type->value)
+                    ->lockForUpdate()
                     ->first();
 
                 if ($existing === null) {

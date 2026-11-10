@@ -28,11 +28,11 @@ it('has exactly the five loyalty transaction types', function () {
     ]);
 });
 
-it('has exactly the fourteen credit refusal reasons', function () {
+it('has exactly the fifteen credit refusal reasons', function () {
     expect(array_map(fn (CreditRefusal $case): string => $case->value, CreditRefusal::cases()))->toBe([
         'unknown_customer', 'customer_not_live', 'customer_not_active', 'invalid_amount', 'zero_amount',
         'both_sides', 'wrong_side', 'out_of_range', 'credit_not_allowed', 'over_limit', 'currency_required',
-        'currency_mismatch', 'unknown_branch', 'unknown_employee', 'replay_conflict',
+        'currency_mismatch', 'unknown_branch', 'unknown_employee', 'replay_conflict', 'reserved_reference_type',
     ]);
 });
 

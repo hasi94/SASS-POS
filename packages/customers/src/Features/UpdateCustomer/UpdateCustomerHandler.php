@@ -59,7 +59,7 @@ final class UpdateCustomerHandler
         $connection = $this->tenant->get();
 
         $connection->transaction(function () use ($connection, $command, $customerId, $fields, $version): void {
-            $before = $connection->table('customers')->where('id', $customerId)->lockForUpdate()->first();
+            $before = $connection->table('customers')->where('id', $customerId)->whereNull('deleted_at')->lockForUpdate()->first();
 
             if ($before === null) {
                 throw CustomersRefused::notFound("The customer [{$customerId}] does not exist.");
@@ -75,7 +75,7 @@ final class UpdateCustomerHandler
                 $groupId = Identifier::foldNullable($fields['group_id'], 'group_id');
 
                 if ($groupId !== null) {
-                    Lookup::live($connection, 'customer_groups', $groupId, 'group');
+                    Lookup::live($connection, 'customer_groups', $groupId, 'group', lock: true);
                 }
 
                 $changes['group_id'] = $groupId;
@@ -140,7 +140,7 @@ final class UpdateCustomerHandler
                     throw CustomersRefused::validation('The credit_limit may not be null.');
                 }
 
-                $changes['credit_limit'] = Fields::decimal($fields, 'credit_limit', 4, false, '0');
+                $changes['credit_limit'] = Fields::decimal($fields, 'credit_limit', 4, false, '0', 14);
             }
 
             if (Fields::has($fields, 'payment_terms_days')) {
@@ -151,10 +151,15 @@ final class UpdateCustomerHandler
                 $changes['notes'] = Fields::optionalText($fields, 'notes', 65535);
             }
 
-            $newStatus = Fields::has($fields, 'status') ? CustomerRules::status($fields['status']) : CustomerRules::status($before->status);
-            $newBlockedReason = Fields::has($fields, 'blocked_reason') ? Fields::optionalText($fields, 'blocked_reason', 255) : $before->blocked_reason;
-
             if (Fields::has($fields, 'status') || Fields::has($fields, 'blocked_reason')) {
+                // Only parse `before->status` through the enum when the
+                // patch actually touches status/blocked_reason - a future
+                // out-of-enum stored value (e.g. from Sync) would otherwise
+                // fail every update to that row, not just one touching
+                // status.
+                $newStatus = Fields::has($fields, 'status') ? CustomerRules::status($fields['status']) : CustomerRules::status($before->status);
+                $newBlockedReason = Fields::has($fields, 'blocked_reason') ? Fields::optionalText($fields, 'blocked_reason', 255) : $before->blocked_reason;
+
                 CustomerRules::checkStatusConsistency($newStatus, $newBlockedReason);
                 $changes['status'] = $newStatus->value;
                 $changes['blocked_reason'] = $newBlockedReason;

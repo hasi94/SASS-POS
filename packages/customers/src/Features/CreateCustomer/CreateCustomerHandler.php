@@ -72,7 +72,7 @@ final class CreateCustomerHandler
         $blockedReason = Fields::optionalText($fields, 'blocked_reason', 255);
         $status = CustomerRules::status($fields['status'] ?? 'active');
         $possibleDuplicateOf = Identifier::foldNullable(Fields::has($fields, 'possible_duplicate_of') ? $fields['possible_duplicate_of'] : null, 'possible_duplicate_of');
-        $openingBalance = Fields::decimal($fields, 'opening_balance', 4, true, '0');
+        $openingBalance = Fields::decimal($fields, 'opening_balance', 4, true, '0', 14);
         $notes = Fields::optionalText($fields, 'notes', 65535);
 
         if (Fields::has($fields, 'credit_limit') && $fields['credit_limit'] === null) {
@@ -88,14 +88,14 @@ final class CreateCustomerHandler
             $companyName, $currency, $groupId, $blockedReason, $status, $possibleDuplicateOf,
             $openingBalance, $notes, $fields,
         ): CreateCustomerResult {
-            $group = $groupId === null ? null : Lookup::live($connection, 'customer_groups', $groupId, 'group');
+            $group = $groupId === null ? null : Lookup::live($connection, 'customer_groups', $groupId, 'group', lock: true);
 
             $creditAllowed = Fields::has($fields, 'credit_allowed')
                 ? Fields::flag($fields, 'credit_allowed', false)
                 : ($group !== null && (bool) $group->credit_allowed);
 
             $creditLimit = Fields::has($fields, 'credit_limit')
-                ? Fields::decimal($fields, 'credit_limit', 4, false, '0')
+                ? Fields::decimal($fields, 'credit_limit', 4, false, '0', 14)
                 : ($group !== null && $group->default_credit_limit !== null ? (string) $group->default_credit_limit : '0');
 
             $paymentTermsDays = Fields::has($fields, 'payment_terms_days')

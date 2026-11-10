@@ -56,7 +56,7 @@ final class RecordLoyaltyTransactionHandler
             throw CustomersRefused::validation('The value must be an int, a string or null.');
         }
 
-        $expiresAt = Fields::optionalText($fields, 'expires_at', 29);
+        $expiresAt = Fields::datetime($fields, 'expires_at', 29);
         $employeeId = Identifier::foldNullable(Fields::has($fields, 'employee_id') ? $fields['employee_id'] : null, 'employee_id');
         $notes = Fields::optionalText($fields, 'notes', 65535);
 

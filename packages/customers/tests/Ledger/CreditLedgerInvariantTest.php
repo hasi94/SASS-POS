@@ -8,6 +8,8 @@ use Brick\Math\BigDecimal;
 use Flexipos\Access\Tests\Support\AccessTenantFixture;
 use Flexipos\Contracts\Customers\CreditEntryType;
 use Flexipos\Contracts\Customers\CreditLedgerEntry;
+use Flexipos\Contracts\Customers\CreditLedgerRefused;
+use Flexipos\Contracts\Customers\CreditRefusal;
 use Flexipos\Contracts\Customers\CustomerCreditLedger;
 use Flexipos\Customers\Ledger\CreditLedgerCalculator;
 use Flexipos\Customers\Tests\Support\CustomersSeed;
@@ -89,4 +91,34 @@ it('holds the fold() invariant across a mixed 40-entry sequence, written through
     $foldedBalance = BigDecimal::of($expected[39]);
 
     expect($storedBalance->compareTo($foldedBalance))->toBe(0);
+});
+
+it('R-1: ContractCreditLedger refuses customer/customer_merge_out/customer_merge_in as reference_type - reserved for internal callers', function () {
+    $customerId = CustomersSeed::customer('Jane', ['currency' => 'USD']);
+
+    /** @var CustomerCreditLedger $ledger */
+    $ledger = app(CustomerCreditLedger::class);
+
+    foreach (['customer', 'customer_merge_out', 'customer_merge_in'] as $reserved) {
+        $refused = null;
+
+        try {
+            $ledger->record(new CreditLedgerEntry(
+                customerId: $customerId,
+                type: CreditEntryType::Adjustment,
+                referenceType: $reserved,
+                referenceId: (string) Str::ulid(),
+                debit: '10.0000',
+                credit: 0,
+                currency: 'USD',
+            ));
+        } catch (CreditLedgerRefused $e) {
+            $refused = $e;
+        }
+
+        expect($refused)->not->toBeNull("Expected a refusal for reference_type [{$reserved}].")
+            ->and($refused->reason)->toBe(CreditRefusal::ReservedReferenceType);
+    }
+
+    expect(CustomersSeed::connection()->table('customer_ledger')->count())->toBe(0);
 });

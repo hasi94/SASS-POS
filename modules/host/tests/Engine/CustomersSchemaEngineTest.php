@@ -1,5 +1,9 @@
 <?php
 
+use Flexipos\Contracts\Audit\AuditTrail;
+use Flexipos\Contracts\Customers\CreditEntryType;
+use Flexipos\Customers\Ledger\CreditLedgerWriter;
+use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Flexipos\Testing\Engine\EngineConnection;
 use Flexipos\Testing\Engine\EngineDatabase;
 use Flexipos\Testing\Engine\EngineOnHold;
@@ -82,6 +86,45 @@ function customersSchemaEngineCustomerRow(string $code, ?string $currency = 'LKR
     ];
 }
 
+/**
+ * Insert a minimal customer row and return its own id (W-2): `id` is a
+ * CHAR(26) ULID with no AUTO_INCREMENT, so `insertGetId()` would return `0`
+ * on real MySQL - the row's own generated id is the only correct source.
+ */
+function customersSchemaEngineInsertCustomer(Connection $connection, string $code, ?string $currency = 'LKR'): string
+{
+    $row = customersSchemaEngineCustomerRow($code, $currency);
+    $connection->table('customers')->insert($row);
+
+    return (string) $row['id'];
+}
+
+/**
+ * A `CreditLedgerWriter` built directly (not through the container), so a
+ * second connection's call is not entangled with the app's own
+ * `tenancy.connection`/`AuditTrail` bindings (W-2's "connection B calls the
+ * writer"). The audit side is irrelevant to what this test proves, so its
+ * `AuditTrail` is an inert double.
+ */
+function customersSchemaEngineWriter(): CreditLedgerWriter
+{
+    return new CreditLedgerWriter(new RunnerClock, new class implements AuditTrail
+    {
+        public function record(
+            string $module,
+            ?string $actorId,
+            string $action,
+            string $subjectType,
+            string $subjectId,
+            ?array $before,
+            ?array $after,
+            ?string $branchId = null,
+        ): void {
+            // Inert: this test proves locking and balance behaviour, not auditing.
+        }
+    });
+}
+
 it('refuses to reach the engine at all while the hold is set', function () {
     expect(fn () => EngineConnection::connection(customersSchemaEngineTenantName()))->toThrow(EngineOnHold::class);
 })->skip(fn (): bool => ! EngineConnection::onHold(), 'the ENGINE_HOLD suspension has been cleared');
@@ -160,7 +203,7 @@ it("AC-20's own [ENGINE] clause: customer_ledger's CHECK refuses both sides non-
         $tenantConnectionName = customersSchemaEngineMigrate();
         $connection = DB::connection($tenantConnectionName);
 
-        $customerId = (string) $connection->table('customers')->insertGetId(customersSchemaEngineCustomerRow('check-1'), 'id');
+        $customerId = customersSchemaEngineInsertCustomer($connection, 'check-1');
 
         $base = [
             'id' => Str::upper(Str::ulid()), 'customer_id' => $customerId, 'type' => 'adjustment',
@@ -229,7 +272,7 @@ it("customer_ledger's idempotency key and customer_addresses' default-per-type k
         $tenantConnectionName = customersSchemaEngineMigrate();
         $connection = DB::connection($tenantConnectionName);
 
-        $customerId = (string) $connection->table('customers')->insertGetId(customersSchemaEngineCustomerRow('dup-1'), 'id');
+        $customerId = customersSchemaEngineInsertCustomer($connection, 'dup-1');
 
         // (reference_type, reference_id, type): the replay idempotency key.
         $referenceId = Str::upper(Str::ulid());
@@ -308,29 +351,93 @@ it('AC-22, AC-29: a concurrent writer waits on the customer row lock, times out,
         try {
             $connectionB->statement('set session innodb_lock_wait_timeout = 1');
 
-            $customerId = (string) $connectionA->table('customers')->insertGetId(customersSchemaEngineCustomerRow('lock-1'), 'id');
+            $customerId = customersSchemaEngineInsertCustomer($connectionA, 'lock-1');
+            $writerB = customersSchemaEngineWriter();
+            $referenceId = Str::upper(Str::ulid());
 
             $connectionA->beginTransaction();
             $connectionA->table('customers')->where('id', $customerId)->lockForUpdate()->first();
 
-            // Connection B's writer equivalent: lock the same row, under a
-            // one-second wait. It must time out while A still holds the
-            // lock, and write nothing.
-            expect(fn () => $connectionB->transaction(function () use ($connectionB, $customerId): void {
-                $connectionB->table('customers')->where('id', $customerId)->lockForUpdate()->first();
-            }))->toThrow(QueryException::class);
+            // Connection B calls the writer itself, under a one-second
+            // wait. It must time out on the customer row's lock while A
+            // still holds it, and write nothing - no ledger row, no
+            // balance change (W-2).
+            expect(fn () => $writerB->post(
+                $connectionB, $customerId, CreditEntryType::Adjustment, 'engine_test', $referenceId,
+                5, 0, 'LKR', null, null, null, null,
+            ))->toThrow(QueryException::class);
 
+            expect($connectionB->table('customer_ledger')->where('reference_id', $referenceId)->exists())->toBeFalse();
             expect($connectionB->table('customers')->where('id', $customerId)->value('credit_balance'))->toEqual(0);
 
             $connectionA->table('customers')->where('id', $customerId)->update(['credit_balance' => '5.0000']);
             $connectionA->commit();
 
-            // After A commits, B's retry succeeds and sees A's write.
-            $retried = $connectionB->transaction(function () use ($connectionB, $customerId) {
-                return $connectionB->table('customers')->where('id', $customerId)->lockForUpdate()->first();
-            });
+            // After A commits, B's retry through the writer succeeds and
+            // its own `balance_after` includes A's write: 5 (A) + 5 (B's
+            // debit) = 10.
+            $retried = $writerB->post(
+                $connectionB, $customerId, CreditEntryType::Adjustment, 'engine_test', $referenceId,
+                5, 0, 'LKR', null, null, null, null,
+            );
 
-            expect((string) $retried->credit_balance)->toEqual('5.0000');
+            expect($retried->replayed)->toBeFalse();
+            expect($retried->balanceAfter)->toEqual('10.0000');
+            expect((string) $connectionB->table('customers')->where('id', $customerId)->value('credit_balance'))->toEqual('10.0000');
+        } finally {
+            DB::purge('flexipos_t8test_t028_tenant_session_b');
+        }
+    } finally {
+        $db->drop($tenantName);
+    }
+})->skip(fn (): bool => EngineConnection::onHold(), 'ENGINE_HOLD: see Flexipos\Testing\Engine\EngineOnHold');
+
+it('W-1: a concurrent replay under REPEATABLE READ is reported as replayed, not a false replay_conflict, because the catch-block re-read is a locking read', function () {
+    $db = EngineDatabase::engine();
+    $tenantName = customersSchemaEngineTenantName();
+
+    $db->recreate($tenantName);
+
+    try {
+        $tenantConnectionName = customersSchemaEngineMigrate();
+        $connectionA = DB::connection($tenantConnectionName);
+        $connectionB = customersSchemaEngineSecondConnection($tenantName);
+
+        try {
+            $customerId = customersSchemaEngineInsertCustomer($connectionA, 'repeat-1');
+            $writer = customersSchemaEngineWriter();
+            $referenceId = Str::upper(Str::ulid());
+
+            // B's transaction - and so its REPEATABLE READ snapshot - opens
+            // before A's row exists at all.
+            $connectionB->beginTransaction();
+            $connectionB->table('customers')->where('id', $customerId)->first();
+
+            // A posts and commits the entry B is about to collide with.
+            $postingA = $writer->post(
+                $connectionA, $customerId, CreditEntryType::Adjustment, 'engine_test', $referenceId,
+                5, 0, 'LKR', null, null, null, null,
+            );
+
+            expect($postingA->replayed)->toBeFalse();
+
+            // B, still inside the transaction opened before A's commit
+            // (so its own replay precheck still misses under the stale
+            // snapshot), posts the identical payload under the identical
+            // key. Its INSERT then hits the unique key A's commit created;
+            // the catch-block's locking re-read must see A's row despite
+            // the snapshot, and report a replay rather than
+            // `replay_conflict` (W-1).
+            $postingB = $writer->post(
+                $connectionB, $customerId, CreditEntryType::Adjustment, 'engine_test', $referenceId,
+                5, 0, 'LKR', null, null, null, null,
+            );
+
+            $connectionB->commit();
+
+            expect($postingB->replayed)->toBeTrue()
+                ->and($postingB->entryId)->toBe($postingA->entryId)
+                ->and($postingB->balanceAfter)->toBe($postingA->balanceAfter);
         } finally {
             DB::purge('flexipos_t8test_t028_tenant_session_b');
         }

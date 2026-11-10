@@ -92,15 +92,33 @@ function qaCustomersSourceFiles(string $directory): array
 | Each is named by full path and by exactly the token(s) its own job
 | needs, never a blanket pass: a file exempted for `credit_balance` is
 | still scanned for `loyalty_points`.
+|
+| W-3: a per-file, per-token exemption cannot by itself tell a read from a
+| write - `DeleteCustomerHandler`/`MergeCustomersHandler` only ever *read*
+| these tokens, so their exemption's value is the literal string `'read'`,
+| and every occurrence of the token in that file must be a property read
+| (`->token`) or it is still reported. `CreateCustomerHandler`'s exemption
+| value is instead the exact zero-default literal its own INSERT writes -
+| any occurrence of the token that is not that literal (e.g. a future
+| conditional assignment) is still reported too.
 */
 
 /**
- * @var array<string, list<string>>
+ * @var array<string, array<string, string>> path => [token => 'read', or the exact zero-default literal]
  */
 const QA_CUSTOMERS_MAINTAINED_COLUMN_EXEMPT = [
-    'packages/customers/src/Features/CreateCustomer/CreateCustomerHandler.php' => ['credit_balance', 'loyalty_points', 'loyalty_tier'],
-    'packages/customers/src/Features/DeleteCustomer/DeleteCustomerHandler.php' => ['credit_balance'],
-    'packages/customers/src/Features/MergeCustomers/MergeCustomersHandler.php' => ['credit_balance', 'loyalty_points'],
+    'packages/customers/src/Features/CreateCustomer/CreateCustomerHandler.php' => [
+        'credit_balance' => "'credit_balance' => '0.0000',",
+        'loyalty_points' => "'loyalty_points' => '0.0000',",
+        'loyalty_tier' => "'loyalty_tier' => null,",
+    ],
+    'packages/customers/src/Features/DeleteCustomer/DeleteCustomerHandler.php' => [
+        'credit_balance' => 'read',
+    ],
+    'packages/customers/src/Features/MergeCustomers/MergeCustomersHandler.php' => [
+        'credit_balance' => 'read',
+        'loyalty_points' => 'read',
+    ],
 ];
 
 /**
@@ -117,7 +135,7 @@ const QA_CUSTOMERS_MAINTAINED_COLUMN_TOKENS = ['credit_balance', 'loyalty_points
  * silently widening the scan by dropping the exemption out of the
  * (then non-matching) map.
  *
- * @return array<string, list<string>> keyed by real absolute path
+ * @return array<string, array<string, string>> keyed by real absolute path
  */
 function qaCustomersResolveMaintainedColumnExemptions(): array
 {
@@ -187,12 +205,46 @@ function qaCustomersOneWriterScanFiles(): array
 }
 
 /**
+ * W-3: whether every occurrence of `$token` in `$code` matches the
+ * exemption's required shape - `'read'` means every occurrence must be a
+ * property read (`->token`); anything else is the exact literal text every
+ * occurrence must sit inside. A single occurrence outside that shape fails
+ * the whole file for this token, even though the file is named in the
+ * exemption map.
+ */
+function qaCustomersTokenOccurrencesMatchShape(string $code, string $token, string $shape): bool
+{
+    preg_match_all('/\b'.preg_quote($token, '/').'\b/', $code, $matches, PREG_OFFSET_CAPTURE);
+
+    foreach ($matches[0] as $match) {
+        $offset = (int) $match[1];
+
+        if ($shape === 'read') {
+            if (! str_contains(substr($code, max(0, $offset - 5), 5), '->')) {
+                return false;
+            }
+
+            continue;
+        }
+
+        $window = substr($code, max(0, $offset - 40), 80 + mb_strlen($token));
+
+        if (! str_contains($window, $shape)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
  * Every offender for one maintained-column token: a file outside
  * Ledger/Loyalty whose code contains the bare word, and which is not
- * exempt for that specific token.
+ * exempt for that specific token in exactly the shape the exemption names
+ * (W-3).
  *
  * @param  array<string, string>|null  $files
- * @param  array<string, list<string>>|null  $exemptions
+ * @param  array<string, array<string, string>>|null  $exemptions
  * @return list<string>
  */
 function qaCustomersMaintainedColumnOffenders(string $token, ?array $files = null, ?array $exemptions = null): array
@@ -205,9 +257,9 @@ function qaCustomersMaintainedColumnOffenders(string $token, ?array $files = nul
             continue;
         }
 
-        $allowedTokens = $exemptions[$path] ?? [];
+        $shape = $exemptions[$path][$token] ?? null;
 
-        if (in_array($token, $allowedTokens, true)) {
+        if ($shape !== null && qaCustomersTokenOccurrencesMatchShape($code, $token, $shape)) {
             continue;
         }
 
@@ -269,9 +321,9 @@ it('AC-41: each exemption is scoped to only its own tokens - the other tokens st
     // narrow, not the file's own content.
     $exemptions = qaCustomersResolveMaintainedColumnExemptions();
 
-    foreach ($exemptions as $path => $allowedTokens) {
+    foreach ($exemptions as $path => $tokenShapes) {
         foreach (QA_CUSTOMERS_MAINTAINED_COLUMN_TOKENS as $token) {
-            if (in_array($token, $allowedTokens, true)) {
+            if (array_key_exists($token, $tokenShapes)) {
                 continue;
             }
 
@@ -287,6 +339,30 @@ it('AC-41: each exemption is scoped to only its own tokens - the other tokens st
     }
 
     expect($exemptions)->not->toBe([]);
+});
+
+it("W-3: an exemption cannot tell a read from a write - a write planted inside a copy of Delete/Merge's own exempt shape is still reported", function () {
+    // Before W-3, the exemption was a flat per-file/per-token allow-list:
+    // any occurrence of `credit_balance` inside DeleteCustomerHandler
+    // passed, including a write. Now the exemption's value is the literal
+    // string 'read', and every occurrence must be a property read.
+    $exemptions = ['Planted.php' => ['credit_balance' => 'read']];
+
+    $readOnly = "<?php\nif (! \$before->credit_balance->isZero()) {}\n";
+    expect(qaCustomersMaintainedColumnOffenders('credit_balance', ['Planted.php' => SourceRules::codeOnly($readOnly)], $exemptions))->toBe([]);
+
+    $write = "<?php\n\$x->where('id', \$id)->update(['credit_balance' => '5.0000']);\n";
+    expect(qaCustomersMaintainedColumnOffenders('credit_balance', ['Planted.php' => SourceRules::codeOnly($write)], $exemptions))->toBe(['Planted.php']);
+});
+
+it("W-3: Create's exemption accepts only its own exact zero-default literal, not a differently-shaped assignment", function () {
+    $exemptions = ['Planted.php' => ['credit_balance' => "'credit_balance' => '0.0000',"]];
+
+    $exactLiteral = "<?php\n\$connection->table('customers')->insert(['credit_balance' => '0.0000',]);\n";
+    expect(qaCustomersMaintainedColumnOffenders('credit_balance', ['Planted.php' => SourceRules::codeOnly($exactLiteral)], $exemptions))->toBe([]);
+
+    $differentShape = "<?php\n\$connection->table('customers')->where('id', \$id)->update(['credit_balance' => \$newBalance]);\n";
+    expect(qaCustomersMaintainedColumnOffenders('credit_balance', ['Planted.php' => SourceRules::codeOnly($differentShape)], $exemptions))->toBe(['Planted.php']);
 });
 
 it('AC-41 control: a docblock mentioning credit_balance in prose is not reported, because codeOnly strips it', function () {
@@ -315,8 +391,11 @@ it('AC-41 control: a docblock mentioning credit_balance in prose is not reported
 
 /*
 |--------------------------------------------------------------------------
-| Append-only (AC-19, AC-27): no update/delete/increment/decrement
-| chained onto customer_ledger or loyalty_transactions anywhere
+| Append-only (AC-19, AC-27): no update/delete/increment/decrement/
+| upsert/updateOrInsert/truncate chained onto customer_ledger or
+| loyalty_transactions anywhere (W-3: widened to the one-writer scan's own
+| scope - packages/*\/src, modules/*\/src, modules/host/app - plan step 16
+| says "anywhere", not just packages/customers/src)
 |--------------------------------------------------------------------------
 */
 
@@ -329,7 +408,7 @@ function qaCustomersAppendOnlyOffenders(string $table, ?array $files = null): ar
     $pattern = '/table\s*\(\s*[\'"]'.preg_quote($table, '/').'[\'"]\s*\)/';
     $found = [];
 
-    foreach ($files ?? qaCustomersSourceFiles(qaCustomersRepoRoot().'/packages/customers/src') as $path => $code) {
+    foreach ($files ?? qaCustomersOneWriterScanFiles() as $path => $code) {
         if (preg_match_all($pattern, $code, $matches, PREG_OFFSET_CAPTURE) === 0) {
             continue;
         }
@@ -344,7 +423,7 @@ function qaCustomersAppendOnlyOffenders(string $table, ?array $files = null): ar
                 ? substr($code, $start, 400)
                 : substr($code, $start, $end - $start);
 
-            if (preg_match('/->\s*(update|delete|increment|decrement)\s*\(/', $window) === 1) {
+            if (preg_match('/->\s*(update|delete|increment|decrement|upsert|updateOrInsert|truncate)\s*\(/', $window) === 1) {
                 $found[] = $path;
 
                 break;
@@ -396,6 +475,34 @@ it('AC-19, AC-27 control: a read (select/exists/first) on either table is not re
         expect(qaCustomersAppendOnlyOffenders('customer_ledger', qaCustomersSourceFiles($directory)))->toBe([]);
     } finally {
         File::deleteDirectory($directory);
+    }
+});
+
+it('W-3: the default scan is the one-writer scan\'s own scope, so an offender outside packages/customers/src is still caught', function () {
+    // Plan step 16 says "anywhere", not just packages/customers/src - the
+    // default scope must be qaCustomersOneWriterScanFiles()'s own set
+    // (packages/*\/src, modules/*\/src, modules/host/app).
+    expect(qaCustomersAppendOnlyOffenders('customer_ledger'))->toBe([]);
+
+    $files = qaCustomersOneWriterScanFiles();
+    $plantedPath = qaCustomersRepoRoot().'/modules/host/app/__Planted.php';
+    $files[$plantedPath] = SourceRules::codeOnly("<?php\n\$connection->table('customer_ledger')->where('id', \$id)->update(['debit' => 0]);\n");
+
+    expect(qaCustomersAppendOnlyOffenders('customer_ledger', $files))->toBe([$plantedPath]);
+});
+
+it('W-3: upsert/updateOrInsert/truncate chained onto either table are reported, not just update/delete/increment/decrement', function () {
+    foreach (['upsert', 'updateOrInsert', 'truncate'] as $verb) {
+        $directory = qaCustomersFreshTempDirectory();
+        File::put($directory.'/Planted.php', "<?php\n\$connection->table('customer_ledger')->{$verb}(['id' => \$id]);\n");
+
+        try {
+            expect(qaCustomersAppendOnlyOffenders('customer_ledger', qaCustomersSourceFiles($directory)))->toBe([
+                (string) realpath($directory.'/Planted.php'),
+            ], "Expected [{$verb}] to be reported.");
+        } finally {
+            File::deleteDirectory($directory);
+        }
     }
 });
 

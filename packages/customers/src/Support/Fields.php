@@ -166,11 +166,18 @@ final class Fields
      * An int or a plain decimal string of at most `$scale` decimals, never a
      * float. Required when `$default` is null and the key is absent.
      *
+     * **`$maxIntegerDigits`** (W-6) caps the number of digits before the
+     * decimal point, so a value that fits the `$scale` but would overflow
+     * the target column's real precision (e.g. `DECIMAL(18,4)` allows at
+     * most 14 integer digits, `DECIMAL(9,4)` at most 5) is refused here
+     * instead of raising a raw `QueryException` on strict MySQL. `null`
+     * means no cap.
+     *
      * @param  array<string, mixed>  $fields
      *
      * @throws CustomersRefused validation
      */
-    public static function decimal(array $fields, string $key, int $scale, bool $allowNegative = false, ?string $default = null): ?string
+    public static function decimal(array $fields, string $key, int $scale, bool $allowNegative = false, ?string $default = null, ?int $maxIntegerDigits = null): ?string
     {
         if (! array_key_exists($key, $fields)) {
             return $default;
@@ -194,6 +201,14 @@ final class Fields
 
         if (preg_match($pattern, $value) !== 1) {
             throw CustomersRefused::validation("The {$key} must be a decimal with at most {$scale} decimal places".($allowNegative ? '.' : ', and not negative.'));
+        }
+
+        if ($maxIntegerDigits !== null) {
+            $integerDigits = mb_strlen(ltrim(explode('.', ltrim($value, '-'))[0], '0') ?: '0');
+
+            if ($integerDigits > $maxIntegerDigits) {
+                throw CustomersRefused::validation("The {$key} must have at most {$maxIntegerDigits} digits before the decimal point.");
+            }
         }
 
         return $value;
@@ -264,6 +279,39 @@ final class Fields
 
         if (! is_string($value) || \DateTime::createFromFormat('Y-m-d', $value) === false || preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) !== 1) {
             throw CustomersRefused::validation("The {$key} must be a valid Y-m-d date.");
+        }
+
+        return $value;
+    }
+
+    /**
+     * A valid `Y-m-d H:i:s` datetime, optionally with up to 6 fractional
+     * digits (`Y-m-d H:i:s.v`), or null. W-6: without this, an unvalidated
+     * `expires_at` reaches a DATETIME(3) column as a raw string, raising an
+     * uncaught `QueryException` on strict MySQL instead of a refusal.
+     *
+     * @param  array<string, mixed>  $fields
+     *
+     * @throws CustomersRefused validation
+     */
+    public static function datetime(array $fields, string $key, int $max): ?string
+    {
+        if (! array_key_exists($key, $fields) || $fields[$key] === null) {
+            return null;
+        }
+
+        $value = $fields[$key];
+
+        if (! is_string($value) || mb_strlen($value) > $max) {
+            throw CustomersRefused::validation("The {$key} must be a string of at most {$max} characters.");
+        }
+
+        if (preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?$/', $value) !== 1) {
+            throw CustomersRefused::validation("The {$key} must be a Y-m-d H:i:s[.v] datetime.");
+        }
+
+        if (\DateTime::createFromFormat('Y-m-d H:i:s', substr($value, 0, 19)) === false) {
+            throw CustomersRefused::validation("The {$key} must be a valid datetime.");
         }
 
         return $value;

@@ -68,7 +68,7 @@ final class UpdateCustomerGroupHandler
             }
 
             if (Fields::has($fields, 'discount_percent')) {
-                $changes['discount_percent'] = Fields::decimal($fields, 'discount_percent', 4, false, null);
+                $changes['discount_percent'] = Fields::decimal($fields, 'discount_percent', 4, false, null, 5);
             }
 
             if (Fields::has($fields, 'credit_allowed')) {
@@ -76,7 +76,7 @@ final class UpdateCustomerGroupHandler
             }
 
             if (Fields::has($fields, 'default_credit_limit')) {
-                $changes['default_credit_limit'] = Fields::decimal($fields, 'default_credit_limit', 4, false, null);
+                $changes['default_credit_limit'] = Fields::decimal($fields, 'default_credit_limit', 4, false, null, 14);
             }
 
             if (Fields::has($fields, 'default_payment_terms_days')) {
@@ -84,7 +84,7 @@ final class UpdateCustomerGroupHandler
             }
 
             if (Fields::has($fields, 'loyalty_multiplier')) {
-                $changes['loyalty_multiplier'] = Fields::decimal($fields, 'loyalty_multiplier', 4, false, null);
+                $changes['loyalty_multiplier'] = Fields::decimal($fields, 'loyalty_multiplier', 4, false, null, 5);
             }
 
             $settingDefault = Fields::has($fields, 'is_default') && Fields::flag($fields, 'is_default', false);

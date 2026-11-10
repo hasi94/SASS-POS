@@ -113,6 +113,20 @@ final class MergeCustomersHandler
             self::moveChildren($connection, 'customer_notes', $sourceId, $targetId, $this->clock->timestamp());
             self::moveChildren($connection, 'customer_communications', $sourceId, $targetId, $this->clock->timestamp());
 
+            // R-1: "zero by construction" is only true if the compensating
+            // posts above actually wrote a row. `reference_type` is free
+            // text on the public ledger entry points, so a pre-seeded
+            // (`customer_merge_out`/`customer_merge_in`, sourceId,
+            // adjustment) row would make `post()` replay as a no-op instead
+            // of zeroing the balance. Re-read the source under lock and
+            // refuse rather than soft-delete a customer still holding a
+            // balance or loyalty points.
+            $sourceAfter = $connection->table('customers')->where('id', $sourceId)->lockForUpdate()->first();
+
+            if ($sourceAfter === null || ! BigDecimal::of((string) $sourceAfter->credit_balance)->isZero() || ! BigDecimal::of((string) $sourceAfter->loyalty_points)->isZero()) {
+                throw CustomersRefused::validation("Customer [{$sourceId}]'s balance was not reduced to zero by the merge; refusing to merge.");
+            }
+
             $now = $this->clock->timestamp();
 
             $connection->table('customers')->where('id', $sourceId)->update([
@@ -170,7 +184,7 @@ final class MergeCustomersHandler
         $magnitude = (string) $sourceBalance->abs();
         $isDebitHeavy = $sourceBalance->isPositive();
 
-        $this->creditWriter->post(
+        $out = $this->creditWriter->post(
             $connection,
             $sourceId,
             CreditEntryType::Adjustment,
@@ -185,7 +199,7 @@ final class MergeCustomersHandler
             $actorId,
         );
 
-        $this->creditWriter->post(
+        $in = $this->creditWriter->post(
             $connection,
             $targetId,
             CreditEntryType::Adjustment,
@@ -199,6 +213,14 @@ final class MergeCustomersHandler
             null,
             $actorId,
         );
+
+        // R-1: a pre-seeded collision on either replay key would make
+        // `post()` return the stored row unchanged instead of zeroing the
+        // source/crediting the target - refuse rather than merge on a
+        // silent no-op.
+        if ($out->replayed || $in->replayed) {
+            throw CustomersRefused::validation("A credit ledger entry for customer [{$sourceId}]'s merge already exists; refusing to merge.");
+        }
     }
 
     /**
