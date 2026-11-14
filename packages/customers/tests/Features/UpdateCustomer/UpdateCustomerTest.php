@@ -140,3 +140,31 @@ it('sets possible_duplicate_of, refuses pointing at itself, and refuses an unkno
 it('refuses an unknown customer', function () {
     CustomersRefusals::expect(CustomersRefusal::NotFound, fn () => updateCustomer((string) Str::ulid(), ['version' => 1, 'name' => 'X']));
 });
+
+it('refuses to update a soft-deleted customer, leaving the row untouched (review round 1 W-5)', function () {
+    // The read at the top of the handler must exclude soft-deleted rows -
+    // without it, a dead customer's status, credit limit,
+    // possible_duplicate_of, etc. could still be edited. Proven by seeding
+    // a soft-deleted row directly (bypassing DeleteCustomer, so this is
+    // not entangled with AC-10's own balance guard) and asserting the
+    // update is refused as not found, with the row byte-identical.
+    $customerId = CustomersSeed::customer('Ghost', ['deleted_at' => CustomersSeed::NOW]);
+    $before = (array) CustomersSeed::connection()->table('customers')->where('id', $customerId)->first();
+
+    CustomersRefusals::expect(CustomersRefusal::NotFound, fn () => updateCustomer($customerId, ['version' => 1, 'name' => 'Edited']));
+
+    $after = (array) CustomersSeed::connection()->table('customers')->where('id', $customerId)->first();
+    expect($after)->toBe($before)
+        ->and(CustomersSeed::audit())->toBe([]);
+});
+
+it('refuses to update a merged-away customer (review round 1 W-5)', function () {
+    // MergeCustomers already soft-deletes the source, so the same
+    // whereNull('deleted_at') guard covers this case too - proven
+    // directly against a row carrying merged_into_id, without going
+    // through MergeCustomers itself.
+    $target = CustomersSeed::customer('Target');
+    $source = CustomersSeed::customer('Source', ['deleted_at' => CustomersSeed::NOW, 'merged_into_id' => $target]);
+
+    CustomersRefusals::expect(CustomersRefusal::NotFound, fn () => updateCustomer($source, ['version' => 1, 'name' => 'Edited']));
+});
