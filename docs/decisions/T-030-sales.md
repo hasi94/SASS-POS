@@ -870,3 +870,106 @@ to exactly that figure. | The literal meaning of a column named `usage_limit`: i
 uses allowed, not the count of uses allowed minus one. A boundary-off-by-one found by `architect6`
 checking the exact arithmetic rather than the prose. Reversible: n/a (a correctness fix to an
 off-by-one, not a judgement call).
+
+---
+
+## Decisions D-55 to D-70 — added after the reconciliation of plan revision 3 against the shipped
+T-028 and T-029 code (findings R-1 to R-41, questions Q-1 to Q-11), on the lead's rulings
+
+Claims were verified on this branch: `PricingRefusal` has 17 cases; `CreditRefusal` has 16;
+`DatabasePricingEngine` refuses a soft-deleted product and loads a discount `whereNull('deleted_at')`;
+`DiscountCalculator` refuses on the current `is_active` and on `usedCount >= usageLimit`; the
+ledger's reserved reference types are an exact `in_array` over three values.
+
+D-55 (Q-1; OPEN, owner-level; not decided here) | A referenced refund line is re-quoted through the
+engine, which checks the discount's and product's state today. Which rule applies when that state
+has changed? | **Recorded as an open owner question, not decided.** Default built by the plan:
+refuse with the engine's own reason and write nothing (AC-53). Affected cases: discount usage limit
+filled, discount deactivated or deleted, `allow_discount` off, discount scope narrowed, product
+soft-deleted (goodwill refunds too). Options: (a) refuse and tell the cashier, cheap but a return
+can become impossible; (b) refund the original line's recorded amounts without re-quoting, always
+refundable but a partial refund needs a split that AC-42 forbids Sales to compute, or an additive
+pricing quote mode (a T-029 change). Must be ruled before Chunk D is accepted. | Owner-visible
+money behaviour, so not the BA's to settle. Reversible: yes.
+
+D-56 (Q-2; OPEN, owner-level; not decided here) | Should a line priced `0.0000` from the product's
+own price be accepted? | **Recorded as an open owner question.** Default built: accept a `0.0000`
+line (FP-440 makes an unpriced product quote 0.0000, so `no_price_resolved` is unreachable through
+the real engine). With the zero-total-draft-completes-with-no-tender rule, an unpriced product can
+leave free. Safer alternative: refuse such a line unless explicitly marked free (an approved
+override). Must be ruled before Chunk C is accepted. | Owner-visible money behaviour. Reversible: yes.
+
+D-57 (Q-3) | May an inactive, unsellable or variant-parent product be rung up? | **No.** Refused
+`product_not_sellable` (a new refusal), naming the failed fact. Goodwill refund lines are not
+checked for sellability (AC-47). | Neither the engine nor the earlier spec checks these flags; a
+variant parent is not a sellable item. Reversible: yes.
+
+D-58 (Q-4) | Whose customer does a refund carry, and may it be at another branch? | A referenced
+refund copies the original sale's customer and snapshots; a goodwill refund takes an optional,
+live-checked customer. A refund at a branch other than the original's is refused `not_refundable`
+(currency, shift and approval branch follow the original). | The conventional reading; the spec was
+silent. Reversible: yes (relaxing it is additive).
+
+D-59 (Q-5) | Does re-pricing a line need a new approval after one was consumed? | No: an approval
+already consumed by this sale for the same line, discount and override price covers a re-price
+(for example a changed quantity). A different discount or price needs a new approval (AC-55). |
+Matches AC-23a's "a consumed approval exists" reading. Reversible: yes (stricter later).
+
+D-60 (Q-6) | A removed tender's late `AddTender` retry? | Accepted and documented: it re-adds the
+tender. A tombstone is a follow-up before offline replay (FP-237). | Online till only for now.
+Reversible: yes.
+
+D-61 (Q-7; corrects D-50) | D-50 says every write locks the `sales` row first. | **Reworded.** Every
+write takes its locks in the plan's Ruling 7 order: the shift locked by id then re-checked, then
+`sales`, then approvals, then payment methods, then discounts in ascending id, a reserved slot for
+FP-234's stock, then customers, and `number_sequences` last; and every write's first statement is a
+locking read. D-50's other content (idempotency keys, resolve-before-lock) stands. | Closes the race
+between writes and `CloseCashShift`; D-50 was informational. Reversible: n/a.
+
+D-62 (Q-8) | Should customers reserve `sale_tender` as a ledger reference type? | Yes, but not
+built here: a follow-up row for the lead, together with case-folding of the reserved check (FP-435).
+Sales is protected meanwhile by D-66. | A customers change, outside this task's boundary.
+
+D-63 (Q-9; keeps D-38) | A line is quoted when added, but a refund is quoted at the sale's
+`completed_at`. | Keep D-38. Named as a residual gap beside the unversioned price lists: a promotion
+that ended between the add and the completion prices the refund differently from the charge.
+
+D-64 (Q-10) | A refund uses the customer's current group, because the sale stores none. | Accepted;
+named as a residual gap: a customer moved to another group can be refunded at a different group
+price.
+
+D-65 (Q-11) | `DiscountUsage::consume()` re-checks existence and the limit only. | Accepted:
+`is_active` and the date window are facts checked at quote time. Deactivated-in-between discounts are
+still consumed (AC-58).
+
+D-66 (R-4; extends D-29) | A ledger post returning "replayed" could be silently accepted, since a
+manual ledger entry can pre-seed a tender's key (`sale_tender` is not reserved, and the reserved
+check is exact and case-sensitive while the MySQL key is case-insensitive). | `CompleteSale`,
+`VoidSale` and `RefundSale` each refuse any replayed posting as `credit_refused` with cause
+`replay_conflict`, and the whole transaction rolls back (AC-48). Each of those operations makes the
+first and only post for its key, so a replay is always a conflict. | Prevents a credit sale
+completing with no debit. Reversible: n/a.
+
+D-67 (R-40; corrects AC-5's description of the refusal) | What does a refusal carry? | A Sales
+reason **and** the foreign refusal as its cause (the cause's enum type is always carried, since
+`unknown_product`, `invalid_amount`, `out_of_range` and `replay_conflict` exist in more than one
+enum). New Sales refusal codes: `invalid_transition`, `out_of_range`, `numbering_refused`,
+`number_too_long` (a document number over 30 characters; carried as the numbering refusal's cause),
+and `product_not_sellable`. A pricing refusal keeps its own value, except `no_price_resolved`, which
+is `unresolvable_price`. | The caller can act on both facts. Reversible: yes.
+
+D-68 (R-20; corrects AC-11/AC-14) | When is a credit tender's currency checked? | At completion
+only: `AddTender` checks only that the sale has a customer; `CompleteSale` refuses `credit_refused`
+when the customer's currency is missing or differs from the sale's (AC-49). Credit amounts are
+positive strings (`credit_sale` debit, `credit_note` and `refund` credit); the ledger writes its own
+audit row, so the invariant is one Sales audit row per write plus one Customers audit row per posting.
+
+D-69 (R-25; informational) | `sales.approvals.decide` and `sales.shifts.reconcile` are the first real
+branch-scoped permission keys. | Tests must cover both a branch-scoped grant and a company-wide grant,
+and a branch-scoped key with no branch is refused. No routes exist, so the HTTP-surface rule is not
+triggered.
+
+D-70 (R-14, R-39; small) | Input hygiene found by reconciliation. | A quantity of zero or less is
+refused `validation` before unit resolution (the resolver accepts zero and negatives); every rollup
+that cannot fit `DECIMAL(18,4)` is `out_of_range`; no client date or instant is accepted; a
+malformed id is `validation`, never an unhandled error (AC-51, AC-52).

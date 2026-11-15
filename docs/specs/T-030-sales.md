@@ -15,6 +15,20 @@ the discount usage-limit boundary) — logged as D-51 to D-54 and folded in here
 revision changes the task's outer scope boundary from revision 1 — the same things stay out
 (D-1, D-6, D-7, D-10).
 
+Revision 4: `architect` reconciled plan revision 3 against the shipped T-028 and T-029 code at
+`74fceba` (findings R-1 to R-41, questions Q-1 to Q-11) and the lead ruled on each. The amendments
+are logged as D-55 to D-70 in `docs/decisions/T-030-sales.md`; D-1 to D-54 are kept intact, and a
+correction is a new entry naming the one it corrects. Where an existing AC changes, a line marked
+"Revision 4" sits under it; the new ACs are AC-47 to AC-58 (section I). Two owner-level questions
+(Q-1, Q-2) are recorded as OPEN with a built default (see Open questions); neither blocks Chunk A.
+Each claim below was checked against the code on this branch: `PricingRefusal` has 17 cases,
+`CreditRefusal` has 16 (including `replay_conflict` and `reserved_reference_type`), the engine
+refuses a soft-deleted product, loads a discount `whereNull('deleted_at')`, and `DiscountCalculator`
+refuses on the current `is_active` and on `usedCount >= usageLimit`, and the ledger's
+`RESERVED_REFERENCE_TYPES` is an exact `in_array` over `customer`, `customer_merge_out`,
+`customer_merge_in`. (FP-440's `NOT NULL DEFAULT 0` on `products.selling_price` is taken from the
+backlog and the plan; the migration text was not located by search.)
+
 Spec written **spec-ahead** of two unfinished dependencies: T-029/FP-231 (Taxes, price lists,
 discounts — `packages/pricing`) and T-028/FP-232 (Customers — `packages/customers`), both still
 being implemented on their own branches. No code is built from this spec until both are DONE
@@ -23,7 +37,7 @@ it is naming intent, not a literal signature, and `dev` reconciles against the r
 interface before writing code (see decisions D-4/D-5, and the plan's own step 0 reconciliation
 table).
 
-Backlog: FP-233, `docs/backlog.md`. Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-54).
+Backlog: FP-233, `docs/backlog.md`. Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-70).
 Design inputs read directly: `docs/architecture.md` v0.5 §1, §3, §8, §11, §12, §15, §21-22;
 `docs/database.md` v0.5 §3, §6.4 to §6.9 (Catalog, Pricing/tax, Inventory's unit-inheritance
 rule, Sales/POS, Payments, Customers, §12.1's credit-sale transaction shape); T-027's decisions/
@@ -441,6 +455,70 @@ shape.
   schema test and exercised by the AC that reads it (AC-6/AC-11/AC-17/AC-18/AC-19 for `sale_
   holds`; AC-24 for `consumed_at`; AC-8 for `subtotal`).
 
+### I — Revision 4 amendments (D-55 to D-70)
+
+Amendments to earlier ACs, stated here so no AC is renumbered:
+
+- AC-5 (amended): the refusal a caller sees carries **both** a Sales reason and, where one exists,
+  the foreign refusal as its cause (D-67). `no_price_resolved` is surfaced as `unresolvable_price`;
+  every other pricing reason keeps its own name.
+- AC-13 (amended): removing the last tender of a `pending_payment` sale returns it to `draft`.
+- AC-14 (amended): a replayed ledger posting is refused (AC-48); a credit tender is refused at
+  completion if the customer's currency is missing or differs from the sale's (AC-49); a draft with
+  total `0.0000` and at least one line completes with no tender (the sum of tenders, zero, equals
+  the total). `DocumentNumbers` may refuse (AC-50).
+- AC-26/AC-27 (amended): a referenced refund line's re-quote is subject to the engine's live-state
+  checks until the owner rules on Q-1 (AC-53).
+
+New ACs:
+
+- AC-47: Given a product that is inactive (`is_active = false`), not sellable (`is_sellable =
+  false`) or of type `variant_parent`, When `AddSaleLine` or `UpdateSaleLine` names it, Then it is
+  refused `product_not_sellable`, naming which fact failed, and nothing is written (D-57). A goodwill
+  refund line is **not** subject to this check on the product's sellability (a returned item may no
+  longer be sold), but is still subject to the engine's own refusals (AC-53).
+- AC-48: Given `CompleteSale`, `VoidSale` or `RefundSale` posts to the customer credit ledger and
+  the ledger reports the posting as replayed (a row for that `(reference_type, reference_id, type)`
+  already existed, for example a manual ledger entry pre-seeded with a tender's id), Then the
+  operation is refused `credit_refused` with cause `replay_conflict` and the whole transaction rolls
+  back, leaving the sale, tenders, approval consumption and every other ledger row unchanged (D-66).
+- AC-49: Given a credit tender on a sale whose customer's currency is missing or differs from the
+  sale's currency, When `CompleteSale` runs, Then it is refused `credit_refused` with the ledger's
+  own cause (`currency_required` or `currency_mismatch`) and nothing is written. `AddTender` does
+  not make this check; it checks only that the sale has a customer (D-68).
+- AC-50: Given a `DocumentNumbers` refusal, When `CompleteSale`, `RefundSale` or `OpenCashShift`
+  allocates a number, Then the operation is refused `numbering_refused` carrying the cause
+  (`unsupported_reset_period`, or `number_too_long` when prefix plus digits plus suffix would exceed
+  30 characters, the width of `sales.number` and `cash_shifts.number`), and nothing is written.
+- AC-51: Given `HoldSale`, `RecallSale` or `CompleteSale` called on a sale in a status the state
+  machine does not allow, Then it is refused `invalid_transition`, naming the current status. Given
+  any rollup or amount that would not fit `DECIMAL(18,4)`, Then it is refused `out_of_range`.
+- AC-52: Given a quantity of zero or less on a sale line or a refund line, Then it is refused
+  `validation` before any unit or price resolution runs.
+- AC-53 (Chunk D acceptance depends on owner question Q-1): Given a referenced refund line whose
+  discount has since reached its usage limit, been deactivated or soft-deleted, or whose product has
+  `allow_discount` turned off, or a refund line (referenced or goodwill) whose product is
+  soft-deleted, When `RefundSale` re-quotes it, Then the refund is refused with the engine's own
+  reason (`usage_limit_reached`, `inactive`, `unknown_discount`, `discount_not_allowed`,
+  `not_applicable`, `unknown_product`) and nothing is written. This is the built default, not a
+  confirmed rule.
+- AC-54: Given a referenced refund, Then the refund sale copies the original's `customer_id` and
+  snapshots; a goodwill refund takes an optional customer, live-checked as in AC-1 (D-58). Given a
+  refund requested at a branch other than the original sale's, Then it is refused `not_refundable`.
+- AC-55: Given an approval already consumed by this sale for a price override or discount, When
+  `UpdateSaleLine` re-prices the same line with the same discount and the same override price, Then
+  no new approval is required. A different discount or a different override price needs a new one
+  (D-59).
+- AC-56: Given a tender removed by `RemoveTender`, When a late retry of that tender's `AddTender`
+  arrives with the same id and payload, Then the tender is added again (D-60). No tombstone exists.
+- AC-57: A refund is quoted at the original sale's `completed_at` (D-38 kept) and with the
+  customer's current group (D-63, D-64). Given a promotion that ended, or a customer who changed
+  group, between the sale and the refund, the refund can differ from what was charged; this is
+  accepted and named.
+- AC-58: `DiscountUsage::consume()` checks existence and the usage limit only. Given a discount
+  deactivated or past its window between quote and completion, Then completion still consumes it
+  (D-65).
+
 ## Out of scope
 
 - Real-time stock validation and decrement on sale completion (FP-234, its own backlog row — D-1).
@@ -466,6 +544,10 @@ shape.
 - Automatic loyalty-point earning on sale completion (no documented trigger rule exists — D-5); a
   caller may invoke Customers' own loyalty feature directly once both exist, now with a real
   `sale_id` to pass it (AC-45).
+- Reserving `sale_tender` as a customers ledger reference type, with case-folding of the reserved
+  check (FP-435): a follow-up row for the lead, not built here (D-62).
+- A refund path that skips the engine's live-state checks (Q-1 option b), and tombstones for
+  removed tenders before offline replay (D-60).
 - A forced header-level price-list override via `sales.price_list_id` (D-11) — the column is
   stored but not yet read as a forcing parameter, because the pricing contract does not expose one.
 - `approval_requests.decision_method = remote`, and `type` in `{credit_limit, negative_stock,
@@ -493,23 +575,53 @@ shape.
 - `Contracts\Access\PinVerifier` is always called outside any transaction this task opens, so a
   failed verification's lockout effect is never rolled back by an unrelated later refusal in the
   same request (D-30, AC-39).
+- `sales.approvals.decide` and `sales.shifts.reconcile` are the **first real branch-scoped
+  permission keys** in the codebase (Access and Organization declare only company-wide ones). The
+  resolver's branch path has so far been proven only with fixture keys, so the tests cover both a
+  branch-scoped grant and a company-wide (null-scope) grant, and a branch-scoped key asked with no
+  branch is refused (D-69).
+- Locks are taken in one global order (D-61) and every write's first statement is a locking read.
+- A customer ledger posting writes its own audit row, so the audit invariant is one Sales audit row
+  per write plus one Customers audit row per ledger posting.
 - No new `(precision, scale)` pair is added to `TenantDecimalPrecisionTest`'s allow-list.
 
 ## Open questions
 
-None left blocking — every judgement call this spec needed, including the two `architect6` raised
-as product questions (bill-level discounts, refund pricing), is resolved and logged in
-`docs/decisions/T-030-sales.md` (D-1 to D-54), per the team protocol: the lead ruled on both
-directly (D-35, D-38) rather than escalating further. Two items are **not** blocking but stay
-genuinely unconfirmed until their owning dependency lands, and are called out rather than silently
-assumed correct:
+No BLOCKING question for Chunk A. Two **owner-level** questions are OPEN: the lead directed they be
+recorded with their built default and not decided here (D-55, D-56). Every other judgement call is
+resolved and logged in `docs/decisions/T-030-sales.md` (D-1 to D-70).
 
-1. The exact method/DTO names on `Contracts\Pricing\PricingEngine`/`DiscountUsage` (D-4, D-37) and
-   the exact published shape of Customers' credit-ledger contract (D-5/D-29) are still moving on
-   T-029's and T-028's own branches respectively. This spec names the *call shape and intent*, and
-   `dev` reconciles the literal interface against each package's real, committed contract before
-   writing any Sales code — the plan's own step 0 already builds a reconciliation table for this
-   exact purpose.
+**Owner questions (OPEN, a default is built until ruled):**
+
+1. **Q-1 [OWNER; must be ruled before Chunk D (refunds) is accepted] Refunding a line whose
+   discount or product has changed.** A refund line is re-quoted through the pricing engine, which
+   checks the discount's and the product's state **today**. So a line cannot be refunded once its
+   discount has filled its usage limit (the N-th sale's own use makes all N sales unrefundable on
+   that line), been deactivated or deleted, or `allow_discount` was turned off; and a soft-deleted
+   product cannot be refunded at all, goodwill included. **Default built (AC-53):** the refund is
+   refused with the engine's reason and nothing is written. Options and cost:
+   - (a) Refuse and tell the cashier (default). Costs nothing to build and keeps AC-42 and D-38
+     intact; costs a customer who cannot get a legitimate return accepted, with no in-system
+     remedy, for any discontinued product.
+   - (b) Refund the original sale line's recorded amounts without re-quoting. Always refundable
+     and exact for a full-quantity refund; but a partial refund then needs a proportional split of
+     the recorded amounts, which is arithmetic AC-42 forbids Sales from doing, so it needs either a
+     rule exempting that one calculation or an additive pricing quote mode that skips live-state
+     checks (a T-029 engine change, its fixtures and FP-432's TypeScript twin).
+2. **Q-2 [OWNER; must be ruled before Chunk C (the cart) is accepted] Zero-priced products.**
+   `products.selling_price` is NOT NULL DEFAULT 0 (backlog FP-440), so an unpriced product quotes
+   `0.0000` through the real engine and `no_price_resolved` is unreachable. With the rule that a
+   draft with total `0.0000` and at least one line completes with no tender, an unpriced product can
+   leave the shop free. **Default built:** accept a `0.0000` line. Safer alternative: refuse a line
+   priced `0.0000` from the product's own price (ladder step 6) unless explicitly marked free
+   (for example through an approved price override); cost is a new refusal and an approval for every
+   genuine giveaway.
+
+**Not blocking, unconfirmed until built:**
+
+1. The literal signatures on `Contracts\Pricing` and Customers' credit ledger were reconciled in
+   revision 4 against the shipped code (see header); only the not-yet-built contracts
+   (`snapshotInherited`, `PinVerifier`, `DocumentNumbers`, `DiscountUsage`) are still intent.
 2. Identity's exact `PermissionResolver`/`TerminalAuthority` symbol shapes (D-30, Ruling 5 of the
    plan) are read directly from the shipped `packages/access`/`packages/organization` source at
    build time; both owning tasks (T-010, T-014) are DONE, so this is a lookup, not an open
