@@ -861,7 +861,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 ### Chunk B: building blocks (bottom-up)
 
-- [ ] **Step 9: `Support`, `Money`, `SaleRollup`, `TenderRules`, `ShiftTotals`.** All pure, or reading only this package's tables.
+- [x] **Step 9: `Support`, `Money`, `SaleRollup`, `TenderRules`, `ShiftTotals`.** All pure, or reading only this package's tables.
   - **`Money`:**
     - canonical 4-dp strings; no float; never `-0.0000`;
     - `round(7.5000 × 3.0000) = 22.5000`;
@@ -881,7 +881,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - **M1:** add `drop` instead of subtracting it. The movement row goes red;
     - **M2:** count `held` sales' tenders. The held row goes red.
   - *(AC-8, AC-11, AC-34, AC-35 arithmetic; F-11, F-15, F-17.)*
-- [ ] **Step 10: approvals.** `RequestApproval`, `DecideApproval`, `ApprovalGate`, and `ListApprovalRequests`.
+- [x] **Step 10: approvals.** `RequestApproval`, `DecideApproval`, `ApprovalGate`, and `ListApprovalRequests`.
   - **AC-23:**
     - only the four types are accepted; `credit_limit`, `negative_stock` and `custom` are refused `validation`;
     - `decision_method` is always `pin_local`;
@@ -901,13 +901,13 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - **Mutation M3:** call `PinVerifier` inside the transaction. The counter assertion goes red.
   - The list is paginated (D-26), and the cursor reaches row 51 of 51 at page size 50.
   - *(AC-23, AC-24; D-12 to D-15; F-5, F-21.)*
-- [ ] **Step 11: payment methods** (three slices).
+- [x] **Step 11: payment methods** (three slices).
   - Code blank or duplicate (also by case, through a `lower(code)` pre-check with the unique index as the caught backstop; pricing's `Uniqueness` precedent, R-38); bad `type` (exact lower-case values only); the boolean defaults; `surcharge_percent` above `99999.9999` (`DECIMAL(9,4)`), negative, or with a fifth decimal, is `validation`; `financial_account_id`, `gateway` and `settings` refused as **unknown** (F-8).
   - **Lock order:** `UpdatePaymentMethod` and `DeletePaymentMethod` take the method row `lockForUpdate()` as their first statement, then count tenders on open sales with a plain read (Ruling 7, row 4). An update or delete of a soft-deleted method is `not_found`.
   - **The guard:** deactivate or delete is refused `in_use`, naming the count, while a `draft`, `held` or `pending_payment` sale has a tender on the method. It is accepted once that sale completes.
   - The soft delete leaves the row in place.
   - *(AC-16.)*
-- [ ] **Step 12: `OpenCashShift`, `RecordCashMovement`, `ListCashShifts`, `ListCashMovements`.**
+- [x] **Step 12: `OpenCashShift`, `RecordCashMovement`, `ListCashShifts`, `ListCashMovements`.**
   - **AC-32:**
     - `shift_already_open`;
     - a paused or inactive terminal (`TerminalAuthority`) is `not_found`;
@@ -922,6 +922,15 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - Both lists are paginated. `ListCashMovements` orders by `(created_at, id)`, because the ids are caller-supplied (R-17).
   - **Gate: `composer check` (end of chunk B).**
   - *(AC-32, AC-33, AC-37 (movement); D-22.)*
+  - **As built (chunk B), the notes the next chunks need:**
+    - **Deadlock handling for `DocumentNumbers` (the NOT VERIFIED item from chunk A).** `OpenCashShift` runs its whole transaction as `transaction(..., 2)`: the engine's deadlock error rolls the transaction back and runs it once more, so no number, shift or audit row of the first attempt survives; a second deadlock reaches the caller as the engine's `QueryException`. It retries only as the outermost transaction. Proved against a numbering fake that throws the deadlock `QueryException` (retry once, give up after two, no retry of a non-deadlock error). **Every later slice that calls `DocumentNumbers::next()` (`CompleteSale`, `RefundSale`) must do the same.** Still not measured on a real engine.
+    - **`OpenCashShift` locks the terminal row first** (`terminals`, by primary key, `FOR UPDATE`). Ruling 7's table has no row for it, because the shift it creates is new; the terminal is the one row that serialises two openings for one terminal, and it keeps the "locking read first" rule. `number_sequences` is last.
+    - **`DecideApproval` takes `(fields, ?ip)`, not `(fields, ?actorId)`.** The decider is whoever the PIN proves, so there is no actor to pass; the PIN field is sensitive in traces and out of `__debugInfo()`.
+    - **`BusinessClock` is not built yet.** Nothing in steps 9 to 12 reads a business date or converts a `DATETIME(3)` to an instant; it arrives with `CreateSale` (step 13), its first caller.
+    - **`SalesPermissions` declares only `sales.approvals.decide`.** `sales.shifts.reconcile` arrives with `ReconcileCashShift` (chunk D), the slice that checks it.
+    - **Audit module `sales` is declared**, and `AuditCatalogueTest`'s two module lists now include it.
+    - **`ApprovalGate::consume()` returns a `ConsumedApproval`** (`approvalId`, `decidedBy`, `requestedBy`), so a price override can set `price_overridden_by` to the approver (AC-7).
+    - **`TenderRules::decide(method, offered, reference, balance)`** takes what was put on the counter (the tendered figure for a method that gives change, the amount for any other) and refuses in this order: `unsupported_method_type`, `method_inactive`, `reference_required`, nothing owing (`exceeds_balance`), over the balance (`exceeds_balance`, or change when the method gives it), `partial_not_allowed`.
 
 ### Chunk C: the cart, tenders, completion, hold
 

@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace Flexipos\Sales;
 
+use Flexipos\Contracts\Access\DeclaresPermissions;
+use Flexipos\Contracts\Access\PermissionDeclaration;
+use Flexipos\Contracts\Audit\DeclaresAuditActions;
+use Flexipos\Sales\Registry\SalesAuditActions;
+use Flexipos\Sales\Registry\SalesPermissions;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -20,10 +25,30 @@ use Illuminate\Support\ServiceProvider;
  * (FP-234 adds one when it needs it), and it reaches the rest of the system only
  * through `Flexipos\Contracts`.
  *
- * **Nothing is bound and nothing is declared at this step.** The audit actions
- * and the two branch-scoped permission keys arrive with the slices that earn
- * them, in the same commit as the registries that hold them, so that a provider
- * never advertises an action no slice writes. Until then this provider only
- * proves the package is wired into the host.
+ * **Nothing is bound.** Every slice and service autowires from the container.
+ * The audit actions and the branch-scoped permission keys arrive with the slices
+ * that earn them, in the same change as the registries that hold them, so that a
+ * provider never advertises an action no slice writes.
  */
-final class SalesServiceProvider extends ServiceProvider {}
+final class SalesServiceProvider extends ServiceProvider implements DeclaresAuditActions, DeclaresPermissions
+{
+    /**
+     * This package's declared audit actions (T-017 Ruling 3).
+     *
+     * @return array<string, list<string>>
+     */
+    public function auditActions(): array
+    {
+        return [SalesAuditActions::MODULE => SalesAuditActions::ALL];
+    }
+
+    /**
+     * This package's permission keys, for the registry sync.
+     *
+     * @return list<PermissionDeclaration>
+     */
+    public function permissionDeclarations(): array
+    {
+        return SalesPermissions::declarations();
+    }
+}
