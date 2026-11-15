@@ -2,6 +2,11 @@
 
 Spec: `docs/specs/T-029-taxes-pricing.md` (AC-1 to AC-30, plus AC-16a and AC-24a). Decisions: `docs/decisions/T-029-taxes-pricing.md` (D-1 to D-30, plus D-21a). Branch `ai/T-029-taxes-pricing`, cut from `ai/T-028-customers` at `8f8295e`. Revision 1 was planned at `4194ce2`, revision 2 at `85dc7ab`, revision 3 at `7280657`.
 
+**Revision 4 (planned at `e4c43f2`, code review round 1).** The review (`docs/reviews/T-029-taxes-pricing.md`) returned CHANGES REQUESTED: R-1 (Critical), W-1 to W-5, S-1 to S-7. `ba` answered it in spec revision 2 (AC-5a, AC-6a, AC-7's duplicate rule, AC-11.6 sub-criteria 6a to 6d, AC-30 items 9 to 11, decisions D-34 to D-39). This revision:
+- corrects the five lines of this plan that still gave the residue to the last percentage member whatever its rate (F-9's inclusive bullet, Ruling 7, step 7's dataset line, step 7's mutation T4, step 19's documents line);
+- adds **section 6.1, "Review round 1 fix steps"**, steps **21 to 33**. Steps 0 to 20 stay as the record;
+- updates sections 7 to 10 and the questions.
+
 **Revision 3 (planned at `7280657`, after Chunk B).** Spec now runs AC-1 to AC-30 and decisions D-1 to D-30. Three changes, each detailed in section 0.4:
 - the inclusive back-out text now states the exact linear rule of AC-11.6 as corrected by D-25. Chunk B already shipped that rule (`TaxCalculator::inclusiveNet`); this revision only aligns the wording;
 - the open ordering risk of D-29 is ruled: **the adapter never orders, the pure engine does all ordering** (Ruling 8, step 16, step 17, step 18);
@@ -108,7 +113,7 @@ The findings follow unchanged, as the record of what was routed. The resolution 
   - **`type = fixed`:** `rate` is an amount per **stock** unit (§6.3: product money is per stock unit), so `amount = round(rate × base_quantity, 4)`. A fixed tax cannot be compound (refused at write, `fixed_cannot_compound`). In an inclusive group, fixed amounts are taken out of the gross before the percentage back-out; if they exceed it, the result is `inclusive_amount_too_small`.
   - **`applies_to`:** the engine is told the context (`sale` | `purchase`) and skips members whose `applies_to` excludes it.
   - **Inactive or soft-deleted member taxes are skipped.** Deactivating is how a shop stops charging a tax. A live member with no effective rate is still `no_effective_rate` (AC-7).
-  - **Inclusive rounding (superseded in detail by D-25 / AC-11.6; Chunk B shipped the corrected rule):** the net comes from the exact linear relation `G − F = net × (1 + S) + K` (F the fixed total; S and K built exactly while walking the members in `sequence`, per AC-11.6), so `net = round((G − F − K) / (1 + S), 4)` is the only rounding. Taxes are then computed forward from that net. The rounding residue `G − net − Σtaxes` is added to the **last percentage member in `sequence`**, so `net + Σtaxes = G` exactly. This replaces "iteratively, tax by tax": it does not accumulate rounding at each step, and it fixes which member absorbs the cent. (Revision 2 of this bullet divided by a multiplier taken as the product of the members' factors; that holds only when every percentage member compounds, which is the defect D-25 records.)
+  - **Inclusive rounding (superseded in detail by D-25 / AC-11.6; Chunk B shipped the corrected rule):** the net comes from the exact linear relation `G − F = net × (1 + S) + K` (F the fixed total; S and K built exactly while walking the members in `sequence`, per AC-11.6), so `net = round((G − F − K) / (1 + S), 4)` is the only rounding. Taxes are then computed forward from that net. The rounding residue `G − net − Σtaxes` is added to the **last percentage member in `sequence` whose resolved rate is not zero** (D-34, which corrects D-25; a zero-rate member never receives it, and when every percentage rate is zero the residue is zero by construction), so `net + Σtaxes = G` exactly. Fix round step 22 ships this. This replaces "iteratively, tax by tax": it does not accumulate rounding at each step, and it fixes which member absorbs the cent. (Revision 2 of this bullet divided by a multiplier taken as the product of the members' factors; that holds only when every percentage member compounds, which is the defect D-25 records.)
   - **Breakdown entry:** `{tax_id, code, tax_code, type, is_compound, rate, base, amount}`. `tax_code` is the printed code and may be null. `base` is what a tax return needs.
 - **F-10 (gaps in AC-15): what each step selects.**
   - **Every** candidate list must be `is_active`, not soft-deleted, have its window contain the document instant (`starts_at ≤ at ≤ ends_at`, a null bound being open), and have `currency` equal to the document currency (a list in another currency is skipped, never converted). D-3 already says every list type is optionally date-ranged; AC-15 applied the window only to promotions.
@@ -202,7 +207,7 @@ A duplicate `minQty` within one branch cannot happen (it is the unique key). The
 
 **Ruling 7: `Engine\RateResolver` and `Engine\TaxCalculator` (pure; AC-7, AC-9, AC-11, F-9).**
 - `RateResolver::resolve(list<RateRow>, date)` returns the row with the greatest `effectiveFrom ≤ date` and (`effectiveTo` null or `> date`). Otherwise it refuses with `no_effective_rate`. Dates are compared as `Y-m-d` strings, which order correctly by construction.
-- `TaxCalculator::compute(members, amount, baseQuantity, date, context, inclusive)` does: filter (F-9) → order by `sequence` → resolve rates → run forward (exclusive) or apply the exact linear back-out of AC-11.6 / D-25 (Ruling 3.4, shipped as `inclusiveNet`) plus the residue rule (inclusive). An empty group gives `net = amount`, no lines, total `0.0000`. A fixed member's breakdown `base` is the line amount (the net, inclusive), never the quantity (D-30). Members tied on `sequence` fall to a bytewise `strcmp` on the tax id (D-29).
+- `TaxCalculator::compute(members, amount, baseQuantity, date, context, inclusive)` does: filter (F-9) → order by `sequence` → resolve rates → run forward (exclusive) or apply the exact linear back-out of AC-11.6 / D-25 (Ruling 3.4, shipped as `inclusiveNet`) plus the residue rule (inclusive: the residue goes to the last percentage member in `sequence` whose resolved rate is not zero, D-34; fix round step 22). An empty group gives `net = amount`, no lines, total `0.0000`. A fixed member's breakdown `base` is the line amount (the net, inclusive), never the quantity (D-30). Members tied on `sequence` fall to a bytewise `strcmp` on the tax id (D-29).
 
 **Ruling 8: the DB adapter, `Engine\DatabasePricingEngine`** (implements `PricingEngine`). It reads exactly the rows the pure classes need, builds their inputs and calls them. It holds **no arithmetic, no ordering and no selection**. The ordering lives in `PriceLadder` and `TaxCalculator`, so a fixture proves it.
 
@@ -482,7 +487,7 @@ Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The st
   - **Compound** (F-9): 5 % then compound 10 % on 100 gives 5 + 10.5. With two compounds, the second's base includes the first compound.
   - **Rounding:** 33.3333 × 15 % gives `5.0000` (from 4.999995); one row at an exact `.00005`.
   - **Inclusive, single 15 %:** 115.0000 gives net 100, tax 15. Also 9.9900 gives net 8.6870, tax 1.3030, and they sum to the gross.
-  - **Inclusive, compound:** `base + Σ = gross` exactly on a dataset of 20 awkward grosses. The residue lands on the last percentage member.
+  - **Inclusive, compound:** `base + Σ = gross` exactly on a dataset of 20 awkward grosses. The residue lands on the last percentage member whose resolved rate is not zero (D-34). The zero-rate fixtures (a 15 % then 0 % group at gross 9.9900 and 10.0000, the reversed order, an all-zero group, and a three-member case whose last member is 0 %) are added in fix round step 22.
   - **Fixed:** 0.5000 per stock unit × base 24 gives 12. In an inclusive group, the fixed amount comes off first; a gross below it gives `inclusive_amount_too_small`.
   - **Fixed before compound, inclusive** (added by D-25, shipped as fixture `tax-inclusive-fixed-before-compound`): a compound percentage after a fixed member also taxes the fixed amount, which is the `K` term of AC-11.6. Fixed 1.0000 × base 2, then compound 10 %, on gross 112.2000: `F = 2`, `S = 0.1`, `K = 0.2`, net `100.0000`, compound base `102.0000`, amount `10.2000`. Non-compound 5 % and 10 % on gross 115.0000 give net `100.0000` and no residue (AC-30.6). The revision 2 product-of-factors divisor fails both rows.
   - **Filters:** a `purchase`-only member is skipped in `sale` context; an inactive member is skipped; an empty group gives zero tax with `net = amount` (AC-9); a live member with no rate gives `no_effective_rate`.
@@ -491,7 +496,7 @@ Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The st
     - **T1:** a compound base excluding prior taxes. The compound rows go red;
     - **T2:** round `r/100` before multiplying. The rounding row goes red;
     - **T3:** inclusive as exclusive. The inclusive rows go red;
-    - **T4:** drop the residue step. The sum-to-gross dataset goes red;
+    - **T4:** drop the residue step. The sum-to-gross dataset goes red. Fix round step 22 adds two variants: **T4b**, pick the residue member by type only (the shipped rule): the zero-rate fixtures at 9.9900 and 10.0000 and the three-member case go red; **T4c**, pick the first non-zero member instead of the last: the three-member case goes red;
     - **T5:** ignore `applies_to`. The filter row goes red.
   - *(AC-9, AC-11.)*
 - [x] **Step 8: `PriceLadder`.** A single 7.50 per stock unit, case factor 24.
@@ -657,7 +662,7 @@ Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The st
     - the deferred account columns;
     - the deferred tighten and why (F-3);
     - rate-as-percent;
-    - the compound, fixed, `applies_to` and residue rules, with the inclusive back-out stated as AC-11.6's exact linear rule (D-25) and the fixed line's `base` (D-30); describe the superseded divisor, never quote it;
+    - the compound, fixed, `applies_to` and residue rules, with the inclusive back-out stated as AC-11.6's exact linear rule (D-25), the residue going to the last percentage member whose resolved rate is not zero (D-34, corrected in fix round step 32), and the fixed line's `base` (D-30); describe the superseded divisor and the superseded residue choice, never quote them;
     - D-29: ties compare bytewise, and the adapter never orders;
     - F-10's selection rules and F-11;
     - the rounding steps;
@@ -668,6 +673,128 @@ Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The st
 - [x] **Step 20: final gate.** `composer check` from `modules/host`, with counts and `test` seconds compared against step 0, then `composer test:fast` once.
   - *(AC-27.)*
 
+## 6.1 Review round 1 fix steps (the fix round, steps 21 to 33)
+
+Source: `docs/reviews/T-029-taxes-pricing.md` round 1, spec revision 2 and D-34 to D-39 (`e4c43f2`). Each claim was re-read in the code at `e4c43f2`, and every finding holds. The review's line numbers do not match the files (for example `TaxCalculator.php` is 258 lines long; the residue step is at about `:76-86` and `lastPercentage` at about `:219-230`; `RateRanges.php` is 49 lines), so `dev` should find each site by content, never by the quoted line.
+
+The section 6 rules still apply: red-first, the red-list rule, no child processes, unique test basenames, and foreign `php.exe` processes listed before each gate run. Every mutation is run once, reverted, and recorded in the hand-back with its red-then-green counts. **Hand-computed expectations are typed by hand from the arithmetic written in this section or the spec, never read back from the engine's output**, as in Chunk B. A fixture whose `expect` was pasted from a run proves nothing.
+
+**What SQLite cannot show.** The SQLite stand-in compiles both `lockForUpdate()` and `sharedLock()` to nothing and has no row locks or snapshots. The lock-order fixes (W-1, W-2) are therefore enforced by two instruments: a **source scan** (step 26, with planted-file controls) and **engine-gated two-connection cases** in `PricingSchemaEngineTest` (steps 27 and 28). Those cases are skipped while `ENGINE_HOLD` is set. **Until the hold lifts, W-1 and W-2 are NOT VERIFIED at run time**, and `dev`, `qa` and the release notes must say so in those words. W-2 also has a SQLite-visible half: a recording double proves that catalog asks for the lock inside its transaction.
+
+**Order.** The pure engine comes first (steps 22 to 24), then AC-6a (step 25), because W-1's engine case relies on it. Next comes the scan, written red against today's tree (step 26). The lock fixes follow and turn the scan green (steps 27 and 28), then the remaining slices and the adapter (steps 29 to 31), the documents (step 32) and the gate (step 33).
+
+- [ ] **Step 21: fix-round baseline.** *(No AC.)*
+  - `composer check` from `modules/host` at the tip that holds `e4c43f2`. Record passed, failed (by name), skipped, the `test` step seconds and the process list.
+  - **Expected:** the last gate was **13 failed (by name) / 36 skipped / 4018 passed**. QA's two added files (`QaPricingAdapterTest`, `QaPricingEngineTest`) bring the expected passed count to **4037**. Record what you measure, not this figure. If the 13 failing names differ from the last gate's list, stop and report to `lead` before any fix.
+  - The `test` seconds measured here are the reference for the fix round's **10 % stop line** (Ruling 11): if step 33's `test` step is more than 10 % slower than step 21's, stop and report to `lead` (FP-328).
+
+- [ ] **Step 22: R-1, the residue skips a zero-rate member** (AC-11.6 sub-criteria 6a to 6d, AC-30.9; D-34).
+  - **Files:** `packages/pricing/src/Engine/TaxCalculator.php` (the residue step, `lastPercentage`, the class docblock's step 6 and the inline comment above the residue guard); `packages/contracts/src/Pricing/TaxLine.php` (docblock only: the residue goes to the last percentage member whose rate is not zero); five new files under `packages/pricing/fixtures/tax/`; `packages/pricing/tests/Engine/TaxCalculatorTest.php`; `packages/pricing/tests/Engine/DatabasePricingEngineTest.php`.
+  - **Fix:** `lastPercentage` selects the last entry, in the already-sorted `$computed`, where `type === TaxType::Percentage` **and** `! $entry['rate']->isZero()`. Keep the `$last !== null` guard and rewrite its comment. When every percentage rate is zero, `S = 0` and `K = 0`, so `net = gross − F` exactly and the residue is zero. A non-zero residue therefore always has a member to land on.
+  - **Red-first fixtures** (kind `tax`, inclusive, non-compound, no fixed member, `base_quantity` `"1.0000"`, decimals as strings). Each expectation below was derived by hand; type it in, never paste it from a run:
+    - `tax-inclusive-residue-skips-a-zero-rate-member` (6a): VAT 15 % at sequence 1, levy 0 % at sequence 2, gross `9.9900`. Net `8.6870` (9.99 / 1.15 = 8.68695…). VAT base `8.6870`, amount `1.3030` (the forward 1.30305 rounds to 1.3031, and the residue −0.0001 comes off it). Levy base `8.6870`, amount `0.0000`. Total `1.3030`. **Red today:** the levy takes −0.0001 and the quote is refused `out_of_range`;
+    - `tax-inclusive-residue-skips-a-zero-rate-member-gross-10` (6b): the same group, gross `10.0000`. Net `8.6957`, VAT `1.3043` (forward 1.304355 rounds to 1.3044, less the residue), levy `0.0000`, total `1.3043`. **Red today**;
+    - `tax-inclusive-residue-zero-rate-member-first` (6c): levy 0 % at sequence 1, VAT 15 % at sequence 2, gross `9.9900`. The same net and amounts as 6a, with the lines listed in `sequence` order (levy first). **Green today**: it is the control showing that the fix changes nothing when the zero-rate member is not last;
+    - `tax-inclusive-all-zero-rates-leave-no-residue` (6d): both members at 0 %, gross `9.9900`. Net `9.9900`, every amount `0.0000`, total `0.0000`. **Green today**: the control for "no residue when every rate is zero";
+    - `tax-inclusive-residue-goes-to-the-last-non-zero-member` (added by this plan; it discriminates "last" from "first"): VAT 15 % at sequence 1, NBT 2 % at sequence 2, levy 0 % at sequence 3, gross `9.9900`. `S = 0.17`; net `8.5385` (9.99 / 1.17 = 8.538461…). The forward amounts are VAT `1.2808` (1.280775) and NBT `0.1708` (0.17077), which sum with the net to 9.9901, so the residue is −0.0001. Expect VAT `1.2808`, NBT `0.1707`, levy `0.0000`, total `1.4515`. **Red today** (`out_of_range`).
+  - `TaxCalculatorTest` gains the same five as a dataset with exact strings, plus `net + total = gross` asserted on each, and `amount = round(base × rate / 100)` asserted on every 0 % line.
+  - **Adapter case (`DatabasePricingEngineTest`):** the ordinary configuration the review names. Seed a levy whose 2 % rate row ends on 2025-01-01, followed by a `0.0000` row from 2025-01-01, in an inclusive group after VAT 15 %. `computeTax` at gross `9.9900` on 2025-06-01 equals 6a's amounts. This proves that a real `0.0000` rate row reaches the rule.
+  - **Mutations:** **T4b**, pick the residue member by type only (restore the shipped selection): 6a, 6b and the three-member case go red. **T4c**, pick the first non-zero percentage member: the three-member case goes red. Revert each.
+  - **Must NOT change:** `inclusiveNet`, `forward`, any rounding call, the exclusive path, the filter or the ordering, or any shipped fixture. None of the 114 shipped fixtures has a zero rate (measured), so all of them must stay green.
+
+- [ ] **Step 23: W-5, a duplicate `effectiveFrom` is refused** (AC-7, AC-30.10; D-36).
+  - **Files:** `packages/pricing/src/Engine/RateResolver.php` (the check and the docblock); `packages/pricing/fixtures/tax/tax-rate-duplicate-effective-from-is-refused.json`; `packages/pricing/tests/Engine/RateResolverTest.php`.
+  - **Fix:** before choosing a winner, walk **every** row handed in and refuse `PricingRefused::invalidAmount` naming the tax label and the date when two rows share an `effectiveFrom`, whether or not either qualifies. This runs before the `no_effective_rate` path, so the result is a function of the row set. The winner rule (`>` on `effectiveFrom`) is otherwise unchanged.
+  - **Red-first fixture** `tax-rate-duplicate-effective-from-is-refused`: one VAT member with rates `15.0000` [2024-01-01, 2024-06-01) and `18.0000` [2024-01-01, open), date 2024-03-01, `refusal: invalid_amount`. Today it prices at 15 %.
+  - **`RateResolverTest` dataset, each row in both input orders:** the qualifying pair above; a non-qualifying pair (two rows from 2026-01-01, plus a qualifying 15 % row from 2024-01-01, date 2025-01-01) is still refused; a set with no duplicate resolves as before. The existing "takes the latest `effective_from`" case stays green.
+  - **Mutations:** **R3**, check only the qualifying rows: the non-qualifying row goes red. **R4**, drop the check: the fixture goes red. Revert each.
+  - **Scope note (informational, FP-432):** `TaxCalculator` resolves rates only for members that survive the filter, so a duplicate on an inactive or out-of-context member is not refused. That matches D-36's "rows handed to the pure resolver".
+  - **Must NOT change:** the write path (`CreateTaxRate`'s duplicate pre-check and the unique key) or the adapter.
+
+- [ ] **Step 24: S-1, numeric comparison for the 100 % caps.**
+  - **Files:** `packages/pricing/src/Engine/LadderItem.php` and `packages/pricing/src/Engine/DiscountRule.php`. Replace each `version_compare(…, '100.0000', '>')` with `BigDecimal::of(…)->compareTo(100) > 0`, the `AddPriceListItemHandler` and `DiscountFields` form.
+  - **This is a refactor with no behaviour change, so there is no red-first test.** The proof is that the existing boundary rows stay green: exactly 100 is accepted and 100.0001 is refused, for both classes. Add any of those four rows that is missing to `PriceLadderTest` or `DiscountCalculatorTest`.
+  - **Must NOT change:** the exception each class throws (`LadderItem` throws `InvalidArgumentException`; `DiscountRule` refuses `invalid_amount`).
+
+- [ ] **Step 25: S-2, an already-closed rate cannot be closed again** (AC-6a; D-37).
+  - **Files:** `packages/pricing/src/Features/CloseTaxRate/CloseTaxRateHandler.php` (the check and the docblock); `packages/pricing/tests/Features/CloseTaxRate/CloseTaxRateTest.php`.
+  - **Fix:** after the rate row is read inside the transaction, refuse `PricingAdminRefused::validation` ("this rate is already closed; closing is not an edit path") when its `effective_to` is not null. This check runs before the range and overlap checks.
+  - **Red-first:** a dataset on a rate seeded [2024-01-01, 2025-01-01), closed again with `2024-06-01`, `2026-01-01` and `2025-01-01` (earlier, later, equal). Each is refused `validation`, the row is byte-identical, and no audit row is written.
+  - **Predicted red (rewrite, not a defect):** the shipped case "refuses an effective_to that would make the range overlap the next rate, and accepts one that touches it" closes an already-closed rate. Re-seed its first rate **open-ended**, keeping the later raw-seeded 18 % row: the overlap refusal at 2025-07-01 and the acceptance at 2025-06-01 then still hold. **Note for the record:** after AC-6a, `CloseTaxRate` only ever shortens an open-ended range, so on data written through the slices its overlap check cannot fire. It stays as defence against data written another way, and it is what W-1's engine case exercises.
+  - **Mutation M-F1:** drop the check. The dataset goes red. Revert.
+
+- [ ] **Step 26: the lock-order scan, written red against today's tree** (W-1, W-2; D-39).
+  - **File (new):** `modules/host/tests/Feature/PricingLockOrderSourceRulesTest.php`, named for what it scans. It is code-only (`SourceRules::codeOnly`), and every rule is a function of a path, so each control runs the same code against a planted file in a fresh temporary directory (the `QaPricingSourceRulesTest` pattern).
+  - **Rules:**
+    - **L1, the first statement inside the transaction is a locking read.** The files are `packages/pricing/src/Features/{CloseTaxRate/CloseTaxRateHandler, CreateTaxRate/CreateTaxRateHandler, UpdateTax/UpdateTaxHandler, UpdateTaxGroup/UpdateTaxGroupHandler}.php` and `packages/catalog/src/Features/UpdateProduct/UpdateProductHandler.php`. Each file holds exactly one `->transaction(function`. After the closure's opening brace, take the first statement that touches the database: the first of `$connection->`, `Lookup::`, `RateRanges::`, `Uniqueness::`, `DefaultTaxGroup::` or `->table(`, up to the next `;`. That statement must contain `lock: true`, `->lockForUpdate()` or `->sharedLock()`. `CreateProductHandler` is deliberately **not** listed: its first statement is a plain duplicate-`sku` read, which is safe because its tax-group read is itself locking (rule L4, step 28);
+    - **L2:** in `packages/pricing/src/Support/RateRanges.php`, the body of `assertNoOverlap` contains `->lockForUpdate()`, and it comes before `->get(`;
+    - **L3:** in `packages/pricing/src/Taxes/DatabaseTaxGroupDirectory.php`, the bodies of both `state(` and `defaultGroupId(` contain `->sharedLock()`;
+    - **L4:** in `packages/catalog/src/Support/TaxGroups.php`, every `->state(` and `->defaultGroupId(` call contains `lock: true`.
+  - **Scope proof:** every named file exists and holds the method or call it is checked for, so a rename cannot silently empty a rule.
+  - **Planted-file controls**, each reported or passed by name: a handler whose first statement is a plain `Lookup::any(…)` is reported; the same file with `lock: true` passes; a file with no `->transaction(function` is reported (no vacuous pass); a file whose first statement is `Uniqueness::…` while a later statement locks is reported; a `RateRanges` copy with a plain `->get(` is reported; a directory copy with `sharedLock()` in one method only is reported; a `TaxGroups` copy with one unlocked call is reported; a prose mention of `lock: true` in a docblock does not satisfy L1.
+  - **Expected red on today's tree** (record it in the hand-back): L1 on `CloseTaxRateHandler` (its first statement is a plain `Lookup::any(…, 'tax_rates', …)`), L2, L3 and L4. Every other L1 file passes today. This red is carried until steps 27 and 28 turn it green; at no other point may the step leave unrelated red.
+  - **Honest limit:** the scan proves the text order, not the run-time lock. The run-time proof is the engine-gated cases in steps 27 and 28.
+
+- [ ] **Step 27: W-1, `CloseTaxRate` and the overlap check lock before any plain read** (AC-6, AC-6a; D-39).
+  - **Files:** `CloseTaxRateHandler.php`; `packages/pricing/src/Support/RateRanges.php` (the locking read and the docblock); `modules/host/tests/Engine/PricingSchemaEngineTest.php`.
+  - **Design, and why it departs from the review's order.** The review suggests locking the rate row first, then the parent `taxes` row. Once the sibling read in `assertNoOverlap` locks (which W-1 requires), that order **inverts the lock order** of `CreateTaxRate`, which takes `taxes` and then the sibling rates. A concurrent create and close of one tax would then deadlock (InnoDB rolls one back as a database error, not a refusal). The plan keeps one lock order everywhere, **`taxes` first, then `tax_rates`**:
+    1. **Before** the transaction, read the rate's `tax_id` with a plain key read (unknown id: `notFound`, as today). `tax_id` is never updated by any slice, so this value cannot go stale. Because it runs outside the transaction, it does not fix the transaction's snapshot;
+    2. the **first statement inside** the transaction is `Lookup::any($connection, 'taxes', $taxId, 'tax', lock: true)`;
+    3. then `$before = Lookup::any($connection, 'tax_rates', $id, 'tax rate', lock: true)`. A locking read returns the latest committed row, and it stays current because it is now locked; there is no further re-read;
+    4. then the AC-6a check (step 25), the range check, and `RateRanges::assertNoOverlap`, whose sibling query gains `->lockForUpdate()` (the codebase's lock mode; both callers already hold the parent lock, so `X` costs nothing extra), then the update and the audit, as today.
+  - `CreateTaxRate` is unchanged: its first statement is already the locking parent read. `RateRanges`' locking sibling read keeps it correct even if a caller ever wraps the slice in an outer transaction whose snapshot is already fixed.
+  - **Engine-gated cases** (skipped under `ENGINE_HOLD`, **NOT VERIFIED** until it lifts). These are single-process and non-blocking: the first session always commits before the second proceeds. The handler runs on the second session by pointing `tenancy.connection` at it for the call (`TenantConnection` reads that name on every call). E-1 and E-2 are red on the code as it stands after step 25; E-3 is green before and after, a control that the parent lock is still taken first:
+    - **E-1 (stale snapshot, AC-6a):** an open rate A. Session 2 begins and does a plain read of `tax_rates`, which fixes its snapshot (exactly what today's first statement does). Session 1 closes A at 2025-01-01 through the slice and commits. Session 2 runs `CloseTaxRate(A, 2026-01-01)` inside its open transaction: it must be refused `validation` (already closed). **Control:** in the same session-2 transaction, a plain read of A still shows `effective_to` null while a `lockForUpdate()` read shows 2025-01-01. That proves the hazard is real on this engine;
+    - **E-2 (stale snapshot, overlap):** an open rate A from 2024-01-01. Session 2 fixes its snapshot as above. Session 1 **raw-inserts** a sibling B from 2025-01-01, open-ended (data written another way), and commits. Session 2's `CloseTaxRate(A, 2026-01-01)` must be refused `overlap`; today the plain `get()` reads the old snapshot and accepts it;
+    - **E-3 (the parent lock is taken):** session 1 holds `lockForUpdate()` on the `taxes` row. Session 2 (`innodb_lock_wait_timeout = 1`) runs `CloseTaxRate`, which throws `QueryException`. After session 1 rolls back, the same call succeeds. This follows the shape of the shipped rate-overlap lock case.
+  - **Mutations:** **M-F2**, restore the plain read as the first statement in the transaction: L1 goes red (and E-1 goes red under the engine). **M-F3**, drop `->lockForUpdate()` from `assertNoOverlap`: L2 goes red (and E-2 goes red under the engine). Revert each.
+  - **Must NOT change:** the refusal kinds or messages of `CloseTaxRate` (other than AC-6a's new one), `CreateTaxRate`'s statement order, or the `[from, to)` overlap arithmetic.
+
+- [ ] **Step 28: W-2, catalog's tax-group check is a locking read inside the product write** (AC-3, AC-10; D-39).
+  - **Files:** `packages/contracts/src/Pricing/TaxGroupDirectory.php` (`state(string $taxGroupId, bool $lock = false)`, `defaultGroupId(bool $lock = false)`, with a docblock); `packages/pricing/src/Taxes/DatabaseTaxGroupDirectory.php`; `packages/catalog/src/Support/TaxGroups.php` (both calls pass `lock: true`); `packages/catalog/tests/Features/CreateProduct/CreateProductTaxGroupTest.php` (its anonymous double must take the new parameter, a **predicted red**: PHP refuses the old signature); `packages/pricing/tests/Taxes/DatabaseTaxGroupDirectoryTest.php`; an `UpdateProduct` tax-group test file in catalog; `PricingSchemaEngineTest`.
+  - **Lock mode: shared** (`->sharedLock()`, `LOCK IN SHARE MODE` on MariaDB 10.4 and `FOR SHARE` semantics on MySQL 8.4). There are three reasons:
+    - it conflicts with `UpdateTaxGroup`'s `lockForUpdate()` on the group, which is the race;
+    - it does not serialise product writes against each other: every create that takes the default group would otherwise queue on one row;
+    - it is the lock the `products` insert's foreign-key check already takes on the parent row. The fix takes that same lock earlier, at validation instead of at insert, and adds no new conflict.
+  - **`defaultGroupId` reads by `default_marker = 1`** (its unique key) together with `is_active`, instead of `is_default`, which has no index. A locking read locks what it scans, and an unindexed predicate would lock every `tax_groups` row and gap for the length of the product write. The result is the same, because `default_marker` is generated from `is_default`.
+  - **Why the lock joins catalog's transaction:** `DatabaseTaxGroupDirectory` and catalog's handlers both resolve their connection through their own `TenantConnection`, by the same `config('tenancy.connection')` name. Laravel's `DatabaseManager` returns the same `Connection` instance for one name, so the directory's locking read runs on the PDO session that holds catalog's open transaction and is held until catalog commits. The contract docblock must say so: the lock is meaningful **only** inside the caller's open transaction on the tenant connection, and outside one it is released at once.
+  - **Why no reordering in catalog:** a locking read returns the latest committed row whatever snapshot the transaction already fixed. So `CreateProduct` may keep its plain duplicate reads first; only the tax-group reads change.
+  - **SQLite-visible half:** the double records `[$lock, transactionLevel()]` on every call (`transactionLevel()` read on the tenant connection). `CreateProduct`, with a named group, a purchase group and the default path, and `UpdateProduct`, with both columns: every call has `lock = true` at level ≥ 1. **Mutation M-F4:** drop `lock: true` from `TaxGroups`. The recording test and L4 go red. Revert.
+  - **Directory test:** `state(…, lock: true)` and `defaultGroupId(lock: true)` give the same answers as the unlocked calls for an active group, an inactive group, an unknown id, a default, and no default. The lock branch must change no answer.
+  - **Engine-gated cases** (skipped under `ENGINE_HOLD`, **NOT VERIFIED**). Single-process, non-blocking, each red on today's code:
+    - **E-4:** group G is active. Session 2 begins and fixes its snapshot with a plain read of `tax_groups`. Session 1 deactivates G through `UpdateTaxGroup` (no products reference it) and commits. Session 2 runs `CreateProduct` naming G inside its open transaction and must be refused `inactive_tax_group`. Today the plain `state()` sees Active and the insert succeeds, leaving a live product on an inactive group;
+    - **E-5:** the same with the default. Session 1 deactivates the default group (which clears `is_default`), and session 2's `CreateProduct` without `tax_group_id` must be refused `no_default_tax_group`.
+  - **Residual (risk 10):** a create that names the old default as `tax_group_id` and group G as `purchase_tax_group_id`, at the same moment as `UpdateTaxGroup` makes G the default (it locks G, then the old default), can deadlock. InnoDB rolls one back. This is rare and recorded, not engineered away.
+  - **Must NOT change:** catalog never names `tax_groups` (the AC-3 scan stays green); `DatabaseTaxGroupDirectory` keeps exact id comparison (K-10); `UpdateTaxGroup` is unchanged.
+
+- [ ] **Step 29: W-3, `type` and `is_compound` are frozen once a tax has rates** (AC-5a; D-35).
+  - **Files:** `packages/pricing/src/Features/UpdateTax/UpdateTaxHandler.php` (the check and the docblock); `packages/pricing/tests/Features/UpdateTax/UpdateTaxTest.php`. `TaxFields::UPDATE_FIELDS` keeps both fields, because AC-5a allows the change while no rate exists.
+  - **Fix:** after the locked `$before` read, for each of `type` (compared as a string) and `is_compound` (compared as `(bool)`, because SQLite hands back `0` and `1`) present in `$changes` **and different from the stored value**, refuse `PricingAdminRefused::validation` naming the field and saying "create a new tax instead" when `tax_rates` holds any row for the tax. This check runs **before** `TaxFields::assertCoherent` (revision 4 question 3).
+  - The rate-existence read is a **plain** read. It is correct because it follows the locked parent row, every rate writer (`CreateTaxRate`, `CloseTaxRate`) takes that parent lock first, and no slice deletes a rate. A locking read here would add a `taxes`-then-`tax_rates` lock for no gain.
+  - **Red-first dataset:** for a closed, an open-ended and a future-dated rate, a `type` change and an `is_compound` change are each refused. The row is byte-identical and there is no audit row. **Controls:** re-sending the stored `type` and `is_compound` with rates present is accepted; `name` is editable with rates present; with no rates the `type` change is accepted (the shipped `fixed_cannot_compound` case stays green, because its taxes have no rates).
+  - **Mutations:** **M-F5**, drop the rate-existence check: the refused rows go red. **M-F6**, refuse any mention of the field, even unchanged: the unchanged-value control goes red. Revert each.
+
+- [ ] **Step 30: W-4, a malformed stored `applies_to` is refused, never widened** (AC-30.11; D-38).
+  - **Files:** `packages/pricing/src/Engine/DatabasePricingEngine.php` (`discounts()`, and the `ids()` helper, which must stop dropping non-strings); `packages/pricing/tests/Engine/DatabasePricingEngineTest.php`.
+  - **Fix:** a SQL `NULL` keeps meaning "applies to everything". Any other stored value is decoded **as objects** (`json_decode($text, false, 512, JSON_THROW_ON_ERROR)`), so that a JSON object and a JSON list stay distinguishable. The value must be a `stdClass` whose keys are only `products`, `categories` and `brands`, each value a PHP list (`array_is_list`), and each entry a string. Anything else, including undecodable text, refuses `PricingRefused::invalidAmount` naming the discount id and what was wrong. Entries are folded to upper case as today. The refusal happens when the rule is loaded, before the engine's AC-20 order (revision 4 question 2). A JSON `null` and a JSON `[]` are refused as "not an object" (revision 4 question 1).
+  - **Red-first, by raw insert** into `discounts` (one `quoteLine` dataset). Each of these shapes is refused `invalid_amount`: `"X"`, `123`, `[]`, `["X"]`, JSON `null`, `{"products": "X"}`, `{"products": [123]}`, `{"products": {"a": "X"}}`, `{"skus": ["X"]}`, `{"products": ["X"], "tags": []}`. Undecodable text is refused by the column's `JsonValidity` check on the engines; if the SQLite stand-in accepts it, add it to the dataset too, and otherwise record that branch as defence only. One `billDiscount` row (`{"products": "X"}`) proves that the bill path refuses as well.
+  - **Controls (behave as before):** SQL `NULL` and `{}` apply to everything; `{"products": [<this product, lower case>]}` applies; `{"products": [<another product>]}` is `not_applicable`.
+  - **Mutation M-F7:** restore the `is_array(…) ? … : []` fallback. The `"X"`, `[]` and `{"products": "X"}` rows go red. Revert.
+  - **Must NOT change:** the write path (`DiscountFields`), `DiscountRule::targetsEverything`, the D-29 rules (no ordering, keyed `first()` only), or any id existence check (D-32: shape only).
+
+- [ ] **Step 31: S-4 and S-7.**
+  - **S-4, `packages/pricing/src/Support/Uniqueness.php` docblock only.** The `code` unique index uses the tenant connection's default collation (`utf8mb4_unicode_ci` in `config/database.php`), which ignores case and accents on MySQL and MariaDB, and is bytewise on the SQLite stand-in. The `lower()` pre-check still gives one answer on every engine, and the backstop is caught as a duplicate. There is no test and no behaviour change.
+  - **S-7, `DatabasePricingEngine::members()`.** The refusal **reason** stays `unknown_tax_group` (the closed list is unchanged, and adding a reason is a contract change), but the message names what is wrong: `Tax group [G] links tax [T], which does not exist.` **Test:** seed a `tax_group_taxes` row with a dangling `tax_id`, disabling foreign keys for that one insert and re-enabling them in a `finally`; `computeTax` is refused `unknown_tax_group` with a message containing T.
+
+- [ ] **Step 32: documents.** Describe the old wording; never quote it (memory note).
+  - `docs/database.md` §6.4 "As built (T-029)": the residue goes to the last percentage member whose resolved rate is not zero (**D-34**, correcting D-25); a duplicate `effective_from` is refused by the pure resolver (D-36); `type` and `is_compound` are frozen once a tax has rates (D-35); an already-closed rate cannot be closed again (D-37); a malformed stored `applies_to` is refused (D-38); the two lock rules (D-39), stating that the run-time proof is NOT VERIFIED until the engine hold lifts.
+  - Section 10's new follow-ups go to `lead`.
+
+- [ ] **Step 33: fix-round gate.** `composer check` from `modules/host`, with counts and `test` seconds compared against step 21, then `composer test:fast` once.
+  - **Expected:** the same **13 failed names** as step 21, and no new failure. About **+60 passed** (roughly 4085 to 4110 if step 21 measures 4037): about 12 from R-1, 5 from W-5, 3 from S-2, 11 from the scan, 4 from W-2's SQLite half, 8 from W-3, 15 from W-4, and 1 to 3 from S-1 and S-7. About **+5 skipped** (E-1 to E-5, engine-gated), so about 41. The fixture count goes from 114 to **120**.
+  - **Stop line:** a `test` step more than 10 % slower than step 21's means stop and report to `lead`.
+  - *(AC-27 for the fix round.)*
+
 ## 7. Test strategy
 
 - **Unit (pure, the bulk):** `Decimal`, `RateResolver`, `TaxCalculator`, `PriceLadder`, `DiscountCalculator`, `LineCalculator`, the contract shapes and enums. Plus **`FixtureSetTest`**, the single source of truth FP-432 replays, and catalog's `UnitFixtureReplayTest`.
@@ -677,7 +804,8 @@ Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The st
   - `DatabasePricingEngineTest`, which proves the adapter equals the fixtures.
 - **Static:** `QaPricingSourceRulesTest`, `QaCatalogSourceRulesTest` (the exemption), `TenantDecimalPrecisionTest`, deptrac with the demo negative control, and the catalogue `is_destructive` assertion.
 - **Engine:** `PricingSchemaEngineTest`, skipped under the hold.
-- **Mutations:** S1, R1–R2, T1–T5, P1–P6, D1–D5 (all run in Chunks A and B), P7 (step 10a), M-C1 to M-C4, M-D1 (a) to (c).
+- **Mutations:** S1, R1–R2, T1–T5, P1–P6, D1–D5 (all run in Chunks A and B), P7 (step 10a), M-C1 to M-C4, M-D1 (a) to (c). Fix round: T4b, T4c (step 22), R3, R4 (step 23), M-F1 (step 25), M-F2, M-F3 (step 27), M-F4 (step 28), M-F5, M-F6 (step 29), M-F7 (step 30).
+- **Fix round, static:** `PricingLockOrderSourceRulesTest` (step 26), rules L1 to L4 with planted-file controls. **Fix round, engine:** E-1 to E-5 in `PricingSchemaEngineTest`, NOT VERIFIED while `ENGINE_HOLD` is set.
 
 | ACs | Proved by |
 |---|---|
@@ -701,6 +829,12 @@ Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The st
 | 30.1, 30.2, 30.5, 30.6 | steps 6, 7, 9 and 10 (shipped in Chunk B); 30.2's write half in step 15 |
 | 30.3 | step 10a (order-independent), plus step 14's write-time twin |
 | 30.4 | steps 7, 8 and 10a (pure), 16 (adapter, SQLite), 17 (no-ordering scan), 18 (MySQL collation) |
+| 11.6 sub-criteria 6a to 6d, 30.9 (D-34) | step 22 (five fixtures, the `TaxCalculatorTest` dataset, one adapter case; T4b, T4c) |
+| 7 duplicate `effective_from`, 30.10 (D-36) | step 23 (fixture plus both-order dataset; R3, R4) |
+| 5a (D-35) | step 29 |
+| 6a (D-37) | step 25, plus E-1 under the engine (step 27) |
+| 30.11 (D-38) | step 30 |
+| NFR concurrency (D-39; review W-1, W-2) | steps 26 (scan), 27 and 28 (E-1 to E-5, engine-gated, NOT VERIFIED under the hold; W-2's recording double on SQLite) |
 
 ## 8. Risks & rollback
 
@@ -712,6 +846,12 @@ Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The st
 6. **SQLite rebuild of `products`** when the keys are added. It has a FULLTEXT index (MySQL-only), FKs and the `sku`/`plu_code` unique indexes. T-014 measured that the rebuild keeps rows, keys and generated columns. Step 3 re-asserts row counts and the `sku`/`plu_code` uniqueness after the rebuild.
 7. **Direct reads of catalog columns** (Ruling 1). A rename in catalog breaks pricing silently at run time. `DatabasePricingEngineTest` exercises every column read, so such a rename turns this suite red.
 8. **Ordering drift between the adapter and the engine (D-29).** SQLite's default collation is bytewise, so the SQLite stand-in cannot show a collation hazard; only step 18 can, and it runs under G-1 (skipped under `ENGINE_HOLD`). Mitigation: the adapter carries no ordering at all, which step 17 scans for by file and step 16's M-D1 (b) proves is not luck. Until G-1 runs, the MySQL half of AC-30.4 is written, not measured; `dev` and `qa` must say so rather than claim it.
+9. **Fix round: the lock fixes are unmeasured while the hold is set (W-1, W-2).** SQLite has no row locks or snapshots, so only E-1 to E-5 can show the fixes working, and they are skipped. Mitigation: the step 26 scan, with planted-file controls, holds the statement order; W-2's recording double proves on SQLite that the lock is requested inside the transaction. The honest status is "written and scanned, NOT VERIFIED at run time".
+10. **Fix round: residual deadlocks.** (a) W-2: a product write naming the old default and a group that `UpdateTaxGroup` is making the default at that moment can deadlock; InnoDB rolls one back as a database error. (b) W-1: avoided by keeping one lock order (`taxes`, then `tax_rates`) in every rate writer (step 27). A future rate slice that locks a rate row before its parent reintroduces it; the step 26 scan catches that only for the files it names, so add any new rate writer to L1.
+11. **Fix round: the tiny-rate residual edge** (spec, not ruled). A non-zero rate so small that its amount rounds to `0.0000` can still go negative on a −0.0001 residue; the engine then refuses `out_of_range`, as it does today. It is not reachable at ordinary rates, and it is flagged for the owner (section 10).
+12. **Fix round: test time.** About 60 small cases, all pure or SQLite. The 10 % stop line is measured against step 21.
+
+**Fix-round rollback:** every fix-round change is a small edit on this unmerged branch, and none touches a migration. Revert the fix-round commits.
 
 **Rollback:** every file is new except section 9's edits. The migrations are forward-only and no tenant outside this branch has run them, so rollback is to abandon the branch.
 
@@ -737,6 +877,13 @@ Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The st
 | `tests/Feature/QaCatalogSourceRulesTest.php` | Ruling 10's exemption (`qa`) | done in Chunk B (step 8/10) |
 | `tests/Feature/BranchForeignKeysContractRunTest.php` | two cases adjusted because migration 12 now tops the tree (accepted Chunk A deviation; `qa` re-verifies) | done in Chunk A (step 3) |
 | `docs/database.md`, `docs/architecture.md` | step 19 | 19 |
+| `packages/contracts/src/Pricing/TaxGroupDirectory.php` | `bool $lock = false` on both methods (a published-contract change; the only implementations are `DatabaseTaxGroupDirectory` and the catalog test double) | 28 |
+| `packages/catalog/tests/Features/CreateProduct/CreateProductTaxGroupTest.php` | **predicted red**: the anonymous double must take the new parameter (PHP refuses the old signature); it becomes the recording double | 28 |
+| `packages/catalog/src/Support/TaxGroups.php` | `lock: true` on both calls | 28 |
+| `packages/pricing/tests/Features/CloseTaxRate/CloseTaxRateTest.php` | **predicted red**: the overlap case closes an already-closed rate; re-seed its first rate open-ended (step 25) | 25 |
+| `packages/pricing/src/Engine/{TaxCalculator,RateResolver,LadderItem,DiscountRule,DatabasePricingEngine}.php`, `Features/{CloseTaxRate,UpdateTax}/*Handler.php`, `Support/{RateRanges,Uniqueness}.php`, `Taxes/DatabaseTaxGroupDirectory.php`, `packages/contracts/src/Pricing/TaxLine.php` (docblock) | fix round | 22 to 31 |
+| `modules/host/tests/Engine/PricingSchemaEngineTest.php` | E-1 to E-5 (engine-gated) | 27, 28 |
+| `docs/database.md` | §6.4 as-built, D-34 to D-39 | 32 |
 
 Anything red that is not in this table means stop and report to `architect`.
 
@@ -759,8 +906,22 @@ Anything red that is not in this table means stop and report to `architect`.
 - **An admin-UI/API task:** list and get slices for all nine tables.
 - **When `company_profile` ships:** default `price_lists.currency` from it (F-7).
 - **FP-331:** the ninth copy of the support helpers.
+- **Fix round, review suggestions not taken in this round (file as rows or notes):**
+  - **S-3:** `UpdatePriceListItem` edits the items of a soft-deleted list (harmless, unreachable); `AssignPriceList` checks the target's existence without a lock, so a target soft-deleted at that moment can leave a dead assignment;
+  - **S-5:** `QaCatalogSourceRulesTest`'s factor exemption covers all of `PriceLadder.php`; a stricter proof asserts that the file holds exactly one factor multiplication, inside `derive()` (`qa`);
+  - **S-6 (FP-233):** step 5 of the ladder uses `product_branches.selling_price` even when `is_available = false`.
+- **FP-432 (TS engine), fix-round additions:** the residue skips a zero-rate member (D-34), a duplicate `effective_from` is refused (D-36, for surviving members only), and both are replayed from the new fixtures.
+- **Owner:** the tiny-rate residual edge (risk 11), and a deliberate correction path for an already-closed rate (AC-6a, out of scope).
 
 ## Questions for the human
+
+**Revision 4, for `ba` (spec wording the fix round met; none blocks it, because each plan default is stated in its step):**
+1. **D-38, the edges of "not the D-32 shape":** a stored JSON `null` (as opposed to SQL `NULL`) and a stored JSON empty list `[]`. Plan default: both refused `invalid_amount` as "not an object". The write path never stores either: it stores SQL `NULL`, or `{}` for an empty object.
+2. **D-38 against AC-20's order:** a discount that is both malformed and, for example, `inactive` or `expired`. Plan default: `invalid_amount`, raised when the adapter loads the rule and before the engine's order, because a rule that cannot be built has no order to apply.
+3. **AC-5a against AC-5:** a change to `type` = `fixed` and `is_compound` = true on a tax that has rates. Plan default: AC-5a's refusal (naming the field) comes before `fixed_cannot_compound`.
+4. **D-36's scope (informational):** the duplicate check runs on the rows of members that survive the filter, so an inactive member's duplicate rates are not refused. This matches "rows handed to the pure resolver"; FP-432 must do the same.
+5. **AC-6a's consequence (informational):** closing now only shortens an open-ended range, so `CloseTaxRate`'s overlap check cannot fire on data written through the slices. W-1's remaining real race is AC-6a's own "already closed" check made on a stale row, which step 27 closes.
+6. **For `lead` / the reviewer (informational):** step 27 deliberately departs from the review's suggested lock order (rate row first). With a locking sibling read, that order would deadlock against `CreateTaxRate`. The plan reads the immutable `tax_id` before the transaction and locks `taxes`, then `tax_rates`, everywhere.
 
 **Revision 3, for `ba` (spec wording; none blocks step 10a or Chunk C, because the plan's defaults are stated):**
 1. **K-9 / AC-30.3:** state that the duplicate-`min_qty` refusal applies to any two items of the unit keys the ladder evaluates in a list, **whether or not they qualify against the base quantity**, so the outcome never depends on row order. Plan default: exactly that (step 10a).
