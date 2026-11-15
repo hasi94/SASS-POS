@@ -589,7 +589,8 @@ the column pure decoration. | **Two features, both built:**
 this task's first-pass silence on them. Reversible: yes, both — the threshold/workflow deferral and
 the no-release-on-void rule are each additive/reversible independently.
 
-D-38 (new; F-13, the lead's ruling) | Re-quoting a refund line through `PricingEngine::quoteLine()`
+D-38 (new; F-13, the lead's ruling; **AMENDED by D-77: an overridden line is refunded at the stored
+price, not re-quoted. The rest of this entry stands for every non-overridden referenced line.**) | Re-quoting a refund line through `PricingEngine::quoteLine()`
 "now" (at the refund's own instant) would pay the customer back today's price, not what they
 actually paid — wrong the moment a price-list row changes between the sale and the refund, which
 is exactly the ordinary case a promotion's `ends_at` creates. The lead ruled directly: **refund at
@@ -1017,3 +1018,43 @@ posting, since no tender rows exist), same single audit row, same status and tim
 GL effect (as for every sale, D-1), and no `sale_tenders` rows are required. | One completion path
 means no special case to drift: a free sale is still a numbered, audited document. Reversible: n/a
 (a statement that no special case exists).
+
+---
+
+## Decisions D-75 to D-77 — three lead rulings found while building Chunks C and D
+
+D-75 (lead ruling; AC-47B, extends D-57/D-73/AC-47A; resolves plan question 1) | Does a referenced
+refund line (with `refund_of_item_id`) run the sellability check, as a goodwill line does not? |
+**No.** No refund line, referenced or goodwill, is checked for `is_active`, `is_sellable` or
+`variant_parent`; the check is for `AddSaleLine` and `UpdateSaleLine` only. The engine's refusals
+(AC-53) still apply. | The same reason as D-73: a catalogue change after the sale must not block a
+return of something the customer was sold. Matches the built `RefundSaleHandler`. Reversible: yes.
+Reversible flag: yes.
+
+D-76 (lead ruling; AC-12B, extends D-71/AC-30; resolves plan question 2) | Does a refund tender give
+change? | **No.** A refund pays out; an offered payout over what is still owed back is
+`exceeds_balance` even on a method with `allows_change = true`, and `tendered` is null (with
+`change_given = 0.0000`). Sale tenders are unchanged. | Taking change back from the customer on a
+payout is not a real flow, and AC-30's "AC-12's method rules exactly" was ambiguous on it. Matches
+the built `RefundSaleHandler` and `TenderRules` (`$refund = true`). Reversible: yes (remove the refund
+branch from the over-balance check only). Reversible flag: yes.
+
+D-77 (lead ruling, new; AC-27A; **amends D-38 and AC-27, does not delete them**) | D-38 and AC-27
+re-quote every referenced refund line through `PricingEngine::quoteLine()` at the sale's `completed_at`.
+A line sold with an approved price override (AC-7) is not priced by the engine at all, so that re-quote
+returns the list price and refunds more than the customer paid. Found while building `RefundSale`. |
+**A referenced refund line whose original sale line carried a price override (`price_overridden_by`
+set) is refunded at the stored line's actually-charged `unit_price`, never more than was paid.** The
+refund line is built by the same override path the sale used (AC-7/D-40, `LineWriter::price()`'s
+override branch): one `quoteLine()` call with D-38's anchors for `list_price` and `tax_group_id` only;
+`subtotal = round(stored unit_price × refund quantity, 4)` through `Money::product()` (the one
+permitted multiplication); tax by the engine's `computeTax()` on that subtotal; `line_total = tax.net
++ tax.total`; no discount. No new override approval is consumed (the refund's own approval, AC-29, is
+the gate), the product's current `allow_price_override` is not read, and the refund line's
+`price_overridden_by` is null. Discount and tax proration for every non-overridden line stay as AC-27
+and D-38 state; a goodwill line is unaffected. **Consequential BA reading, not part of the ruling:** a
+refund of an overridden line must use the original line's own unit, else `inherited_unit_mismatch`,
+because restating the stored price in another unit needs division AC-42 forbids. | Pays back exactly
+what was charged, the same retail convention that motivated D-38, and reuses an arithmetic path the
+package already owns rather than adding a second. AC-57's promotion/group drift does not apply to
+overridden lines. Reversible: yes (the same-unit reading separately: yes). Reversible flag: yes.

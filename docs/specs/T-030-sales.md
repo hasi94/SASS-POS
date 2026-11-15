@@ -41,7 +41,12 @@ Revision 5: the lead's four rulings recorded in the backlog row are written here
 AC-24A and AC-47A (decisions D-71 to D-74). Numbering is unchanged. Owner questions Q-1 and Q-2 are
 unchanged and still open with their built defaults (see Open questions).
 
-Backlog: FP-233, `docs/backlog.md`. Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-74).
+Revision 6: three lead rulings found while building Chunks C and D, written as suffix ACs so no number
+moves: AC-47B (a referenced refund line also skips the sellability check), AC-12B (a refund gives no
+change) and AC-27A (a refund of an overridden line pays back the price actually charged). Decisions D-75
+to D-77; D-38 is amended by D-77, not deleted. Owner questions Q-1 and Q-2 are unchanged.
+
+Backlog: FP-233, `docs/backlog.md`. Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-77).
 Design inputs read directly: `docs/architecture.md` v0.5 §1, §3, §8, §11, §12, §15, §21-22;
 `docs/database.md` v0.5 §3, §6.4 to §6.9 (Catalog, Pricing/tax, Inventory's unit-inheritance
 rule, Sales/POS, Payments, Customers, §12.1's credit-sale transaction shape); T-027's decisions/
@@ -340,6 +345,8 @@ shape.
   original full-quantity line did; it is the engine's input *instant*, not the pricing *method*,
   that is anchored to the original sale. A goodwill refund line is quoted at the refund's own
   current instant, having no original sale to anchor to.
+  **Revision 6: amended by AC-27A (D-77).** This re-quote applies to a referenced line only when the
+  original sale line carried no price override; an overridden line is refunded at the price charged.
 - AC-28: `RefundSale` refuses `over_refund` (naming the line's remaining refundable quantity) when
   the requested refunded quantity on any line, added to that line's existing `refunded_quantity`,
   would exceed the original line's `base_quantity`; it refuses `fully_refunded` when every line of
@@ -357,7 +364,8 @@ shape.
   while its `sale_tenders` are negative-signed (money paid back to the customer), following AC-12's
   method rules exactly, including a `credit` refund method posting a compensating `refund`-type
   entry through the Customers contract, keyed on that refund tender's own id. A refund completes
-  when `Σ sale_tenders.amount = −sales.total`.
+  when `Σ sale_tenders.amount = −sales.total`. **Revision 6:** "AC-12's method rules" does not
+  include giving change: see AC-12B (D-76).
 - AC-31: `RefundSale` writes no stock movement and no GL posting (D-1, D-6, D-17) — identical
   scope boundary to Void — and does not release any `DiscountUsage::consume()` the original sale
   recorded (D-37).
@@ -515,7 +523,8 @@ New ACs:
   (D-59).
 - AC-56: Given a tender removed by `RemoveTender`, When a late retry of that tender's `AddTender`
   arrives with the same id and payload, Then the tender is added again (D-60). No tombstone exists.
-- AC-57: A refund is quoted at the original sale's `completed_at` (D-38 kept) and with the
+- AC-57: A refund is quoted at the original sale's `completed_at` (D-38 kept, amended by AC-27A: an
+  overridden line is refunded at the stored price and carries no such drift) and with the
   customer's current group (D-63, D-64). Given a promotion that ended, or a customer who changed
   group, between the sale and the refund, the refund can differ from what was charged; this is
   accepted and named.
@@ -556,6 +565,49 @@ Revision 5 — four lead rulings (D-71 to D-74), written as suffix ACs so no num
   every sale). No `sale_tenders` row is required, and the "sum of tenders equals total" rule of
   AC-14 applies unchanged (an empty sum of `0.0000` equals the total). Given a zero-total draft
   with no lines, Then it is not completable (AC-14 as amended requires at least one line).
+
+Revision 6 — three lead rulings (D-75 to D-77), again as suffix ACs:
+
+- AC-47B (extends AC-47 and AC-47A; D-75): Given a referenced refund line (one with `refund_of_item_id`)
+  for a product that is now inactive (`is_active = false`), not sellable (`is_sellable = false`) or of
+  type `variant_parent`, When `RefundSale` runs, Then `product_not_sellable` is not raised for it. The
+  AC-47 sellability check therefore applies only to `AddSaleLine` and `UpdateSaleLine`; no refund line,
+  referenced or goodwill, is subject to it. The engine's own refusals (AC-53, including `unknown_product`
+  for a soft-deleted product) still apply until owner question Q-1 is ruled.
+- AC-12B (extends AC-12 and AC-30; D-76): Given a refund tender whose offered payout exceeds what is
+  still owed back, When `RefundSale` records it, Then it is refused `exceeds_balance` and nothing is
+  written, even when the payment method has `allows_change = true`. A refund tender stores `tendered =
+  null` and `change_given = 0.0000`. Given a refund tender when nothing is owed back, Then it is refused
+  `exceeds_balance`. Ordinary sale tenders are unchanged: `allows_change` still decides whether an
+  over-tender is change or `exceeds_balance` (AC-11, AC-12).
+- AC-27A (amends AC-27 and D-38; D-77): Given a referenced refund line whose original sale line carried
+  a price override (the original line's `price_overridden_by` is set), When `RefundSale` prices it, Then
+  the refund line's `unit_price` is the original line's stored `unit_price` exactly (the figure the
+  customer was charged, which an approval bound under AC-7/D-47), and it is never the engine's list or
+  ladder price. The figures are built as the override path of AC-7 builds them, with the refund line's
+  own unit snapshot: `list_price` and `tax_group_id` come from one `quoteLine()` call made with the
+  same anchors as D-38 (the original sale's `completed_at` as `at`, its `business_date` as
+  `documentDate`, its customer and group, its branch and currency); that quote's price is not used;
+  `subtotal = round(stored unit_price × refund quantity, 4)`, the one multiplication of AC-7/D-40,
+  confined to `Support/Money.php`; tax is the engine's `computeTax()` on that `subtotal` with the same
+  tax context the sale's override path uses; `discount_id = null`, `discount_amount = 0.0000`,
+  `discount_percent = null`; `line_total = tax.net + tax.total`. Then:
+  - the refund line needs no price-override approval and does not read the product's current
+    `allow_price_override`; the refund's own approval (AC-29) is the only approval consumed, and the
+    refund line's `price_overridden_by` is `null`;
+  - a partial refund is the same stored unit price times the smaller quantity, so the refund of an
+    overridden line is never more than was paid for that quantity;
+  - the refund line's unit must be the original line's own unit: a refund of an overridden line in any
+    other unit (including the product's stock unit) is refused `inherited_unit_mismatch`, naming both
+    units, because converting a stored line-unit price to another unit would be division this task does
+    not perform (AC-42; see Assumptions);
+  - the engine's live-state refusals (AC-53) still apply to the one `quoteLine()` call;
+  - every referenced line whose original carried no override keeps D-38 and AC-27 unchanged, and a
+    goodwill line is unaffected.
+  Given a line sold at an approved override of 8.00 against a list price of 10.00, When it is refunded
+  in full, Then the refund line's `unit_price` is 8.00 and its `subtotal` is 8.00 × quantity. Given the
+  same line refunded in part, Then `unit_price` is still 8.00. Given a line sold without an override,
+  Then it is quoted by the engine as in AC-27.
 
 ## Out of scope
 
@@ -682,6 +734,11 @@ resolved and logged in `docs/decisions/T-030-sales.md` (D-1 to D-74).
 - No tenant has a payment gateway configured at launch (`docs/architecture.md` §23, open question
   3's stated default), which is what makes D-7's narrower scope ("tenders only, no gateway
   apparatus") a safe, reversible cut rather than a feature gap anyone depends on today.
+- AC-27A's same-unit rule for an overridden line is the BA's reading, not a ruling: the lead's ruling
+  names the stored unit price, and a stored line-unit price cannot be restated in another unit without
+  a division this package may not perform. It reuses the existing `inherited_unit_mismatch` code rather
+  than adding one. Reversible by the lead (D-77). The tax context for the override tax is whatever the
+  sale's own override path passes (`LineWriter`); the spec does not name a separate refund context.
 - Price-list rows are not versioned anywhere in this schema (confirmed against `docs/database.md`
   §6.4), which is why D-38's "refund at the original price" still has one residual, named gap (a
   list row edited rather than replaced after the sale) rather than a fully closed guarantee — closing
