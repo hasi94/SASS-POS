@@ -66,7 +66,7 @@ only an expand migration" is false. `SourceRules::foreignKeysOnlyInContract` ref
 onto an already-existing table outside a `contract`-phase file, and `products` already exists —
 so **both** columns need expand (add the nullable column) **and** a contract migration (add the
 FK), and only `tax_group_id` additionally needs a backfill before its contract step can also
-tighten it to `NOT NULL` (deferred further still — see D-13/F-3 below). Both FKs are written in
+tighten it to `NOT NULL` (deferred further still — see D-14/F-3 below). Both FKs are written in
 the **same single contract file** (T-014 D-31 precedent: one contract file per logical change, not
 two consecutive ones the planner would force into two fleet runs). | Reason: `database.md` is
 this project's authoritative schema source per `CLAUDE.md` for the nullability question; the
@@ -88,7 +88,7 @@ shape) and a product with no stated tax treatment defaulting to "standard, not i
 safest reversible guess — a shop can recode it per product afterward, and a migration that left
 `tax_group_id` null would have had no remedy inside the migration itself. **Corrected per
 `architect`'s F-16:** the premise "no documented default" was imprecise — `docs/database.md` §8
-(`seed_core`, tenant provisioning step 8) already lists "default tax group and taxes" among what
+(`seed_core`, tenant provisioning step 9) already lists "default tax group and taxes" among what
 a new tenant is seeded with, without stating its contents; this decision is what supplies those
 contents, cited against §8 rather than invented from nothing. No change to `seed_core` itself is
 needed, because this task's backfill migration runs before `seed_core` ever would for a new
@@ -365,13 +365,11 @@ an unnamed, silent exemption would also be a boundary rule quietly weakened with
 this fix. | Reversible: yes — a future review can tighten or loosen the exact token list; the
 exemption is narrow and reversible by name.
 
-D-21 (F-15, F-18) | Two further gaps found during plan-stage review: the JSON fixture format
-(D-9) was not specified precisely enough for a second language to parse byte-identically, and a
-pre-existing obligation — T-006's own decision that unit resolution joins the shared PHP/
-TypeScript fixtures (`docs/architecture.md` §15; `docs/plans/T-006-unit-of-measure.md` line 679)
-— was missed entirely by this task's first pass; separately, how should the catalog package's
-product-create/update handlers (AC-3) reach `tax_groups` without reading it directly? |
-**Three resolutions:**
+D-21 (F-15) | Two gaps in the shared fixture format, found during plan-stage review: it was not
+specified precisely enough for a second language to parse byte-identically, and a pre-existing
+obligation — T-006's own decision that unit resolution joins the shared PHP/TypeScript fixtures
+(`docs/architecture.md` §15; `docs/plans/T-006-unit-of-measure.md` line 679) — was missed
+entirely by this task's first pass. | **Two resolutions:**
 - **Fixture decimals are JSON strings at full stored scale** (`"7.5000"`, a factor as
   `"24.000000"`), never a bare JSON number — a JavaScript number silently loses precision at the
   fourth decimal place for exactly the values this engine computes, which would make the fixture
@@ -383,16 +381,19 @@ product-create/update handlers (AC-3) reach `tax_groups` without reading it dire
   obligation that unit resolution be fixture-proven, which belongs beside the unit model that
   produces it, not duplicated inside the pricing package. FP-432 (D-11) and FP-237 (the offline
   replica) both read these same files.
-- **Catalog validates and defaults a product's tax group through a new published contract**
-  (`Contracts\Pricing\TaxGroupDirectory`, mirroring the existing `Organization\BranchDirectory`/
-  `BranchState` shape exactly) rather than reading `tax_groups` directly — keeping "which group is
-  the default" and "is this group active" owned by exactly one package, the same discipline every
-  cross-module read in this codebase already follows.
   | Reason: a float-based fixture format would fail the one job fixtures exist to do; the unit
   fixture gap is a standing, previously-logged obligation this task's first pass simply did not
-  check against; the contract-not-direct-read rule is this codebase's existing, consistent
-  pattern for exactly this shape of cross-module dependency. | Reversible: yes — all three are
-  implementation-shape choices, not business rules.
+  check against. | Reversible: yes — both are implementation-shape choices, not business rules.
+
+D-21a (F-18) | How should the catalog package's product-create/update handlers (AC-3) reach
+`tax_groups` without reading it directly? | **Catalog validates and defaults a product's tax
+group through a new published contract** (`Contracts\Pricing\TaxGroupDirectory`, mirroring the
+existing `Organization\BranchDirectory`/`BranchState` shape exactly) rather than reading
+`tax_groups` directly — keeping "which group is the default" and "is this group active" owned by
+exactly one package, the same discipline every cross-module read in this codebase already
+follows. | Reason: the contract-not-direct-read rule is this codebase's existing, consistent
+pattern for exactly this shape of cross-module dependency. | Reversible: yes — an
+implementation-shape choice, not a business rule.
 
 D-22 (F-6) | AC-10's first draft wrote "soft-deleting a `tax_groups` row" as its guard's trigger,
 but `docs/database.md` §6.4 line 595 documents `tax_groups` with only `[ID] [TS]` — no `[SOFT]`
