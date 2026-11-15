@@ -14,12 +14,15 @@ use InvalidArgumentException;
  * checks a submission against it, and {@see ApprovalGate} compares a stored row
  * against what a write is about to do.
  *
- * | type | reference_type | reference_id | payload |
- * |---|---|---|---|
- * | void | `sale` | the sale | none |
- * | refund | `sale` or `goodwill_refund` | the original sale, or null | none |
- * | price_override | `sale` | the sale | `{product_id, unit_id, unit_price}` |
- * | discount | `sale` | the sale | `{discount_id}` |
+ * | type | branch_id | reference_type | reference_id | payload |
+ * |---|---|---|---|---|
+ * | void | the sale's branch | `sale` | the sale | none |
+ * | refund | the refund's branch (the refunding terminal's) | `sale` or `goodwill_refund` | the original sale, or null | none |
+ * | price_override | the sale's branch | `sale` | the sale | `{product_id, unit_id, unit_price}` |
+ * | discount | the sale's branch | `sale` | the sale | `{discount_id}` |
+ *
+ * The branch is a checked part of the binding (AC-24A, D-72): an approval granted
+ * at one branch cannot be consumed by a write at another.
  *
  * A payload is stored canonical (ids upper-case, the price at four decimals) so
  * that the comparison is by value: `7.5` is `7.5000`, and an id is the same id in

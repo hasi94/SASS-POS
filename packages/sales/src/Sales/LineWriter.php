@@ -183,6 +183,29 @@ final class LineWriter
     }
 
     /**
+     * Quote a line whose unit snapshot the caller already holds (a refund line,
+     * whose factor may be inherited, AC-26, AC-27): the engine's figures, stored
+     * verbatim, with the engine's own refusal carried through (AC-53). No
+     * sellability check, no override and no approval: a refund line is none of those.
+     *
+     * @throws SalesRefused
+     */
+    public function quoteSnapshot(UnitSnapshot $snapshot, LineQuote $quote): PendingLine
+    {
+        if (Money::isZero($snapshot->quantity)) {
+            throw SalesRefused::validation('The quantity rounds to zero in this unit.');
+        }
+
+        try {
+            $priced = $this->pricing->quoteLine($quote);
+        } catch (PricingRefused $refused) {
+            throw SalesRefused::fromPricing($refused);
+        }
+
+        return new PendingLine($this->quotedColumns($snapshot, $priced), $priced->discountId, null);
+    }
+
+    /**
      * Whether the discount a line carries needs a consumed approval (AC-23a,
      * D-37): `discounts.requires_approval`, read as a fact. `approval_threshold`
      * and the workflow are not evaluated.

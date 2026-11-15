@@ -24,6 +24,8 @@ final class SalesPermissions
 {
     public const APPROVALS_DECIDE = 'sales.approvals.decide';
 
+    public const SHIFTS_RECONCILE = 'sales.shifts.reconcile';
+
     /** The module name every declaration here carries. */
     public const MODULE = 'sales';
 
@@ -38,6 +40,13 @@ final class SalesPermissions
                 self::MODULE,
                 'approvals',
                 'Approve or reject a void, refund, price override or discount at a branch.',
+                true,
+            ),
+            new PermissionDeclaration(
+                self::SHIFTS_RECONCILE,
+                self::MODULE,
+                'shifts',
+                'Mark a closed cash shift reconciled at a branch.',
                 true,
             ),
         ];

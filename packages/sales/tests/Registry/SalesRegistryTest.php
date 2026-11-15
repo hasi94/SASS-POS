@@ -67,24 +67,31 @@ it('declares its audit actions to the catalogue under the module sales, each onc
     }
 });
 
-it('declares sales.approvals.decide as a branch-scoped key', function () {
+it('declares sales.approvals.decide and sales.shifts.reconcile as branch-scoped keys (D-69)', function () {
     $declarations = SalesPermissions::declarations();
 
-    expect($declarations)->toHaveCount(1)
+    expect($declarations)->toHaveCount(2)
         ->and($declarations[0]->key)->toBe('sales.approvals.decide')
-        ->and($declarations[0]->module)->toBe('sales')
-        ->and($declarations[0]->isBranchScoped)->toBeTrue()
+        ->and($declarations[1]->key)->toBe('sales.shifts.reconcile')
+        ->and($declarations[1]->module)->toBe('sales')
+        ->and($declarations[1]->isBranchScoped)->toBeTrue()
         ->and((new SalesServiceProvider(app()))->permissionDeclarations())->toEqual($declarations);
+
+    foreach ($declarations as $declaration) {
+        expect($declaration->module)->toBe('sales')->and($declaration->isBranchScoped)->toBeTrue();
+    }
 });
 
-it('reaches the permissions table through the real registry sync, branch-scoped', function () {
+it('reaches the permissions table through the real registry sync, both keys branch-scoped', function () {
     /** @var SyncPermissionRegistryHandler $sync */
     $sync = app(SyncPermissionRegistryHandler::class);
     $sync->handle(new SyncPermissionRegistry);
 
-    $row = SalesSeed::connection()->table('permissions')->where('key', 'sales.approvals.decide')->first();
+    foreach (['sales.approvals.decide', 'sales.shifts.reconcile'] as $key) {
+        $row = SalesSeed::connection()->table('permissions')->where('key', $key)->first();
 
-    expect($row)->not->toBeNull()
-        ->and($row->module)->toBe('sales')
-        ->and((bool) $row->is_branch_scoped)->toBeTrue();
+        expect($row)->not->toBeNull()
+            ->and($row->module)->toBe('sales')
+            ->and((bool) $row->is_branch_scoped)->toBeTrue();
+    }
 });

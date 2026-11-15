@@ -679,9 +679,9 @@ it('reports a tenant route declaring a branch-scoped key (AC-63, mutation contro
         new PermissionDeclaration('fixture.at_branch', 'fixture', 'Fixture', 'A branch-scoped key.', true)
     );
 
-    // Sales (T-030) now declares the first real branch-scoped key, so the scratch key is asserted
+    // Sales (T-030) declares the real branch-scoped keys, so the scratch key is asserted
     // as present rather than as the only one.
-    expect(accessBranchScopedKeys())->toBe(['fixture.at_branch', 'sales.approvals.decide']);
+    expect(accessBranchScopedKeys())->toBe(['fixture.at_branch', 'sales.approvals.decide', 'sales.shifts.reconcile']);
 
     Route::middleware([
         'api',

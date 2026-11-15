@@ -1140,7 +1140,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 ### Chunk D: corrections and shift close
 
-- [ ] **Step 19: `VoidSale`.** *(AC-21, AC-22; D-29, D-39, D-47.)*
+- [x] **Step 19: `VoidSale`.** *(AC-21, AC-22; D-29, D-39, D-47.)*
   - **AC-21:**
     - a `draft`, `held` or `pending_payment` sale voids without approval, sets `voided_by`, `void_reason` and `voided_at`, and gets one negative mirror per tender;
     - the original tender rows are byte-identical afterwards;
@@ -1162,7 +1162,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - **Ledger post:** built through step 17's `CreditPosting`. There is no number allocation, so **no** deadlock retry is needed here.
   - **Mutation M6:** edit the original tender to a zero amount instead of mirroring. The byte-identity assertion goes red.
   - *(AC-21, AC-22, AC-24A, AC-48; D-14 to D-16, D-66, D-72.)*
-- [ ] **Step 20: `RefundSale`.** *(AC-25 to AC-31, AC-12A, AC-24A, AC-47A, AC-48, AC-50, AC-53, AC-54, AC-57; D-32, D-38, D-43, D-47, D-55, D-58, D-63, D-64, D-71 to D-73.)*
+- [x] **Step 20: `RefundSale`.** *(AC-25 to AC-31, AC-12A, AC-24A, AC-47A, AC-48, AC-50, AC-53, AC-54, AC-57; D-32, D-38, D-43, D-47, D-55, D-58, D-63, D-64, D-71 to D-73.)*
   - **AC-25:**
     - a new `type = refund` row, number `R000001`, `reference_sale_id` set;
     - a goodwill refund has a null reference;
@@ -1228,7 +1228,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - **AC-50:** a refused `refund` sequence is `numbering_refused`, carrying the cause, and nothing is written, the approval included.
   - **AC-57:** the Q-9 and Q-10 residual gaps (promotion ended, customer group changed) each have one dataset row showing that the refund differs from the charge, as accepted behaviour.
   - *(AC-25 to AC-31; D-17 to D-19.)*
-- [ ] **Step 21: `CloseCashShift`, `ReconcileCashShift`.**
+- [x] **Step 21: `CloseCashShift`, `ReconcileCashShift`.**
   - **AC-34:**
     - `counted_cash` is required;
     - `expected_cash` = opening + cash tenders (sales and refunds, signed) ± movements;
@@ -1247,6 +1247,11 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - **AC-37:** close and reconcile replayed with the same payload are no-ops; a close replayed with a different `counted_cash` is `replay_conflict`. `counted_cash` is compared numerically (R-8).
   - **Lock order (R-5):** both take the shift `lockForUpdate()` by id as their first statement; `CloseCashShift` then reads sales, tenders and movements with plain reads, which are fresh because nothing was read before the lock. **Race rows:** a `CreateSale`, a `RecordCashMovement` or a completed-sale `VoidSale` that commits between the pre-read and its own shift lock is either counted by the close or refused, never silently attached to a closed shift.
   - **Gate: `composer check` (end of chunk D).**
+  - **As built (chunk D), the notes chunk E needs:**
+    - **`VoidSale`** pre-reads the sale plainly (to decide whether a shift lock is needed), then in the transaction locks the sale's own shift shared (completed sales only), the sale `FOR UPDATE`, the approval, then the customers. `sale_not_voidable` is a refund document or `refunded`/`partially_refunded`; `voided` and `failed` are `invalid_transition`. The sale's rolled-up figures are left as they were; the originals are untouched and each gets one mirror (`tendered` null, `change_given` 0.0000).
+    - **`RefundSale` input shape:** `terminal_id`, optional `reference_sale_id`, `customer_id` (goodwill only; refused on a referenced refund), `lines` (referenced: `refund_of_item_id`, `unit_id`, `quantity`; goodwill: `product_id`, `unit_id`, `quantity`; a line named twice is `validation`), `tenders` (`payment_method_id`, `offered`, `reference`), `approval_id`. The approval is consumed **before** `fully_refunded`/`over_refund` are read, so a retry after success is always `approval_already_used`; `not_refundable` and the status `refunded` (`fully_refunded`) come before the gate. The refund document's header money is unsigned (`paid_total = total`, `balance_due = 0`); its tenders are negative. It is `completed` in the one call. `LineWriter::quoteSnapshot()` is the one new shared method.
+    - **A price-list tier's `min_qty` is in base units**, not line units (found while writing the AC-27 row).
+    - **`CloseCashShift`** takes the shift `FOR UPDATE` as its first statement; its figures come from this shift's `completed`/`refunded`/`partially_refunded` documents. `totals_by_method` is keyed by `method_code`, sorted, `{}` when empty. **`ReconcileCashShift`** checks the permission (branch read from the shift row) before it looks at the status, so an unauthorised caller learns nothing about the shift. `SalesPermissions::SHIFTS_RECONCILE` is the second key.
   - *(AC-34 to AC-37; D-21.)*
 
 ### Chunk E: scans, engine, documents, close-out
