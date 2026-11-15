@@ -91,6 +91,45 @@ it('refuses a zero offer as validation', function () {
     SalesRefusals::expect(SalesRefusal::Validation, fn () => TenderRules::decide(tenderMethod(), '0', null, '45.0000'));
 });
 
+it('refuses a refund tender onto a method with allows_refund = false as unsupported_method_type (AC-12A)', function () {
+    SalesRefusals::expect(SalesRefusal::UnsupportedMethodType, fn () => TenderRules::decide(tenderMethod(['allows_refund' => 0]), '10', null, '45.0000', true));
+});
+
+it('does not consult allows_refund on an ordinary sale tender (AC-12A, second clause)', function () {
+    // The same method that a refund refuses takes an ordinary tender: a check that ignores the refund flag goes red here.
+    expect(TenderRules::decide(tenderMethod(['allows_refund' => 0]), '10', null, '45.0000')->amount)->toBe('10.0000')
+        ->and(TenderRules::decide(tenderMethod(['allows_refund' => 0]), '10', null, '45.0000', false)->amount)->toBe('10.0000');
+});
+
+it('accepts a refund tender onto a method with allows_refund = true', function () {
+    $outcome = TenderRules::decide(tenderMethod(['allows_refund' => 1]), '10', null, '45.0000', true);
+
+    expect($outcome->amount)->toBe('10.0000')
+        ->and($outcome->tendered)->toBeNull()
+        ->and($outcome->changeGiven)->toBe('0.0000');
+});
+
+it('refuses a refund onto an inactive, non-refundable method as unsupported_method_type: the type check comes first', function () {
+    SalesRefusals::expect(SalesRefusal::UnsupportedMethodType, fn () => TenderRules::decide(tenderMethod(['allows_refund' => 0, 'is_active' => 0]), '10', null, '45.0000', true));
+
+    // The control: an inactive method that is refundable is still method_inactive.
+    SalesRefusals::expect(SalesRefusal::MethodInactive, fn () => TenderRules::decide(tenderMethod(['allows_refund' => 1, 'is_active' => 0]), '10', null, '45.0000', true));
+});
+
+it('gives no change on a refund: a cash payout over what is owed back is exceeds_balance, with tendered null', function () {
+    $cash = tenderMethod(['type' => 'cash', 'allows_change' => 1, 'allows_refund' => 1]);
+
+    SalesRefusals::expect(SalesRefusal::ExceedsBalance, fn () => TenderRules::decide($cash, '50', null, '45.0000', true));
+
+    // The control: the same method on an ordinary tender gives change.
+    expect(TenderRules::decide($cash, '50', null, '45.0000')->changeGiven)->toBe('5.0000');
+
+    // An exact cash refund records no tendered figure, whatever allows_change says.
+    $exact = TenderRules::decide($cash, '45', null, '45.0000', true);
+
+    expect($exact->amount)->toBe('45.0000')->and($exact->tendered)->toBeNull()->and($exact->changeGiven)->toBe('0.0000');
+});
+
 it('says which method types may be tendered', function () {
     $tenderable = array_filter(MethodType::cases(), static fn (MethodType $type): bool => $type->isTenderable());
 

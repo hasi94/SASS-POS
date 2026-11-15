@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace Flexipos\Sales\Tests\Features\OpenCashShift;
 
-use Closure;
 use Flexipos\Access\Tests\Support\AccessTenantFixture;
-use Flexipos\Contracts\Organization\DocumentNumbers;
 use Flexipos\Contracts\Organization\DocumentNumbersRefusal;
 use Flexipos\Contracts\Organization\DocumentNumbersRefused;
 use Flexipos\Contracts\Organization\TerminalAuthority;
@@ -14,6 +12,7 @@ use Flexipos\Sales\Exceptions\SalesRefusal;
 use Flexipos\Sales\Features\OpenCashShift\OpenCashShift;
 use Flexipos\Sales\Features\OpenCashShift\OpenCashShiftHandler;
 use Flexipos\Sales\Features\OpenCashShift\OpenCashShiftResult;
+use Flexipos\Sales\Tests\Support\DeadlockingNumbers;
 use Flexipos\Sales\Tests\Support\LockMarkingGrammar;
 use Flexipos\Sales\Tests\Support\SalesQueryLog;
 use Flexipos\Sales\Tests\Support\SalesRefusals;
@@ -81,46 +80,6 @@ function shiftTill(): array
 function shiftInput(array $w, array $overrides = []): array
 {
     return array_merge(['terminal_id' => $w['terminal'], 'opening_cash' => '100'], $overrides);
-}
-
-/**
- * Replace DocumentNumbers with a wrapper around the real one that runs `$before` on every call first.
- *
- * @param  Closure(int): void  $before  given the 1-based call number
- * @return object{calls: int}
- */
-function numberingWrapper(Closure $before): object
-{
-    $real = app(DocumentNumbers::class);
-
-    $wrapper = new class($real, $before) implements DocumentNumbers
-    {
-        public int $calls = 0;
-
-        public function __construct(private readonly DocumentNumbers $real, private readonly Closure $before) {}
-
-        public function next(string $documentType, ?string $branchId): string
-        {
-            $this->calls++;
-            ($this->before)($this->calls);
-
-            return $this->real->next($documentType, $branchId);
-        }
-    };
-
-    app()->instance(DocumentNumbers::class, $wrapper);
-
-    return $wrapper;
-}
-
-function deadlock(): QueryException
-{
-    return new QueryException(
-        'tenant',
-        'select * from "number_sequences" where "branch_id_key" = ? for update',
-        [],
-        new PDOException('SQLSTATE[40001]: Serialization failure: 1213 Deadlock found when trying to get lock; try restarting transaction')
-    );
 }
 
 it('opens a shift: open, numbered SH000001, the branch from the terminal, the cashier from the actor, and one audit row', function () {
@@ -336,7 +295,7 @@ it('refuses numbering_refused, carrying the cause, and writes nothing (AC-50)', 
     $w = shiftTill();
     $cause = DocumentNumbersRefusal::from($value);
 
-    numberingWrapper(function () use ($cause): void {
+    DeadlockingNumbers::wrap(function () use ($cause): void {
         throw $cause === DocumentNumbersRefusal::NumberTooLong
             ? DocumentNumbersRefused::numberTooLong('too long')
             : DocumentNumbersRefused::unsupportedResetPeriod('yearly');
@@ -365,9 +324,9 @@ it('refuses a yearly sequence through the real numbering, naming the cause', fun
 it('retries the whole transaction once when the numbering deadlocks, and the second attempt succeeds (NOT VERIFIED on a real engine)', function () {
     $w = shiftTill();
 
-    $wrapper = numberingWrapper(function (int $call): void {
+    $wrapper = DeadlockingNumbers::wrap(function (int $call): void {
         if ($call === 1) {
-            throw deadlock();
+            throw DeadlockingNumbers::deadlock();
         }
     });
 
@@ -384,8 +343,8 @@ it('retries the whole transaction once when the numbering deadlocks, and the sec
 it('gives up after the second deadlock, surfacing the engine error with nothing written', function () {
     $w = shiftTill();
 
-    $wrapper = numberingWrapper(function (): void {
-        throw deadlock();
+    $wrapper = DeadlockingNumbers::wrap(function (): void {
+        throw DeadlockingNumbers::deadlock();
     });
 
     expect(fn () => openCashShift(shiftInput($w), $w['cashier']))->toThrow(QueryException::class, 'Deadlock found');
@@ -398,7 +357,7 @@ it('gives up after the second deadlock, surfacing the engine error with nothing 
 it('does not retry an error that is not a deadlock', function () {
     $w = shiftTill();
 
-    $wrapper = numberingWrapper(function (): void {
+    $wrapper = DeadlockingNumbers::wrap(function (): void {
         throw new QueryException('tenant', 'select 1', [], new PDOException('SQLSTATE[HY000]: General error: 1 no such table'));
     });
 
@@ -412,7 +371,7 @@ it('refuses shift_already_open when the unique key catches a rival the pre-check
     $rival = SalesSeed::employee('rival');
 
     // Between this transaction's pre-check and its insert, another till opens a shift on the terminal.
-    numberingWrapper(function () use ($w, $rival): void {
+    DeadlockingNumbers::wrap(function () use ($w, $rival): void {
         SalesSeed::shift($w['terminal'], $w['branch'], $rival, 'SH000050');
     });
 

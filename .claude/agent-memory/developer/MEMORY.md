@@ -88,3 +88,4 @@
 - [T-029 pricing chunk D](project_t029_pricing_chunk_d.md) - adapter that never orders, scans, held engine test; the 12-vs-13 failure is APP_KEY, test:fast is ~843s.
 - [T-029 fix round 1](project_t029_fix_round_1.md) - 13/41/4109 final, foreign bench_load.php slows the gate, WSL-bash and raw-string traps in scripts.
 - [T-030 sales chunk A](project_t030_sales_chunk_a.md) - 13/48/4333 at 1190s; the negated multi-needle toContain guard; LockMarkingGrammar executes a lock pin on SQLite.
+- [T-030 sales chunk C](project_t030_sales_chunk_c.md) - 13/48/4981 at 1204s; pricing_refused reason the plan lacked, SalesQueryLog nesting fix, stand-in test traps.

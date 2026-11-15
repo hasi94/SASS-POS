@@ -97,6 +97,39 @@ final class Fields
     }
 
     /**
+     * An optional free-text note: null when absent, null or blank, refused when
+     * not a string or longer than a `TEXT` column holds (65,535 bytes, R-39).
+     *
+     * @param  array<string, mixed>  $fields
+     *
+     * @throws SalesRefused validation
+     */
+    public static function notes(array $fields, string $key): ?string
+    {
+        $value = $fields[$key] ?? null;
+
+        if ($value === null) {
+            return null;
+        }
+
+        if (! is_string($value)) {
+            throw SalesRefused::validation("The {$key} must be a string or null.");
+        }
+
+        $value = trim($value);
+
+        if ($value === '') {
+            return null;
+        }
+
+        if (strlen($value) > 65535) {
+            throw SalesRefused::validation("The {$key} must be at most 65535 bytes.");
+        }
+
+        return $value;
+    }
+
+    /**
      * A strict boolean: `"true"` is a string and is refused.
      *
      * @param  array<string, mixed>  $fields

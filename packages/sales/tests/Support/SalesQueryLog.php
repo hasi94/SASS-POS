@@ -54,7 +54,7 @@ final class SalesQueryLog
     }
 
     /**
-     * What ran inside the first transaction.
+     * What ran inside the first transaction, nested ones included.
      *
      * @param  list<string>  $log
      * @return list<string>
@@ -67,11 +67,27 @@ final class SalesQueryLog
             return [];
         }
 
+        // A nested transaction (a savepoint, as a ledger posting opens inside the writer's own) raises and
+        // lowers the depth: only the first transaction's own close ends the slice, and the nested markers
+        // are not part of what ran.
         $inside = [];
+        $depth = 1;
 
         foreach (array_slice($log, $begin + 1) as $entry) {
+            if ($entry === self::BEGIN) {
+                $depth++;
+
+                continue;
+            }
+
             if ($entry === self::END) {
-                break;
+                $depth--;
+
+                if ($depth === 0) {
+                    break;
+                }
+
+                continue;
             }
 
             $inside[] = $entry;

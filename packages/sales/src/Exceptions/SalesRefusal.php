@@ -35,6 +35,7 @@ enum SalesRefusal: string
     case SaleNotEditable = 'sale_not_editable';
     case UnitUnresolvable = 'unit_unresolvable';
     case UnresolvablePrice = 'unresolvable_price';
+    case PricingRefused = 'pricing_refused';
     case PriceOverrideNotAllowed = 'price_override_not_allowed';
     case DiscountWithOverride = 'discount_with_override';
     case EmptySale = 'empty_sale';
@@ -48,7 +49,6 @@ enum SalesRefusal: string
     case ReferenceRequired = 'reference_required';
     case ExceedsBalance = 'exceeds_balance';
     case PartialNotAllowed = 'partial_not_allowed';
-    case RefundNotAllowed = 'refund_not_allowed';
     case BalanceDue = 'balance_due';
     case TenderNotRemovable = 'tender_not_removable';
 

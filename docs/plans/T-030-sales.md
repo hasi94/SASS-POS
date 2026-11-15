@@ -952,7 +952,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 *Revision 4: chunks C to E build from spec revision 5 (AC-1 to AC-58, AC-23a, AC-12A, AC-14A, AC-24A, AC-47A; D-1 to D-74). Q-3 to Q-11 are ruled (D-57 to D-65), each at this plan's default, so the defaults below are now the rule. Q-1 (D-55) and Q-2 (D-56) are still open with their built defaults. Q-2 must be ruled before chunk C is accepted, and Q-1 before chunk D.*
 
-- [ ] **Step 13: `CreateSale`.**
+- [x] **Step 13: `CreateSale`.**
   - **Creates `Support/BusinessClock.php` and `Sales/SaleType.php`.** Neither exists yet (chunk B "As built"). `BusinessClock` has three jobs:
     - the UTC instant in `Shape::instant` form;
     - the branch-local `Y-m-d` from `branches.timezone`;
@@ -972,7 +972,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - the customer is read with `Lookup::live(…, lock: true)` (Ruling 7, row 6). As built, `Lookup::live()` takes `bool|string $lock`, where `Lookup::SHARED` is the shared lock and `true` is `FOR UPDATE`.
   - **Race row:** a close that commits between the pre-read and the lock leaves no draft on the closed shift.
   - *(AC-1; D-22, D-23.)*
-- [ ] **Step 14: `AddSaleLine`, `UpdateSaleLine`, `RemoveSaleLine`, `ListSaleLines`**, against the **real** `UnitResolver` and `PricingEngine`, seeded through T-029's seeds.
+- [x] **Step 14: `AddSaleLine`, `UpdateSaleLine`, `RemoveSaleLine`, `ListSaleLines`**, against the **real** `UnitResolver` and `PricingEngine`, seeded through T-029's seeds.
   - **Creates `Sales/LineWriter.php` and `Sales/SaleLocks.php`.** Neither exists yet. The header rollup uses the built `SaleRollup::of(connection, saleId): SaleTotals` and `SaleTotals::toColumns()`, which already refuse `out_of_range` (AC-51).
   - **AC-2:**
     - 1 case of 24 gives `unit_factor 24.000000`, base 24, `unit_code` copied;
@@ -1002,7 +1002,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - Optional `employee_id` (line salesperson) is validated via `Contracts\Access\EmployeeDirectory::isLive()` (F-24).
   - **Mutation M4:** compute `base_quantity` locally. The AC-2 row still passes, but step 23's scan goes red, which is the point of that scan.
   - *(AC-2 to AC-6, AC-8 to AC-10, AC-47, AC-51's rollup half, AC-52; D-57, D-70.)*
-- [ ] **Step 15: price override and the discount approval.** *(AC-7, AC-23a; D-37, D-40, D-47.)*
+- [x] **Step 15: price override and the discount approval.** *(AC-7, AC-23a; D-37, D-40, D-47.)*
   - **AC-7:**
     - an override without an approval is `approval_required`;
     - with a matching approval, the stored `unit_price` is the override, `subtotal` = override × quantity, tax from `computeTax(new TaxQuote($taxGroupId, $subtotal, $snapshot->baseQuantity, $businessDate, TaxContext::Sale))` (R-12), `discount_amount = 0.0000`, `line_total = net + total` (one exclusive and one inclusive row, and one row on a group with a `fixed` member, so the base quantity is shown to matter);
@@ -1020,7 +1020,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - An override approval seeded raw at another branch (`RequestApproval` would refuse it, so this is a defence-in-depth row) is `approval_mismatch`, and its `consumed_at` stays null.
     - The same approval at the sale's branch is consumed.
   - *(AC-7, AC-23a, AC-24A, AC-55; D-13, D-15, D-59, D-72.)*
-- [ ] **Step 16: `AddTender`, `RemoveTender`.** *(AC-11 to AC-13, AC-12A, AC-37's tender half, AC-56; D-29, D-41, D-60, D-71; F-22's reading.)*
+- [x] **Step 16: `AddTender`, `RemoveTender`.** *(AC-11 to AC-13, AC-12A, AC-37's tender half, AC-56; D-29, D-41, D-60, D-71; F-22's reading.)*
   - **16a. Edit the built `TenderRules` first (AC-12A, D-71).** This changes an existing file, `packages/sales/src/Tenders/TenderRules.php`, and its test, `tests/Tenders/TenderRulesTest.php`. It is done red-first.
     - **What is built** (read at `e4ed355`): `decide(object $method, string $offered, ?string $reference, string $balance): TenderOutcome`. It refuses in this order:
       1. `validation` when `offered` is not positive;
@@ -1077,7 +1077,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - on `completed` it is `tender_not_removable`.
   - **Concurrency shape:** the `sales` row is read `for update` before the balance check (SQL pinned).
   - *(AC-11 to AC-13.)*
-- [ ] **Step 17: `CompleteSale`.**
+- [x] **Step 17: `CompleteSale`.**
   - **Creates `Tenders/CreditPosting.php`**, which is not built yet. It builds the `CreditLedgerEntry` for each credit tender, mirror and refund tender (F-2 to F-4, R-20), and steps 19 and 20 reuse it.
   - **AC-14:**
     - a short balance is `balance_due`, naming the remainder;
@@ -1122,7 +1122,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - **AC-50:** a `yearly` `sale` sequence, or one whose prefix makes the number longer than 30 characters, is `numbering_refused`, carrying the cause, and nothing is written.
   - **AC-58:** a discount deactivated between the quote and the completion is still consumed, and the completion succeeds.
   - *(AC-14, AC-14A, AC-15, AC-48, AC-49, AC-50, AC-51, AC-58; D-29, D-31, D-37, D-42, D-65, D-66, D-68, D-74.)*
-- [ ] **Step 18: `HoldSale`, `RecallSale`, `ListSales`, `GetSale`.**
+- [x] **Step 18: `HoldSale`, `RecallSale`, `ListSales`, `GetSale`.**
   - **AC-17:** `draft` and `pending_payment` can be held, and one `sale_holds` row records `from_status`; any other status is refused `invalid_transition`, naming it (R-40). `RecallSale` of a sale that is not `held`, and `CompleteSale` from any status Ruling 4 does not list, are refused the same way.
   - **Lock order (R-5):** `RecallSale` takes the recalling terminal's open shift (`sharedLock()`, by id, re-checked) first, then the sale.
   - **AC-18:**
