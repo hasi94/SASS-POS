@@ -17,6 +17,10 @@ a new backlog row, FP-432 (D-11), for the lead to add to `docs/backlog.md`. The 
 (D-9, revised D-21) is decided here because both engines must agree on it, but only the PHP
 engine and the fixtures themselves ship in this task.
 
+**Revision 2 (code review round 1).** Decisions D-34 to D-39 amend AC-11.6 (residue skips a
+zero-rate member, with sub-criteria 6a to 6d), AC-7 (duplicate `effective_from`), AC-30 (items 9
+to 11) and add AC-5a and AC-6a. D-34 corrects D-25; D-38 corrects D-32's silence on the read path.
+
 **Revision 1.** This revision folds in `architect`'s plan-stage review findings F-1 to F-18
 against real source (`docs/plans/T-029-taxes-pricing.md`, committed `6848c9a`), each traceable
 below by its `F-n` tag. Three were blocking (F-1: AC-22 multiplied by the wrong quantity; F-2:
@@ -211,6 +215,16 @@ Re-derived from the files, not assumed:
   defaults to `true`. **`type = fixed` and `is_compound = true` together are refused**
   (`fixed_cannot_compound`, F-9) — compounding a flat amount onto a percentage base has no defined
   meaning in this schema.
+- **AC-5a** (D-35, review W-3): Given a tax that has at least one `tax_rates` row (closed,
+  open-ended or future-dated, any count), When `UpdateTax` is asked to change `type` or
+  `is_compound` to a value different from the stored one, Then it is refused (validation refusal)
+  naming the field, with a message telling the caller to create a new tax instead; nothing is
+  written. Re-sending the unchanged value is accepted. Given a tax with no rate rows, changing
+  `type` or `is_compound` is accepted (subject to AC-5's `fixed_cannot_compound`). Other fields
+  (`name`, `code`, `applies_to`, `is_active`, `is_recoverable`, `is_withholding`) stay editable.
+  Reason: documents were already resolved against the rates under the old meaning (15.0000 as a
+  percentage versus per stock unit), the same principle as the immutability of a rate's `rate` and
+  `effective_from`.
 - **AC-6**: Creating a `tax_rates` row requires an existing `tax_id`, a non-negative `rate`, and
   `effective_from`; `effective_to` is optional and, when supplied, must not be before
   `effective_from` (refused otherwise). Two rows for the same `tax_id` with overlapping
@@ -221,6 +235,11 @@ Re-derived from the files, not assumed:
   D-15/F-9) — `tax_rates.rate` is `DECIMAL(9,4)`, which cannot hold a fractional rate
   (`0.15` would need 5+ decimal places for anything beyond a whole percentage point), so no
   fractional interpretation is offered or accepted.
+- **AC-6a** (D-37, review S-2): Given a `tax_rates` row whose `effective_to` is already set, When
+  `CloseTaxRate` is called for it (with any date, earlier, later or equal), Then it is refused
+  (validation refusal) and nothing changes. Closing moves an open-ended rate's end date once; it
+  is not an edit path, because moving a set end date re-resolves documents already priced. A
+  deliberate correction path is out of scope (follow-up for the owner).
 - **AC-7** (effective-rate resolution, a pure function — the tax twin of the price ladder): Given
   a `tax_id` and a document date, the resolved rate is the `tax_rates` row for that tax with the
   latest `effective_from` that is `<= ` the document date and whose `effective_to` is either null
@@ -228,7 +247,12 @@ Re-derived from the files, not assumed:
   zero — an invoice must never compute tax as zero because nobody dated a rate. This holds
   regardless of whether the member tax is active or in scope (AC-11's own filters, F-9, run
   first, before a rate is ever looked up) — a tax that **is** in scope with no effective rate is
-  still a hard refusal, not an excused zero.
+  still a hard refusal, not an excused zero. **Duplicate `effective_from` (D-36):** if ANY two rate
+  rows handed to the pure resolver for one tax share the same `effective_from`, whether or not
+  either qualifies on the document date, the resolution is refused `invalid_amount`, so the result
+  never depends on row order (the shape of D-31 for price-list items). Real data cannot hold such a
+  pair (unique `(tax_id, effective_from)`), so this guards data arriving another way and keeps the
+  TypeScript twin from copying an iteration order.
 - **AC-8**: Creating a `tax_groups` row requires `code` (unique, non-blank) and `name`;
   `is_inclusive` defaults to `false`; `is_default` defaults to `false`; `is_active` defaults to
   `true`. At most one `tax_groups` row has `is_default = true` — setting a second row's
@@ -293,9 +317,25 @@ Re-derived from the files, not assumed:
      `net = round(R / (1 + S), 4)`, the **only** rounding in the back-out (half up). Each member's
      base and amount are then computed forward from `net` by steps 3 and 4; the residue
      `gross − net − Σ(all member amounts)` that the single rounding can leave is added to the
-     **last percentage member in `sequence`**, so `net + Σ(all member amounts) = amount` exactly,
+     **last percentage member in `sequence` whose resolved rate is not zero** (D-34, which
+     corrects D-25's "last percentage member"), so `net + Σ(all member amounts) = amount` exactly,
      with a fixed, predictable member absorbing the rounding every time (never "iteratively, tax
-     by tax," which would compound rounding at each step). In a group whose percentage members
+     by tax," which would compound rounding at each step). A percentage member whose resolved rate
+     is `0.0000` is skipped when choosing the member: it never receives a residue, so its amount
+     stays `0.0000` and `amount = base × rate` holds on every line. A non-zero residue always has a
+     member to land on: if every percentage rate is zero then `S = 0` and `K = 0`, so
+     `net = gross − F` exactly and the residue is zero. Sub-criteria, each a shipped fixture
+     (15 % VAT and a levy, both non-compound, no fixed member):
+     - **6a** VAT at sequence 1 (15 %), levy at sequence 2 (0 %), gross 9.9900: `net = 8.6870`;
+       VAT base 8.6870 and amount `1.3030` (the unrounded 1.30305 would be 1.3031, the residue
+       −0.0001 comes off it); levy amount `0.0000`; `net + Σ = 9.9900`; the quote is not refused;
+     - **6b** the same group, gross 10.0000: `net = 8.6957`, VAT `1.3043`, levy `0.0000`, sum
+       `10.0000`;
+     - **6c** the reversed order, 0 % levy at sequence 1 and 15 % VAT at sequence 2, gross 9.9900:
+       the same net, VAT and levy amounts as 6a (the residue goes to the 15 % member, which is
+       last non-zero), lines listed in `sequence` order;
+     - **6d** every percentage member at 0 %, gross 9.9900: `net = 9.9900`, every amount
+       `0.0000`, no residue. In a group whose percentage members
      are all compound and with no fixed member, `1 + S` equals the product of every
      `(1 + rate/100)`; with two non-compound members of 5% and 10% it is `1.15`, not `1.155`.
      Worked checks (shipped fixtures): a fixed member of 1.0000 per unit on a base quantity of 2
@@ -590,6 +630,16 @@ Re-derived from the files, not assumed:
      well-formed `applies_to` naming ids that do not exist is accepted (D-32).
   8. Given `computeTax` for an inactive tax group, Then it is computed normally; given an unknown
      id, Then it is refused `unknown_tax_group` (D-33).
+  9. Given an inclusive group whose last percentage member (in `sequence`) resolves to `0.0000`,
+     Then the residue goes to the last percentage member with a non-zero rate and the quote is
+     not refused; cases 6a to 6d of AC-11.6 (D-34).
+  10. Given two rate rows of one tax with the same `effective_from`, qualifying or not, Then
+      resolution is refused `invalid_amount` in either row order (AC-7, D-36).
+  11. Given the pricing adapter reads a stored `discounts.applies_to` that is not the D-32 shape
+      (not a JSON object; a key other than `products`, `categories`, `brands`; a value that is not
+      a list; a list entry that is not a string), Then the quote is refused `invalid_amount` and
+      the discount is never applied, never widened to apply to everything. A null or absent
+      value, and a well-formed object, behave as before (D-38).
 
 ## Out of scope
 
@@ -654,6 +704,11 @@ Re-derived from the files, not assumed:
   multiplied against the correct unit price (F-1), discount before tax, `HALF_UP` at each named
   step, never carrying an unrounded fraction into the next computation — the money twin of
   §3.2's quantity rounding rule.
+- **Concurrency (review W-1, W-2; no new rule, recorded as D-39)**: the rate-overlap check
+  (`CreateTaxRate`, `CloseTaxRate`) takes its lock before any plain read, so it judges the latest
+  committed sibling rates; and catalog's tax-group validation (AC-3) reads the group and the
+  default with a locking read inside the product write's own transaction, so AC-10's deactivation
+  guard cannot be bypassed by a concurrent product write. Testable with two connections.
 - **No business-rule check against the wall clock** (AC-20, F-12): every discount availability
   check runs against the caller-supplied document instant, so a fixture replays identically
   however long after it was written.
@@ -684,6 +739,14 @@ Re-derived from the files, not assumed:
 - Rulings D-31 to D-33 (after the plan reconciliation, K-9/K-11/K-12): the duplicate `min_qty`
   refusal covers any two items regardless of qualifying (corrects D-28); `applies_to` is
   shape-validated only; an inactive tax group is still computed, an unknown id is refused.
+- Rulings D-34 to D-39 (code review round 1): the inclusive residue skips zero-rate members
+  (corrects D-25); `type`/`is_compound` are frozen once a tax has rates; a stored malformed
+  `applies_to` is refused, never widened; duplicate `effective_from` is refused by the pure
+  resolver; an already-closed rate cannot be closed again; two concurrency rules.
+- Residual edge, not ruled (rate magnitude): if the member receiving the residue has a very small
+  non-zero rate whose amount rounds to `0.0000`, a negative residue of -0.0001 could still make it
+  negative. Not reachable at ordinary rates; if the engine meets it, it refuses `out_of_range` as
+  it does today. Flagged for the owner, no new rule invented.
 - The price-ladder step-ordering and filtering rules (D-16/F-10 — assignment priority, then list
   priority, then code; the currency/window filter applied uniformly; promotions optionally
   scoped) are the conventional reading of §6.4's prose, made concrete enough to be fixture-proven;

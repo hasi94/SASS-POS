@@ -509,3 +509,59 @@ D-33 | What `computeTax` does with an inactive tax group (plan finding K-12; the
 **Computed normally**; only an unknown id is refused `unknown_tax_group`. Spec: AC-11 step 0,
 AC-30.8. | Reason: an inactive group is a configuration state for new assignments, not for quotes
 already in flight. | Reversible: yes.
+
+D-34 (code review R-1, Critical; **corrects D-25 and AC-11.6**) | D-25 gave the inclusive rounding
+residue to the last percentage member in `sequence`. When that member's resolved rate is
+`0.0000` (ordinary: a suspended levy, a zero-rated member) a negative residue makes its amount
+negative, which the engine refuses `out_of_range`, so a valid sale is refused; a positive residue
+puts tax on a 0 % line, so `amount != base x rate`. Verified against
+`TaxCalculator` (the residue step and `lastPercentage` pick by type only). Worked case: 15 % VAT at
+sequence 1, 0 % levy at sequence 2, inclusive, gross 9.9900: net 8.6870, VAT 1.3031, residue
+-0.0001. | **The residue goes to the last percentage member, in `sequence`, whose resolved rate is
+not zero.** A zero-rate member never receives it. Such a member always exists when the residue is
+non-zero: if every percentage rate is zero then `S = 0` and `K = 0`, so `net = gross - F` exactly
+and the residue is zero. Results: VAT 1.3030 and levy 0.0000 at gross 9.9900; VAT 1.3043 and levy
+0.0000 at gross 10.0000 (net 8.6957); reversed order (0 % first, 15 % last) gives the same
+amounts. Spec: AC-11.6 reworded with sub-criteria 6a to 6d, AC-30.9. Fixtures to add (named by the
+review): `tax-inclusive-residue-skips-a-zero-rate-member`, the gross 10.0000 case, the reversed
+order, and an all-zero group. The TypeScript twin (FP-432) implements this from AC-11.6 alone.
+Residual: a tiny non-zero rate whose amount rounds to 0.0000 could still go negative on a -0.0001
+residue; not ruled, flagged in the spec. | Reason: the residue is a rounding artefact and belongs on
+a line that carries tax. | Reversible: yes, one selection in one method.
+
+D-35 (code review W-3) | `UpdateTax` could change `type` (percentage to fixed turns every
+historic 15.0000 from 15 % into 15.0000 per stock unit) or `is_compound` on a tax that already has
+rates, silently changing how past documents re-resolve and what future quotes charge. | **Refused
+(validation) while any `tax_rates` row exists for the tax**, message telling the caller to create a
+new tax instead; unchanged values are accepted; with no rates the change is allowed. Spec: AC-5a.
+| Reason: the same principle that makes a rate's `rate` and `effective_from` immutable. |
+Reversible: yes.
+
+D-36 (code review W-5; same shape as D-31) | With two rate rows on the same `effectiveFrom`, the
+resolver keeps whichever came first (strict comparison), contradicting its own "does not depend on
+row order" statement. Verified in `RateResolver::resolve`. | **The pure engine refuses
+`invalid_amount` when ANY two rate rows of one tax share an `effectiveFrom`, qualifying or not.**
+Spec: AC-7 extended, AC-30.10. Fixture to add: `tax-rate-duplicate-effective-from-is-refused`. |
+Reason: real data is protected by the unique key, but the pure engine is the single source of
+truth and the TypeScript twin must not copy an iteration order. | Reversible: yes.
+
+D-37 (code review S-2) | `CloseTaxRate` accepted a rate whose `effective_to` was already set and
+moved the date, which re-resolves documents already priced. | **Refused (validation) when
+`effective_to` is already set.** Closing moves an open end date once; it is not an edit path. A
+deliberate correction path is out of scope and stays a follow-up for the owner. Spec: AC-6a. |
+Reversible: yes.
+
+D-38 (code review W-4; **corrects D-32's silence on the read path**) | D-32 validated
+`applies_to` on write only. The adapter turns a non-array, a non-list value or non-string entries
+into empty lists, and three empty lists mean "applies to everything", so a bad stored value
+(raw SQL, a future sync or import) widens a discount to every product. | **The pricing adapter
+never widens a discount.** If the stored value is not the D-32 shape (not an object, a key outside
+`products`/`categories`/`brands`, a value that is not a list, an entry that is not a string), the
+quote is refused `invalid_amount`, the nearest reason in the closed list. Null or absent still
+means everything. Spec: AC-30.11. An adapter test seeds a malformed row by raw insert. |
+Reversible: yes (a named reason can replace `invalid_amount` later).
+
+D-39 (code review W-1, W-2; no new business rule) | Two concurrency fixes the developer implements
+from the review: the rate-overlap check and `CloseTaxRate` lock before any plain read; catalog's
+tax-group validation uses a locking read in the same transaction. The spec had no sentence
+implying otherwise; one Non-functional bullet records them. | **Recorded only.** | Reversible: yes.
