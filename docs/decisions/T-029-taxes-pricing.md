@@ -489,3 +489,23 @@ inclusive group), not the quantity, as built (`TaxCalculator::forward`; fixture
 `tax-inclusive-fixed-comes-off-first` shows base `145.2174` for the fixed line). The TypeScript
 twin must match. | Reason: `base` is the amount the tax was assessed against on the line, a
 consistent field across member types. | Reversible: yes.
+
+D-31 | **Corrects D-28** (plan finding K-9, a bug in shipped Chunk B code, fixed by plan step 10a).
+`PriceLadder::greatestQualifying` refused a duplicate `min_qty` only when it tied the best
+qualifying item found so far, so at base 10 the order 1, 1, 5 was refused but 5, 1, 1 was priced
+from the 5-row: the result depended on row order. | **The duplicate-`min_qty` refusal
+(`invalid_amount`) covers ANY two items of the unit keys the ladder checks (same product and
+unit), whether or not they qualify**, so the result never depends on row order. The TypeScript
+twin must give identical results. Spec: AC-30.3 reworded. | Reason: real data cannot hold
+duplicates (unique key), but the pure engine is the single source of truth. | Reversible: yes.
+
+D-32 | `discounts.applies_to` validation (plan finding K-11). | **Shape only**: the only allowed
+keys are `products`, `categories`, `brands`, each a list of strings; no check that any id exists;
+null or absent allowed. Violations are refused naming the field. Spec: AC-19 reworded, AC-30.7
+added. | Reason: stored as supplied, but a malformed shape would make the engine's reading
+undefined. | Reversible: yes.
+
+D-33 | What `computeTax` does with an inactive tax group (plan finding K-12; the spec was silent). |
+**Computed normally**; only an unknown id is refused `unknown_tax_group`. Spec: AC-11 step 0,
+AC-30.8. | Reason: an inactive group is a configuration state for new assignments, not for quotes
+already in flight. | Reversible: yes.

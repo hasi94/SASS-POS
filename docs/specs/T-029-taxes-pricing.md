@@ -255,6 +255,10 @@ Re-derived from the files, not assumed:
 - **AC-11** (tax-group calculation, pure — revised per F-9's five gaps):
   Given a tax group's ordered member taxes (via `tax_group_taxes.sequence`), a line amount, a
   base quantity, a document date and a context (`sale` or `purchase`), the engine computes:
+  0. **Group lookup (D-33).** `computeTax` given an id the directory does not know is refused
+     `unknown_tax_group`. A group that exists but is **inactive** (`is_active = false`) is
+     computed normally, with no refusal and no flag: inactivity governs new assignments (AC-3,
+     AC-10), not a quote already in flight. Only member taxes are filtered for inactivity (step 1).
   1. **Filter.** Skip any member tax that is inactive, soft-deleted, or whose `applies_to`
      excludes the given context (`sale`/`purchase`/`both`). An empty result after filtering gives
      `net = amount`, no breakdown lines, total `0.0000` (AC-9's "empty group is tax-exempt, not an
@@ -410,10 +414,12 @@ Re-derived from the files, not assumed:
   row requires `code` (unique, non-blank), `name`, `type` (`percentage`, `fixed`, `buy_x_get_y`),
   `value` (`DECIMAL(18,4)`, D-10 — non-negative; for `percentage` additionally refused above
   `100`), `scope` (`item` or `bill`); `applies_to` (JSON: `{products: [...], categories: [...],
-  brands: [...]}`, each an optional list of ids) is stored and returned as supplied with no
-  server-side existence validation against those ids — mirrors T-028/T-027's precedent for a JSON
-  field with no invented controlled structure beyond documented key names (the engine, section E,
-  is the only reader that gives it meaning). `type = buy_x_get_y` additionally requires
+  brands: [...]}`, each an optional list of ids) is stored and returned as supplied. Its **shape
+  only** is validated (D-32): it must be an object whose only keys are `products`, `categories`
+  and `brands`, each (when present) a list of strings; any other key, or a value that is not a
+  list of strings, is refused naming the field. There is no check that any listed id exists
+  (mirrors T-028/T-027's precedent; the engine, section E, is the only reader that gives it
+  meaning). Null or absent is allowed. `type = buy_x_get_y` additionally requires
   `applies_to.products` to name at least one product (refused otherwise, `missing_target`) since
   a buy-x-get-y rule with no product to apply to is meaningless; this task does not validate
   `value`'s meaning for that type further (the "x" and "y" quantities are not modelled by this
@@ -568,8 +574,10 @@ Re-derived from the files, not assumed:
      refused `invalid_amount` (D-26).
   2. Given a percentage discount whose value is above 100, Then it is refused `invalid_amount`;
      exactly 100 is accepted (D-27).
-  3. Given one price list holding two items for the same product and unit with equal `min_qty`,
-     When the ladder reads it, Then it is refused `invalid_amount` (D-28).
+  3. Given a ladder holding ANY two items of the unit keys it checks (same product and unit) with
+     equal `min_qty`, whether or not either qualifies for the quantity, When the ladder reads it,
+     Then it is refused `invalid_amount`, and the result never depends on row order: at base 10
+     the orders 1, 1, 5 and 5, 1, 1 are both refused (D-28 as corrected by D-31).
   4. Given two lists (or two taxes) that tie on every earlier key, Then the order falls to a
      bytewise comparison of `code` (tax members: of the tax id), so `"10"` sorts before `"9"`; the
      database adapter must produce the identical order, proven by a test (D-29).
@@ -577,6 +585,11 @@ Re-derived from the files, not assumed:
      inclusive group), not the quantity (D-30).
   6. Given the inclusive back-out of AC-11.6, Then non-compound 5% and 10% on gross 115.0000 give
      `net = 100.0000` with no residue (D-25).
+  7. Given a discount `applies_to` with a key other than `products`, `categories` or `brands`, or
+     a value that is not a list of strings, Then creation is refused naming the field; a
+     well-formed `applies_to` naming ids that do not exist is accepted (D-32).
+  8. Given `computeTax` for an inactive tax group, Then it is computed normally; given an unknown
+     id, Then it is refused `unknown_tax_group` (D-33).
 
 ## Out of scope
 
@@ -614,7 +627,8 @@ Re-derived from the files, not assumed:
   domain layer (migrations, models, handlers/contracts, the engine) a future admin-UI/API task
   reads, matching T-027/T-028's precedent for non-HTTP-first tasks.
 - A controlled schema for `discounts.applies_to` (or any future JSON field) beyond the documented
-  key names — stored and returned as supplied (AC-19), the same boundary T-027/T-028 both already
+  key names, and any existence check of listed ids — stored and returned as supplied, shape-checked
+  only (AC-19, D-32), the same boundary T-027/T-028 both already
   drew for their own JSON columns.
 
 ## Non-functional requirements
@@ -667,6 +681,9 @@ Re-derived from the files, not assumed:
 - Engine rulings added after Chunk B (D-26 to D-30): negative quantities refused, a percentage
   discount above 100 refused, a duplicate `min_qty` refused, bytewise code ties, and the fixed-tax
   `base`. D-29 leaves one open risk for the database adapter (see Open questions).
+- Rulings D-31 to D-33 (after the plan reconciliation, K-9/K-11/K-12): the duplicate `min_qty`
+  refusal covers any two items regardless of qualifying (corrects D-28); `applies_to` is
+  shape-validated only; an inactive tax group is still computed, an unknown id is refused.
 - The price-ladder step-ordering and filtering rules (D-16/F-10 — assignment priority, then list
   priority, then code; the currency/window filter applied uniformly; promotions optionally
   scoped) are the conventional reading of §6.4's prose, made concrete enough to be fixture-proven;
