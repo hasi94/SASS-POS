@@ -1,6 +1,11 @@
 # Plan: T-029 Taxes, price lists and discounts (the PHP calculation engine)
 
-Spec: `docs/specs/T-029-taxes-pricing.md` (AC-1 to AC-29, plus AC-16a and AC-24a). Decisions: `docs/decisions/T-029-taxes-pricing.md` (D-1 to D-24). Branch `ai/T-029-taxes-pricing`, cut from `ai/T-028-customers` at `8f8295e`. Revision 1 was planned at `4194ce2`; this revision is planned at `85dc7ab`.
+Spec: `docs/specs/T-029-taxes-pricing.md` (AC-1 to AC-30, plus AC-16a and AC-24a). Decisions: `docs/decisions/T-029-taxes-pricing.md` (D-1 to D-30, plus D-21a). Branch `ai/T-029-taxes-pricing`, cut from `ai/T-028-customers` at `8f8295e`. Revision 1 was planned at `4194ce2`, revision 2 at `85dc7ab`, revision 3 at `7280657`.
+
+**Revision 3 (planned at `7280657`, after Chunk B).** Spec now runs AC-1 to AC-30 and decisions D-1 to D-30. Three changes, each detailed in section 0.4:
+- the inclusive back-out text now states the exact linear rule of AC-11.6 as corrected by D-25. Chunk B already shipped that rule (`TaxCalculator::inclusiveNet`); this revision only aligns the wording;
+- the open ordering risk of D-29 is ruled: **the adapter never orders, the pure engine does all ordering** (Ruling 8, step 16, step 17, step 18);
+- the Chunk C/D text is aligned with the names and shapes Chunk B actually shipped (findings K-1 to K-12), and one new step, **10a**, fixes an order-dependence found in the shipped duplicate-`min_qty` check.
 
 **Revision 2.** `ba` folded F-1 to F-18 (section 0.2) into the spec in `85dc7ab`. Each resolution matches the one this plan proposed, so **no step's design changed** between revisions. Only the AC and decision references were updated, plus one scope clarification on AC-25 (below).
 
@@ -103,7 +108,7 @@ The findings follow unchanged, as the record of what was routed. The resolution 
   - **`type = fixed`:** `rate` is an amount per **stock** unit (§6.3: product money is per stock unit), so `amount = round(rate × base_quantity, 4)`. A fixed tax cannot be compound (refused at write, `fixed_cannot_compound`). In an inclusive group, fixed amounts are taken out of the gross before the percentage back-out; if they exceed it, the result is `inclusive_amount_too_small`.
   - **`applies_to`:** the engine is told the context (`sale` | `purchase`) and skips members whose `applies_to` excludes it.
   - **Inactive or soft-deleted member taxes are skipped.** Deactivating is how a shop stops charging a tax. A live member with no effective rate is still `no_effective_rate` (AC-7).
-  - **Inclusive rounding:** the base is `round(G / M, 4)`, where `M` is the exact multiplier the group's sequence implies. Taxes are then computed forward from that base. The rounding residue `G − base − Σtaxes` is added to the **last percentage member in `sequence`**, so `base + Σtaxes = G` exactly. This replaces "iteratively, tax by tax": it gives the same base without accumulating rounding at each step, and it fixes which member absorbs the cent.
+  - **Inclusive rounding (superseded in detail by D-25 / AC-11.6; Chunk B shipped the corrected rule):** the net comes from the exact linear relation `G − F = net × (1 + S) + K` (F the fixed total; S and K built exactly while walking the members in `sequence`, per AC-11.6), so `net = round((G − F − K) / (1 + S), 4)` is the only rounding. Taxes are then computed forward from that net. The rounding residue `G − net − Σtaxes` is added to the **last percentage member in `sequence`**, so `net + Σtaxes = G` exactly. This replaces "iteratively, tax by tax": it does not accumulate rounding at each step, and it fixes which member absorbs the cent. (Revision 2 of this bullet divided by a multiplier taken as the product of the members' factors; that holds only when every percentage member compounds, which is the defect D-25 records.)
   - **Breakdown entry:** `{tax_id, code, tax_code, type, is_compound, rate, base, amount}`. `tax_code` is the printed code and may be null. `base` is what a tax return needs.
 - **F-10 (gaps in AC-15): what each step selects.**
   - **Every** candidate list must be `is_active`, not soft-deleted, have its window contain the document instant (`starts_at ≤ at ≤ ends_at`, a null bound being open), and have `currency` equal to the document currency (a list in another currency is skipped, never converted). D-3 already says every list type is optionally date-ranged; AC-15 applied the window only to promotions.
@@ -164,18 +169,20 @@ The findings follow unchanged, as the record of what was routed. The resolution 
 | `TaxContext` | `sale`, `purchase` |
 | `PricingRefused` / `PricingRefusal` | `RuntimeException` with `public readonly PricingRefusal $reason`: `unknown_product`, `unknown_tax_group`, `no_effective_rate`, `inclusive_amount_too_small`, `no_price_resolved`, `unknown_discount`, `discount_scope_mismatch`, `inactive`, `not_yet_started`, `expired`, `usage_limit_reached`, `discount_not_allowed`, `not_applicable`, `below_min_amount`, `unsupported_discount_type`, `invalid_amount`, `out_of_range` |
 
-That is 15 files. The DTO constructors check **shape only** (ULIDs, decimal patterns, date formats), which is `UnitSnapshot`'s own discipline.
+| `Shape` (shipped in Chunk B, K-2) | the shared shape checks (`money`, `rate`, `factor`, `ulid`, `date`, `instant`, `currency`) used by both the DTOs and the pure engine's inputs, so the two layers cannot drift. A malformed amount is `PricingRefused(invalid_amount)`; a malformed id, date, instant or currency is an `InvalidArgumentException` naming the field. `ulid()` folds to upper case |
+
+That is **16 files** (Chunk B added `Shape`; also `PriceBasis` and `PriceSource` are their own files). The DTO constructors check **shape only** (ULIDs, decimal patterns, date formats), which is `UnitSnapshot`'s own discipline.
 
 **Ruling 3: arithmetic.** `brick/math` `BigDecimal` throughout, never a float (T-027 Ruling 5; already locked).
 1. Inputs: money and quantity `^\d{1,14}(\.\d{1,4})?$`, rate `^\d{1,5}(\.\d{1,4})?$`, factor from `UnitSnapshot`. Anything else is `invalid_amount`.
 2. **Round at each named step, `HALF_UP`, scale 4, and never carry an unrounded value into the next step** (AC-22, §3.2's order). The named steps are exactly: derived price, list-percent price, subtotal, discount amount, each tax amount, inclusive base. Additions and subtractions of 4-dp values are exact.
 3. Percent arithmetic is `x × p / 100`, computed exactly and then rounded once. Never `x × (p/100 rounded)`.
-4. The inclusive multiplier `M` is exact: each factor is `1 + r/100` with ≤ 6 dp, and their product is a finite decimal. Only `G / M` is rounded (scale 4, HALF_UP).
+4. The inclusive back-out follows AC-11.6 as corrected by D-25 (shipped in Chunk B, `TaxCalculator::inclusiveNet`): `S`, `K` and the fixed totals are built exactly while walking the members in `sequence` (each `r/100` is an exact fraction of at most 6 dp, so every product is a finite decimal), and the only rounding is `net = round((G − F − K) / (1 + S), 4)`, HALF_UP. `1 + S` equals the product of every `1 + r/100` only for an all-compound group with no fixed member; for non-compound 5 % and 10 % it is `1.15`, not `1.155`.
 5. Range: any result above `99999999999999.9999` is `out_of_range`. Output is canonical, and a zero is never negative.
 
 **Ruling 4: the unit factor comes from the caller's `UnitSnapshot`, never from a table.** The engine's only factor arithmetic is `price × UnitSnapshot.unitFactor` (Ruling 5), in a single method, `PriceLadder::derive()`. Nothing in `packages/pricing` names `unit_conversions`, `base_unit_id` or `units.factor`, and T-027's own scan proves that. The snapshot's trust boundary is the one `UnitSnapshot`'s docblock already states. `quoteLine` does not re-resolve the factor, because a refund line (FP-233's `snapshotInherited`) legitimately carries an older one.
 
-**Ruling 5: `Engine\PriceLadder` (pure; AC-15 to AC-17, F-2, F-10, F-11).** `resolve(LadderInput): LadderOutcome`. The input holds the line (`unitId`, `quantity`, `unitFactor`, `baseQuantity`), `at`, `currency`, the three scope ids, the candidate lists (each with `type`, `currency`, `priority`, `code`, window, `isActive`, assignments and the product's items), `branchSellingPrice?` and `sellingPrice?`.
+**Ruling 5: `Engine\PriceLadder` (pure; AC-15 to AC-17, F-2, F-10, F-11).** `resolve(LadderInput): LadderOutcome`. As shipped, `LadderInput` holds the line (`unitId`, `unitFactor`, `baseQuantity`; **no `quantity`**, which lives on `LineInput` because only the subtotal uses it, K-1), `at`, `currency`, the three scope ids, the candidate `list<LadderList>` (each with `listId`, `code`, `ListType $type`, `currency`, `priority`, `startsAt`/`endsAt`, `isActive`, **`isDeleted`**, `list<LadderAssignment>` and the product's `list<LadderItem>`), `branchSellingPrice?` and `sellingPrice?`. Ties between lists fall to a bytewise `strcmp` on `code` (D-29).
 1. Filter the lists (F-10). Build step 1 (customer assignments), step 2 (group), step 3 (promotions, scoped per F-10), step 4 (branch), each ordered per F-10.
 2. For each list in order, apply the **unit-outer rule**:
    - (a) items with `unitId = line unit` and `minQty ≤ baseQuantity`: take the greatest `minQty` and use its price **as typed**;
@@ -184,7 +191,7 @@ That is 15 files. The DTO constructors check **shape only** (ULIDs, decimal patt
 3. Step 5: `branchSellingPrice` non-null gives `derive()`. Step 6: `sellingPrice` non-null gives `derive()`. Otherwise `no_price_resolved`.
 4. If the winning item has a `discountPercent`, apply it (F-11).
 
-A duplicate `minQty` within one branch cannot happen (it is the unique key). The ladder still asserts it, refusing rather than picking by order.
+A duplicate `minQty` within one branch cannot happen (it is the unique key). The ladder still asserts it, refusing **`invalid_amount`** (D-28, AC-30.3) rather than picking by order. As shipped, that check is itself order-dependent (K-9); step 10a makes it a function of the item set.
 
 **Ruling 6: `Engine\LineCalculator` (pure; AC-22, F-1).** The fixed order:
 1. `unitPrice` (from the ladder);
@@ -195,11 +202,16 @@ A duplicate `minQty` within one branch cannot happen (it is the unique key). The
 
 **Ruling 7: `Engine\RateResolver` and `Engine\TaxCalculator` (pure; AC-7, AC-9, AC-11, F-9).**
 - `RateResolver::resolve(list<RateRow>, date)` returns the row with the greatest `effectiveFrom ≤ date` and (`effectiveTo` null or `> date`). Otherwise it refuses with `no_effective_rate`. Dates are compared as `Y-m-d` strings, which order correctly by construction.
-- `TaxCalculator::compute(members, amount, baseQuantity, date, context, inclusive)` does: filter (F-9) → order by `sequence` → resolve rates → run forward (exclusive) or apply Ruling 3.4's back-out plus the residue rule (inclusive). An empty group gives `net = amount`, no lines, total `0.0000`.
+- `TaxCalculator::compute(members, amount, baseQuantity, date, context, inclusive)` does: filter (F-9) → order by `sequence` → resolve rates → run forward (exclusive) or apply the exact linear back-out of AC-11.6 / D-25 (Ruling 3.4, shipped as `inclusiveNet`) plus the residue rule (inclusive). An empty group gives `net = amount`, no lines, total `0.0000`. A fixed member's breakdown `base` is the line amount (the net, inclusive), never the quantity (D-30). Members tied on `sequence` fall to a bytewise `strcmp` on the tax id (D-29).
 
-**Ruling 8: the DB adapter, `Engine\DatabasePricingEngine`** (implements `PricingEngine`). It reads exactly the rows the pure classes need, builds their inputs and calls them. It holds **no arithmetic and no ordering**. The ordering lives in `PriceLadder`, so a fixture proves it.
-- It reads all candidate lists for the product and currency in one query, plus their assignments.
-- It picks `tax_group_id` for `sale` and `purchase_tax_group_id ?? tax_group_id` for `purchase` (`computeTax` takes the group explicitly).
+**Ruling 8: the DB adapter, `Engine\DatabasePricingEngine`** (implements `PricingEngine`). It reads exactly the rows the pure classes need, builds their inputs and calls them. It holds **no arithmetic, no ordering and no selection**. The ordering lives in `PriceLadder` and `TaxCalculator`, so a fixture proves it.
+
+**The D-29 ruling (revision 3): the adapter never orders; the pure engine does all ordering.** Rejected: a "proven-equal" SQL order (`ORDER BY code COLLATE utf8mb4_bin` or `BINARY code`). It would make the database a second source of truth for an order the TypeScript twin (FP-432) must reproduce from the fixtures alone, it is spelled differently on MySQL, MariaDB and SQLite, and the shipped engine re-sorts its input anyway, so a SQL order could only ever be redundant or wrong. Concretely:
+- **No `ORDER BY`, no `orderBy(`, no `LIMIT`/`first()` over a candidate set** (lists, assignments, items, group members, rates). Every candidate row is passed. `first()` is allowed only on a primary-key or unique-id lookup (the product, the tax group, the discount, the `product_branches` row).
+- **SQL predicates are id equality only:** `product_id`, `price_list_id IN`, `tax_group_id`, `tax_id IN`, discount `id`. Currency, window, `is_active` and the soft-delete flag of lists and taxes are **not** filtered in SQL; they are passed through (`LadderList::$isDeleted`, `TaxMember::$isDeleted`/`$isActive`) and the pure engine skips them, so the fixture-proven filter is the only filter. The one exception is the discount: `DiscountRule` has no deleted flag, so a soft-deleted discount is simply not loaded and surfaces as `unknown_discount` (K-6).
+- **Normalisation, the adapter's only transformation** (K-5): every id read is folded to upper case (the engine compares ids with `===`, and `Shape::ulid` folds the quote's ids), every decimal is cast `(string)` and handed to the engine's `Shape` checks, every `DATETIME(3)` is rewritten from `Y-m-d H:i:s.v` to the `YYYY-MM-DDTHH:MM:SS.mmmZ` instant, integers (`priority`, `sequence`, `usage_limit`, `used_count`) are cast `(int)`.
+- **Candidate lists:** every `price_lists` row having at least one `price_list_items` row for the product (one query, `whereIn` on the ids from the items), with all their assignments and that product's items.
+- **The tax group:** `quoteLine` uses `products.tax_group_id`; a null or dangling id gives `unknown_tax_group`. `computeTax` uses `TaxQuote::$taxGroupId` exactly as given: `TaxQuote` carries no product id, so **choosing `purchase_tax_group_id ?? tax_group_id` is the purchasing caller's job**, not the adapter's (K-3; follow-up in section 10). The `TaxContext` only filters members by `applies_to`.
 - A product that is unknown or soft-deleted gives `unknown_product`.
 - Bound as a singleton in `PricingServiceProvider`.
 
@@ -239,6 +251,31 @@ A duplicate `minQty` within one branch cannot happen (it is the unique key). The
 
 **Ruling 12: the vocabulary sweep.** Before step 5, grep `QaVocabularyRenameSweepTest`'s retired spellings against every enum value here: `standard`, `customer_group`, `promotion`, `branch`, `percentage`, `fixed`, `buy_x_get_y`, `item`, `bill`, `sale`, `purchase`, `both`, `monthly`, `quarterly`, `yearly`. They are checked, not assumed.
 
+### 0.4 Revision 3 addendum: reconciled with the shipped Chunk B (`fbf2aa1`) and the corrected spec (`7280657`)
+
+**Spec corrections folded in.** AC-11.6 (rewritten by D-25) and AC-30 (D-26 to D-30). F-9's inclusive bullet, Ruling 3.4, Ruling 7, section 2 and step 7 now state the exact linear rule; Chunk B already ships it, so **no Chunk B code changes for D-25**. D-26 (negative quantity), D-27 (percentage discount above 100), D-28 (duplicate `min_qty`) and D-30 (a fixed line's `base`) are as built.
+
+**The D-29 ruling.** The adapter never orders and never filters beyond id equality; the pure engine does all ordering and all filtering (Ruling 8). Proof is in four places: step 10a (the pure ladder is insensitive to input order), step 16 (codes `10`, `9`, `B`, `a`, inserted in reverse order, through the adapter; M-D1 (a) to (c)), step 17 (a source scan that the adapter file contains no ordering call) and step 18 (the same case on MySQL with a control that the column collation really orders `a` before `B`).
+
+**Drift between the plan and what Chunk B shipped (K-1 to K-12).** Items marked *fixed* are corrected in the text above; the rest are instructions for Chunk C/D.
+
+| # | Finding | Action |
+|---|---|---|
+| K-1 | `LadderInput` has **no `quantity`**; the line-unit quantity is on `LineInput` (the only consumer is the subtotal) | fixed in Ruling 5. The adapter builds `LadderInput` from `UnitSnapshot::$unitId/$unitFactor/$baseQuantity` and passes `UnitSnapshot::$quantity` to `LineInput` |
+| K-2 | `Contracts\Pricing\Shape` is a 16th contract file | fixed in Ruling 2, section 3, step 5 |
+| K-3 | `TaxQuote` has no product id, so the adapter **cannot** pick `purchase_tax_group_id` inside `computeTax`. Revision 2's Ruling 8 bullet and step 16 bullet assumed it could | fixed: `computeTax` uses the group it is given; the purchasing caller picks the column (section 10). The spec never required the adapter to pick it, so no spec change |
+| K-4 | `Engine/` shipped 22 files, not 14: `TaxType`, `TaxApplies`, `ListType`, `ScopeType`, `DiscountType`, `DiscountScope` (enums), `LadderAssignment` and `ProductFacts` | fixed in section 3. The CRUD slices validate enum fields with these same enums' `tryFrom`, so the stored strings and the engine's cases cannot drift |
+| K-5 | The engine compares ids with `===` and requires the `Z` instant shape and string decimals; the database gives `CHAR(26)` ids in whatever case was written, `Y-m-d H:i:s.v` datetimes and, on SQLite, numeric values | fixed in Ruling 8 (normalisation is the adapter's one transformation) and tested in step 16 |
+| K-6 | `DiscountRule` has no deleted flag (unlike `LadderList` and `TaxMember`) | fixed in Ruling 8: a soft-deleted discount is not loaded and surfaces as `unknown_discount`; tested in step 16 |
+| K-7 | `tests/Support/Build.php` exists with `Build::id` and `Build::reasonOf`; `PricingSeed` and `pricing-fixture.php` do not exist yet | fixed in section 3: Chunk C creates `PricingSeed` and reuses `Build::id`; slice tests use `Build::reasonOf` only for `PricingRefused` (the CRUD slices throw `PricingAdminRefused`, a different exception) |
+| K-8 | Fixtures require `discriminates`, use snake_case input keys, and encode integers as strings | fixed in section 4's fixture format; step 19 documents the shipped key set, not revision 2's |
+| K-9 | **Order-dependence in the shipped duplicate-`min_qty` check** (`PriceLadder::greatestQualifying`): a duplicate is refused only if it ties the best item seen so far, so `1, 1, 5` refuses and `5, 1, 1` prices. Today's data cannot hit it (the unique key), but the pure engine's result depends on row order, which is exactly what D-29 forbids, and the TypeScript twin would have to copy the iteration order | **new step 10a**. Needs a one-line spec clarification (Questions, item 1) |
+| K-10 | `TaxGroupDirectory`'s docblock puts the upper-case fold on the caller | fixed in step 13 |
+| K-11 | AC-19 stores `applies_to` "as supplied", but `DiscountRule` needs three lists of strings; a malformed stored value would make the adapter fail at quote time instead of the admin at write time | step 15 validates the shape (keys and list-of-strings only, no existence check). Needs a spec confirmation (Questions, item 2) |
+| K-12 | The spec does not say what `quoteLine`/`computeTax` do with an **inactive** tax group. AC-10 prevents deactivating a referenced group, so `quoteLine` cannot meet one through a product, but `computeTax` takes any id | plan default: compute it normally (only an unknown id is `unknown_tax_group`), because deactivation retires a group for new assignments and a caller re-taxing an older document must still get an answer. Informational for `ba` |
+
+**Also recorded:** the factor-rule exemption (Ruling 10) landed in Chunk B, not step 17; `BranchForeignKeysContractRunTest` (Chunk A) was missing from section 9 and is now listed.
+
 ---
 
 ## 1. Approach summary
@@ -260,14 +297,16 @@ A duplicate `minQty` within one branch cannot happen (it is the unique key). The
 - **The engine calling `UnitResolver::snapshot()` itself:** it double-resolves every line Sales already snapshots, and it breaks inherited-factor refunds (Ruling 4).
 - **Renaming variables to dodge T-027's factor scan:** evasion. The exemption is named and narrow (Ruling 10).
 - **A JSON Schema file for the fixtures:** the lint test (step 10) plus the §6.4 as-built note is enough until FP-432 asks for more.
-- **"Iterative, tax by tax" inclusive back-out:** it compounds rounding at each step. The exact multiplier plus one rounding gives a stable base (F-9).
+- **"Iterative, tax by tax" inclusive back-out:** it compounds rounding at each step. The exact linear relation of AC-11.6 (D-25) plus one rounding gives a stable net (F-9; shipped in Chunk B).
+- **Dividing the inclusive gross by the product of every `1 + rate/100`** (revision 2's wording): correct only when every percentage member compounds; for two non-compound members it leaves a residue that is not a rounding artefact (about 0.43 on a gross of 115 at 5 % and 10 %; D-25).
+- **Ordering candidate rows in SQL, even with a binary collation** (D-29): a second source of truth the TypeScript twin cannot see, and engine-specific. The adapter passes rows unordered and the pure engine orders (Ruling 8).
 
 ## 3. Files to create
 
 `dev` writes every file. `Qa*` files are `qa`-accountable.
 
-### `packages/contracts/src/Pricing/` (new)
-The 15 files of Ruling 2.
+### `packages/contracts/src/Pricing/` (new; shipped in Chunk B)
+The 16 files of Ruling 2.
 
 ### `packages/pricing` (all new)
 
@@ -275,7 +314,7 @@ The 15 files of Ruling 2.
 |---|---|
 | `composer.json` | `flexipos/pricing` 0.1.0, requiring `php ^8.2`, `brick/math ^0.14` and `flexipos/contracts`, the `packages/customers/composer.json` shape |
 | `src/PricingServiceProvider.php` | binds `PricingEngine` to `Engine\DatabasePricingEngine` and `TaxGroupDirectory` to `Taxes\DatabaseTaxGroupDirectory`; `implements DeclaresAuditActions`. No routes and no commands |
-| `src/Engine/{Decimal,RateRow,RateResolver,TaxMember,TaxCalculator,LadderInput,LadderList,LadderItem,LadderOutcome,PriceLadder,DiscountRule,DiscountCalculator,LineInput,LineCalculator}.php` | Rulings 3 to 7. Pure: no `Illuminate\` import (step 17 asserts that) |
+| `src/Engine/{Decimal,RateRow,RateResolver,TaxMember,TaxType,TaxApplies,TaxCalculator,LadderInput,LadderList,LadderAssignment,LadderItem,LadderOutcome,ListType,ScopeType,PriceLadder,DiscountRule,DiscountType,DiscountScope,DiscountCalculator,ProductFacts,LineInput,LineCalculator}.php` | Rulings 3 to 7, **shipped in Chunk B** (22 files; the six enums and `LadderAssignment`/`ProductFacts` are the K-4 additions). Pure: no `Illuminate\` import (step 17 asserts that) |
 | `src/Engine/DatabasePricingEngine.php` | Ruling 8 |
 | `src/Taxes/DatabaseTaxGroupDirectory.php` | F-18 |
 | `src/Support/{TenantConnection,Fields,Identifier,Lookup}.php` | the ninth copy (FP-331) |
@@ -283,7 +322,8 @@ The 15 files of Ruling 2.
 | `src/Registry/PricingAuditActions.php` | built from each handler's `ACTION` |
 | `src/Features/<21 slices>/…` | Ruling 9 |
 | `fixtures/{tax,price,discount,line,bill}/*.json` | step 10 |
-| `tests/Support/{PricingSeed.php,pricing-fixture.php,FixtureReplay.php}` | raw-insert seeds (unit, category, product, branch, group, tax, rate, list); `FixtureReplay` loads, lints and maps the JSON |
+| `tests/Support/{Build.php,FixtureReplay.php}` (shipped in Chunk B) | `Build`: pure-input constructors, `Build::id(label)` (a 26-char upper-case ULID-shaped id) and `Build::reasonOf(callable)` (the refusal value, or null); `FixtureReplay` loads, lints and maps the JSON |
+| `tests/Support/PricingSeed.php` (new in Chunk C) | raw-insert seeds (unit, category, product, branch, group, tax, rate, list, item, assignment, discount). Use `Build::id` for ids so seeded rows and fixtures share one id shape. No separate `pricing-fixture.php` is needed unless a slice test wants shared Pest helpers (K-7) |
 | `tests/Engine/{DecimalTest,RateResolverTest,TaxCalculatorTest,PriceLadderTest,DiscountCalculatorTest,LineCalculatorTest,FixtureSetTest}.php` | Chunk B |
 | `tests/Engine/DatabasePricingEngineTest.php` | step 16 |
 | `tests/Contracts/{PricingShapesTest,PricingEnumsTest}.php` | step 5 |
@@ -341,12 +381,12 @@ Notes on the schema:
 **Fixture format (D-9 / F-15)**, one case per file:
 
 ```
-{ "name": "...", "kind": "tax|price|discount|line|bill",
-  "input": { ... exactly the pure class's input, ids as opaque 26-char strings ... },
+{ "name": "...", "kind": "tax|price|discount|line|bill", "discriminates": "...",
+  "input": { ... exactly the pure class's input, snake_case keys, ids as opaque 26-char strings ... },
   "expect": { ... } | "refusal": "<PricingRefusal value>" }
 ```
 
-Decimals are strings at full scale. Dates are `YYYY-MM-DD`. Instants are `YYYY-MM-DDTHH:MM:SS.mmmZ`. There are no JSON numbers, no product lookups and no container. The exact key set is written into `docs/database.md` §6.4 "As built (T-029)" at step 19.
+As shipped (K-8): `discriminates` is required (one sentence naming what the case proves), input keys are snake_case, and **integers are strings too** (`priority`, `sequence`, `step`, `used_count`), because the lint bans every JSON number. Decimals are strings at full scale. Dates are `YYYY-MM-DD`. Instants are `YYYY-MM-DDTHH:MM:SS.mmmZ`. There are no JSON numbers, no product lookups and no container. The exact key set is written into `docs/database.md` §6.4 "As built (T-029)" at step 19.
 
 ## 5. Boundary impact
 
@@ -420,7 +460,9 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 ### Chunk B: the arithmetic core (safety-critical, pure)
 
-- [x] **Step 5: contracts.** Ruling 2's 15 files, after Ruling 12's sweep.
+Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The step text below is kept as the record; where Chunk B departed from it, section 0.4 says so.
+
+- [x] **Step 5: contracts.** Ruling 2's files (16 as shipped, `Shape` included), after Ruling 12's sweep.
   - **`PricingShapesTest`:** well-formed instances are accepted. Each of these is refused by name: a hand-built `LineQuote` with a malformed ULID, a 5-dp amount, a `2026-13-01` date, a `Z`-less instant, or a 2-letter currency.
   - **`PricingEnumsTest`:** `PricingRefusal`, `TaxContext` and `TaxGroupState` are each exactly Ruling 2's list.
   - *(Groundwork for AC-22 and AC-26.)*
@@ -442,6 +484,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - **Inclusive, single 15 %:** 115.0000 gives net 100, tax 15. Also 9.9900 gives net 8.6870, tax 1.3030, and they sum to the gross.
   - **Inclusive, compound:** `base + Σ = gross` exactly on a dataset of 20 awkward grosses. The residue lands on the last percentage member.
   - **Fixed:** 0.5000 per stock unit × base 24 gives 12. In an inclusive group, the fixed amount comes off first; a gross below it gives `inclusive_amount_too_small`.
+  - **Fixed before compound, inclusive** (added by D-25, shipped as fixture `tax-inclusive-fixed-before-compound`): a compound percentage after a fixed member also taxes the fixed amount, which is the `K` term of AC-11.6. Fixed 1.0000 × base 2, then compound 10 %, on gross 112.2000: `F = 2`, `S = 0.1`, `K = 0.2`, net `100.0000`, compound base `102.0000`, amount `10.2000`. Non-compound 5 % and 10 % on gross 115.0000 give net `100.0000` and no residue (AC-30.6). The revision 2 product-of-factors divisor fails both rows.
   - **Filters:** a `purchase`-only member is skipped in `sale` context; an inactive member is skipped; an empty group gives zero tax with `net = amount` (AC-9); a live member with no rate gives `no_effective_rate`.
   - **Order:** `sequence` drives compounding, not input order.
   - **Mutations:**
@@ -507,6 +550,14 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 ### Chunk C: CRUD and the catalog edge
 
+- [ ] **Step 10a: make the duplicate-`min_qty` refusal order-independent (K-9; AC-30.3, D-28).** Do this first in Chunk C; it is a pure-engine fix and touches no CRUD file.
+  - As shipped, `PriceLadder::greatestQualifying()` refuses a duplicate only when it ties the best item **found so far**. Items at `min_qty` 1, 1, 5 with base 10 are refused; the same items in the order 5, 1, 1 are priced at the 5-row. Two inputs that differ only in row order therefore give different outcomes, which breaks D-29's premise (order is the engine's, never the caller's) and the TypeScript twin's parity.
+  - **Fix:** for each unit key the ladder evaluates in a list (the line's unit; then the null unit, only when the unit-matched branch found nothing), refuse `invalid_amount` when any two items share a `minQty`, **whether or not they qualify** (compare with `BigDecimal::compareTo`, so `1` and `1.0000` are one value). Items of other units are not inspected, so one bad row cannot poison an unrelated line.
+  - **Fixtures (new):** `price-duplicate-min-qty-below-the-break-is-refused` (items 5, 1, 1 in that order, base 10) and `price-duplicate-min-qty-above-the-base-is-refused` (items 1, 48, 48, base 24). Both are `refusal: invalid_amount`. The existing `price-duplicate-min-qty-is-refused` stays green.
+  - **Mutation P7:** restore the shipped "tie with the current best" check. Both new fixtures go red. Revert.
+  - **Order-insensitivity dataset in `PriceLadderTest`:** every `price` fixture replayed with its `lists`, each list's `items` and `assignments` reversed gives the same outcome or refusal. This is the pure-engine half of D-29's proof; step 16 carries the adapter half.
+  - *(AC-30.3, AC-30.4; D-28, D-29.)*
+
 - [ ] **Step 11: authorities, taxes and rates** (six slices).
   - **AC-4:** a blank or duplicate code (also by case); `payable_account_id` refused as **unknown** (F-17); `filing_frequency` enum checked.
   - **AC-5:** an unknown authority; the enum fields; the defaults; `fixed` + `is_compound` refused (F-9).
@@ -519,7 +570,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - *(AC-4 to AC-6.)*
 - [ ] **Step 12: tax groups and members, plus `DatabaseTaxGroupDirectory`.**
   - **AC-8:** create A default, then B default: exactly one default remains, and it is B. This holds through create and update.
-  - **AC-9:** an unknown group or tax; the duplicate pair; a duplicate `sequence`; removing the last member is accepted.
+  - **AC-9:** an unknown group or tax; the duplicate pair; a duplicate `sequence`; `sequence` outside 0 to 255 is refused (the `TINYINT UNSIGNED` column and `TaxMember`'s own range); removing the last member is accepted.
   - **AC-10 (as F-6):** deactivation is refused while an active, non-soft-deleted product references the group via either column, naming the count. It is accepted after that product is soft-deleted. Deactivating the default clears `is_default`.
   - **Directory:** `state()` for an active group, an inactive group and an unknown id; `defaultGroupId()` before and after clearing.
   - **M-C2:** skip default-clearing. The backstop refuses, and the test goes red.
@@ -532,6 +583,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - with no default, it refuses `no_default_tax_group` and writes nothing;
     - `purchase_tax_group_id` is validated when given and null when omitted.
   - `UpdateProduct`: the same checks; `tax_group_id: null` is refused (F-3's application `NOT NULL`).
+  - **Id folding (K-10):** `TaxGroupDirectory`'s docblock says the id is compared exactly and the caller folds it to upper case first. Both handlers fold `tax_group_id` and `purchase_tax_group_id` with `strtoupper` before calling `state()` and before writing, and a test passes a lower-case id of an active group and asserts it is accepted and stored upper case. `DatabaseTaxGroupDirectory` (step 12) compares exactly and does not fold.
   - **Invariant:** after the catalog suite's product writes, a query finds no product with a null `tax_group_id`.
   - Existing `CreateProductTest`/`UpdateProductTest` expectations gain `tax_group_id` (predicted red, section 9).
   - **Seam:** with a fake `TaxGroupDirectory` bound, the handler resolves it, which proves the contract and not the table is used. The step 17 scan proves that catalog never names `tax_groups`.
@@ -543,14 +595,16 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - **`unit_id` unreachable**: a cross-dimension unit is refused `unresolvable_unit` through the real `UnitResolver`;
     - **control:** a case unit with a product conversion is accepted, and so is `unit_id` = the stock unit;
     - `min_qty` 0 or negative is refused; `discount_percent` 100.0001 is refused;
-    - **duplicate by `unit_key`:** two NULL-unit rows at the same `min_qty` are refused, naming the existing row.
+    - **duplicate by `unit_key`:** two NULL-unit rows at the same `min_qty` are refused, naming the existing row; `1` and `1.0000` are the same `min_qty` (compare numerically, never as strings). This is the write-time twin of the ladder's D-28 refusal.
+  - **Codes:** a list code differing from an existing one only by case is refused as a duplicate (the `lower()` pre-check). That is what keeps D-29's bytewise tiebreak a total order: no two live codes can compare equal under either rule.
   - **AC-14 (F-8):** a bad scope type; an unknown or soft-deleted branch, group or customer is refused; the duplicate triple; `priority` defaults to 0.
   - **AC-18:** deleting a list with assignments is refused, naming the count; after unassigning, the delete is accepted, and its items remain.
   - **M-C4:** catch `UnitResolutionRefused` and accept. The cross-dimension row goes red.
   - *(AC-12 to AC-14, AC-18.)*
 - [ ] **Step 15: discounts** (three slices).
   - **AC-19:**
-    - each required field; percentage above 100 is refused; negative money is refused;
+    - each required field; percentage above 100 is refused and **exactly 100 is accepted** (D-27, AC-30.2, matching `DiscountRule`); negative money is refused;
+    - **`applies_to` shape (K-11):** a JSON object whose only keys are `products`, `categories` and `brands`, each optional and, when present, a list of strings; anything else is refused `validation`, naming the field. Ids are **not** existence-checked (AC-19) and are stored as supplied. This is the shape `DiscountRule` takes; without it a stored value such as `{"products": "X"}` could not be loaded by the adapter;
     - `buy_x_get_y` without `applies_to.products` gives `missing_target`;
     - `applies_to` round-trips as given, and non-JSON is refused;
     - `used_count` on create or update is refused **whole** (the row is byte-identical, with no audit row);
@@ -564,13 +618,17 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 ### Chunk D: the adapter, scans, engine, documents
 
 - [ ] **Step 16: `DatabasePricingEngine`** (`DatabasePricingEngineTest`, SQLite stand-in).
-  - It seeds the rows equivalent to five chosen fixtures (unit-matched case, derived case, promotion at a branch, composed inclusive line, bill) and asserts that `quoteLine`/`billDiscount` equal those fixtures' `expect` exactly. That proves the adapter adds nothing.
-  - **Refusals:** `unknown_product`; a soft-deleted product; `unknown_tax_group`; `unknown_discount`.
+  - It seeds the rows equivalent to five chosen fixtures (unit-matched case, derived case, promotion at a branch, composed inclusive line, bill) and asserts that `quoteLine`/`billDiscount` equal those fixtures' `expect` exactly. That proves the adapter adds nothing. Seed with `PricingSeed` and `Build::id`, and load the expectation through `FixtureReplay`, so the fixture file stays the single source.
+  - **Refusals:** `unknown_product`; a soft-deleted product; `unknown_tax_group` (an unknown id given to `computeTax`, and a product whose `tax_group_id` is null, seeded by raw insert); `unknown_discount` (an unknown id, and a **soft-deleted** discount, K-6).
+  - **Pass-through filters (Ruling 8):** a soft-deleted list, an inactive list and an inactive member tax are seeded and reach the engine, which skips them (the result equals the fixture that has them absent).
+  - **Normalisation (K-5):** a list item seeded with a lower-case `unit_id`, and an assignment with a lower-case `scope_id`, still match; a list window seeded as `DATETIME(3)` `2025-06-15 09:30:00.000` is accepted at exactly that instant.
   - **The `UnitSnapshot` is used as given:** a snapshot obtained from the real `UnitResolver::snapshot()` for 2 cases prices at 2 × 179.
-  - `computeTax` in `purchase` context uses `purchase_tax_group_id` when set and `tax_group_id` otherwise.
+  - **`computeTax` uses the group it is given** (K-3): with a product whose `purchase_tax_group_id` differs from `tax_group_id`, `computeTax(TaxQuote(group = X, context = purchase))` computes group X and skips its `sale`-only members. The adapter never looks at a product here.
   - The container resolves `PricingEngine` to the adapter.
-  - **M-D1:** the adapter orders lists itself and passes them unsorted. No result changes, which shows the ordering is in `PriceLadder`. Then reverse the ladder's ordering and the adapter test goes red.
-  - *(AC-15 to AC-17 and AC-22 end to end.)*
+  - **Bytewise ties end to end (D-29, AC-30.4).** Seed four promotion lists, unassigned, equal `priority`, codes `a`, `B`, `9`, `10`, **inserted in that order** (so insertion and rowid order is the reverse of the expected order), each pricing the product differently. Bytewise order is `10` < `9` < `B` < `a`. Assert the winner is `10`; deactivate it, `9`; then `B`; then `a`. Under a case-insensitive collation `a` would beat `B`, and under PHP's `<=>` `9` would beat `10`, so each pair discriminates one hazard. Repeat with two customer lists on equal assignment and list priority, codes `a` and `B` (step 1's comparator is a separate code path). A member tie on `sequence` cannot be seeded (the unique key refuses it), so that tie stays proven by the pure dataset of step 7.
+  - **M-D1 (revised):** (a) add `orderBy('code')` to the adapter's list query: no result changes, which shows the order is the engine's; (b) replace the engine's `strcmp` tie with `0` (stable sort keeps the fetch order): the bytewise-tie case goes red, which shows the test does not pass by insertion order luck; (c) replace `strcmp` with `strcasecmp`: the `B`/`a` row goes red. Revert each.
+  - **Honest limit:** the SQLite stand-in's default collation is already bytewise, so this file cannot show a collation hazard by itself; it proves that nothing in the adapter relies on fetch order. The MySQL half is step 18.
+  - *(AC-15 to AC-17, AC-22 end to end; AC-30.4.)*
 - [ ] **Step 17: statics.**
   - **`QaPricingSourceRulesTest` (host),** code-only via `SourceRules::codeOnly`:
     - **AC-25 (a), the tokens:** no file under `packages/*/src`, `modules/*/src` or `modules/host/app` outside **`packages/pricing/src`** contains the six tokens; migrations are excluded by path. The CRUD slices write these tables, hence the package-wide scope (see the head of this plan). `tax_groups` is additionally banned in `packages/catalog/src` (AC-3);
@@ -578,8 +636,10 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - `packages/pricing/src/Engine/` imports nothing from `Illuminate\` except in `DatabasePricingEngine.php` (purity);
     - there is no `routes/`, `Route::`, `Cache::`, `dispatch(` or `HookGateway` in the package;
     - `Contracts\Pricing` imports nothing outside contracts and PHP core;
+    - **the adapter does not order (D-29, Ruling 8):** `DatabasePricingEngine.php`, code-only, contains none of `orderBy(`, `orderByDesc(`, `latest(`, `oldest(`, `ORDER BY` (case-insensitive) or `->limit(`. It scans that one file by path, so it is named for what it scans;
     - **red-first** with planted files for each rule, then deleted.
-  - **`QaCatalogSourceRulesTest`:** add Ruling 10's exemption. Prove it is scoped: with the exemption removed, exactly `PriceLadder.php` is reported; a planted factor multiplication elsewhere in `packages/pricing/src` is still reported.
+  - **`QaCatalogSourceRulesTest`:** Ruling 10's exemption and its scope proof **already landed in Chunk B** (`fbf2aa1`, because the gate needed it as soon as `PriceLadder` existed). Step 17 only re-runs it; no edit.
+  - Note for `dev` (from Chunk B): T-027's factor scan reports any multiplication next to a token containing `factor` anywhere in `packages/*/src`. The adapter passes `$snapshot->unitFactor` through and must not multiply near it.
   - *(AC-25, AC-26.)*
 - [ ] **Step 18: `PricingSchemaEngineTest`** (database `flexipos_t8test_t029_tenant`, created and dropped by **exact name** through `EngineDatabase`, never with `LIKE`).
   - Under `ENGINE_HOLD`, only the refusal case runs.
@@ -589,14 +649,16 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - `JsonValidity` on `applies_to`;
     - the contract file on a populated `products` table;
     - the rate-overlap lock (two connections; the second times out at `innodb_lock_wait_timeout = 1`);
-    - migrating twice is a no-op.
-  - *(The `[ENGINE]` halves of AC-6, AC-8 and AC-13.)*
+    - migrating twice is a no-op;
+    - **the D-29 collation case:** step 16's four-code promotion case (`a`, `B`, `9`, `10`) run through the real `DatabasePricingEngine` against the engine database, plus a control query asserting that the column's own `ORDER BY code` on that engine puts `a` before `B`. The control proves the hazard is real on this engine; the adapter case proves the adapter is immune to it.
+  - *(The `[ENGINE]` halves of AC-6, AC-8, AC-13 and AC-30.4.)*
 - [ ] **Step 19: documents.** Describe the old wording; never quote it (memory note).
   - `docs/database.md` §6.4 "As built (T-029)":
     - the deferred account columns;
     - the deferred tighten and why (F-3);
     - rate-as-percent;
-    - the compound, fixed, `applies_to` and residue rules;
+    - the compound, fixed, `applies_to` and residue rules, with the inclusive back-out stated as AC-11.6's exact linear rule (D-25) and the fixed line's `base` (D-30); describe the superseded divisor, never quote it;
+    - D-29: ties compare bytewise, and the adapter never orders;
     - F-10's selection rules and F-11;
     - the rounding steps;
     - the fixture format.
@@ -615,7 +677,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - `DatabasePricingEngineTest`, which proves the adapter equals the fixtures.
 - **Static:** `QaPricingSourceRulesTest`, `QaCatalogSourceRulesTest` (the exemption), `TenantDecimalPrecisionTest`, deptrac with the demo negative control, and the catalogue `is_destructive` assertion.
 - **Engine:** `PricingSchemaEngineTest`, skipped under the hold.
-- **Mutations:** S1, R1–R2, T1–T5, P1–P6, D1–D5, M-C1 to M-C4, M-D1.
+- **Mutations:** S1, R1–R2, T1–T5, P1–P6, D1–D5 (all run in Chunks A and B), P7 (step 10a), M-C1 to M-C4, M-D1 (a) to (c).
 
 | ACs | Proved by |
 |---|---|
@@ -636,6 +698,9 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 | 27 | step 20 |
 | 28 | step 4 |
 | 29 | steps 3 and 4 |
+| 30.1, 30.2, 30.5, 30.6 | steps 6, 7, 9 and 10 (shipped in Chunk B); 30.2's write half in step 15 |
+| 30.3 | step 10a (order-independent), plus step 14's write-time twin |
+| 30.4 | steps 7, 8 and 10a (pure), 16 (adapter, SQLite), 17 (no-ordering scan), 18 (MySQL collation) |
 
 ## 8. Risks & rollback
 
@@ -646,6 +711,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 5. **The contract file blocks a lagging fleet.** This is operational, not a defect. The remedy is a two-run migration (section 4).
 6. **SQLite rebuild of `products`** when the keys are added. It has a FULLTEXT index (MySQL-only), FKs and the `sku`/`plu_code` unique indexes. T-014 measured that the rebuild keeps rows, keys and generated columns. Step 3 re-asserts row counts and the `sku`/`plu_code` uniqueness after the rebuild.
 7. **Direct reads of catalog columns** (Ruling 1). A rename in catalog breaks pricing silently at run time. `DatabasePricingEngineTest` exercises every column read, so such a rename turns this suite red.
+8. **Ordering drift between the adapter and the engine (D-29).** SQLite's default collation is bytewise, so the SQLite stand-in cannot show a collation hazard; only step 18 can, and it runs under G-1 (skipped under `ENGINE_HOLD`). Mitigation: the adapter carries no ordering at all, which step 17 scans for by file and step 16's M-D1 (b) proves is not luck. Until G-1 runs, the MySQL half of AC-30.4 is written, not measured; `dev` and `qa` must say so rather than claim it.
 
 **Rollback:** every file is new except section 9's edits. The migrations are forward-only and no tenant outside this branch has run them, so rollback is to abandon the branch.
 
@@ -668,7 +734,8 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 | `tests/Feature/TenantDecimalPrecisionTest.php` | the T-029 map | 4 |
 | `packages/catalog/src/Features/CreateProduct/*`, `UpdateProduct/*`, `Exceptions/CatalogRefused.php`, `Support/CatalogRefusal.php` | AC-3 | 13 |
 | `packages/catalog/tests/Features/CreateProduct/CreateProductTest.php`, `UpdateProduct/UpdateProductTest.php` | expectations gain `tax_group_id` | 13 |
-| `tests/Feature/QaCatalogSourceRulesTest.php` | Ruling 10's exemption (`qa`) | 17 |
+| `tests/Feature/QaCatalogSourceRulesTest.php` | Ruling 10's exemption (`qa`) | done in Chunk B (step 8/10) |
+| `tests/Feature/BranchForeignKeysContractRunTest.php` | two cases adjusted because migration 12 now tops the tree (accepted Chunk A deviation; `qa` re-verifies) | done in Chunk A (step 3) |
 | `docs/database.md`, `docs/architecture.md` | step 19 | 19 |
 
 Anything red that is not in this table means stop and report to `architect`.
@@ -685,7 +752,9 @@ Anything red that is not in this table means stop and report to `architect`.
   - call `WorkflowGate` for `requires_approval`/`approval_threshold` (D-8);
   - handle `price_mode = open_price` and `allow_price_override`, and enforce `min_selling_price` against the discounted unit price;
   - decide whether `customer_groups.discount_percent` (T-028) feeds the engine; §6.4 does not say.
-- **FP-432 (TS engine):** replay `packages/pricing/fixtures/` and `packages/catalog/fixtures/units/`, with decimals as strings (F-15).
+- **The purchasing task:** choose `products.purchase_tax_group_id ?? tax_group_id` before calling `PricingEngine::computeTax` in `purchase` context; `TaxQuote` carries the group, not the product (K-3).
+- **FP-233 / T-030 (Sales):** refunds stay unsigned lines (D-26); a signed line means revisiting D-26.
+- **FP-432 (TS engine):** order every tie bytewise (D-29), implement the inclusive back-out from AC-11.6 alone (D-25), and replay `packages/pricing/fixtures/` and `packages/catalog/fixtures/units/`, with decimals as strings (F-15).
 - **FP-237 (Sync):** the `tax_groups`, `taxes`, `tax_rates`, `price_lists`, `price_list_items`, `price_list_assignments` and `discounts` replica entity types.
 - **An admin-UI/API task:** list and get slices for all nine tables.
 - **When `company_profile` ships:** default `price_lists.currency` from it (F-7).
@@ -693,4 +762,9 @@ Anything red that is not in this table means stop and report to `architect`.
 
 ## Questions for the human
 
-None. F-1 to F-18 were resolved by `ba` in `85dc7ab` (D-12 to D-24, AC-16a, AC-24a). The AC-25 scope clarification and the three stale decision lines at the head of this plan are informational. One point `lead` may want to raise with the product owner is **F-3**. It is a consequence of T-008 D-10, which the owner approved: `products.tax_group_id` stays nullable in the database until a backup facility exists, with the application enforcing it in the meantime.
+**Revision 3, for `ba` (spec wording; none blocks step 10a or Chunk C, because the plan's defaults are stated):**
+1. **K-9 / AC-30.3:** state that the duplicate-`min_qty` refusal applies to any two items of the unit keys the ladder evaluates in a list, **whether or not they qualify against the base quantity**, so the outcome never depends on row order. Plan default: exactly that (step 10a).
+2. **K-11 / AC-19:** confirm that validating `applies_to`'s **shape** (only `products`, `categories`, `brands`; each a list of strings) is compatible with "stored and returned as supplied, no existence validation". Plan default: validate the shape, never the ids.
+3. **K-12:** state what pricing does with an inactive tax group passed to `computeTax`. Plan default: compute it normally.
+
+Revision 2's answer stands for everything else: F-1 to F-18 were resolved by `ba` in `85dc7ab` (D-12 to D-24, AC-16a, AC-24a). The AC-25 scope clarification and the three stale decision lines at the head of this plan are informational. One point `lead` may want to raise with the product owner is **F-3**. It is a consequence of T-008 D-10, which the owner approved: `products.tax_group_id` stays nullable in the database until a backup facility exists, with the application enforcing it in the meantime.
