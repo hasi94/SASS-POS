@@ -617,7 +617,7 @@ Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The st
 
 ### Chunk D: the adapter, scans, engine, documents
 
-- [ ] **Step 16: `DatabasePricingEngine`** (`DatabasePricingEngineTest`, SQLite stand-in).
+- [x] **Step 16: `DatabasePricingEngine`** (`DatabasePricingEngineTest`, SQLite stand-in).
   - It seeds the rows equivalent to five chosen fixtures (unit-matched case, derived case, promotion at a branch, composed inclusive line, bill) and asserts that `quoteLine`/`billDiscount` equal those fixtures' `expect` exactly. That proves the adapter adds nothing. Seed with `PricingSeed` and `Build::id`, and load the expectation through `FixtureReplay`, so the fixture file stays the single source.
   - **Refusals:** `unknown_product`; a soft-deleted product; `unknown_tax_group` (an unknown id given to `computeTax`, and a product whose `tax_group_id` is null, seeded by raw insert); `unknown_discount` (an unknown id, and a **soft-deleted** discount, K-6).
   - **Pass-through filters (Ruling 8):** a soft-deleted list, an inactive list and an inactive member tax are seeded and reach the engine, which skips them (the result equals the fixture that has them absent).
@@ -629,7 +629,7 @@ Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The st
   - **M-D1 (revised):** (a) add `orderBy('code')` to the adapter's list query: no result changes, which shows the order is the engine's; (b) replace the engine's `strcmp` tie with `0` (stable sort keeps the fetch order): the bytewise-tie case goes red, which shows the test does not pass by insertion order luck; (c) replace `strcmp` with `strcasecmp`: the `B`/`a` row goes red. Revert each.
   - **Honest limit:** the SQLite stand-in's default collation is already bytewise, so this file cannot show a collation hazard by itself; it proves that nothing in the adapter relies on fetch order. The MySQL half is step 18.
   - *(AC-15 to AC-17, AC-22 end to end; AC-30.4.)*
-- [ ] **Step 17: statics.**
+- [x] **Step 17: statics.**
   - **`QaPricingSourceRulesTest` (host),** code-only via `SourceRules::codeOnly`:
     - **AC-25 (a), the tokens:** no file under `packages/*/src`, `modules/*/src` or `modules/host/app` outside **`packages/pricing/src`** contains the six tokens; migrations are excluded by path. The CRUD slices write these tables, hence the package-wide scope (see the head of this plan). `tax_groups` is additionally banned in `packages/catalog/src` (AC-3);
     - **AC-25 (b), the arithmetic:** the multiplication-by-`rate`/`percent` pattern over the same directories outside **`packages/pricing/src/Engine/`**, so `Features/` is scanned too. It is **measured on the real tree before any pricing code lands** (run the scan at step 1 and record the result in the hand-back). A pre-existing hit is reported to `architect`, not exempted;
@@ -641,7 +641,7 @@ Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The st
   - **`QaCatalogSourceRulesTest`:** Ruling 10's exemption and its scope proof **already landed in Chunk B** (`fbf2aa1`, because the gate needed it as soon as `PriceLadder` existed). Step 17 only re-runs it; no edit.
   - Note for `dev` (from Chunk B): T-027's factor scan reports any multiplication next to a token containing `factor` anywhere in `packages/*/src`. The adapter passes `$snapshot->unitFactor` through and must not multiply near it.
   - *(AC-25, AC-26.)*
-- [ ] **Step 18: `PricingSchemaEngineTest`** (database `flexipos_t8test_t029_tenant`, created and dropped by **exact name** through `EngineDatabase`, never with `LIKE`).
+- [x] **Step 18: `PricingSchemaEngineTest`** (database `flexipos_t8test_t029_tenant`, created and dropped by **exact name** through `EngineDatabase`, never with `LIKE`).
   - Under `ENGINE_HOLD`, only the refusal case runs.
   - Written for G-1:
     - `information_schema` decimals equal section 4;
@@ -652,7 +652,7 @@ Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The st
     - migrating twice is a no-op;
     - **the D-29 collation case:** step 16's four-code promotion case (`a`, `B`, `9`, `10`) run through the real `DatabasePricingEngine` against the engine database, plus a control query asserting that the column's own `ORDER BY code` on that engine puts `a` before `B`. The control proves the hazard is real on this engine; the adapter case proves the adapter is immune to it.
   - *(The `[ENGINE]` halves of AC-6, AC-8, AC-13 and AC-30.4.)*
-- [ ] **Step 19: documents.** Describe the old wording; never quote it (memory note).
+- [x] **Step 19: documents.** Describe the old wording; never quote it (memory note).
   - `docs/database.md` §6.4 "As built (T-029)":
     - the deferred account columns;
     - the deferred tighten and why (F-3);
@@ -665,7 +665,7 @@ Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The st
   - §6.3 "As built (T-027)": the two columns are now built, nullable, with keys.
   - `docs/architecture.md` §3: the Catalog row points pricing at `packages/pricing`.
   - Section 10's follow-ups go to `lead`.
-- [ ] **Step 20: final gate.** `composer check` from `modules/host`, with counts and `test` seconds compared against step 0, then `composer test:fast` once.
+- [x] **Step 20: final gate.** `composer check` from `modules/host`, with counts and `test` seconds compared against step 0, then `composer test:fast` once.
   - *(AC-27.)*
 
 ## 7. Test strategy

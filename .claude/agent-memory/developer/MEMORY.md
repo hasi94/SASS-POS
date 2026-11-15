@@ -82,3 +82,4 @@
 - [T-029 pricing chunk A](project_t029_pricing_chunk_a.md) - 13/31/3353 to 13/31/3387, BranchForeignKeysContractRunTest reddened by a top contract step, and isDestructive's variable-table blindness.
 - [T-029 pricing chunk B](project_t029_pricing_chunk_b.md) - pure engine + 112 fixtures: inclusive affine solve, R1 absorbed, factor-scan exemption pulled into chunk B.
 - [T-029 pricing chunk C](project_t029_pricing_chunk_c.md) - 12/31/3984, 991s; slice layout, audit catalogue literal, STANDARD default group, stan double trap.
+- [T-029 pricing chunk D](project_t029_pricing_chunk_d.md) - adapter that never orders, scans, held engine test; the 12-vs-13 failure is APP_KEY, test:fast is ~843s.
