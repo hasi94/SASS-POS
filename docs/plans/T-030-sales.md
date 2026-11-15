@@ -1,8 +1,14 @@
 # Plan: T-030 Sales: cart, tenders, hold and recall, refunds, voids, cash shifts
 
-Spec: `docs/specs/T-030-sales.md` revision 3 (AC-1 to AC-46, plus AC-23a; AC-2, AC-11, AC-24 and AC-41 amended by D-51 to D-54). Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-54). Branch `ai/T-030-sales`. Revision 1 was planned at `a2e6631` and committed as `4614645`; revision 2 at `be48613`; revision 3 at `74fceba`, the merged tree.
+Spec: `docs/specs/T-030-sales.md` **revision 6** (AC-1 to AC-58, AC-23a, and the suffix ACs AC-12A, AC-12B, AC-14A, AC-24A, AC-27A, AC-47A, AC-47B). Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-77). Plan **revision 5**. The rest of this paragraph is revision 1's record: spec revision 3 (AC-1 to AC-46, plus AC-23a; AC-2, AC-11, AC-24 and AC-41 amended by D-51 to D-54), decisions D-1 to D-54. Branch `ai/T-030-sales`. Revision 1 was planned at `a2e6631` and committed as `4614645`; revision 2 at `be48613`; revision 3 at `74fceba`, the merged tree.
 
-**Revision 4 (this revision), planned at `e4ed355`, after chunks A and B were committed (`86e8a09`, `f9181cd`).** Chunks C to E now build from **spec revision 5**: AC-1 to AC-58 plus AC-23a, and the four suffix ACs AC-12A, AC-14A, AC-24A and AC-47A; decisions D-1 to D-74. Steps 0 to 12, their ticks and the chunk B "As built" note are unchanged. Every claim about built code below was read in `packages/sales` at `e4ed355`. What changed:
+**Revision 5 (this revision), planned at `e2ddbf5`, after chunks C and D were committed (`bc12c18`, `9d86bf4`).** Chunk E builds from **spec revision 6**: revision 5's ACs plus AC-12B, AC-27A and AC-47B; decisions D-1 to D-77, with D-38 amended (not deleted) by D-77. Steps 0 to 21 and their ticks are unchanged. Every claim about built code below was read at `9d86bf4` (`packages/sales`, `packages/contracts/src/Pricing`, `packages/pricing/src/Engine`). What changed:
+- **AC-27A (D-77): new corrective step 20a**, the first work of chunk E's developer. The built `RefundSaleHandler::price()` re-quotes **every** referenced line through `LineWriter::quoteSnapshot()`, so a line sold at an approved override of 8.00 against a 10.00 list is refunded at 10.00. Step 20a extracts the override branch of `LineWriter::price()` into `LineWriter::overridden(UnitSnapshot, LineQuote, string $unitPrice)`, and the refund path calls it when the original line's `price_overridden_by` is set. That is the only change to built behaviour in this revision.
+- **The tax context of an overridden refund line is `TaxContext::Sale`, dated by the original sale's `business_date`.** `TaxContext` has exactly two cases, `Sale` and `Purchase`; there is no refund context. The engine's own `quoteLine()` taxes every line with `TaxContext::Sale` (`LineCalculator`, line 56), so a non-overridden refund line is already taxed under `Sale`, at the original `business_date` (D-38's `documentDate`). The override-refund path does the same, by reading the date off the `LineQuote` it is given. Recorded in step 20a.
+- **AC-12B (D-76) and AC-47B (D-75) are rulings on what chunk D already built**, the plan's two lead questions. Steps 14, 16a and 20 now cite them, the "Questions for `lead`" section marks both resolved, and step 20a adds the rows the spec's examples name.
+- **Chunk E re-read against chunks C and D as built, drift fixed in steps 22 to 26:** `SalesRefusal` holds **43** codes, not 42: chunk C added `pricing_refused`, the carrier reason whose `code()` reports the engine's own value (the Data section's vocabulary table now lists it). There are 20 audit-writing slices, one `AuditTrail::record()` each, matching `SalesAuditActions::ALL`. `SalesPermissions` declares both keys. Step 23's "no `stock_` token" rule would have gone red on `products.stock_unit_id` in `LineWriter`, so it now names the stock tables. Step 22's scripted day gains an overridden-line sale and its refund.
+
+**Revision 4, planned at `e4ed355`, after chunks A and B were committed (`86e8a09`, `f9181cd`).** Chunks C to E now build from **spec revision 5**: AC-1 to AC-58 plus AC-23a, and the four suffix ACs AC-12A, AC-14A, AC-24A and AC-47A; decisions D-1 to D-74. Steps 0 to 12, their ticks and the chunk B "As built" note are unchanged. Every claim about built code below was read in `packages/sales` at `e4ed355`. What changed:
 - **AC-12A (D-71):** `refund_not_allowed` is gone. A refund tender onto a method with `allows_refund = false` is `unsupported_method_type`. Step 16 edits the built `TenderRules::decide()` to add that cause, removes the built `SalesRefusal::RefundNotAllowed` case, and edits `SalesRegistryTest`, which pins all 43 codes (42 after the edit).
 - **AC-24A (D-72):** the branch is a column of the binding table. The built `ApprovalGate::consume()` already compares it, and `ApprovalGateTest` already has a branch mismatch row; steps 15, 19 and 20 add one slice-level row each.
 - **AC-47A (D-73):** `RefundSale` never runs Sales' sellability check. A soft-deleted product is still refused `unknown_product` by the engine until Q-1 is ruled (steps 14, 20).
@@ -224,7 +230,7 @@ F-1 to F-21 below are the record of what revision 1 routed. All of them are **re
 
 **Ruling 3: arithmetic.** `brick/math` `BigDecimal` throughout, never a float, with 4-dp canonical strings. All of Sales' own arithmetic lives in **one file**, `Support/Money.php`, and step 23 asserts that no other file in the package multiplies, divides or calls `multipliedBy`/`dividedBy`. That arithmetic is:
 - additions and subtractions of stored 4-dp amounts (rollups, balance, change, expected cash, variance);
-- the single price-override product `round(unitPrice × quantity, 4)`, HALF_UP (F-16).
+- the single price-override product `round(unitPrice × quantity, 4)`, HALF_UP (F-16). Revision 5: the refund of an overridden line (AC-27A, D-77) uses the same `Money::product()`, reached through the same `LineWriter::overridden()`, never a second copy (step 20a; step 23 pins that only `LineWriter` calls it).
 
 None of it is tax, discount or factor arithmetic, so AC-42 needs no exemption (D-35 deferred the only case that would have needed one).
 
@@ -743,12 +749,12 @@ The `[SYNC]` columns (`origin` default `online`, `device_id`, `client_seq`, `cli
 |---|---|
 | General | `validation`, `not_found`, `duplicate`, `in_use`, `out_of_range` (R-39), `invalid_transition` (R-40), `numbering_refused` (R-40) |
 | Shifts | `no_open_shift`, `shift_already_open`, `shift_not_open`, `shift_has_open_sales`, `shift_closed` |
-| Cart | `sale_not_editable`, `unit_unresolvable`, `unresolvable_price` (plus the engine's own reasons, AC-5, carried as the cause per the Ruling 8 amendment), `price_override_not_allowed`, `discount_with_override`, `empty_sale`, `product_not_sellable` (D-57, AC-47; `AddSaleLine` and `UpdateSaleLine` only, never a refund line, AC-47A) |
+| Cart | `sale_not_editable`, `unit_unresolvable`, `unresolvable_price`, `pricing_refused` (the carrier for every other engine reason, AC-5: `SalesRefused::code()` reports the cause's own value, so a caller never sees `pricing_refused` itself; added in chunk C), `price_override_not_allowed`, `discount_with_override`, `empty_sale`, `product_not_sellable` (D-57, AC-47; `AddSaleLine` and `UpdateSaleLine` only, never a refund line, referenced or goodwill, AC-47A, AC-47B) |
 | Tenders | `customer_required`, `credit_refused`, `method_inactive`, `unsupported_method_type` (a `loyalty` or `voucher` method, AC-12; **or a refund tender onto a method with `allows_refund = false`**, AC-12A/D-71), `reference_required`, `exceeds_balance`, `partial_not_allowed`, `balance_due`, `tender_not_removable` |
 | Approvals | `approval_required`, `approval_not_approved`, `approval_already_used`, `approval_mismatch`, `approval_not_pending`, `self_approval_not_allowed`, `pin_invalid`, `not_authorised` |
 | Corrections and replay | `sale_not_voidable`, `not_refundable`, `over_refund`, `fully_refunded`, `inherited_unit_mismatch`, `replay_conflict` |
 
-There is **no `refund_not_allowed`** (AC-12A: "No separate `refund_not_allowed` code exists"). Chunk A built it as `SalesRefusal::RefundNotAllowed`, and `SalesRegistryTest` pins it among 43 codes. Step 16 removes the case and edits that test to the 42 codes above. Nothing else names it: it is in no `src` call site.
+There is **no `refund_not_allowed`** (AC-12A: "No separate `refund_not_allowed` code exists"). Chunk A built it as `SalesRefusal::RefundNotAllowed`. Step 16 removed it, and in the same chunk added `pricing_refused`, so **`SalesRegistryTest` still pins 43 codes**, the six areas above in that order (read at `9d86bf4`). Revision 4's "42" was written before `pricing_refused` existed. Revision 5 adds no code: AC-27A reuses `inherited_unit_mismatch`.
 
 **Contracts:** Ruling 2. **Config:** `sales.page_size` (default and maximum), the customers `Pager` shape. **HTTP, console, jobs, hooks, outbox:** none (an outbox `sale.completed` event is a follow-up). **Dependencies:** the `flexipos/sales` path package only. `brick/math` is already locked.
 
@@ -987,7 +993,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - an engine `not_applicable` discount surfaces as `not_applicable` (the fake engine covers the remaining reasons by dataset), with the `PricingRefusal` carried as the cause (Ruling 8 amendment).
   - **Quantity (R-14, AC-52):** `0`, `-1` and `"-0.5"` are `validation` before the resolver is called; the resolver itself would accept them.
   - **Product facts (AC-47, D-57; ruled, no longer a default):** a product that is `is_active = false`, `is_sellable = false` or of `type = variant_parent` is refused `product_not_sellable` on `AddSaleLine` and `UpdateSaleLine`. The refusal names the product and the fact, and nothing is written.
-    - **Scope (AC-47A, D-73).** The check is one private step of these two slices, not a shared helper, and `RefundSale` never calls it. A goodwill refund line is exempt, and so is a referenced one, because AC-47 names only `AddSaleLine` and `UpdateSaleLine` (lead question 1). Step 20 has the rows that prove the exemption.
+    - **Scope (AC-47A, D-73; AC-47B, D-75).** The check is one private step of these two slices, not a shared helper, and `RefundSale` never calls it. A goodwill refund line is exempt (AC-47A), and so is a referenced one (**AC-47B, D-75**: the lead ruled plan question 1 at this default). As built, the check is `LineWriter::assertSellable()`, called only by `AddSaleLine` and `UpdateSaleLine`. Steps 20 and 20a have the rows that prove the exemption.
     - **The engine still decides on deletion.** A soft-deleted product is refused `unknown_product` by `quoteLine()` (AC-53). That holds for a goodwill refund too, until Q-1 is ruled. An inactive product that still exists is quoted normally.
     - **Test rows:** one per fact, on both `AddSaleLine` and `UpdateSaleLine`. Plus one row showing that the same inactive product **is** accepted as a goodwill refund line (step 20's row, referenced here so the two stay paired).
   - **AC-6 and F-10:**
@@ -1033,7 +1039,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
       The method object's documented shape has **no `allows_refund`**, and nothing reads it.
     - **The edit:** add a trailing parameter, `bool $refund = false`, and an `allows_refund` key to the method shape, which is read only when `$refund` is true. The new cause goes into the **existing** check 2: a refund onto a method whose `allows_refund` is false is `unsupported_method_type`, with a message naming the method as not refundable. It never becomes a new code. Placing it at check 2 means a method that is both inactive and non-refundable is refused `unsupported_method_type` on a refund. The docblock's order list is updated to match.
-    - **Refund semantics in the same edit.** With `$refund = true`, `offered` and `balance` are **magnitudes**: what the drawer pays out, and what is still owed back. Both are positive, and the caller negates the result (step 20). A payout gives no change, so on a refund check 6 is `exceeds_balance` whatever `allows_change` says, and `tendered` is null. That is this plan's reading, not a ruling (lead question 2).
+    - **Refund semantics in the same edit.** With `$refund = true`, `offered` and `balance` are **magnitudes**: what the drawer pays out, and what is still owed back. Both are positive, and the caller negates the result (step 20). A payout gives no change, so on a refund check 6 is `exceeds_balance` whatever `allows_change` says, and `tendered` is null. **Ruled as AC-12B (D-76)**, at this default (plan question 2): a refund tender also stores `change_given = 0.0000`, and a refund tender with nothing owed back is `exceeds_balance` (check 5). Ordinary sale tenders are unchanged.
     - **`TenderRulesTest` rows, red first:**
       - a refund onto `allows_refund = false` is `unsupported_method_type`;
       - the same method on an ordinary tender (`$refund = false`) is accepted. The test passes `allows_refund = 0`, so a check that ignores the flag goes red (AC-12A's second clause);
@@ -1162,7 +1168,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - **Ledger post:** built through step 17's `CreditPosting`. There is no number allocation, so **no** deadlock retry is needed here.
   - **Mutation M6:** edit the original tender to a zero amount instead of mirroring. The byte-identity assertion goes red.
   - *(AC-21, AC-22, AC-24A, AC-48; D-14 to D-16, D-66, D-72.)*
-- [x] **Step 20: `RefundSale`.** *(AC-25 to AC-31, AC-12A, AC-24A, AC-47A, AC-48, AC-50, AC-53, AC-54, AC-57; D-32, D-38, D-43, D-47, D-55, D-58, D-63, D-64, D-71 to D-73.)*
+- [x] **Step 20: `RefundSale`.** *(AC-25 to AC-31, AC-12A, AC-12B, AC-24A, AC-47A, AC-47B, AC-48, AC-50, AC-53, AC-54, AC-57; D-32, D-38, D-43, D-47, D-55, D-58, D-63, D-64, D-71 to D-73, D-75, D-76. Built at `9d86bf4`; AC-12B and AC-47B ruled what was built. The pricing of an overridden line is wrong as built and is corrected by step 20a.)*
   - **AC-25:**
     - a new `type = refund` row, number `R000001`, `reference_sale_id` set;
     - a goodwill refund has a null reference;
@@ -1173,7 +1179,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - the stock unit gives factor 1;
     - a third unit is `inherited_unit_mismatch`;
     - a goodwill line goes through `snapshot()`.
-  - **AC-27:**
+  - **AC-27** (*revision 5: amended by AC-27A/D-77 for an overridden original line; step 20a corrects the built slice*):
     - each line is quoted by `quoteLine()`;
     - a two-step quantity tier re-resolves (2 cases refunded out of 4 at a 48-base tier gives the 1-case price);
     - **F-13:** a price-list edit made after the sale with an `at` window ending before it does **not** change the refund; the quote uses the original `completed_at` (one dataset row each way).
@@ -1187,7 +1193,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - A goodwill `refund` approval requested and approved at branch A, consumed by a goodwill `RefundSale` at a terminal of branch B, is `approval_mismatch`: no refund row, no number consumed, and `consumed_at` null. This row goes through the real `RequestApproval` and `DecideApproval`, because a goodwill request has no sale whose branch `RequestApproval` could check.
     - The same refund at branch A consumes it.
     - A referenced refund at another branch than the original sale's is refused `not_refundable` (AC-54) before the gate is reached. One row shows that the approval is untouched.
-  - **AC-30, F-14 and AC-12A, tender rules:**
+  - **AC-30, F-14, AC-12A and AC-12B (D-76), tender rules:**
     - tenders are negative and Σ = −total, otherwise `balance_due`;
     - each refund tender goes through the built `TenderRules::decide()` as edited in step 16a, with `$refund = true`, the method row read under `sharedLock()` (including `allows_refund`), `offered` = the payout magnitude, and `balance` = what is still owed back, a magnitude computed by `Money` from the refund total and the tenders decided so far. The stored `amount` is `Money::negate($outcome->amount)`, `tendered` is null and `change_given` is `0.0000`;
     - **a refund tender onto a method with `allows_refund = false` is `unsupported_method_type`, and nothing is written** (AC-12A). There is no refund row, no `refunded_quantity` change, no number, and the approval is unconsumed;
@@ -1197,7 +1203,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - a credit refund method writes a `refund` ledger row (credit side) keyed on the refund tender.
   - **AC-47A, the goodwill sellability exemption (D-73):**
     - a goodwill refund line for a product that is `is_active = false`, or `is_sellable = false`, is **accepted**: `product_not_sellable` is never raised, and the engine quotes it normally;
-    - a referenced refund line for a product deactivated since the sale is accepted too (lead question 1);
+    - a referenced refund line for a product deactivated since the sale is accepted too (**AC-47B, D-75**, which ruled plan question 1 at this default; step 20a widens the built row to all three facts);
     - a goodwill line for a **soft-deleted** product is still refused `unknown_product` by the engine (AC-53, R-1(d)). **That is the built default until owner question Q-1 is ruled.** The row is written so that a Q-1 ruling for option (b) flips it, and it is not deleted;
     - **Mutation M11:** call step 14's sellability check on refund lines. The inactive-goodwill row goes red.
   - **AC-31:** no stock or GL effect.
@@ -1227,7 +1233,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
       - (c) a non-deadlock error is not retried.
   - **AC-50:** a refused `refund` sequence is `numbering_refused`, carrying the cause, and nothing is written, the approval included.
   - **AC-57:** the Q-9 and Q-10 residual gaps (promotion ended, customer group changed) each have one dataset row showing that the refund differs from the charge, as accepted behaviour.
-  - *(AC-25 to AC-31; D-17 to D-19.)*
+  - *(AC-25 to AC-31, AC-12B, AC-47B; D-17 to D-19, D-75, D-76. AC-27A is step 20a's.)*
 - [x] **Step 21: `CloseCashShift`, `ReconcileCashShift`.**
   - **AC-34:**
     - `counted_cash` is required;
@@ -1249,31 +1255,80 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - **Gate: `composer check` (end of chunk D).**
   - **As built (chunk D), the notes chunk E needs:**
     - **`VoidSale`** pre-reads the sale plainly (to decide whether a shift lock is needed), then in the transaction locks the sale's own shift shared (completed sales only), the sale `FOR UPDATE`, the approval, then the customers. `sale_not_voidable` is a refund document or `refunded`/`partially_refunded`; `voided` and `failed` are `invalid_transition`. The sale's rolled-up figures are left as they were; the originals are untouched and each gets one mirror (`tendered` null, `change_given` 0.0000).
-    - **`RefundSale` input shape:** `terminal_id`, optional `reference_sale_id`, `customer_id` (goodwill only; refused on a referenced refund), `lines` (referenced: `refund_of_item_id`, `unit_id`, `quantity`; goodwill: `product_id`, `unit_id`, `quantity`; a line named twice is `validation`), `tenders` (`payment_method_id`, `offered`, `reference`), `approval_id`. The approval is consumed **before** `fully_refunded`/`over_refund` are read, so a retry after success is always `approval_already_used`; `not_refundable` and the status `refunded` (`fully_refunded`) come before the gate. The refund document's header money is unsigned (`paid_total = total`, `balance_due = 0`); its tenders are negative. It is `completed` in the one call. `LineWriter::quoteSnapshot()` is the one new shared method.
+    - **`RefundSale` input shape:** `terminal_id`, optional `reference_sale_id`, `customer_id` (goodwill only; refused on a referenced refund), `lines` (referenced: `refund_of_item_id`, `unit_id`, `quantity`; goodwill: `product_id`, `unit_id`, `quantity`; a line named twice is `validation`), `tenders` (`payment_method_id`, `offered`, `reference`), `approval_id`. The approval is consumed **before** `fully_refunded`/`over_refund` are read, so a retry after success is always `approval_already_used`; `not_refundable` and the status `refunded` (`fully_refunded`) come before the gate. The refund document's header money is unsigned (`paid_total = total`, `balance_due = 0`); its tenders are negative. It is `completed` in the one call. `LineWriter::quoteSnapshot()` is the one new shared method. *(Revision 5: it is used for every referenced line, overridden ones included, which is the AC-27A defect that step 20a corrects with `LineWriter::overridden()`.)*
     - **A price-list tier's `min_qty` is in base units**, not line units (found while writing the AC-27 row).
     - **`CloseCashShift`** takes the shift `FOR UPDATE` as its first statement; its figures come from this shift's `completed`/`refunded`/`partially_refunded` documents. `totals_by_method` is keyed by `method_code`, sorted, `{}` when empty. **`ReconcileCashShift`** checks the permission (branch read from the shift row) before it looks at the status, so an unauthorised caller learns nothing about the shift. `SalesPermissions::SHIFTS_RECONCILE` is the second key.
   - *(AC-34 to AC-37; D-21.)*
 
-### Chunk E: scans, engine, documents, close-out
+### Chunk E: the AC-27A correction, scans, engine, documents, close-out
 
-- [ ] **Step 22: the cross-slice invariant sweep** (`SalesInvariantTest`). After a scripted day (open → three sales with split and credit tenders, **plus one fully discounted zero-total sale** (AC-14A) → hold, recall elsewhere → void one → refund one → close → reconcile), assert:
+*Revision 5: chunk E builds from spec revision 6 (D-1 to D-77). Its developer does **step 20a first**: it corrects chunk D's `RefundSale`, and steps 22 and 23 depend on it. It is numbered 20a because it belongs with step 20, but it is chunk E's work, and steps 20 and 21 stay ticked.*
+
+- [ ] **Step 20a: refund an overridden line at the price charged** (`RefundSale` correction). *(AC-27A, with AC-47B and AC-12B rows on the corrected path; D-77, D-75, D-76; D-38 as amended.)*
+  - **What is wrong as built (read at `9d86bf4`).** `RefundSaleHandler::price()` builds every referenced line the same way: `snapshotInherited()`, then a `LineQuote` anchored at the original sale (D-38), then `LineWriter::quoteSnapshot()`, which stores the engine's `unitPrice`. A line sold at an approved override (`LineWriter::price()`'s override branch, AC-7) stored the override as `unit_price` and set `price_overridden_by`, but the refund never reads either. So a line sold at 8.00 against a 10.00 list is refunded at 10.00, which pays back more than was charged.
+  - **(1) `LineWriter`: extract the override branch.** It becomes one new public method:
+
+    ```php
+    public function overridden(UnitSnapshot $snapshot, LineQuote $quote, string $unitPrice): PendingLine
+    ```
+
+    - It moves the code that `price()` runs after `if ($overridePrice !== null)`, in the same order with the same refusals and the same messages. It refuses a quantity that rounds to zero as `validation`, the way `quoteSnapshot()` does. It calls `quoteLine($quote)`, and uses only that call's `listPrice` and `taxGroupId`. It computes `subtotal = Money::product($unitPrice, $snapshot->quantity)`, or `out_of_range` when that does not fit. Tax is `computeTax(new TaxQuote($priced->taxGroupId, $subtotal, $snapshot->baseQuantity, $quote->documentDate, TaxContext::Sale))`, and `line_total = Money::add($tax->net, $tax->total)`, or `out_of_range`. It writes `discount_id = null`, `discount_percent = null` and `discount_amount = 0.0000`. It returns a `PendingLine` with `discountId = null` and the override payload `{product_id, unit_id, unit_price}`, as now.
+    - It catches `PricingRefused` from both engine calls itself and rethrows it as `SalesRefused::fromPricing()`, so the engine's live-state refusals (AC-53) still pass through under their own names.
+    - **`price()` keeps every check it owns**, in its present order: `price_override_not_allowed`, `discount_with_override`, the snapshot, the zero-quantity check, and the customer group read. For an override it then builds the same `LineQuote` it builds today (the discount is already null for an override) and returns `$this->overridden($snapshot, $quote, $overridePrice)`. This is a pure extraction. `$quote->documentDate` is the sale's `business_date`, which is exactly the date the branch passes today.
+    - **The decision on the tax context.** `Contracts\Pricing\TaxContext` has two cases, `Sale` and `Purchase`, and the engine has no refund context. The engine's own `quoteLine()` taxes with `TaxContext::Sale` (`packages/pricing/src/Engine/LineCalculator.php`, line 56), so every non-overridden refund line is already taxed as `Sale`. The overridden path therefore uses `TaxContext::Sale` too, as AC-27A requires ("the same tax context the sale's override path uses"). Its `documentDate` comes from the `LineQuote` and is not passed separately. On a refund that is the original sale's `business_date` (D-38's anchor), so the overridden line is taxed at the rates in force on the day of the sale, the same day a non-overridden refund line is taxed at. No pricing contract changes.
+  - **(2) `RefundSaleHandler::price()`: branch on `price_overridden_by`.** This applies to the referenced branch only. The goodwill branch is unchanged.
+    - `$overridden = $item->price_overridden_by !== null`. The item comes from the plain pre-transaction read. That is safe under Ruling 7 item 1, because a completed sale's lines are never re-priced.
+    - **Unit first.** When `$overridden` is true and the folded requested `unit_id` differs from the original line's `unit_id`, throw `SalesRefused::fromUnit(UnitResolutionRefused::inheritedUnitMismatch(…))` before any resolver or engine call. The message names the line, the original unit and the requested unit. The result is `inherited_unit_mismatch` with the cause `UnitRefusal::InheritedUnitMismatch`, which is the cause type the third-unit path already carries. This catches the **stock unit** case, which `snapshotInherited()` would otherwise accept at factor 1 (spec AC-27A; BA reading, see the spec's Assumptions).
+    - The snapshot is still `snapshotInherited()`, which now always takes the same-unit branch, so the original factor is inherited (AC-26).
+    - The `LineQuote` keeps D-38's anchors unchanged: the original `completed_at`, `business_date`, currency, customer and group, and branch. For an overridden line its `discountId` is **null**. An overridden original carries no discount (`discount_with_override`), and passing null states it.
+    - The line is `$overridden ? $this->lines->overridden($snapshot, $quote, Money::of($item->unit_price)) : $this->lines->quoteSnapshot($snapshot, $quote)`. `Money::of` canonicalises the stored price, which the SQLite stand-in reads back as a number (R-8).
+    - **Nothing else changes.**
+      - No override approval is consumed: the handler never calls `LineApprovals::coverOverride()`, and it ignores the `PendingLine`'s override payload.
+      - The product's current `allow_price_override` is never read: the refund builds its `$product` from the line's snapshots, and `overridden()` does not take one.
+      - The refund line's `price_overridden_by` stays null, because `newRow(…, null)` is already called that way.
+      - The refund's own approval (AC-29) is the only one consumed.
+    - The docblock gains AC-27A, AC-47B, AC-12B and D-75 to D-77, and its "quoted by the engine" paragraph is amended to match.
+  - **(3) Tests, red first, in `packages/sales/tests/Features/RefundSale/RefundSaleTest.php`.** They go in a new `describe('an overridden line (AC-27A; D-77)')`. The world is a product with list price `10.0000`, `allow_price_override = true` and a case of 24. The sale line is added through `AddSaleLine` with `unit_price` and a decided `price_override` approval, seeded the way `SaleLineApprovalsTest`'s helper seeds one. New Pest helpers need new global names (`rfoWorld`, `rfoSale`), because `rfWorld` and the step 15 helpers already exist. Each row compares the refund line with the stored original line:
+    - **(a) Full refund, exclusive 10 % group.** Sold 3 units at an override of `8.0000` against a list of `10.0000`, and refunded 3. The refund line has `unit_price 8.0000`, `list_price 10.0000`, `subtotal 24.0000`, `tax_amount 2.4000` and `line_total 26.4000`. Its `discount_id` and `discount_percent` are null, `discount_amount` is `0.0000`, and `price_overridden_by` is null. The tender is `-26.4000` and the original is `refunded`. Its `tax_amount`, `tax_breakdown` and `line_total` equal the original line's byte for byte.
+    - **(b) Partial refunds.** The same sale, refunded 1 and then 2. Both refunds have `unit_price 8.0000`, with subtotals `8.0000` and `16.0000` and line totals `8.8000` and `17.6000`. The original goes `partially_refunded`, then `refunded`. The two refunds' line totals sum to the original's `26.4000`, so the refunds never pay back more than was charged.
+    - **(c) Inclusive group.** The same sale on a 10 % inclusive group. The refund line has `subtotal 24.0000` and `line_total 24.0000`, and its `tax_amount` and `tax_breakdown` equal both the original line's and the engine's `computeTax()` on `24.0000` at the original `business_date`. `RefundSaleHandler` never branches on inclusivity.
+    - **(d) The tax date is the original sale's.** The original's `business_date` and `completed_at` are moved to an earlier day by raw update, the way step 20's F-13 rows do. The group's existing rate is effective on or before that earlier day. A second rate, effective from a day after it but on or before today, is seeded raw on the group (the shape `TaxCalculatorTest`'s dated rows use). The refund is taxed at the rate in force on the original `business_date`, never at today's.
+    - **(e) Stock-unit refund.** Sold 1 case at an override of `200.0000` against a list of `240.0000`, then refunded in units, with quantity 24. The result is `inherited_unit_mismatch`, the cause is `UnitRefusal::InheritedUnitMismatch`, and the message names both units. Nothing is written: `rfState()` is unchanged, there is no refund row and no number, the approval is unconsumed, and `refunded_quantity` is `0.0000`. A dataset second row does the same with a third unit (a pack of 6). The same line refunded as **1 case** is accepted at `unit_price 200.0000`, with base quantity 24 inherited.
+    - **(f) A non-overridden line is unchanged.** One sale has two lines: line 1 overridden at 8.00, and line 2 at list 10.00 with no override. Both are refunded. Line 1 is refunded at `8.0000` and line 2 at the engine's `10.0000`, so the branch is per line and not per sale. Every existing `RefundSaleTest` row stays green with **no edit**, and that is the regression proof for the unchanged path.
+    - **(g) `allow_price_override` is now false.** After the sale, `products.allow_price_override` is set false. The refund is accepted at `8.0000`, and `price_override_not_allowed` is never raised.
+    - **(h) No override approval is consumed.** Exactly one more `approval_requests` row has `consumed_at` set after the refund, and it is the refund's own. The original override approval's `consumed_at` is unchanged, and no approval row is created.
+    - **(i) AC-47B on the corrected path.** A dataset over `is_active = false`, `is_sellable = false` and `type = variant_parent`, each set after the sale. The overridden line is refunded at `8.0000`, and `product_not_sellable` is never raised. In the same step, the built row "accepts a referenced line for a product deactivated since the sale" becomes the same three-fact dataset for a non-overridden line, so AC-47B's three facts are each pinned on both paths.
+    - **(j) AC-12B on the corrected path.** The overridden line is refunded with cash, a method with `allows_change = true`, at an offer of `30.0000` against `26.4000` owed. The result is `exceeds_balance`, with nothing written. An offer of exactly `26.4000` is accepted, and the stored tender has `amount -26.4000`, `tendered` null and `change_given 0.0000`.
+    - **(k) AC-53 still applies.** The product is soft-deleted after the sale. The refund of the overridden line is refused `unknown_product` by its one `quoteLine()` call, and nothing is written. It is the built default until Q-1 is ruled, as step 20's rows are.
+    - **The extraction is behaviour-neutral.** `SaleLineApprovalsTest`, `AddSaleLineTest` and `UpdateSaleLineTest` stay green with no edit.
+  - **Mutations** (run once, revert, record the red and green counts):
+    - **M12:** always re-quote, by dropping the `$overridden` branch. Rows (a), (b), (g) and (i) go red, because they read `10.0000`.
+    - **M13:** inside `overridden()`, date the `TaxQuote` with today's business date instead of `$quote->documentDate`. Row (d) goes red.
+    - **M14:** drop the unit check. Row (e) goes red, because the stock-unit refund is accepted.
+  - **Predicted red:** only the new rows, before the handler edit. Anything else red is a stop.
+  - **Gate:** `composer check`, so that steps 22 onward start from green.
+
+- [ ] **Step 22: the cross-slice invariant sweep** (`SalesInvariantTest`). After a scripted day (open → three sales with split and credit tenders, **plus one fully discounted zero-total sale** (AC-14A), **plus one sale with an overridden line** (AC-7, with its `price_override` approval) → hold, recall elsewhere → void one → refund one → **refund the overridden line in part** (AC-27A) → close → reconcile), assert:
   - the zero-total sale is numbered in sequence with the others and has exactly one audit row;
   - every completed sale's Σ tender `amount` = `total` (−`total` for a refund);
   - every void has an exact mirror;
   - every credit tender has exactly one ledger row;
   - `refunded_quantity` ≤ `base_quantity` on every line;
-  - every approval consumed at most once;
-  - one **sales** audit row per sales write, plus exactly one **customers** audit row (`customers_credit_ledger_entry_recorded`) per ledger posting (R-20);
-  - the shift's `expected_cash` equals a hand-checked figure.
-  - *(The NFRs; AC-14, AC-21, AC-28.)*
+  - **every refund line of an overridden original has the original's `unit_price` and unit**, its `price_overridden_by` is null, and Σ of its refunds' `line_total` ≤ the original line's `line_total` (AC-27A);
+  - every approval consumed at most once. The overridden sale's approval is consumed by `AddSaleLine`, and the refund's approval is consumed by `RefundSale`. Nothing else is consumed;
+  - every refund tender has `tendered` null and `change_given = 0.0000` (AC-12B);
+  - one **sales** audit row per sales write, plus exactly one **customers** audit row (`customers_credit_ledger_entry_recorded`) per ledger posting (R-20). The sales actions seen are a subset of `SalesAuditActions::ALL`, the 20 `ACTION` constants (`sales_sale_refunded`, `sales_sale_completed` and the rest, read at `9d86bf4`). The six read slices write none;
+  - the shift's `expected_cash` equals a hand-checked figure, with the overridden refund's cash included.
+  - *(The NFRs; AC-14, AC-21, AC-27A, AC-28, AC-12B.)*
 - [ ] **Step 23: `QaSalesSourceRulesTest` (host),** code-only via `SourceRules::codeOnly`.
-  - **AC-42 (a), D-48's token list:** no file under `packages/sales/src` contains `tax_rates`, `tax_group_taxes`, `price_list_items`, `price_list_assignments`, `is_inclusive`, `is_compound`, `unit_conversions`, `base_unit_id`, `customer_ledger`, `credit_balance`, `balance_after`, `number_sequences` or `used_count`.
+  - **AC-42 (a), D-48's token list:** no file under `packages/sales/src` contains `tax_rates`, `tax_group_taxes`, `price_list_items`, `price_list_assignments`, `is_inclusive`, `is_compound`, `unit_conversions`, `base_unit_id`, `customer_ledger`, `credit_balance`, `balance_after`, `number_sequences` or `used_count`. As built, these appear only in docblocks, for example `RefundSaleHandler`'s lock-order paragraph, so the scan must be code-only, or it goes red on the comments.
   - **AC-42 (b):** no `*`, `/`, `multipliedBy(` or `dividedBy(` in `packages/sales/src` outside `Support/Money.php` (Ruling 3).
+  - **AC-27A, the static half (revision 5):** `Money::product(` is called from `Sales/LineWriter.php` only. That pins step 20a's reuse, so a refund path that copied the override arithmetic goes red.
   - **AC-42 (c), anti-vacuity:** T-027's factor scan and T-029's AC-25 scan both enumerate at least one `packages/sales/src` file, and both report zero hits with **no** sales entry in either exemption list.
-  - **AC-15/AC-31:** no `stock_` table name and no `journal_` token in the package.
+  - **AC-15/AC-31 (revision 5: named tables, not a prefix):** no stock table name and no journal table name in the package's code. The rule is the token `stock_` or `journal_` followed by a word, with an allow-list of exactly the two column names Sales legitimately uses: `stock_unit_id` (a `products` column, read by `LineWriter` for a refusal message) and `stock_applied` (a `sales` column). A bare `stock_` prefix rule would have gone red on `LineWriter` line 117 as built. The red-first plants cover `stock_levels`, `stock_movements` and `journal_entries`.
   - The package has no `routes/`, `Route::`, `Cache::` or `dispatch(`.
   - **Red-first:** planted files for each rule, then deleted.
-  - *(AC-42, AC-15, AC-31.)*
+  - *(AC-42, AC-27A, AC-15, AC-31.)*
 - [ ] **Step 24: `SalesSchemaEngineTest`** (database `flexipos_t8test_t030_tenant`, created and dropped by **exact name** through `EngineDatabase`, never with `LIKE`). Under `ENGINE_HOLD`, only the refusal case runs. Written for G-1:
   - the `information_schema` decimals equal the precision map;
   - `open_terminal_key` refuses on MySQL;
@@ -1291,8 +1346,9 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - F-18's three additions;
     - the approval binding (F-21);
     - the state machine (Ruling 4);
-    - the sign conventions (F-14, F-15);
-    - the ledger keys (F-2 to F-4).
+    - the sign conventions (F-14, F-15), including that a refund tender gives no change (AC-12B, D-76);
+    - the ledger keys (F-2 to F-4);
+    - how a refund line is priced (revision 5): a non-overridden referenced line is re-quoted at the original sale's instant (D-38). An overridden line is priced at its stored `unit_price`, in its own unit only, taxed as `Sale` at the original `business_date` (AC-27A, D-77). A goodwill line is quoted now. No refund line is checked for sellability (AC-47A, AC-47B).
   - §6.1: `DocumentNumbers` and the defaults (F-6), and the portable lock-and-increment allocation, which replaces the MySQL-only allocation the `number_sequences` migration's docblock describes (R-27). §6.3: `snapshotInherited`.
   - §6.7: Ruling 7's lock order, as the order every future writer of these tables must keep (FP-234 takes the stock slot). §6.9 "As built (T-028)": `loyalty_transactions.sale_id` is now built.
   - `docs/architecture.md` §3: the Sales row points at `packages/sales`.
@@ -1318,6 +1374,11 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - M10, the dropped retry (step 17);
   - M11, the sellability check on refund lines (step 20).
 
+  Revision 5 adds three, all in step 20a:
+  - M12, always re-quote an overridden line;
+  - M13, the override tax dated today;
+  - M14, the dropped same-unit check.
+
 | ACs | Proved by |
 |---|---|
 | 1 | 13 |
@@ -1330,7 +1391,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 | 21, 22 | 19 |
 | 23, 24 | 3, 10, 15 |
 | 23a | 15 |
-| 25–31 | 2, 20, 23 |
+| 25–31 | 2, 20, 20a (AC-27 as amended), 23 |
 | 32, 33 | 4, 12 |
 | 34–36 | 9, 21 |
 | 37 | 12, 16, 21 |
@@ -1344,6 +1405,9 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 | 45 | 7, 24 |
 | 46 | 6, 10, 18 |
 | 12A | 16a (`TenderRulesTest`, `SalesRegistryTest`), 16 (sale tender unaffected), 20 (refund refused and accepted) |
+| 12B | 16a (`TenderRulesTest`'s refund rows: over the balance on a change-giving method is `exceeds_balance`, built), 20 (built rows: "over, on a method that gives change on a sale", and a tender on a zero-total refund), 20a row (j) (the overridden path; `tendered` null, `change_given 0.0000`), 22 |
+| 27A | 20a rows (a) to (h), (k); M12 to M14; 22 (scripted overridden refund); 23 (`Money::product(` only in `LineWriter`) |
+| 47B | 14 (scope: `assertSellable()` is called by `AddSaleLine` and `UpdateSaleLine` only), 20 (built referenced row, widened to three facts in 20a), 20a row (i) |
 | 14A | 17 (zero-total row, M9), 22 |
 | 24A | 10 (`ApprovalGateTest`'s branch row, built), 15, 19 (raw-seeded rows), 20 (goodwill, end to end) |
 | 47 | 14 |
@@ -1353,7 +1417,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 | 50 | 12 (built), 17, 20 |
 | 51 | 9 (built rollup), 14, 17, 18 |
 | 52 | 14, 20 |
-| 53 | 20 (default pending Q-1) |
+| 53 | 20, 20a row (k) (default pending Q-1) |
 | 54 | 20 |
 | 55 | 15 |
 | 56 | 16 |
@@ -1380,6 +1444,8 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 11. **The company-wide number lock is the shop's serial point (R-27).** Every completion, refund and shift open takes the same `number_sequences` row and holds it until commit. Ruling 7 takes it last to keep the hold short. A shop with several tills completing at once queues there by design: gapless numbering costs exactly this.
 12. **A stuck pending sale.** A completion refused at commit (`usage_limit_reached` after a concurrent sale took the last use, or `credit_refused`) leaves a `pending_payment` sale whose lines are locked (AC-6). The way out exists: remove the tenders (back to `draft`), edit the line, and tender again. Step 17 includes one row that walks it.
 13. **A replayed tender after removal (Q-6).** With no tombstone, a late retry of an `AddTender` re-adds a tender the cashier removed. The online till rarely retries, and the exact balance check still holds; offline replay (FP-237) needs a tombstone.
+14. **An overridden line refunds only in its own unit (AC-27A, the BA's reading; revision 5).** Take a case sold at an override. A customer returning some of the units in it cannot be refunded in units: a referenced refund is `inherited_unit_mismatch`. The cashier can refund a fraction of a case if the case unit's precision allows it, or use a goodwill refund, which is priced at today's list price and needs the same refund approval. The reading is the lead's to reverse (D-77). Reversing it would need either a division, which AC-42 forbids, or a stored per-base price.
+15. **The tax group of an overridden refund line is the product's current one.** AC-27A takes `tax_group_id` from the anchored `quoteLine()`, as AC-27 does for every referenced line, so a product moved to another tax group since the sale is refunded under the new group's members (dated at the original `business_date`). This is the same residual gap as an unversioned price list, now named for overridden lines too. For an unchanged group, row (a) of step 20a shows that the refund tax equals the original line's exactly.
 
 **Rollback:** everything is new except the four contract additions and the edits listed below. The migrations are forward-only and no tenant outside this branch has run them, so rollback is to abandon the branch.
 
@@ -1405,10 +1471,14 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 | `tests/Feature/TenantDecimalPrecisionTest.php` | the T-030 map | 8 |
 | permission registry sweep tests (the `DeclaresPermissions` set) | expected green with no edit: every one reads the registry dynamically (`QaAccessHttpSurfaceTest`, `QaAccessGuardIsolationHttpTest`, `AccessBumpSweepTest`, `OwnerRoleSyncTest`). The two keys are branch-scoped, and `QaAccessHttpSurfaceTest` refuses a branch-scoped key only on a route; Sales has none (R-25). A red here is a stop | 10 |
 | `packages/sales/src/Tenders/TenderRules.php`, `packages/sales/tests/Tenders/TenderRulesTest.php` | built in chunk B. `decide()` gains `bool $refund = false` and reads `allows_refund` on a refund (AC-12A); new rows (rev 4) | 16a |
-| `packages/sales/src/Exceptions/SalesRefusal.php`, `packages/sales/tests/Registry/SalesRegistryTest.php` | `RefundNotAllowed` removed; the pinned list goes from 43 codes to 42 (rev 4) | 16a |
+| `packages/sales/src/Exceptions/SalesRefusal.php`, `packages/sales/tests/Registry/SalesRegistryTest.php` | `RefundNotAllowed` removed; with chunk C's `pricing_refused` added, the pinned list still holds 43 codes as built (rev 4 said 42; corrected in rev 5) | 16a |
 | `packages/sales/tests/Features/OpenCashShift/OpenCashShiftTest.php` | `numberingWrapper()` and `deadlock()` move to `tests/Support/DeadlockingNumbers.php`; its rows otherwise unchanged and still green (rev 4) | 17 |
 | `packages/sales/src/Approvals/ApprovalBinding.php` | docblock table gains `branch_id` (comment only, rev 4) | 19 |
 | `packages/sales/src/Registry/SalesPermissions.php`, `packages/sales/tests/Registry/SalesRegistryTest.php` | `sales.shifts.reconcile`; the permission count goes from 1 to 2 (rev 4) | 21 |
+| `packages/sales/src/Sales/LineWriter.php` | built in chunk C. The override branch of `price()` is extracted into the public `overridden(UnitSnapshot, LineQuote, string)`; no behaviour change (rev 5) | 20a |
+| `packages/sales/src/Features/RefundSale/RefundSaleHandler.php` | built in chunk D. `price()` branches on `price_overridden_by`: same-unit check, null discount, `LineWriter::overridden()`; docblock (rev 5) | 20a |
+| `packages/sales/tests/Features/RefundSale/RefundSaleTest.php` | built in chunk D. New `describe` for AC-27A; the AC-47B referenced row becomes a three-fact dataset. Every other row is unchanged and must stay green (rev 5) | 20a |
+| `SaleLineApprovalsTest`, `AddSaleLineTest`, `UpdateSaleLineTest` | expected green with no edit: the extraction is behaviour-neutral. A red here is a stop (rev 5) | 20a |
 | `docs/database.md`, `docs/architecture.md` | step 25 | 25 |
 
 Anything red that is not in this table means stop and report to `architect`.
@@ -1442,6 +1512,7 @@ Anything red that is not in this table means stop and report to `architect`.
 - **Loyalty/voucher tenders** (F-17), and **gateway** tenders (D-7).
 - **Exchange sales, quotations, sales orders, restaurant** (D-10).
 - **A refund-approval amount ceiling** (risk 5); **cash tenders on a held sale** (risk 6).
+- **Refunding an overridden line in another unit** (risk 14, D-77's same-unit reading): this needs a stored per-base price on `sale_items`, or an AC-42 exemption.
 - **FP-331:** the tenth copy of the support helpers. **FP-426:** a batch resolve for multi-line documents.
 
 ## Questions for `ba` (revision 3; routed through `lead`)
@@ -1466,10 +1537,10 @@ Anything red that is not in this table means stop and report to `architect`.
 
 ## Questions for `lead` (revision 4)
 
-Neither blocks: each has a default, which the plan builds.
+**Revision 5: both are resolved**, each at the default below. Question 1 became AC-47B (D-75), and question 2 became AC-12B (D-76), in spec revision 6. Both match what chunk D built, so no code changes for either. Step 20a adds rows on the corrected override path, and step 22 asserts AC-12B across the scripted day. The text below is kept as the record.
 
-1. **A referenced refund line and the sellability check.** AC-47A exempts a goodwill refund line. AC-47 names only `AddSaleLine`/`UpdateSaleLine`, so a referenced refund line of a product deactivated since the sale is not checked either. **Default:** `RefundSale` never runs the check, for either kind of line (steps 14 and 20). The reason is the same as D-73's: the shop's catalogue change should not block a return.
-2. **Change on a refund tender.** AC-30 says refund tenders follow "AC-12's method rules exactly". But paying out more than is owed and taking change back is not a real flow. **Default:** with `$refund = true`, `TenderRules` gives no change. An over-payout is `exceeds_balance` whatever `allows_change` says, and `tendered` is null (step 16a). If the lead wants change honoured on refunds, the `$refund` branch is removed from check 6 only.
+1. **(Resolved: AC-47B, D-75.) A referenced refund line and the sellability check.** AC-47A exempts a goodwill refund line. AC-47 names only `AddSaleLine`/`UpdateSaleLine`, so a referenced refund line of a product deactivated since the sale is not checked either. **Default:** `RefundSale` never runs the check, for either kind of line (steps 14 and 20). The reason is the same as D-73's: the shop's catalogue change should not block a return.
+2. **(Resolved: AC-12B, D-76.) Change on a refund tender.** AC-30 says refund tenders follow "AC-12's method rules exactly". But paying out more than is owed and taking change back is not a real flow. **Default:** with `$refund = true`, `TenderRules` gives no change. An over-payout is `exceeds_balance` whatever `allows_change` says, and `tendered` is null (step 16a). If the lead wants change honoured on refunds, the `$refund` branch is removed from check 6 only.
 
 ## Questions for the human
 
