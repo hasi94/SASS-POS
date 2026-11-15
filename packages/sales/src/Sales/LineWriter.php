@@ -131,30 +131,57 @@ final class LineWriter
             $groupId = $group === null ? null : strtoupper((string) $group);
         }
 
+        $quote = new LineQuote(
+            $productId,
+            $snapshot,
+            $this->business->instant(),
+            $businessDate,
+            strtoupper((string) $sale->currency),
+            $customerId,
+            $groupId,
+            strtoupper((string) $sale->branch_id),
+            $overridePrice === null ? $discountId : null,
+        );
+
+        if ($overridePrice !== null) {
+            return $this->overridden($snapshot, $quote, $overridePrice);
+        }
+
         try {
-            $priced = $this->pricing->quoteLine(new LineQuote(
-                $productId,
-                $snapshot,
-                $this->business->instant(),
-                $businessDate,
-                strtoupper((string) $sale->currency),
-                $customerId,
-                $groupId,
-                strtoupper((string) $sale->branch_id),
-                $overridePrice === null ? $discountId : null,
-            ));
+            $priced = $this->pricing->quoteLine($quote);
+        } catch (PricingRefused $refused) {
+            throw SalesRefused::fromPricing($refused);
+        }
 
-            if ($overridePrice === null) {
-                return new PendingLine($this->quotedColumns($snapshot, $priced), $priced->discountId, null);
-            }
+        return new PendingLine($this->quotedColumns($snapshot, $priced), $priced->discountId, null);
+    }
 
-            $subtotal = Money::product($overridePrice, $snapshot->quantity);
+    /**
+     * A line at a price the caller fixes (AC-7; AC-27A, D-77): the engine is asked
+     * once, for the list price and the tax group only, and the unit price, the
+     * subtotal, the tax and the total are this line's own. Used by a sale line
+     * with an approved override and by a refund of one, so the two cannot differ.
+     * The tax is the engine's `computeTax()` as `TaxContext::Sale`, dated by the
+     * quote's `documentDate`, and no discount applies.
+     *
+     * @throws SalesRefused
+     */
+    public function overridden(UnitSnapshot $snapshot, LineQuote $quote, string $unitPrice): PendingLine
+    {
+        if (Money::isZero($snapshot->quantity)) {
+            throw SalesRefused::validation('The quantity rounds to zero in this unit.');
+        }
+
+        try {
+            $priced = $this->pricing->quoteLine($quote);
+
+            $subtotal = Money::product($unitPrice, $snapshot->quantity);
 
             if (! Money::fits($subtotal)) {
                 throw SalesRefused::outOfRange('The overridden line subtotal would not fit DECIMAL(18,4).');
             }
 
-            $tax = $this->pricing->computeTax(new TaxQuote($priced->taxGroupId, $subtotal, $snapshot->baseQuantity, $businessDate, TaxContext::Sale));
+            $tax = $this->pricing->computeTax(new TaxQuote($priced->taxGroupId, $subtotal, $snapshot->baseQuantity, $quote->documentDate, TaxContext::Sale));
             $lineTotal = Money::add($tax->net, $tax->total);
 
             if (! Money::fits($lineTotal)) {
@@ -164,7 +191,7 @@ final class LineWriter
             return new PendingLine(
                 array_merge($this->unitColumns($snapshot), [
                     'list_price' => $priced->listPrice,
-                    'unit_price' => $overridePrice,
+                    'unit_price' => $unitPrice,
                     'subtotal' => $subtotal,
                     'discount_id' => null,
                     'discount_percent' => null,
@@ -175,7 +202,7 @@ final class LineWriter
                     'line_total' => $lineTotal,
                 ]),
                 null,
-                ['product_id' => $productId, 'unit_id' => strtoupper($snapshot->unitId), 'unit_price' => $overridePrice],
+                ['product_id' => strtoupper($quote->productId), 'unit_id' => strtoupper($snapshot->unitId), 'unit_price' => $unitPrice],
             );
         } catch (PricingRefused $refused) {
             throw SalesRefused::fromPricing($refused);

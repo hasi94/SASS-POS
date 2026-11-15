@@ -1264,7 +1264,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 *Revision 5: chunk E builds from spec revision 6 (D-1 to D-77). Its developer does **step 20a first**: it corrects chunk D's `RefundSale`, and steps 22 and 23 depend on it. It is numbered 20a because it belongs with step 20, but it is chunk E's work, and steps 20 and 21 stay ticked.*
 
-- [ ] **Step 20a: refund an overridden line at the price charged** (`RefundSale` correction). *(AC-27A, with AC-47B and AC-12B rows on the corrected path; D-77, D-75, D-76; D-38 as amended.)*
+- [x] **Step 20a: refund an overridden line at the price charged** (`RefundSale` correction). *(AC-27A, with AC-47B and AC-12B rows on the corrected path; D-77, D-75, D-76; D-38 as amended.)*
   - **What is wrong as built (read at `9d86bf4`).** `RefundSaleHandler::price()` builds every referenced line the same way: `snapshotInherited()`, then a `LineQuote` anchored at the original sale (D-38), then `LineWriter::quoteSnapshot()`, which stores the engine's `unitPrice`. A line sold at an approved override (`LineWriter::price()`'s override branch, AC-7) stored the override as `unit_price` and set `price_overridden_by`, but the refund never reads either. So a line sold at 8.00 against a 10.00 list is refunded at 10.00, which pays back more than was charged.
   - **(1) `LineWriter`: extract the override branch.** It becomes one new public method:
 
@@ -1308,7 +1308,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - **Predicted red:** only the new rows, before the handler edit. Anything else red is a stop.
   - **Gate:** `composer check`, so that steps 22 onward start from green.
 
-- [ ] **Step 22: the cross-slice invariant sweep** (`SalesInvariantTest`). After a scripted day (open → three sales with split and credit tenders, **plus one fully discounted zero-total sale** (AC-14A), **plus one sale with an overridden line** (AC-7, with its `price_override` approval) → hold, recall elsewhere → void one → refund one → **refund the overridden line in part** (AC-27A) → close → reconcile), assert:
+- [x] **Step 22: the cross-slice invariant sweep** (`SalesInvariantTest`). After a scripted day (open → three sales with split and credit tenders, **plus one fully discounted zero-total sale** (AC-14A), **plus one sale with an overridden line** (AC-7, with its `price_override` approval) → hold, recall elsewhere → void one → refund one → **refund the overridden line in part** (AC-27A) → close → reconcile), assert:
   - the zero-total sale is numbered in sequence with the others and has exactly one audit row;
   - every completed sale's Σ tender `amount` = `total` (−`total` for a refund);
   - every void has an exact mirror;
@@ -1320,7 +1320,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - one **sales** audit row per sales write, plus exactly one **customers** audit row (`customers_credit_ledger_entry_recorded`) per ledger posting (R-20). The sales actions seen are a subset of `SalesAuditActions::ALL`, the 20 `ACTION` constants (`sales_sale_refunded`, `sales_sale_completed` and the rest, read at `9d86bf4`). The six read slices write none;
   - the shift's `expected_cash` equals a hand-checked figure, with the overridden refund's cash included.
   - *(The NFRs; AC-14, AC-21, AC-27A, AC-28, AC-12B.)*
-- [ ] **Step 23: `QaSalesSourceRulesTest` (host),** code-only via `SourceRules::codeOnly`.
+- [x] **Step 23: `QaSalesSourceRulesTest` (host),** code-only via `SourceRules::codeOnly`.
   - **AC-42 (a), D-48's token list:** no file under `packages/sales/src` contains `tax_rates`, `tax_group_taxes`, `price_list_items`, `price_list_assignments`, `is_inclusive`, `is_compound`, `unit_conversions`, `base_unit_id`, `customer_ledger`, `credit_balance`, `balance_after`, `number_sequences` or `used_count`. As built, these appear only in docblocks, for example `RefundSaleHandler`'s lock-order paragraph, so the scan must be code-only, or it goes red on the comments.
   - **AC-42 (b):** no `*`, `/`, `multipliedBy(` or `dividedBy(` in `packages/sales/src` outside `Support/Money.php` (Ruling 3).
   - **AC-27A, the static half (revision 5):** `Money::product(` is called from `Sales/LineWriter.php` only. That pins step 20a's reuse, so a refund path that copied the override arithmetic goes red.
@@ -1329,7 +1329,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - The package has no `routes/`, `Route::`, `Cache::` or `dispatch(`.
   - **Red-first:** planted files for each rule, then deleted.
   - *(AC-42, AC-27A, AC-15, AC-31.)*
-- [ ] **Step 24: `SalesSchemaEngineTest`** (database `flexipos_t8test_t030_tenant`, created and dropped by **exact name** through `EngineDatabase`, never with `LIKE`). Under `ENGINE_HOLD`, only the refusal case runs. Written for G-1:
+- [x] **Step 24: `SalesSchemaEngineTest`** (database `flexipos_t8test_t030_tenant`, created and dropped by **exact name** through `EngineDatabase`, never with `LIKE`). Under `ENGINE_HOLD`, only the refusal case runs. Written for G-1:
   - the `information_schema` decimals equal the precision map;
   - `open_terminal_key` refuses on MySQL;
   - `JsonValidity`;
@@ -1340,7 +1340,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - two completions consuming discounts {A, B} on two connections both succeed, with no deadlock (ascending order, R-5);
   - migrating twice is a no-op.
   - *(The `[ENGINE]` halves.)*
-- [ ] **Step 25: documents.** Describe the old wording; never quote it (memory note).
+- [x] **Step 25: documents.** Describe the old wording; never quote it (memory note).
   - `docs/database.md` §6.7/§6.8 "As built (T-030)":
     - F-8's unbuilt columns;
     - F-18's three additions;
@@ -1353,7 +1353,15 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - §6.7: Ruling 7's lock order, as the order every future writer of these tables must keep (FP-234 takes the stock slot). §6.9 "As built (T-028)": `loyalty_transactions.sale_id` is now built.
   - `docs/architecture.md` §3: the Sales row points at `packages/sales`.
   - The follow-ups below go to `lead`.
-- [ ] **Step 26: final gate.** `composer check` from `modules/host`, with counts and `test` seconds compared against step 0, then `composer test:fast` once. If a chunk added more than 10 % to the `test` step, stop and report to `lead` (FP-328).
+- [x] **Step 26: final gate.** `composer check` from `modules/host`, with counts and `test` seconds compared against step 0, then `composer test:fast` once. If a chunk added more than 10 % to the `test` step, stop and report to `lead` (FP-328).
+
+### As built (chunk E)
+
+- **Step 20a** is built as written. `LineWriter::overridden()` is the extracted override branch and `price()` calls it; `RefundSaleHandler::price()` branches per line on `price_overridden_by`, checks the unit first (`inherited_unit_mismatch` with cause `UnitRefusal::InheritedUnitMismatch`, the message naming both units), and passes a null discount for an overridden line. Rows (a) to (k) are in `RefundSaleTest` under `describe('an overridden line (AC-27A; D-77)')`, with helpers `rfoWorld`, `rfoSale` and `rfoLines`; the built AC-47B row became the three-fact dataset. Before the handler edit 13 of the 15 rows were red and the two that passed (k and the third unit of e) were refused by code that already existed. M12 reddened 13 of 15, M13 one (row d), M14 one (row e, the stock-unit dataset row); each was restored byte for byte.
+- **`overridden()` repeats the zero-quantity check** `quoteSnapshot()` makes, as the plan says, so `price()` keeps its own (it runs before the group read) and the extracted method is safe for a caller that has not checked.
+- **Step 22** is `packages/sales/tests/Invariants/SalesInvariantTest.php`, one test over a scripted day built through the real slices. The void in the day is of a part-paid `pending_payment` sale, so no void approval is consumed and the consumed set is exactly the override, the two refund approvals. A credit-tender void (`credit_note`) is covered by `VoidSaleTest`, not by the sweep.
+- **Step 23** is `modules/host/tests/Feature/QaSalesSourceRulesTest.php`. The arithmetic rule reads tokens, not text, so a `/` inside a string is not an operator. The anti-vacuity row proves Sales is enumerated by the factor and AC-25 scans' directory walk and that neither of their test files names a Sales path.
+- **Step 24** is `modules/host/tests/Engine/SalesSchemaEngineTest.php`: seven cases skipped under the hold and one that runs. **NOT VERIFIED on a real engine.** The lock cases are single-process and non-blocking, on rows and on the real `DocumentNumbers`. **The sibling row that runs two `CompleteSale` calls on two connections is not built**: every seed helper of this package reads the SQLite fixture connection, so the rows a handler call needs would have been written blind for a case that cannot run. That leaves chunk B's NOT VERIFIED item for the `transaction(..., 2)` retry without engine evidence.
 
 ## Test strategy
 

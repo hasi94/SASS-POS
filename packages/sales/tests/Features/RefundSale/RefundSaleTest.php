@@ -5,12 +5,16 @@ declare(strict_types=1);
 namespace Flexipos\Sales\Tests\Features\RefundSale;
 
 use Flexipos\Access\Tests\Support\AccessTenantFixture;
+use Flexipos\Contracts\Catalog\UnitRefusal;
 use Flexipos\Contracts\Customers\CreditLedgerEntry;
 use Flexipos\Contracts\Customers\CreditLedgerPosting;
 use Flexipos\Contracts\Customers\CreditRefusal;
 use Flexipos\Contracts\Customers\CustomerCreditLedger;
 use Flexipos\Contracts\Organization\DocumentNumbersRefusal;
+use Flexipos\Contracts\Pricing\PricingEngine;
 use Flexipos\Contracts\Pricing\PricingRefusal;
+use Flexipos\Contracts\Pricing\TaxContext;
+use Flexipos\Contracts\Pricing\TaxQuote;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Flexipos\Pricing\Tests\Support\PricingSeed;
 use Flexipos\Sales\Exceptions\SalesRefusal;
@@ -23,6 +27,7 @@ use Flexipos\Sales\Features\CompleteSale\CompleteSaleHandler;
 use Flexipos\Sales\Features\RefundSale\RefundSale;
 use Flexipos\Sales\Features\RefundSale\RefundSaleHandler;
 use Flexipos\Sales\Features\RefundSale\RefundSaleResult;
+use Flexipos\Sales\Support\Money;
 use Flexipos\Sales\Tests\Support\DeadlockingNumbers;
 use Flexipos\Sales\Tests\Support\LockMarkingGrammar;
 use Flexipos\Sales\Tests\Support\SalesQueryLog;
@@ -39,6 +44,7 @@ use Tests\TestCase;
 | T-030 step 20 - RefundSale
 |     (AC-25 to AC-31, AC-12A, AC-24A, AC-47A, AC-48, AC-50, AC-53, AC-54, AC-57; D-32, D-38, D-43,
 |      D-47, D-55, D-58, D-63, D-64, D-71 to D-73; R-1, R-4, R-5, R-8, R-10)
+|  step 20a - an overridden line is refunded at the price charged (AC-27A, AC-47B, AC-12B; D-75 to D-77)
 |--------------------------------------------------------------------------
 |
 | Against the real pricing engine, unit resolver, discount usage, credit ledger and
@@ -850,15 +856,19 @@ describe('the sellability exemption (AC-47A; D-57, D-73)', function () {
         'not sellable' => [['is_sellable' => false]],
     ]);
 
-    it('accepts a referenced line for a product deactivated since the sale', function () {
+    it('accepts a referenced line for a product that is inactive, unsellable or a variant parent since the sale (AC-47B, D-75)', function (array $fact) {
         $w = rfWorld();
         $original = rfSale($w);
-        SalesSeed::connection()->table('products')->where('id', $w['product'])->update(['is_active' => false, 'is_sellable' => false]);
+        SalesSeed::connection()->table('products')->where('id', $w['product'])->update($fact);
 
         $result = rfRefund($w, rfFields($w, $original, [[0, 'unit', '1']], rfApproval($w, $original['sale']), [['cash', '110']]));
 
         expect($result->total)->toBe('110.0000');
-    });
+    })->with([
+        'inactive' => [['is_active' => false]],
+        'not sellable' => [['is_sellable' => false]],
+        'a variant parent' => [['type' => 'variant_parent']],
+    ]);
 });
 
 describe('the engine\'s live-state refusals pass through (R-1, AC-53; the default for owner question Q-1)', function () {
@@ -1098,4 +1108,276 @@ it('refuses a bad request: unknown fields, ids, no lines, a mixed line, no termi
     expect(SalesSeed::connection()->table('sales')->where('type', 'refund')->count())->toBe(0)
         ->and(SalesSeed::row('approval_requests', $approval)['consumed_at'])->toBeNull()
         ->and(count(rfState()['audit']))->toBe(count($before['audit']));
+});
+
+/**
+ * A till; a 10.0000 product (price override allowed) on a 10 percent tax group; a case of 24; a pack of 6;
+ * and one method of each kind. The group is exclusive unless `$inclusive`.
+ *
+ * @return array<string, mixed>
+ */
+function rfoWorld(bool $inclusive = false): array
+{
+    $till = SalesWorld::till();
+    $group = SalesWorld::taxGroup('TX10', '10.0000', $inclusive);
+    $catalogue = SalesWorld::product('P1', '10.0000', $group, ['allow_price_override' => true]);
+    $case = PricingSeed::unit('CASE');
+    SalesWorld::conversion($case, $catalogue['unit'], '24.000000');
+    $pack = PricingSeed::unit('PACK');
+    SalesWorld::conversion($pack, $catalogue['unit'], '6.000000');
+
+    return [
+        'till' => $till,
+        'product' => $catalogue['product'],
+        'unit' => $catalogue['unit'],
+        'case' => $case,
+        'pack' => $pack,
+        'group' => $group,
+        'cash' => SalesSeed::paymentMethod('CASH', ['type' => 'cash', 'allows_change' => true]),
+        'card' => SalesSeed::paymentMethod('CARD', ['type' => 'card']),
+        'manager' => SalesSeed::employee('manager'),
+    ];
+}
+
+/**
+ * A completed sale whose lines are `[unit key, quantity, ?override price]`; an override line is added through
+ * `AddSaleLine` with a decided `price_override` approval, as `SaleLineApprovalsTest` seeds one. It is paid in cash.
+ *
+ * @param  array<string, mixed>  $w
+ * @param  list<array{0: string, 1: string, 2?: string|null}>  $lines
+ * @return array{sale: string, items: list<string>, total: string, approvals: list<string>}
+ */
+function rfoSale(array $w, array $lines): array
+{
+    $sale = SalesWorld::sale($w['till']);
+    $approvals = [];
+
+    foreach ($lines as $line) {
+        $fields = ['sale_id' => $sale, 'product_id' => $w['product'], 'unit_id' => $w[$line[0]], 'quantity' => $line[1]];
+
+        if (($line[2] ?? null) !== null) {
+            $approval = SalesSeed::approval($w['till']['branch'], $w['till']['cashier'], [
+                'type' => 'price_override',
+                'reference_type' => 'sale',
+                'reference_id' => $sale,
+                'payload' => json_encode(['product_id' => $w['product'], 'unit_id' => $w[$line[0]], 'unit_price' => $line[2]]),
+                'status' => 'approved',
+                'decided_by' => $w['manager'],
+                'decided_at' => SalesSeed::NOW,
+                'decision_method' => 'pin_local',
+            ]);
+            $fields['unit_price'] = $line[2];
+            $fields['approval_id'] = $approval;
+            $approvals[] = $approval;
+        }
+
+        app(AddSaleLineHandler::class)->handle(new AddSaleLine($fields, $w['till']['cashier']));
+    }
+
+    $total = (string) SalesSeed::row('sales', $sale)['total'];
+
+    app(AddTenderHandler::class)->handle(new AddTender(['id' => (string) Str::ulid(), 'sale_id' => $sale, 'payment_method_id' => $w['cash'], 'offered' => $total], $w['till']['cashier']));
+    app(CompleteSaleHandler::class)->handle(new CompleteSale(['sale_id' => $sale], $w['till']['cashier']));
+
+    $items = SalesSeed::connection()->table('sale_items')->where('sale_id', $sale)->orderBy('line_no')->pluck('id')->all();
+
+    return ['sale' => $sale, 'items' => $items, 'total' => $total, 'approvals' => $approvals];
+}
+
+/**
+ * The refund's lines, in order.
+ *
+ * @return list<array<string, mixed>>
+ */
+function rfoLines(string $refundId): array
+{
+    return SalesSeed::connection()->table('sale_items')->where('sale_id', $refundId)->orderBy('line_no')->get()->map(fn ($r): array => (array) $r)->values()->all();
+}
+
+describe('an overridden line (AC-27A; D-77)', function () {
+    it('(a) refunds the whole line at the price charged, taxed exactly as the original was, with no discount and no override marker', function () {
+        $w = rfoWorld();
+        $original = rfoSale($w, [['unit', '3', '8.0000']]);
+
+        $result = rfRefund($w, rfFields($w, $original, [[0, 'unit', '3']], rfApproval($w, $original['sale']), [['cash', '26.4']]));
+
+        [$line] = rfoLines($result->refundId);
+        $first = SalesSeed::row('sale_items', $original['items'][0]);
+
+        expect($line['unit_price'])->toEqual('8.0000')
+            ->and($line['list_price'])->toEqual('10.0000')
+            ->and($line['subtotal'])->toEqual('24.0000')
+            ->and($line['tax_amount'])->toEqual('2.4000')
+            ->and($line['line_total'])->toEqual('26.4000')
+            ->and($line['discount_id'])->toBeNull()
+            ->and($line['discount_percent'])->toBeNull()
+            ->and($line['discount_amount'])->toEqual('0.0000')
+            ->and($line['price_overridden_by'])->toBeNull()
+            ->and($line['tax_amount'])->toBe($first['tax_amount'])
+            ->and($line['tax_breakdown'])->toBe($first['tax_breakdown'])
+            ->and($line['line_total'])->toBe($first['line_total'])
+            ->and(SalesSeed::connection()->table('sale_tenders')->where('sale_id', $result->refundId)->value('amount'))->toEqual('-26.4000')
+            ->and(SalesSeed::row('sales', $original['sale'])['status'])->toBe('refunded');
+    });
+
+    it('(b) refunds it in two parts, each at the price charged, and the parts sum to what was charged', function () {
+        $w = rfoWorld();
+        $original = rfoSale($w, [['unit', '3', '8.0000']]);
+
+        $one = rfRefund($w, rfFields($w, $original, [[0, 'unit', '1']], rfApproval($w, $original['sale']), [['cash', '8.8']]));
+
+        expect(SalesSeed::row('sales', $original['sale'])['status'])->toBe('partially_refunded');
+
+        $two = rfRefund($w, rfFields($w, $original, [[0, 'unit', '2']], rfApproval($w, $original['sale']), [['cash', '17.6']]));
+
+        [$a] = rfoLines($one->refundId);
+        [$b] = rfoLines($two->refundId);
+
+        expect($a['unit_price'])->toEqual('8.0000')->and($a['subtotal'])->toEqual('8.0000')->and($a['line_total'])->toEqual('8.8000')
+            ->and($b['unit_price'])->toEqual('8.0000')->and($b['subtotal'])->toEqual('16.0000')->and($b['line_total'])->toEqual('17.6000')
+            ->and(SalesSeed::row('sales', $original['sale'])['status'])->toBe('refunded')
+            ->and(Money::add(Money::of($a['line_total']), Money::of($b['line_total'])))->toBe(Money::of(SalesSeed::row('sale_items', $original['items'][0])['line_total']));
+    });
+
+    it('(c) takes the tax of an inclusive group from the engine\'s computeTax on the price charged, without branching on inclusivity', function () {
+        $w = rfoWorld(true);
+        $original = rfoSale($w, [['unit', '3', '8.0000']]);
+        $first = SalesSeed::row('sale_items', $original['items'][0]);
+        $date = substr((string) SalesSeed::row('sales', $original['sale'])['business_date'], 0, 10);
+
+        $result = rfRefund($w, rfFields($w, $original, [[0, 'unit', '3']], rfApproval($w, $original['sale']), [['cash', '24']]));
+
+        [$line] = rfoLines($result->refundId);
+        $tax = app(PricingEngine::class)->computeTax(new TaxQuote($w['group'], '24.0000', '3.0000', $date, TaxContext::Sale));
+
+        expect($line['subtotal'])->toEqual('24.0000')
+            ->and($line['line_total'])->toEqual('24.0000')
+            ->and($line['tax_amount'])->toBe($first['tax_amount'])
+            ->and($line['tax_breakdown'])->toBe($first['tax_breakdown'])
+            ->and($line['tax_amount'])->toEqual($tax->total)
+            ->and($line['tax_breakdown'])->toBe(json_encode($tax->toArray()));
+    });
+
+    it('(d) taxes it at the rate in force on the original sale\'s business date, never today\'s', function () {
+        $w = rfoWorld();
+        $original = rfoSale($w, [['unit', '3', '8.0000']]);
+
+        // The sale is moved to an earlier day; a dearer rate takes effect after that day and before today.
+        SalesSeed::connection()->table('sales')->where('id', $original['sale'])->update(['business_date' => '2026-11-10', 'completed_at' => '2026-11-10 09:00:00.000']);
+        $taxId = (string) SalesSeed::connection()->table('tax_group_taxes')->where('tax_group_id', $w['group'])->value('tax_id');
+        SalesSeed::connection()->table('tax_rates')->where('tax_id', $taxId)->update(['effective_to' => '2026-11-11']);
+        PricingSeed::rate($taxId, '20.0000', '2026-11-11');
+
+        $result = rfRefund($w, rfFields($w, $original, [[0, 'unit', '1']], rfApproval($w, $original['sale']), [['cash', '8.8']]));
+
+        [$line] = rfoLines($result->refundId);
+
+        expect($line['tax_amount'])->toEqual('0.8000')->and($line['line_total'])->toEqual('8.8000');
+    });
+
+    it('(e) refuses the stock unit and a third unit as inherited_unit_mismatch, naming both units, and writes nothing; the case itself is accepted', function (string $unit, string $quantity) {
+        $w = rfoWorld();
+        $original = rfoSale($w, [['case', '1', '200.0000']]);
+        $approval = rfApproval($w, $original['sale']);
+        $before = rfState();
+
+        $refused = SalesRefusals::expect(SalesRefusal::InheritedUnitMismatch, fn () => rfRefund($w, rfFields($w, $original, [[0, $unit, $quantity]], $approval, [['cash', '220']])));
+
+        expect($refused->cause)->toBe(UnitRefusal::InheritedUnitMismatch)
+            ->and($refused->getMessage())->toContain(strtoupper($w['case']))->toContain(strtoupper($w[$unit]))
+            ->and(rfState())->toBe($before)
+            ->and(rfRefunds())->toBe([])
+            ->and(SalesSeed::row('approval_requests', $approval)['consumed_at'])->toBeNull()
+            ->and(SalesSeed::row('sale_items', $original['items'][0])['refunded_quantity'])->toEqual('0.0000');
+
+        $result = rfRefund($w, rfFields($w, $original, [[0, 'case', '1']], $approval, [['cash', '220']]));
+
+        [$line] = rfoLines($result->refundId);
+
+        expect($line['unit_price'])->toEqual('200.0000')->and($line['base_quantity'])->toEqual('24.0000')->and($line['unit_factor'])->toEqual('24.000000');
+    })->with([
+        'the stock unit' => ['unit', '24'],
+        'a third unit' => ['pack', '4'],
+    ]);
+
+    it('(f) decides per line: an overridden line at its price and a line at list in the same sale at the engine\'s', function () {
+        $w = rfoWorld();
+        $original = rfoSale($w, [['unit', '3', '8.0000'], ['unit', '2']]);
+
+        $result = rfRefund($w, rfFields($w, $original, [[0, 'unit', '3'], [1, 'unit', '2']], rfApproval($w, $original['sale']), [['cash', $original['total']]]));
+
+        [$a, $b] = rfoLines($result->refundId);
+
+        expect($a['unit_price'])->toEqual('8.0000')->and($b['unit_price'])->toEqual('10.0000')->and($b['line_total'])->toEqual('22.0000')
+            ->and($result->total)->toBe('48.4000');
+    });
+
+    it('(g) refunds at the price charged after the product stopped allowing overrides, and never raises price_override_not_allowed', function () {
+        $w = rfoWorld();
+        $original = rfoSale($w, [['unit', '3', '8.0000']]);
+        SalesSeed::connection()->table('products')->where('id', $w['product'])->update(['allow_price_override' => false]);
+
+        $result = rfRefund($w, rfFields($w, $original, [[0, 'unit', '3']], rfApproval($w, $original['sale']), [['cash', '26.4']]));
+
+        expect(rfoLines($result->refundId)[0]['unit_price'])->toEqual('8.0000');
+    });
+
+    it('(h) consumes only the refund\'s own approval and creates none', function () {
+        $w = rfoWorld();
+        $original = rfoSale($w, [['unit', '3', '8.0000']]);
+        $approval = rfApproval($w, $original['sale']);
+        $consumed = fn (): int => SalesSeed::connection()->table('approval_requests')->whereNotNull('consumed_at')->count();
+        $rows = SalesSeed::connection()->table('approval_requests')->count();
+        $overrideBefore = SalesSeed::row('approval_requests', $original['approvals'][0])['consumed_at'];
+        $consumedBefore = $consumed();
+
+        rfRefund($w, rfFields($w, $original, [[0, 'unit', '3']], $approval, [['cash', '26.4']]));
+
+        expect($consumed())->toBe($consumedBefore + 1)
+            ->and(SalesSeed::row('approval_requests', $approval)['consumed_at'])->not->toBeNull()
+            ->and(SalesSeed::row('approval_requests', $original['approvals'][0])['consumed_at'])->toBe($overrideBefore)
+            ->and(SalesSeed::connection()->table('approval_requests')->count())->toBe($rows);
+    });
+
+    it('(i) accepts it whatever the product has become since the sale: inactive, unsellable or a variant parent (AC-47B)', function (array $fact) {
+        $w = rfoWorld();
+        $original = rfoSale($w, [['unit', '3', '8.0000']]);
+        SalesSeed::connection()->table('products')->where('id', $w['product'])->update($fact);
+
+        $result = rfRefund($w, rfFields($w, $original, [[0, 'unit', '3']], rfApproval($w, $original['sale']), [['cash', '26.4']]));
+
+        expect(rfoLines($result->refundId)[0]['unit_price'])->toEqual('8.0000');
+    })->with([
+        'inactive' => [['is_active' => false]],
+        'not sellable' => [['is_sellable' => false]],
+        'a variant parent' => [['type' => 'variant_parent']],
+    ]);
+
+    it('(j) pays out exactly what is owed and gives no change on a method that gives change on a sale (AC-12B)', function () {
+        $w = rfoWorld();
+        $original = rfoSale($w, [['unit', '3', '8.0000']]);
+        $approval = rfApproval($w, $original['sale']);
+        $before = rfState();
+
+        SalesRefusals::expect(SalesRefusal::ExceedsBalance, fn () => rfRefund($w, rfFields($w, $original, [[0, 'unit', '3']], $approval, [['cash', '30']])));
+
+        expect(rfState())->toBe($before);
+
+        $result = rfRefund($w, rfFields($w, $original, [[0, 'unit', '3']], $approval, [['cash', '26.4']]));
+        $tender = SalesSeed::connection()->table('sale_tenders')->where('sale_id', $result->refundId)->first();
+
+        expect($tender->amount)->toEqual('-26.4000')->and($tender->tendered)->toBeNull()->and($tender->change_given)->toEqual('0.0000');
+    });
+
+    it('(k) passes the engine\'s refusal for a soft-deleted product through, and writes nothing (AC-53; the default until Q-1 is ruled)', function () {
+        $w = rfoWorld();
+        $original = rfoSale($w, [['unit', '3', '8.0000']]);
+        SalesSeed::connection()->table('products')->where('id', $w['product'])->update(['deleted_at' => SalesSeed::NOW]);
+        $approval = rfApproval($w, $original['sale']);
+        $before = rfState();
+
+        $refused = SalesRefusals::expect(SalesRefusal::PricingRefused, fn () => rfRefund($w, rfFields($w, $original, [[0, 'unit', '3']], $approval, [['cash', '26.4']])));
+
+        expect($refused->cause)->toBe(PricingRefusal::UnknownProduct)->and(rfState())->toBe($before);
+    });
 });

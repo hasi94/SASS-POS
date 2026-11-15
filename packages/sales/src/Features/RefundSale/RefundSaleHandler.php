@@ -41,8 +41,8 @@ use LogicException;
 
 /**
  * Refund a sale, or give goodwill with no original sale (T-030 AC-25 to AC-31,
- * AC-12A, AC-24A, AC-47A, AC-48, AC-50, AC-53, AC-54, AC-57; D-17 to D-19, D-32,
- * D-38, D-43, D-47, D-55, D-58, D-63, D-64, D-66, D-71 to D-73; Ruling 7).
+ * AC-12A, AC-12B, AC-24A, AC-27A, AC-47A, AC-47B, AC-48, AC-50, AC-53, AC-54, AC-57; D-17 to D-19, D-32,
+ * D-38, D-43, D-47, D-55, D-58, D-63, D-64, D-66, D-71 to D-73, D-75 to D-77; Ruling 7).
  *
  * **A refund is its own document**, never a negative sale: a `sales` row of
  * `type = refund`, numbered from the `refund` sequence, with its own lines, which
@@ -58,7 +58,12 @@ use LogicException;
  * (AC-26), and it is quoted by the engine at the original sale's `completed_at`,
  * `business_date` and the original line's discount (D-38, F-13): the engine's
  * input instant is anchored, not its method, so a smaller quantity can land on a
- * different price-list step. **A goodwill refund** names no sale: each line names a
+ * different price-list step. **A line sold at an approved price override is not
+ * re-quoted** (AC-27A, D-77): it is refunded at its stored `unit_price`, in its own
+ * unit only (`inherited_unit_mismatch` otherwise, the stock unit included), through
+ * `LineWriter::overridden()`, which taxes it as a sale at the original
+ * `business_date`. No override approval is consumed and the product's current
+ * `allow_price_override` is never read. **A goodwill refund** names no sale: each line names a
  * product, is snapshotted by the ordinary ladder and quoted at the refund's own
  * instant, and takes an optional, live customer.
  *
@@ -67,14 +72,14 @@ use LogicException;
  * a product with `allow_discount` off or deleted, is refused under the engine's own
  * reason and nothing is written. Ruling Q-1 the other way means changing this
  * slice's quote step, and the dataset rows in its test that name each reason.
- * **The sellability check (AC-47) is never made here** (AC-47A, D-73): a returned
- * item may no longer be on sale.
+ * **The sellability check (AC-47) is never made here** (AC-47A, AC-47B, D-73,
+ * D-75): a returned item may no longer be on sale, whatever its original line.
  *
  * **A refund pays out, never gives change.** Each tender goes through
  * {@see TenderRules::decide()} with `$refund = true`: the method row is read under
  * a shared lock (so `allows_refund = false` is `unsupported_method_type`, AC-12A),
  * `offered` is the payout and the balance is what is still owed back, both
- * magnitudes. A credit tender posts a `refund` ledger entry keyed on the refund
+ * magnitudes (AC-12B, D-76: a refund tender gives no change, so an offer above what is owed is `exceeds_balance`). A credit tender posts a `refund` ledger entry keyed on the refund
  * tender's own id (F-4); a posting reported as replayed is refused (R-4, D-66).
  *
  * **The approval is the replay guard.** A retry after success finds its approval
@@ -505,6 +510,15 @@ final class RefundSaleHandler
                     'brand_id' => $item->brand_id,
                 ];
 
+                // AC-27A, D-77: a line sold at an approved override is refunded at that price, in its own unit only.
+                $overridden = $item->price_overridden_by !== null;
+
+                if ($overridden && strtoupper((string) $item->unit_id) !== $input['unit']) {
+                    throw SalesRefused::fromUnit(UnitResolutionRefused::inheritedUnitMismatch(
+                        "Line [{$input['item']}] was sold in unit [".strtoupper((string) $item->unit_id)."] at an overridden price and is refunded in that unit, not [{$input['unit']}].",
+                    ));
+                }
+
                 $snapshot = $this->inherited($productId, $item, $input['unit'], $input['quantity']);
 
                 $customerRef = $original->customer_id === null ? null : strtoupper((string) $original->customer_id);
@@ -518,9 +532,10 @@ final class RefundSaleHandler
                     $customerRef,
                     $this->groupOf($connection, $customerRef),
                     strtoupper((string) $original->branch_id),
-                    $item->discount_id === null ? null : strtoupper((string) $item->discount_id),
+                    $overridden || $item->discount_id === null ? null : strtoupper((string) $item->discount_id),
                 );
 
+                $line = $overridden ? $this->lines->overridden($snapshot, $quote, Money::of($item->unit_price)) : $this->lines->quoteSnapshot($snapshot, $quote);
                 $itemId = (string) $input['item'];
             } else {
                 $product = $this->lines->product($connection, (string) $input['product']);
@@ -546,10 +561,11 @@ final class RefundSaleHandler
                     null,
                 );
 
+                $line = $this->lines->quoteSnapshot($snapshot, $quote);
                 $itemId = null;
             }
 
-            $pending[] = ['line' => $this->lines->quoteSnapshot($snapshot, $quote), 'product' => $product, 'item' => $itemId, 'base' => Money::of($snapshot->baseQuantity)];
+            $pending[] = ['line' => $line, 'product' => $product, 'item' => $itemId, 'base' => Money::of($snapshot->baseQuantity)];
         }
 
         return $pending;

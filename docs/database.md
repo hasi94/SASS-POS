@@ -427,6 +427,8 @@ erDiagram
 | custom_field_definitions | `[ID]` `[TS]` `[SOFT]`, entity_type enum(product, customer, supplier, sale, purchase_order, order, employee, expense), key, label, type enum(text, number, date, boolean, dropdown, multi_select, currency, barcode), options JSON, is_required, default_value JSON, validation JSON, is_indexed, show_in_pos, sort_order, plugin_name NULL; unique (entity_type, key) |
 | number_sequences | `[ID]`, branch_id FK NULL, document_type enum(sale, refund, quotation, sales_order, purchase_request, purchase_order, grn, purchase_return, supplier_invoice, supplier_payment, customer_payment, stock_adjustment, stock_transfer, stock_count, **stock_production**, expense, journal_entry, payslip, commission_payout), prefix, next_number BIGINT, padding TINYINT, suffix, reset_period enum(never, yearly, monthly, daily), last_reset_at, `[TS]`; unique (branch_id, document_type). Allocated with `UPDATE … SET next_number = LAST_INSERT_ID(next_number + 1)` inside the document transaction |
 
+**As built (T-030, F-6, R-27).** `DocumentNumbers` (`next(documentType, ?branchId)`, published in `Contracts\Organization` and implemented in `packages/organization`) is the one allocator of document numbers, called inside the caller's transaction. It takes the branch's own sequence row when there is one and otherwise the company-wide row, each read `FOR UPDATE`; when neither exists it inserts a company-wide default, and a caller that loses the race on the unique key reads the winner's row under a lock and carries on, so two first uses get distinct numbers. The allocation is a portable lock-and-increment, which replaces the MySQL-only `LAST_INSERT_ID` allocation the table's original description and the `number_sequences` migration's docblock give: the suite runs on SQLite too. The defaults are `sale` with prefix `S`, `refund` with prefix `R` and `cash_shift` with prefix `SH`, each padded to six digits with no suffix and `reset_period = never`; the prefixes differ because `sales.number` is unique across sales and refunds. `cash_shift` is a new `document_type` value, which is not a schema change, since the column is a VARCHAR(30) with an application enum. A `reset_period` other than `never` is refused (`unsupported_reset_period`), and nothing can create such a row today. The offline per-terminal allocation described in section 12 is not built. `number_sequences` is always the last row a transaction locks (see "As built (T-030)" in section 6.7).
+
 ### 6.2 Access control
 
 | Table | Columns / notes |
@@ -586,6 +588,8 @@ joined by `/`; the 18th ancestor would push a row past 500 characters, so depth 
 category a create or a move may produce, refused by name rather than silently truncated.
 
 **`modifier_groups.max_select`'s "unlimited" is stored as `NULL`**, not a sentinel integer.
+
+**`UnitResolver::snapshotInherited()` (T-030).** A refund line must not re-walk the ladder, because `unit_conversions` may have changed since the sale. The method takes the original line's unit and its stored factor and returns a snapshot in the unit the refund names: the same unit inherits the original factor, so one case still returns the 24 units it was sold as, and the product's stock unit is a factor of exactly 1. A third unit is refused `inherited_unit_mismatch`. It reads no conversion row. A stored factor read back from a `DECIMAL(18,6)` column is canonicalised to six decimals before it is passed in, because the SQLite stand-in hands it back as a number and MySQL as a string.
 
 ### 6.4 Pricing and tax
 
@@ -1263,6 +1267,51 @@ erDiagram
 
 Split bill: several `sales` sharing `order_id` and `split_group`. Merge: source order `merged`, items re-added referencing the source item in `modifiers.meta`, originals voided with reason `merged`. Exchange (closes G-10): one `sales` row of `type = exchange` with negative lines for the returned goods and positive lines for the replacements, so stock and the ledger both move once.
 
+#### As built (T-030)
+
+T-030 is the first implementation of this section's till: eight tenant tables (migrations `…003001` to `…003008`, in the order `payment_methods`, `cash_shifts`, `cash_movements`, `approval_requests`, `sales`, `sale_items`, `sale_tenders`, `sale_holds`), the `loyalty_transactions.sale_id` pair (expand `…003009`, contract `…003010`), and 26 slices under `packages/sales`, none of which has an HTTP route yet. The till (FP-236) and the API task own the routes. Every decimal is `DECIMAL(18,4)`, `payment_methods.surcharge_percent` is `(9,4)`, and every id and status column follows the §3 shapes.
+
+**Documented columns that are not built.** `sales.ar_document_id`, `sales.sales_order_id`, `sales.order_id`, `sales.journal_entry_id`, `cash_shifts.journal_entry_id`, `cash_movements.financial_account_id`, `sale_tenders.gateway_transaction_id` and `payment_id`, `payment_methods.financial_account_id`, `gateway` and `settings`, `sale_items.batch_id`, `serial_id` and `kitchen_station_id`, and every `[CF]` `custom_fields` column are not built, because their target tables do not exist. A command naming one is refused as an unknown field. Each owning task owes an expand migration for the column and a separate contract migration for its key, the T-027 to T-029 precedent. `sales.stock_applied` is built and stays false: this task applies no stock and posts no journal.
+
+**Three additions the design above does not show.**
+
+- `sale_holds` records every hold and recall: the sale, the action, the status it moved from and to, the terminal and the employee, and the instant. A recall moves the sale back to the status the hold recorded.
+- `approval_requests.consumed_at` is what makes an approval single-use. A write consumes an approval inside its own transaction, under a lock, and a second write on the same approval is refused.
+- `sale_items.subtotal` holds the line amount before the discount, so that a sale's header figures are a plain sum of its lines and never branch on whether a tax group is inclusive.
+
+`cash_shifts.open_terminal_key` is a stored generated column holding the terminal id while the shift is `open` and null otherwise, with a unique index: it is the engine-level backstop for one open shift per terminal, the `product_barcodes.primary_product_id` shape. The three JSON columns (`cash_shifts.totals_by_method`, `approval_requests.payload`, `sale_items.tax_breakdown` and `modifiers`) carry a validity check on MySQL.
+
+**What an approval is bound to.** An approval is consumed only when its type, its branch, its reference and, where the type has one, its payload all match the write.
+
+| Type | Branch | Reference | Payload |
+|---|---|---|---|
+| `void` | the sale's branch | the sale | none |
+| `refund` | the refund's branch, which is the refunding terminal's | the original sale, or a goodwill reference with no sale | none |
+| `price_override` | the sale's branch | the sale | the product, the unit and the unit price |
+| `discount` | the sale's branch | the sale | the discount |
+
+An approval granted at one branch cannot be consumed by a write at another. A refund approval carries no amount ceiling. The deciding employee must hold `sales.approvals.decide` at the branch, and a PIN alone proves who is deciding, not that they may. `sales.shifts.reconcile` is the second permission key, checked the same way.
+
+**The sale state machine.** `draft` becomes `pending_payment` on the first tender and goes back when the last tender is removed. `draft` and `pending_payment` become `held` on a hold, recording where they came from, and a recall restores that status. A `pending_payment` sale completes, and so does a `draft` with a total of `0.0000` and at least one line, with no tender. A `draft`, `held` or `pending_payment` sale voids without approval. A `completed` sale voids only with a decided approval and only while its own shift is still open. A `completed` or `partially_refunded` sale takes a referenced refund, which leaves it `partially_refunded` or `refunded`. `voided` and `refunded` are terminal. `failed` and `exchange` are reserved and unreachable.
+
+**Sign conventions.**
+
+- A refund is its own document: a `sales` row of `type = refund` with its own lines. Its line quantities and money are positive, because the pricing engine's inputs are unsigned and the type carries the direction, and its header is unsigned too, so `paid_total` equals `total`. Its tenders are negative and sum to minus its total.
+- A sale's tenders sum to its total. A voided sale is not edited: each tender gets one negative mirror, so the pair sums to nothing and the original rows are byte-identical afterwards.
+- **A refund tender gives no change** (AC-12B, D-76): it is paid out as the exact amount owed, `tendered` is null and `change_given` is `0.0000`, and an offer above what is owed is refused `exceeds_balance` whatever the method's `allows_change` says. A refund onto a method with `allows_refund = false` is refused and nothing is written.
+- A cash movement's `amount` is always positive. `cash_in` and `float_in` add to the drawer, and `cash_out`, `float_out`, `drop`, `petty_cash` and `bank_deposit` subtract. `expected_cash` is the opening cash, plus the signed cash tenders of the shift's completed and refund documents, plus the signed movements. `totals_by_method` sums the signed `amount` per method code, not `tendered`, because `tendered` includes change that went back out of the drawer.
+
+**The ledger keys.** A credit tender posts to `customer_ledger` with `reference_type = 'sale_tender'` and the **tender's** id as `reference_id`, so one credit tender is one ledger row and the unique key is a true replay guard. A completion posts a `credit_sale` per credit tender, inside its own transaction: nothing is posted while a sale is only being built, so removing a tender or voiding an unfinished sale has nothing to undo. A void of a completed sale posts a `credit_note` keyed on each **mirror** tender's id, and a refund onto a credit method posts a `refund` keyed on the refund tender's id. Each carries a positive credit equal to the magnitude of its tender. A posting the ledger reports as already made is refused, with nothing written, because these slices make the first and only post for their key.
+
+**How a refund line is priced.**
+
+- A referenced line that was not overridden is re-quoted by the pricing engine at the original sale's instant, business date, currency, customer and branch, and with the original line's discount (D-38). A price-list edit made after the sale therefore changes nothing, and a smaller quantity can land on a different quantity tier.
+- A line that was sold at an approved price override is not re-quoted. It is refunded at its stored unit price, in its own unit only, and taxed as a sale at the original business date through the engine's `computeTax()` (AC-27A, D-77). So the refund never pays back more than was charged, and the refund line carries no override marker and consumes no override approval.
+- A goodwill line is quoted at the refund's own instant.
+- No refund line is checked for sellability (AC-47A, AC-47B), because a returned item may no longer be on sale. The engine's own refusals still pass through under their own names, so a soft-deleted product, or a discount since deactivated or used up, refuses the refund. That is the built default until owner question Q-1 is ruled.
+
+**The lock order every writer of these tables keeps.** A write takes a locking read as its first statement and takes locks in this order, skipping the ones it does not need: the cash shift, by primary key, shared for a writer that attributes a sale to it and exclusive for a close or a reconcile, with its status and terminal re-checked after the lock; the `sales` row, exclusive, where a refund locks the original sale; the approval; the payment methods, shared; the discounts, once each in ascending id order; the customers, inside the credit writer; and the number sequence last, because the company-wide row is the hottest lock in the shop. The slot between the discounts and the customers is where the stock lock goes when the inventory slice (FP-234) lands, so that stock is locked before customers. Pricing and unit resolution run before the transaction opens.
+
 ### 6.8 Payments
 
 | Table | Columns / notes |
@@ -1273,6 +1322,8 @@ Split bill: several `sales` sharing `order_id` and `split_group`. Merge: source 
 | gateway_configs | `[ID]` `[TS]`, gateway VARCHAR(50), branch_id FK NULL, credentials TEXT (encrypted with the tenant app key), settings JSON, is_active; unique (gateway, branch_id) |
 | gateway_transactions | `[ID]` `[TS]`, gateway, type enum(authorize, capture, void, refund, status), sale_id FK NULL, payment_id FK NULL, amount, currency, external_ref, status, request JSON (masked), response JSON (masked), idempotency_key VARCHAR(80) unique, attempts, next_retry_at, error. The **only** remaining place that needs retry/compensation machinery, because the gateway is the only party outside the database transaction |
 | settlements | `[ID]` `[TS]`, gateway, settlement_date, financial_account_id FK, gross, fees, net, transaction_count, status enum(expected, received, reconciled, disputed), statement_ref, reconciled_at |
+
+**As built (T-030).** `payment_methods` is built with its flags (`allows_change`, `allows_partial`, `allows_refund`, `requires_reference`, `is_active`) and the soft delete; a method that holds a tender on a sale that is still open cannot be deleted. `rounding_rule` and `surcharge_percent` are stored and not applied. `financial_account_id`, `gateway` and `settings` are not built (see "As built (T-030)" in section 6.7), and the `loyalty` and `voucher` types are refused as a tender, because neither has a backing ledger yet. `payments`, `gateway_transactions` and the rest of this section are not built.
 
 ### 6.9 Customers and CRM
 
@@ -1350,6 +1401,8 @@ them; FP-237 (Sync) is the first consumer.
 group; `customer_addresses.default_customer_id` (`CASE WHEN is_default THEN customer_id END`, unique
 with `type`) keeps exactly one default address per `(customer, type)`. Both leave every non-default row
 unconstrained, because NULLs are distinct in a unique index on both engines.
+
+**As built (T-030).** `loyalty_transactions.sale_id` is now built, so the deferral above no longer holds for that column: an expand migration adds it nullable with `unique(sale_id, type)`, and a separate contract migration adds the foreign key onto `sales`, after a data-clean check that counts rows naming no sale and refuses, changing nothing, when there are any. The other four deferrals stand. Nothing writes the column yet: the loyalty writer accepts a `sale_id` when its first caller needs one, and Sales builds no earn.
 
 ### 6.10 Finance — general ledger, AR, AP, cash and bank
 
