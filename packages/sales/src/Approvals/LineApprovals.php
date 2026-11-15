@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flexipos\Sales\Approvals;
 
 use Flexipos\Sales\Exceptions\SalesRefused;
+use Flexipos\Sales\Support\Money;
 use Flexipos\Sales\Support\TenantConnection;
 
 /**
@@ -15,9 +16,12 @@ use Flexipos\Sales\Support\TenantConnection;
  * sale's own branch, `reference_type = sale` and the sale, with the payload the
  * line is about to carry. The one exception is a re-price (AC-55): when an
  * approval **already consumed by this sale** carries exactly this payload, it
- * still covers the line, so a changed quantity on an overridden line needs no
- * second approval. A different price, unit or discount has a different payload
- * and needs a new one.
+ * still covers **that same line**, so a changed quantity on an overridden line
+ * needs no second approval. The path is open only to a re-price of an existing
+ * line (`$line` given) that already carries exactly the covered override price or
+ * discount; a new line (`AddSaleLine`) and a line that does not yet carry it always
+ * need their own approval (BUG-1). A different price, unit or discount has a
+ * different payload and needs a new one.
  *
  * Called inside the writing transaction, after the sale lock (Ruling 7: the
  * approval row is lock 3).
@@ -34,28 +38,38 @@ final class LineApprovals
      *
      * @throws SalesRefused approval_required, approval_not_approved, approval_already_used, approval_mismatch
      */
-    public function coverOverride(object $sale, array $payload, ?string $approvalId): ConsumedApproval
+    public function coverOverride(object $sale, array $payload, ?string $approvalId, ?object $line = null): ConsumedApproval
     {
-        return $this->cover(ApprovalType::PriceOverride, $sale, $payload, $approvalId);
+        $carried = $line !== null
+            && $line->price_overridden_by !== null
+            && strtoupper((string) $line->product_id) === strtoupper($payload['product_id'])
+            && strtoupper((string) $line->unit_id) === strtoupper($payload['unit_id'])
+            && Money::equals(Money::of($line->unit_price), Money::of($payload['unit_price']));
+
+        return $this->cover(ApprovalType::PriceOverride, $sale, $payload, $approvalId, $carried);
     }
 
     /**
      * @throws SalesRefused approval_required, approval_not_approved, approval_already_used, approval_mismatch
      */
-    public function coverDiscount(object $sale, string $discountId, ?string $approvalId): ConsumedApproval
+    public function coverDiscount(object $sale, string $discountId, ?string $approvalId, ?object $line = null): ConsumedApproval
     {
-        return $this->cover(ApprovalType::Discount, $sale, ['discount_id' => $discountId], $approvalId);
+        $carried = $line !== null
+            && $line->discount_id !== null
+            && strtoupper((string) $line->discount_id) === strtoupper($discountId);
+
+        return $this->cover(ApprovalType::Discount, $sale, ['discount_id' => $discountId], $approvalId, $carried);
     }
 
     /**
      * @param  array<string, string>  $payload
      */
-    private function cover(ApprovalType $type, object $sale, array $payload, ?string $approvalId): ConsumedApproval
+    private function cover(ApprovalType $type, object $sale, array $payload, ?string $approvalId, bool $lineCarriesIt): ConsumedApproval
     {
         $saleId = strtoupper((string) $sale->id);
         $branchId = strtoupper((string) $sale->branch_id);
 
-        if ($approvalId === null) {
+        if ($approvalId === null && $lineCarriesIt) {
             $prior = $this->priorConsumed($type, $saleId, $branchId, $payload);
 
             if ($prior !== null) {

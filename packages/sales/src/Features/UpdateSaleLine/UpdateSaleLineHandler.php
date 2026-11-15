@@ -127,9 +127,9 @@ final class UpdateSaleLineHandler
             $overriddenBy = null;
 
             if ($pending->overridePayload !== null) {
-                $overriddenBy = $this->approvals->coverOverride($sale, $pending->overridePayload, $approvalId)->decidedBy;
+                $overriddenBy = $this->approvals->coverOverride($sale, $pending->overridePayload, $approvalId, $current)->decidedBy;
             } elseif ($discountNeedsApproval && $pending->discountId !== null) {
-                $this->approvals->coverDiscount($sale, $pending->discountId, $approvalId);
+                $this->approvals->coverDiscount($sale, $pending->discountId, $approvalId, $current);
             }
 
             $connection->table('sale_items')->where('id', $lineId)->update(array_merge(
