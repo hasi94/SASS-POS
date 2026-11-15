@@ -1,0 +1,87 @@
+{
+  "name": "line-three-cases-derived-from-the-stock-price",
+  "kind": "line",
+  "discriminates": "Three cases at 7.5 per single: unit price 180, subtotal 540 (never 12960 from the base quantity 72).",
+  "input": {
+    "ladder": {
+      "unit_id": "01UNITCASE0000000000000000",
+      "unit_factor": "24.000000",
+      "base_quantity": "72.0000",
+      "at": "2025-06-15T09:30:00.000Z",
+      "currency": "USD",
+      "customer_id": null,
+      "customer_group_id": null,
+      "branch_id": null,
+      "lists": [],
+      "branch_selling_price": null,
+      "selling_price": "7.5000"
+    },
+    "quantity": "3.0000",
+    "product": {
+      "id": "01PRODA0000000000000000000",
+      "category_id": "01CATA00000000000000000000",
+      "brand_id": "01BRANDA000000000000000000",
+      "allow_discount": true
+    },
+    "tax_group": {
+      "id": "01TAXGROUPA000000000000000",
+      "is_inclusive": false,
+      "members": [
+        {
+          "tax_id": "01TAXVAT000000000000000000",
+          "code": "VAT",
+          "tax_code": null,
+          "type": "percentage",
+          "is_compound": false,
+          "applies_to": "both",
+          "is_active": true,
+          "is_deleted": false,
+          "sequence": "1",
+          "rates": [
+            {
+              "rate": "15.0000",
+              "effective_from": "2020-01-01",
+              "effective_to": null
+            }
+          ]
+        }
+      ]
+    },
+    "document_date": "2025-06-01",
+    "discount_id": null,
+    "discounts": []
+  },
+  "expect": {
+    "list_price": "180.0000",
+    "list_discount_percent": null,
+    "unit_price": "180.0000",
+    "source": {
+      "step": "6",
+      "price_list_id": null,
+      "basis": "product"
+    },
+    "subtotal": "540.0000",
+    "discount_amount": "0.0000",
+    "discount_id": null,
+    "discounted_subtotal": "540.0000",
+    "tax_group_id": "01TAXGROUPA000000000000000",
+    "tax": {
+      "is_inclusive": false,
+      "net": "540.0000",
+      "lines": [
+        {
+          "tax_id": "01TAXVAT000000000000000000",
+          "code": "VAT",
+          "tax_code": null,
+          "type": "percentage",
+          "is_compound": false,
+          "rate": "15.0000",
+          "base": "540.0000",
+          "amount": "81.0000"
+        }
+      ],
+      "total": "81.0000"
+    },
+    "line_total": "621.0000"
+  }
+}

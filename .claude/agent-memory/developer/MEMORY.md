@@ -82,3 +82,8 @@
 - [T-028 customers chunk C](project_t028_customers_chunk_c.md) - groups/customers CRUD, the real credit ledger writer and replay semantics, the second AuditCatalogueTest predicted-red gap, and a SQLite-numeric-affinity re-canonicalize gotcha.
 - [T-028 customers chunk E (final)](project_t028_customers_chunk_e.md) - the one-writer scan's real exemption list, the two-connection lock-contention engine test shape, and the final gate numbers (T-028 now fully built).
 - [T-028 BUG-1 fix (missing CustomerStatus::Inactive)](project_t028_customers_bug1_fix.md) - the second-hidden-branch pattern, and why this gate's exit code is never "0 means clean" against a known baseline.
+- [T-029 pricing chunk A](project_t029_pricing_chunk_a.md) - 13/31/3353 to 13/31/3387, BranchForeignKeysContractRunTest reddened by a top contract step, and isDestructive's variable-table blindness.
+- [T-029 pricing chunk B](project_t029_pricing_chunk_b.md) - pure engine + 112 fixtures: inclusive affine solve, R1 absorbed, factor-scan exemption pulled into chunk B.
+- [T-029 pricing chunk C](project_t029_pricing_chunk_c.md) - 12/31/3984, 991s; slice layout, audit catalogue literal, STANDARD default group, stan double trap.
+- [T-029 pricing chunk D](project_t029_pricing_chunk_d.md) - adapter that never orders, scans, held engine test; the 12-vs-13 failure is APP_KEY, test:fast is ~843s.
+- [T-029 fix round 1](project_t029_fix_round_1.md) - 13/41/4109 final, foreign bench_load.php slows the gate, WSL-bash and raw-string traps in scripts.

@@ -1,0 +1,22 @@
+{
+  "name": "unit-mass-chain-kilogram-to-gram",
+  "kind": "unit",
+  "discriminates": "1.2345 kg at precision 3 is 1.235, so 1235 g; unrounded it would be 1234.5 g, refused on a whole-gram stock unit.",
+  "input": {
+    "unit_id": "01UNITKG00000000000000000A",
+    "unit_code": "kg",
+    "factor": "1000.000000",
+    "factor_source": "unit_chain",
+    "line_unit_precision": "3",
+    "stock_unit_precision": "0",
+    "quantity": "1.2345"
+  },
+  "expect": {
+    "unit_id": "01UNITKG00000000000000000A",
+    "unit_code": "kg",
+    "source": "unit_chain",
+    "quantity": "1.2350",
+    "unit_factor": "1000.000000",
+    "base_quantity": "1235.0000"
+  }
+}

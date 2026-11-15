@@ -1,0 +1,81 @@
+{
+  "name": "price-assignment-priority-orders-customer-lists",
+  "kind": "price",
+  "discriminates": "Two lists assigned to one customer are tried by assignment priority, ahead of the list own priority.",
+  "input": {
+    "unit_id": "01UNITEACH0000000000000000",
+    "unit_factor": "1.000000",
+    "base_quantity": "1.0000",
+    "at": "2025-06-15T09:30:00.000Z",
+    "currency": "USD",
+    "customer_id": "01CUSTA0000000000000000000",
+    "customer_group_id": null,
+    "branch_id": null,
+    "lists": [
+      {
+        "list_id": "01LISTLX000000000000000000",
+        "code": "LX",
+        "type": "standard",
+        "currency": "USD",
+        "priority": "10",
+        "starts_at": null,
+        "ends_at": null,
+        "is_active": true,
+        "is_deleted": false,
+        "assignments": [
+          {
+            "scope_type": "customer",
+            "scope_id": "01CUSTA0000000000000000000",
+            "priority": "1"
+          }
+        ],
+        "items": [
+          {
+            "unit_id": null,
+            "min_qty": "1.0000",
+            "price": "3.0000",
+            "discount_percent": null
+          }
+        ]
+      },
+      {
+        "list_id": "01LISTLY000000000000000000",
+        "code": "LY",
+        "type": "standard",
+        "currency": "USD",
+        "priority": "0",
+        "starts_at": null,
+        "ends_at": null,
+        "is_active": true,
+        "is_deleted": false,
+        "assignments": [
+          {
+            "scope_type": "customer",
+            "scope_id": "01CUSTA0000000000000000000",
+            "priority": "5"
+          }
+        ],
+        "items": [
+          {
+            "unit_id": null,
+            "min_qty": "1.0000",
+            "price": "4.0000",
+            "discount_percent": null
+          }
+        ]
+      }
+    ],
+    "branch_selling_price": null,
+    "selling_price": null
+  },
+  "expect": {
+    "list_price": "4.0000",
+    "discount_percent": null,
+    "unit_price": "4.0000",
+    "source": {
+      "step": "1",
+      "price_list_id": "01LISTLY000000000000000000",
+      "basis": "derived"
+    }
+  }
+}

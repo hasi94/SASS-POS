@@ -406,5 +406,101 @@
         "checksum": "16bc4a407b18e685faac196d244105cc3358f9ebcf0f63e543a5007e699172e1",
         "is_destructive": false,
         "requires_offline": false
+    },
+    {
+        "version": 52,
+        "migration": "2026_11_10_002901_create_tax_authorities_table",
+        "phase": "expand",
+        "checksum": "119a5c2bcf874c0ed66d40c75997f165896b29b099a8736c08ef1a2dff12820e",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 53,
+        "migration": "2026_11_10_002902_create_taxes_table",
+        "phase": "expand",
+        "checksum": "0bd8ff1c52f7c1b62da7c60fb4b79f85945a8b4e15e18096113e74a940a057b6",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 54,
+        "migration": "2026_11_10_002903_create_tax_rates_table",
+        "phase": "expand",
+        "checksum": "3ddfcdf4e51ec83082f731fa848aa532b0ae6a5d0bf98d58789a12624d80ea9e",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 55,
+        "migration": "2026_11_10_002904_create_tax_groups_table",
+        "phase": "expand",
+        "checksum": "e19608e164cfcd7bff7dd6168d7fbd78b52e37a07c0654214e02a3c9ef645db0",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 56,
+        "migration": "2026_11_10_002905_create_tax_group_taxes_table",
+        "phase": "expand",
+        "checksum": "e95806e28f930f2b52851e052acc63381b33f4459ca9c58b790e0e855935f5c6",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 57,
+        "migration": "2026_11_10_002906_add_tax_group_columns_to_products_table",
+        "phase": "expand",
+        "checksum": "251a6cae0a31c902fdbb62326ff38cd15a8c083085e72340e5045ec3d72d94e1",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 58,
+        "migration": "2026_11_10_002907_backfill_product_tax_groups",
+        "phase": "backfill",
+        "checksum": "f31db088df8a1390400d8fe6c8d8e0e265c707d9a8355b4b38e2c9f0ca77c68d",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 59,
+        "migration": "2026_11_10_002908_create_price_lists_table",
+        "phase": "expand",
+        "checksum": "6cf477344230dfa9c59582c9bf0d7bbbf560e9a7dbb888c93f1adf763cc95285",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 60,
+        "migration": "2026_11_10_002909_create_price_list_items_table",
+        "phase": "expand",
+        "checksum": "90ca51e62b5bd0d2df0a02b44484224b5179565cfe808d11b0dac4e83d10ea69",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 61,
+        "migration": "2026_11_10_002910_create_price_list_assignments_table",
+        "phase": "expand",
+        "checksum": "69a79eb9468681ebb06998bbb67f0d51633c13b03bc7360a27c530e883ccfe84",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 62,
+        "migration": "2026_11_10_002911_create_discounts_table",
+        "phase": "expand",
+        "checksum": "e6532ebeae5b97542cafd99d8b033a7d7e413bee1a269fa2096960fc28bb6657",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 63,
+        "migration": "2026_11_10_002912_add_product_tax_group_foreign_keys",
+        "phase": "contract",
+        "checksum": "9a42893794517e277c23b710efab13d6d6afb44a4f703f50701ab2643182e133",
+        "is_destructive": false,
+        "requires_offline": false
     }
 ]

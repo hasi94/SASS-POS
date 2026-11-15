@@ -14,8 +14,10 @@ use Flexipos\Catalog\Support\Fields;
 use Flexipos\Catalog\Support\Identifier;
 use Flexipos\Catalog\Support\Lookup;
 use Flexipos\Catalog\Support\Money;
+use Flexipos\Catalog\Support\TaxGroups;
 use Flexipos\Catalog\Support\TenantConnection;
 use Flexipos\Contracts\Audit\AuditTrail;
+use Flexipos\Contracts\Pricing\TaxGroupDirectory;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Database\Connection;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -39,12 +41,14 @@ final class UpdateProductHandler
         'min_selling_price', 'msrp', 'track_stock', 'tracking_mode', 'is_weighable', 'price_mode',
         'plu_code', 'shelf_life_days', 'is_sellable', 'is_purchasable', 'is_active', 'allow_price_override',
         'allow_discount', 'weight', 'dimensions', 'variant_options', 'variant_values', 'image_path', 'sort_order',
+        'tax_group_id', 'purchase_tax_group_id',
     ];
 
     public function __construct(
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
         private readonly AuditTrail $audit,
+        private readonly TaxGroupDirectory $taxGroups,
     ) {}
 
     public function handle(UpdateProduct $command): void
@@ -309,6 +313,30 @@ final class UpdateProductHandler
 
         if (Fields::has($fields, 'sort_order')) {
             $changes['sort_order'] = Fields::integer($fields, 'sort_order', 0);
+        }
+
+        if (Fields::has($fields, 'tax_group_id')) {
+            // F-3: the application keeps this column non-null until a backup
+            // facility lets the database do it.
+            if ($fields['tax_group_id'] === null) {
+                throw CatalogRefused::validation('The tax_group_id may not be null.');
+            }
+
+            $taxGroupId = Identifier::fold($fields['tax_group_id'], 'tax_group_id');
+
+            TaxGroups::assertUsable($this->taxGroups, $taxGroupId, 'tax_group_id');
+
+            $changes['tax_group_id'] = $taxGroupId;
+        }
+
+        if (Fields::has($fields, 'purchase_tax_group_id')) {
+            $purchaseTaxGroupId = Identifier::foldNullable($fields['purchase_tax_group_id'], 'purchase_tax_group_id');
+
+            if ($purchaseTaxGroupId !== null) {
+                TaxGroups::assertUsable($this->taxGroups, $purchaseTaxGroupId, 'purchase_tax_group_id');
+            }
+
+            $changes['purchase_tax_group_id'] = $purchaseTaxGroupId;
         }
 
         return $changes;

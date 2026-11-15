@@ -1,0 +1,19 @@
+{
+  "name": "tax-empty-group-is-exempt",
+  "kind": "tax",
+  "discriminates": "A group with no members is tax-exempt, not an error: net is the amount, no lines, total 0.0000.",
+  "input": {
+    "members": [],
+    "amount": "100.0000",
+    "base_quantity": "1.0000",
+    "date": "2025-06-01",
+    "context": "sale",
+    "is_inclusive": false
+  },
+  "expect": {
+    "is_inclusive": false,
+    "net": "100.0000",
+    "lines": [],
+    "total": "0.0000"
+  }
+}

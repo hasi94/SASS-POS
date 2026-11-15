@@ -1,0 +1,33 @@
+{
+  "name": "tax-no-effective-rate",
+  "kind": "tax",
+  "discriminates": "A member that applies but has no rate on the date is a hard refusal, never a silent zero.",
+  "input": {
+    "members": [
+      {
+        "tax_id": "01TAXVAT000000000000000000",
+        "code": "VAT",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "1",
+        "rates": [
+          {
+            "rate": "15.0000",
+            "effective_from": "2026-01-01",
+            "effective_to": null
+          }
+        ]
+      }
+    ],
+    "amount": "100.0000",
+    "base_quantity": "1.0000",
+    "date": "2025-06-01",
+    "context": "sale",
+    "is_inclusive": false
+  },
+  "refusal": "no_effective_rate"
+}

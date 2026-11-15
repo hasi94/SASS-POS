@@ -1,0 +1,22 @@
+{
+  "name": "unit-precision-first-rounding",
+  "kind": "unit",
+  "discriminates": "The entered quantity rounds to the line unit precision first: 2.5 cases is 3, so base 72 (not 60).",
+  "input": {
+    "unit_id": "01UNITCASE000000000000000A",
+    "unit_code": "case",
+    "factor": "24.000000",
+    "factor_source": "product_conversion",
+    "line_unit_precision": "0",
+    "stock_unit_precision": "4",
+    "quantity": "2.5"
+  },
+  "expect": {
+    "unit_id": "01UNITCASE000000000000000A",
+    "unit_code": "case",
+    "source": "product_conversion",
+    "quantity": "3.0000",
+    "unit_factor": "24.000000",
+    "base_quantity": "72.0000"
+  }
+}

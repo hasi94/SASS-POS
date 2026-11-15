@@ -1,0 +1,58 @@
+{
+  "name": "price-duplicate-min-qty-below-the-break-is-refused",
+  "kind": "price",
+  "discriminates": "A duplicate min_qty is refused although both copies sit below the best qualifying row, so the order 5, 1, 1 is refused exactly as 1, 1, 5 is.",
+  "input": {
+    "unit_id": "01UNITCASE0000000000000000",
+    "unit_factor": "24.000000",
+    "base_quantity": "10.0000",
+    "at": "2025-06-15T09:30:00.000Z",
+    "currency": "USD",
+    "customer_id": "01CUSTA0000000000000000000",
+    "customer_group_id": null,
+    "branch_id": null,
+    "lists": [
+      {
+        "list_id": "01LISTLC000000000000000000",
+        "code": "LC",
+        "type": "standard",
+        "currency": "USD",
+        "priority": "0",
+        "starts_at": null,
+        "ends_at": null,
+        "is_active": true,
+        "is_deleted": false,
+        "assignments": [
+          {
+            "scope_type": "customer",
+            "scope_id": "01CUSTA0000000000000000000",
+            "priority": "0"
+          }
+        ],
+        "items": [
+          {
+            "unit_id": "01UNITCASE0000000000000000",
+            "min_qty": "5.0000",
+            "price": "170.0000",
+            "discount_percent": null
+          },
+          {
+            "unit_id": "01UNITCASE0000000000000000",
+            "min_qty": "1.0000",
+            "price": "179.0000",
+            "discount_percent": null
+          },
+          {
+            "unit_id": "01UNITCASE0000000000000000",
+            "min_qty": "1.0000",
+            "price": "178.0000",
+            "discount_percent": null
+          }
+        ]
+      }
+    ],
+    "branch_selling_price": null,
+    "selling_price": null
+  },
+  "refusal": "invalid_amount"
+}

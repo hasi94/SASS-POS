@@ -1,0 +1,15 @@
+{
+  "name": "unit-fractional-base-refused-on-a-whole-stock-unit",
+  "kind": "unit",
+  "discriminates": "Q-11: a base of 1.5 on a precision-0 stock unit is refused, never rounded.",
+  "input": {
+    "unit_id": "01UNITEACH000000000000000A",
+    "unit_code": "each",
+    "factor": "1.500000",
+    "factor_source": "product_conversion",
+    "line_unit_precision": "4",
+    "stock_unit_precision": "0",
+    "quantity": "1"
+  },
+  "refusal": "fractional_base_quantity"
+}

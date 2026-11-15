@@ -1,0 +1,22 @@
+{
+  "name": "unit-half-up-not-half-even",
+  "kind": "unit",
+  "discriminates": "0.5 rounds up to 1 (half-even would give 0).",
+  "input": {
+    "unit_id": "01UNITEACH000000000000000A",
+    "unit_code": "each",
+    "factor": "1.000000",
+    "factor_source": "stock_unit",
+    "line_unit_precision": "0",
+    "stock_unit_precision": "4",
+    "quantity": "0.5"
+  },
+  "expect": {
+    "unit_id": "01UNITEACH000000000000000A",
+    "unit_code": "each",
+    "source": "stock_unit",
+    "quantity": "1.0000",
+    "unit_factor": "1.000000",
+    "base_quantity": "1.0000"
+  }
+}

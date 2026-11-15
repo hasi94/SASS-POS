@@ -1,0 +1,134 @@
+{
+  "name": "line-fixed-discount-then-compound-taxes",
+  "kind": "line",
+  "discriminates": "Discount comes before tax: 200 less a fixed 20 is 180, taxed 5% then a compound 10% on 189.",
+  "input": {
+    "ladder": {
+      "unit_id": "01UNITEACH0000000000000000",
+      "unit_factor": "1.000000",
+      "base_quantity": "2.0000",
+      "at": "2025-06-15T09:30:00.000Z",
+      "currency": "USD",
+      "customer_id": null,
+      "customer_group_id": null,
+      "branch_id": null,
+      "lists": [],
+      "branch_selling_price": null,
+      "selling_price": "100.0000"
+    },
+    "quantity": "2.0000",
+    "product": {
+      "id": "01PRODA0000000000000000000",
+      "category_id": "01CATA00000000000000000000",
+      "brand_id": "01BRANDA000000000000000000",
+      "allow_discount": true
+    },
+    "tax_group": {
+      "id": "01TAXGROUPA000000000000000",
+      "is_inclusive": false,
+      "members": [
+        {
+          "tax_id": "01TAXA00000000000000000000",
+          "code": "A",
+          "tax_code": null,
+          "type": "percentage",
+          "is_compound": false,
+          "applies_to": "both",
+          "is_active": true,
+          "is_deleted": false,
+          "sequence": "1",
+          "rates": [
+            {
+              "rate": "5.0000",
+              "effective_from": "2020-01-01",
+              "effective_to": null
+            }
+          ]
+        },
+        {
+          "tax_id": "01TAXB00000000000000000000",
+          "code": "B",
+          "tax_code": null,
+          "type": "percentage",
+          "is_compound": true,
+          "applies_to": "both",
+          "is_active": true,
+          "is_deleted": false,
+          "sequence": "2",
+          "rates": [
+            {
+              "rate": "10.0000",
+              "effective_from": "2020-01-01",
+              "effective_to": null
+            }
+          ]
+        }
+      ]
+    },
+    "document_date": "2025-06-01",
+    "discount_id": "01DISC10000000000000000000",
+    "discounts": [
+      {
+        "id": "01DISC10000000000000000000",
+        "type": "fixed",
+        "value": "20.0000",
+        "scope": "item",
+        "is_active": true,
+        "starts_at": null,
+        "ends_at": null,
+        "usage_limit": null,
+        "used_count": "0",
+        "min_amount": null,
+        "max_discount": null,
+        "applies_to": {
+          "products": [],
+          "categories": [],
+          "brands": []
+        }
+      }
+    ]
+  },
+  "expect": {
+    "list_price": "100.0000",
+    "list_discount_percent": null,
+    "unit_price": "100.0000",
+    "source": {
+      "step": "6",
+      "price_list_id": null,
+      "basis": "product"
+    },
+    "subtotal": "200.0000",
+    "discount_amount": "20.0000",
+    "discount_id": "01DISC10000000000000000000",
+    "discounted_subtotal": "180.0000",
+    "tax_group_id": "01TAXGROUPA000000000000000",
+    "tax": {
+      "is_inclusive": false,
+      "net": "180.0000",
+      "lines": [
+        {
+          "tax_id": "01TAXA00000000000000000000",
+          "code": "A",
+          "tax_code": null,
+          "type": "percentage",
+          "is_compound": false,
+          "rate": "5.0000",
+          "base": "180.0000",
+          "amount": "9.0000"
+        },
+        {
+          "tax_id": "01TAXB00000000000000000000",
+          "code": "B",
+          "tax_code": null,
+          "type": "percentage",
+          "is_compound": true,
+          "rate": "10.0000",
+          "base": "189.0000",
+          "amount": "18.9000"
+        }
+      ],
+      "total": "27.9000"
+    },
+    "line_total": "207.9000"
+  }
+}

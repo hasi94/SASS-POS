@@ -1,0 +1,19 @@
+{
+  "name": "price-nothing-resolves",
+  "kind": "price",
+  "discriminates": "No list, no branch price and no product price is a refusal, never a silent zero.",
+  "input": {
+    "unit_id": "01UNITEACH0000000000000000",
+    "unit_factor": "1.000000",
+    "base_quantity": "1.0000",
+    "at": "2025-06-15T09:30:00.000Z",
+    "currency": "USD",
+    "customer_id": null,
+    "customer_group_id": null,
+    "branch_id": null,
+    "lists": [],
+    "branch_selling_price": null,
+    "selling_price": null
+  },
+  "refusal": "no_price_resolved"
+}

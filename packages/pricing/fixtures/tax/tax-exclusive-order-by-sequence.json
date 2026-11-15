@@ -1,0 +1,77 @@
+{
+  "name": "tax-exclusive-order-by-sequence",
+  "kind": "tax",
+  "discriminates": "Compounding follows sequence, not the order the members arrive in: the compound member is listed first.",
+  "input": {
+    "members": [
+      {
+        "tax_id": "01TAXB00000000000000000000",
+        "code": "B",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": true,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "2",
+        "rates": [
+          {
+            "rate": "10.0000",
+            "effective_from": "2020-01-01",
+            "effective_to": null
+          }
+        ]
+      },
+      {
+        "tax_id": "01TAXA00000000000000000000",
+        "code": "A",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "1",
+        "rates": [
+          {
+            "rate": "5.0000",
+            "effective_from": "2020-01-01",
+            "effective_to": null
+          }
+        ]
+      }
+    ],
+    "amount": "200.0000",
+    "base_quantity": "1.0000",
+    "date": "2025-06-01",
+    "context": "sale",
+    "is_inclusive": false
+  },
+  "expect": {
+    "is_inclusive": false,
+    "net": "200.0000",
+    "lines": [
+      {
+        "tax_id": "01TAXA00000000000000000000",
+        "code": "A",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "rate": "5.0000",
+        "base": "200.0000",
+        "amount": "10.0000"
+      },
+      {
+        "tax_id": "01TAXB00000000000000000000",
+        "code": "B",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": true,
+        "rate": "10.0000",
+        "base": "210.0000",
+        "amount": "21.0000"
+      }
+    ],
+    "total": "31.0000"
+  }
+}

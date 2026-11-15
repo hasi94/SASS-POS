@@ -1,0 +1,101 @@
+{
+  "name": "line-refuses-an-unknown-discount",
+  "kind": "line",
+  "discriminates": "A requested discount that is not among the candidates is unknown_discount.",
+  "input": {
+    "ladder": {
+      "unit_id": "01UNITCASE0000000000000000",
+      "unit_factor": "24.000000",
+      "base_quantity": "24.0000",
+      "at": "2025-06-15T09:30:00.000Z",
+      "currency": "USD",
+      "customer_id": "01CUSTA0000000000000000000",
+      "customer_group_id": null,
+      "branch_id": null,
+      "lists": [
+        {
+          "list_id": "01LISTLC000000000000000000",
+          "code": "LC",
+          "type": "standard",
+          "currency": "USD",
+          "priority": "0",
+          "starts_at": null,
+          "ends_at": null,
+          "is_active": true,
+          "is_deleted": false,
+          "assignments": [
+            {
+              "scope_type": "customer",
+              "scope_id": "01CUSTA0000000000000000000",
+              "priority": "0"
+            }
+          ],
+          "items": [
+            {
+              "unit_id": "01UNITCASE0000000000000000",
+              "min_qty": "1.0000",
+              "price": "179.0000",
+              "discount_percent": null
+            }
+          ]
+        }
+      ],
+      "branch_selling_price": null,
+      "selling_price": null
+    },
+    "quantity": "1.0000",
+    "product": {
+      "id": "01PRODA0000000000000000000",
+      "category_id": "01CATA00000000000000000000",
+      "brand_id": "01BRANDA000000000000000000",
+      "allow_discount": true
+    },
+    "tax_group": {
+      "id": "01TAXGROUPA000000000000000",
+      "is_inclusive": false,
+      "members": [
+        {
+          "tax_id": "01TAXVAT000000000000000000",
+          "code": "VAT",
+          "tax_code": null,
+          "type": "percentage",
+          "is_compound": false,
+          "applies_to": "both",
+          "is_active": true,
+          "is_deleted": false,
+          "sequence": "1",
+          "rates": [
+            {
+              "rate": "15.0000",
+              "effective_from": "2020-01-01",
+              "effective_to": null
+            }
+          ]
+        }
+      ]
+    },
+    "document_date": "2025-06-01",
+    "discount_id": "01MISSING00000000000000000",
+    "discounts": [
+      {
+        "id": "01DISC10000000000000000000",
+        "type": "percentage",
+        "value": "10.0000",
+        "scope": "item",
+        "is_active": true,
+        "starts_at": null,
+        "ends_at": null,
+        "usage_limit": null,
+        "used_count": "0",
+        "min_amount": null,
+        "max_discount": null,
+        "applies_to": {
+          "products": [],
+          "categories": [],
+          "brands": []
+        }
+      }
+    ]
+  },
+  "refusal": "unknown_discount"
+}

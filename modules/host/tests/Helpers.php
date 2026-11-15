@@ -573,6 +573,17 @@ function tenantTreeTables(): array
         'loyalty_transactions',
         'customer_notes',
         'customer_communications',
+        // T-029 step 2: the nine pricing and tax tables (docs/database.md
+        // section 6.4).
+        'tax_authorities',
+        'taxes',
+        'tax_rates',
+        'tax_groups',
+        'tax_group_taxes',
+        'price_lists',
+        'price_list_items',
+        'price_list_assignments',
+        'discounts',
     ]);
 
     sort($tables);

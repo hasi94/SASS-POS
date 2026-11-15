@@ -1,0 +1,73 @@
+{
+  "name": "tax-skips-inactive-and-deleted-members",
+  "kind": "tax",
+  "discriminates": "Inactive and soft-deleted members are skipped before any rate lookup (neither has a rate, and neither refuses).",
+  "input": {
+    "members": [
+      {
+        "tax_id": "01TAXVAT000000000000000000",
+        "code": "VAT",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "1",
+        "rates": [
+          {
+            "rate": "15.0000",
+            "effective_from": "2020-01-01",
+            "effective_to": null
+          }
+        ]
+      },
+      {
+        "tax_id": "01TAXOFF000000000000000000",
+        "code": "OFF",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": false,
+        "is_deleted": false,
+        "sequence": "2",
+        "rates": []
+      },
+      {
+        "tax_id": "01TAXGONE00000000000000000",
+        "code": "GONE",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": true,
+        "sequence": "3",
+        "rates": []
+      }
+    ],
+    "amount": "100.0000",
+    "base_quantity": "1.0000",
+    "date": "2025-06-01",
+    "context": "sale",
+    "is_inclusive": false
+  },
+  "expect": {
+    "is_inclusive": false,
+    "net": "100.0000",
+    "lines": [
+      {
+        "tax_id": "01TAXVAT000000000000000000",
+        "code": "VAT",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "rate": "15.0000",
+        "base": "100.0000",
+        "amount": "15.0000"
+      }
+    ],
+    "total": "15.0000"
+  }
+}

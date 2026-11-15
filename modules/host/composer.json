@@ -28,6 +28,7 @@
         "flexipos/organization": "*",
         "flexipos/platform": "*",
         "flexipos/plugin-sdk": "*",
+        "flexipos/pricing": "*",
         "flexipos/workflow": "*",
         "laravel/framework": "^12.0",
         "laravel/tinker": "^2.10.1"
@@ -63,6 +64,7 @@
             "Flexipos\\Organization\\Tests\\": "../../packages/organization/tests/",
             "Flexipos\\Platform\\Tests\\": "../../packages/platform/tests/",
             "Flexipos\\PluginSdk\\Tests\\": "../../packages/plugin-sdk/tests/",
+            "Flexipos\\Pricing\\Tests\\": "../../packages/pricing/tests/",
             "Flexipos\\Workflow\\Tests\\": "../../packages/workflow/tests/",
             "Tests\\": "tests/"
         }
