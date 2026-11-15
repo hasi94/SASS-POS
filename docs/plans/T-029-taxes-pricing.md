@@ -683,12 +683,12 @@ The section 6 rules still apply: red-first, the red-list rule, no child processe
 
 **Order.** The pure engine comes first (steps 22 to 24), then AC-6a (step 25), because W-1's engine case relies on it. Next comes the scan, written red against today's tree (step 26). The lock fixes follow and turn the scan green (steps 27 and 28), then the remaining slices and the adapter (steps 29 to 31), the documents (step 32) and the gate (step 33).
 
-- [ ] **Step 21: fix-round baseline.** *(No AC.)*
+- [x] **Step 21: fix-round baseline.** *(No AC.)*
   - `composer check` from `modules/host` at the tip that holds `e4c43f2`. Record passed, failed (by name), skipped, the `test` step seconds and the process list.
   - **Expected:** the last gate was **13 failed (by name) / 36 skipped / 4018 passed**. QA's two added files (`QaPricingAdapterTest`, `QaPricingEngineTest`) bring the expected passed count to **4037**. Record what you measure, not this figure. If the 13 failing names differ from the last gate's list, stop and report to `lead` before any fix.
   - The `test` seconds measured here are the reference for the fix round's **10 % stop line** (Ruling 11): if step 33's `test` step is more than 10 % slower than step 21's, stop and report to `lead` (FP-328).
 
-- [ ] **Step 22: R-1, the residue skips a zero-rate member** (AC-11.6 sub-criteria 6a to 6d, AC-30.9; D-34).
+- [x] **Step 22: R-1, the residue skips a zero-rate member** (AC-11.6 sub-criteria 6a to 6d, AC-30.9; D-34).
   - **Files:** `packages/pricing/src/Engine/TaxCalculator.php` (the residue step, `lastPercentage`, the class docblock's step 6 and the inline comment above the residue guard); `packages/contracts/src/Pricing/TaxLine.php` (docblock only: the residue goes to the last percentage member whose rate is not zero); five new files under `packages/pricing/fixtures/tax/`; `packages/pricing/tests/Engine/TaxCalculatorTest.php`; `packages/pricing/tests/Engine/DatabasePricingEngineTest.php`.
   - **Fix:** `lastPercentage` selects the last entry, in the already-sorted `$computed`, where `type === TaxType::Percentage` **and** `! $entry['rate']->isZero()`. Keep the `$last !== null` guard and rewrite its comment. When every percentage rate is zero, `S = 0` and `K = 0`, so `net = gross − F` exactly and the residue is zero. A non-zero residue therefore always has a member to land on.
   - **Red-first fixtures** (kind `tax`, inclusive, non-compound, no fixed member, `base_quantity` `"1.0000"`, decimals as strings). Each expectation below was derived by hand; type it in, never paste it from a run:
@@ -702,7 +702,7 @@ The section 6 rules still apply: red-first, the red-list rule, no child processe
   - **Mutations:** **T4b**, pick the residue member by type only (restore the shipped selection): 6a, 6b and the three-member case go red. **T4c**, pick the first non-zero percentage member: the three-member case goes red. Revert each.
   - **Must NOT change:** `inclusiveNet`, `forward`, any rounding call, the exclusive path, the filter or the ordering, or any shipped fixture. None of the 114 shipped fixtures has a zero rate (measured), so all of them must stay green.
 
-- [ ] **Step 23: W-5, a duplicate `effectiveFrom` is refused** (AC-7, AC-30.10; D-36).
+- [x] **Step 23: W-5, a duplicate `effectiveFrom` is refused** (AC-7, AC-30.10; D-36).
   - **Files:** `packages/pricing/src/Engine/RateResolver.php` (the check and the docblock); `packages/pricing/fixtures/tax/tax-rate-duplicate-effective-from-is-refused.json`; `packages/pricing/tests/Engine/RateResolverTest.php`.
   - **Fix:** before choosing a winner, walk **every** row handed in and refuse `PricingRefused::invalidAmount` naming the tax label and the date when two rows share an `effectiveFrom`, whether or not either qualifies. This runs before the `no_effective_rate` path, so the result is a function of the row set. The winner rule (`>` on `effectiveFrom`) is otherwise unchanged.
   - **Red-first fixture** `tax-rate-duplicate-effective-from-is-refused`: one VAT member with rates `15.0000` [2024-01-01, 2024-06-01) and `18.0000` [2024-01-01, open), date 2024-03-01, `refusal: invalid_amount`. Today it prices at 15 %.
@@ -711,19 +711,19 @@ The section 6 rules still apply: red-first, the red-list rule, no child processe
   - **Scope note (informational, FP-432):** `TaxCalculator` resolves rates only for members that survive the filter, so a duplicate on an inactive or out-of-context member is not refused. That matches D-36's "rows handed to the pure resolver".
   - **Must NOT change:** the write path (`CreateTaxRate`'s duplicate pre-check and the unique key) or the adapter.
 
-- [ ] **Step 24: S-1, numeric comparison for the 100 % caps.**
+- [x] **Step 24: S-1, numeric comparison for the 100 % caps.**
   - **Files:** `packages/pricing/src/Engine/LadderItem.php` and `packages/pricing/src/Engine/DiscountRule.php`. Replace each `version_compare(…, '100.0000', '>')` with `BigDecimal::of(…)->compareTo(100) > 0`, the `AddPriceListItemHandler` and `DiscountFields` form.
   - **This is a refactor with no behaviour change, so there is no red-first test.** The proof is that the existing boundary rows stay green: exactly 100 is accepted and 100.0001 is refused, for both classes. Add any of those four rows that is missing to `PriceLadderTest` or `DiscountCalculatorTest`.
   - **Must NOT change:** the exception each class throws (`LadderItem` throws `InvalidArgumentException`; `DiscountRule` refuses `invalid_amount`).
 
-- [ ] **Step 25: S-2, an already-closed rate cannot be closed again** (AC-6a; D-37).
+- [x] **Step 25: S-2, an already-closed rate cannot be closed again** (AC-6a; D-37).
   - **Files:** `packages/pricing/src/Features/CloseTaxRate/CloseTaxRateHandler.php` (the check and the docblock); `packages/pricing/tests/Features/CloseTaxRate/CloseTaxRateTest.php`.
   - **Fix:** after the rate row is read inside the transaction, refuse `PricingAdminRefused::validation` ("this rate is already closed; closing is not an edit path") when its `effective_to` is not null. This check runs before the range and overlap checks.
   - **Red-first:** a dataset on a rate seeded [2024-01-01, 2025-01-01), closed again with `2024-06-01`, `2026-01-01` and `2025-01-01` (earlier, later, equal). Each is refused `validation`, the row is byte-identical, and no audit row is written.
   - **Predicted red (rewrite, not a defect):** the shipped case "refuses an effective_to that would make the range overlap the next rate, and accepts one that touches it" closes an already-closed rate. Re-seed its first rate **open-ended**, keeping the later raw-seeded 18 % row: the overlap refusal at 2025-07-01 and the acceptance at 2025-06-01 then still hold. **Note for the record:** after AC-6a, `CloseTaxRate` only ever shortens an open-ended range, so on data written through the slices its overlap check cannot fire. It stays as defence against data written another way, and it is what W-1's engine case exercises.
   - **Mutation M-F1:** drop the check. The dataset goes red. Revert.
 
-- [ ] **Step 26: the lock-order scan, written red against today's tree** (W-1, W-2; D-39).
+- [x] **Step 26: the lock-order scan, written red against today's tree** (W-1, W-2; D-39).
   - **File (new):** `modules/host/tests/Feature/PricingLockOrderSourceRulesTest.php`, named for what it scans. It is code-only (`SourceRules::codeOnly`), and every rule is a function of a path, so each control runs the same code against a planted file in a fresh temporary directory (the `QaPricingSourceRulesTest` pattern).
   - **Rules:**
     - **L1, the first statement inside the transaction is a locking read.** The files are `packages/pricing/src/Features/{CloseTaxRate/CloseTaxRateHandler, CreateTaxRate/CreateTaxRateHandler, UpdateTax/UpdateTaxHandler, UpdateTaxGroup/UpdateTaxGroupHandler}.php` and `packages/catalog/src/Features/UpdateProduct/UpdateProductHandler.php`. Each file holds exactly one `->transaction(function`. After the closure's opening brace, take the first statement that touches the database: the first of `$connection->`, `Lookup::`, `RateRanges::`, `Uniqueness::`, `DefaultTaxGroup::` or `->table(`, up to the next `;`. That statement must contain `lock: true`, `->lockForUpdate()` or `->sharedLock()`. `CreateProductHandler` is deliberately **not** listed: its first statement is a plain duplicate-`sku` read, which is safe because its tax-group read is itself locking (rule L4, step 28);
@@ -735,7 +735,7 @@ The section 6 rules still apply: red-first, the red-list rule, no child processe
   - **Expected red on today's tree** (record it in the hand-back): L1 on `CloseTaxRateHandler` (its first statement is a plain `Lookup::any(…, 'tax_rates', …)`), L2, L3 and L4. Every other L1 file passes today. This red is carried until steps 27 and 28 turn it green; at no other point may the step leave unrelated red.
   - **Honest limit:** the scan proves the text order, not the run-time lock. The run-time proof is the engine-gated cases in steps 27 and 28.
 
-- [ ] **Step 27: W-1, `CloseTaxRate` and the overlap check lock before any plain read** (AC-6, AC-6a; D-39).
+- [x] **Step 27: W-1, `CloseTaxRate` and the overlap check lock before any plain read** (AC-6, AC-6a; D-39).
   - **Files:** `CloseTaxRateHandler.php`; `packages/pricing/src/Support/RateRanges.php` (the locking read and the docblock); `modules/host/tests/Engine/PricingSchemaEngineTest.php`.
   - **Design, and why it departs from the review's order.** The review suggests locking the rate row first, then the parent `taxes` row. Once the sibling read in `assertNoOverlap` locks (which W-1 requires), that order **inverts the lock order** of `CreateTaxRate`, which takes `taxes` and then the sibling rates. A concurrent create and close of one tax would then deadlock (InnoDB rolls one back as a database error, not a refusal). The plan keeps one lock order everywhere, **`taxes` first, then `tax_rates`**:
     1. **Before** the transaction, read the rate's `tax_id` with a plain key read (unknown id: `notFound`, as today). `tax_id` is never updated by any slice, so this value cannot go stale. Because it runs outside the transaction, it does not fix the transaction's snapshot;
@@ -750,7 +750,7 @@ The section 6 rules still apply: red-first, the red-list rule, no child processe
   - **Mutations:** **M-F2**, restore the plain read as the first statement in the transaction: L1 goes red (and E-1 goes red under the engine). **M-F3**, drop `->lockForUpdate()` from `assertNoOverlap`: L2 goes red (and E-2 goes red under the engine). Revert each.
   - **Must NOT change:** the refusal kinds or messages of `CloseTaxRate` (other than AC-6a's new one), `CreateTaxRate`'s statement order, or the `[from, to)` overlap arithmetic.
 
-- [ ] **Step 28: W-2, catalog's tax-group check is a locking read inside the product write** (AC-3, AC-10; D-39).
+- [x] **Step 28: W-2, catalog's tax-group check is a locking read inside the product write** (AC-3, AC-10; D-39).
   - **Files:** `packages/contracts/src/Pricing/TaxGroupDirectory.php` (`state(string $taxGroupId, bool $lock = false)`, `defaultGroupId(bool $lock = false)`, with a docblock); `packages/pricing/src/Taxes/DatabaseTaxGroupDirectory.php`; `packages/catalog/src/Support/TaxGroups.php` (both calls pass `lock: true`); `packages/catalog/tests/Features/CreateProduct/CreateProductTaxGroupTest.php` (its anonymous double must take the new parameter, a **predicted red**: PHP refuses the old signature); `packages/pricing/tests/Taxes/DatabaseTaxGroupDirectoryTest.php`; an `UpdateProduct` tax-group test file in catalog; `PricingSchemaEngineTest`.
   - **Lock mode: shared** (`->sharedLock()`, `LOCK IN SHARE MODE` on MariaDB 10.4 and `FOR SHARE` semantics on MySQL 8.4). There are three reasons:
     - it conflicts with `UpdateTaxGroup`'s `lockForUpdate()` on the group, which is the race;
@@ -767,14 +767,14 @@ The section 6 rules still apply: red-first, the red-list rule, no child processe
   - **Residual (risk 10):** a create that names the old default as `tax_group_id` and group G as `purchase_tax_group_id`, at the same moment as `UpdateTaxGroup` makes G the default (it locks G, then the old default), can deadlock. InnoDB rolls one back. This is rare and recorded, not engineered away.
   - **Must NOT change:** catalog never names `tax_groups` (the AC-3 scan stays green); `DatabaseTaxGroupDirectory` keeps exact id comparison (K-10); `UpdateTaxGroup` is unchanged.
 
-- [ ] **Step 29: W-3, `type` and `is_compound` are frozen once a tax has rates** (AC-5a; D-35).
+- [x] **Step 29: W-3, `type` and `is_compound` are frozen once a tax has rates** (AC-5a; D-35).
   - **Files:** `packages/pricing/src/Features/UpdateTax/UpdateTaxHandler.php` (the check and the docblock); `packages/pricing/tests/Features/UpdateTax/UpdateTaxTest.php`. `TaxFields::UPDATE_FIELDS` keeps both fields, because AC-5a allows the change while no rate exists.
   - **Fix:** after the locked `$before` read, for each of `type` (compared as a string) and `is_compound` (compared as `(bool)`, because SQLite hands back `0` and `1`) present in `$changes` **and different from the stored value**, refuse `PricingAdminRefused::validation` naming the field and saying "create a new tax instead" when `tax_rates` holds any row for the tax. This check runs **before** `TaxFields::assertCoherent` (revision 4 question 3).
   - The rate-existence read is a **plain** read. It is correct because it follows the locked parent row, every rate writer (`CreateTaxRate`, `CloseTaxRate`) takes that parent lock first, and no slice deletes a rate. A locking read here would add a `taxes`-then-`tax_rates` lock for no gain.
   - **Red-first dataset:** for a closed, an open-ended and a future-dated rate, a `type` change and an `is_compound` change are each refused. The row is byte-identical and there is no audit row. **Controls:** re-sending the stored `type` and `is_compound` with rates present is accepted; `name` is editable with rates present; with no rates the `type` change is accepted (the shipped `fixed_cannot_compound` case stays green, because its taxes have no rates).
   - **Mutations:** **M-F5**, drop the rate-existence check: the refused rows go red. **M-F6**, refuse any mention of the field, even unchanged: the unchanged-value control goes red. Revert each.
 
-- [ ] **Step 30: W-4, a malformed stored `applies_to` is refused, never widened** (AC-30.11; D-38).
+- [x] **Step 30: W-4, a malformed stored `applies_to` is refused, never widened** (AC-30.11; D-38).
   - **Files:** `packages/pricing/src/Engine/DatabasePricingEngine.php` (`discounts()`, and the `ids()` helper, which must stop dropping non-strings); `packages/pricing/tests/Engine/DatabasePricingEngineTest.php`.
   - **Fix:** a SQL `NULL` keeps meaning "applies to everything". Any other stored value is decoded **as objects** (`json_decode($text, false, 512, JSON_THROW_ON_ERROR)`), so that a JSON object and a JSON list stay distinguishable. The value must be a `stdClass` whose keys are only `products`, `categories` and `brands`, each value a PHP list (`array_is_list`), and each entry a string. Anything else, including undecodable text, refuses `PricingRefused::invalidAmount` naming the discount id and what was wrong. Entries are folded to upper case as today. The refusal happens when the rule is loaded, before the engine's AC-20 order (revision 4 question 2). A JSON `null` and a JSON `[]` are refused as "not an object" (revision 4 question 1).
   - **Red-first, by raw insert** into `discounts` (one `quoteLine` dataset). Each of these shapes is refused `invalid_amount`: `"X"`, `123`, `[]`, `["X"]`, JSON `null`, `{"products": "X"}`, `{"products": [123]}`, `{"products": {"a": "X"}}`, `{"skus": ["X"]}`, `{"products": ["X"], "tags": []}`. Undecodable text is refused by the column's `JsonValidity` check on the engines; if the SQLite stand-in accepts it, add it to the dataset too, and otherwise record that branch as defence only. One `billDiscount` row (`{"products": "X"}`) proves that the bill path refuses as well.
@@ -782,15 +782,15 @@ The section 6 rules still apply: red-first, the red-list rule, no child processe
   - **Mutation M-F7:** restore the `is_array(…) ? … : []` fallback. The `"X"`, `[]` and `{"products": "X"}` rows go red. Revert.
   - **Must NOT change:** the write path (`DiscountFields`), `DiscountRule::targetsEverything`, the D-29 rules (no ordering, keyed `first()` only), or any id existence check (D-32: shape only).
 
-- [ ] **Step 31: S-4 and S-7.**
+- [x] **Step 31: S-4 and S-7.**
   - **S-4, `packages/pricing/src/Support/Uniqueness.php` docblock only.** The `code` unique index uses the tenant connection's default collation (`utf8mb4_unicode_ci` in `config/database.php`), which ignores case and accents on MySQL and MariaDB, and is bytewise on the SQLite stand-in. The `lower()` pre-check still gives one answer on every engine, and the backstop is caught as a duplicate. There is no test and no behaviour change.
   - **S-7, `DatabasePricingEngine::members()`.** The refusal **reason** stays `unknown_tax_group` (the closed list is unchanged, and adding a reason is a contract change), but the message names what is wrong: `Tax group [G] links tax [T], which does not exist.` **Test:** seed a `tax_group_taxes` row with a dangling `tax_id`, disabling foreign keys for that one insert and re-enabling them in a `finally`; `computeTax` is refused `unknown_tax_group` with a message containing T.
 
-- [ ] **Step 32: documents.** Describe the old wording; never quote it (memory note).
+- [x] **Step 32: documents.** Describe the old wording; never quote it (memory note).
   - `docs/database.md` §6.4 "As built (T-029)": the residue goes to the last percentage member whose resolved rate is not zero (**D-34**, correcting D-25); a duplicate `effective_from` is refused by the pure resolver (D-36); `type` and `is_compound` are frozen once a tax has rates (D-35); an already-closed rate cannot be closed again (D-37); a malformed stored `applies_to` is refused (D-38); the two lock rules (D-39), stating that the run-time proof is NOT VERIFIED until the engine hold lifts.
   - Section 10's new follow-ups go to `lead`.
 
-- [ ] **Step 33: fix-round gate.** `composer check` from `modules/host`, with counts and `test` seconds compared against step 21, then `composer test:fast` once.
+- [x] **Step 33: fix-round gate.** `composer check` from `modules/host`, with counts and `test` seconds compared against step 21, then `composer test:fast` once.
   - **Expected:** the same **13 failed names** as step 21, and no new failure. About **+60 passed** (roughly 4085 to 4110 if step 21 measures 4037): about 12 from R-1, 5 from W-5, 3 from S-2, 11 from the scan, 4 from W-2's SQLite half, 8 from W-3, 15 from W-4, and 1 to 3 from S-1 and S-7. About **+5 skipped** (E-1 to E-5, engine-gated), so about 41. The fixture count goes from 114 to **120**.
   - **Stop line:** a `test` step more than 10 % slower than step 21's means stop and report to `lead`.
   - *(AC-27 for the fix round.)*

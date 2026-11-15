@@ -14,6 +14,7 @@ use Flexipos\Contracts\Pricing\TaxBreakdown;
 use Flexipos\Contracts\Pricing\TaxQuote;
 use Flexipos\Pricing\Support\TenantConnection;
 use Illuminate\Database\Connection;
+use JsonException;
 use stdClass;
 
 /**
@@ -47,6 +48,14 @@ use stdClass;
  * case (the engine compares ids with `===`), decimals are handed over as
  * strings, a `DATETIME(3)` becomes the `YYYY-MM-DDTHH:MM:SS.mmmZ` instant the
  * engine's shape check expects, and integers are cast.
+ *
+ * **A malformed stored `applies_to` is refused, never widened (W-4, D-38).** SQL
+ * `NULL` means "applies to everything". Any other value must be the D-32 shape,
+ * a JSON object whose only keys are `products`, `categories` and `brands`, each a
+ * list of strings; anything else (including a JSON `null`, a list, a bare string
+ * and a non-string entry) is `invalid_amount` at load, because reading it as
+ * three empty lists would turn a discount meant for one product into a
+ * tenant-wide one. Shape only: no id is checked for existence (D-32).
  *
  * `computeTax` uses the tax group it is given. The purchasing caller chooses
  * between a product's two tax groups before it asks (K-3).
@@ -263,7 +272,7 @@ final class DatabasePricingEngine implements PricingEngine
 
         foreach ($links as $link) {
             $key = self::id($link->tax_id);
-            $tax = $taxes[$key] ?? throw PricingRefused::unknownTaxGroup("Tax group [{$taxGroupId}] names a tax that does not exist.");
+            $tax = $taxes[$key] ?? throw PricingRefused::unknownTaxGroup("Tax group [{$taxGroupId}] links tax [{$key}], which does not exist.");
 
             $members[] = new TaxMember(
                 $key,
@@ -296,8 +305,7 @@ final class DatabasePricingEngine implements PricingEngine
             return [];
         }
 
-        $appliesTo = $row->applies_to === null ? [] : json_decode((string) $row->applies_to, true);
-        $appliesTo = is_array($appliesTo) ? $appliesTo : [];
+        $appliesTo = self::appliesTo(self::id($row->id), $row->applies_to);
 
         return [new DiscountRule(
             self::id($row->id),
@@ -311,9 +319,9 @@ final class DatabasePricingEngine implements PricingEngine
             (int) $row->used_count,
             $row->min_amount === null ? null : self::decimal($row->min_amount),
             $row->max_discount === null ? null : self::decimal($row->max_discount),
-            self::ids($appliesTo['products'] ?? null),
-            self::ids($appliesTo['categories'] ?? null),
-            self::ids($appliesTo['brands'] ?? null),
+            $appliesTo['products'],
+            $appliesTo['categories'],
+            $appliesTo['brands'],
         )];
     }
 
@@ -325,19 +333,54 @@ final class DatabasePricingEngine implements PricingEngine
     }
 
     /**
-     * @return list<string>
+     * The three id lists of a stored `applies_to`, folded to upper case.
+     *
+     * @return array{products: list<string>, categories: list<string>, brands: list<string>}
+     *
+     * @throws PricingRefused invalid_amount
      */
-    private static function ids(mixed $value): array
+    private static function appliesTo(string $discountId, mixed $stored): array
     {
-        $ids = [];
+        $lists = ['products' => [], 'categories' => [], 'brands' => []];
 
-        foreach (is_array($value) ? $value : [] as $id) {
-            if (is_string($id)) {
-                $ids[] = strtoupper($id);
+        if ($stored === null) {
+            return $lists;
+        }
+
+        $refuse = static fn (string $why): PricingRefused => PricingRefused::invalidAmount("Discount [{$discountId}] has a malformed applies_to: {$why}.");
+
+        try {
+            // As objects, so that a JSON object and a JSON list stay distinguishable.
+            $decoded = json_decode((string) $stored, false, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            throw $refuse('it is not valid JSON');
+        }
+
+        if (! $decoded instanceof stdClass) {
+            throw $refuse('it is not a JSON object');
+        }
+
+        foreach (get_object_vars($decoded) as $key => $value) {
+            $key = (string) $key;
+
+            if (! array_key_exists($key, $lists)) {
+                throw $refuse("the key [{$key}] is not one of products, categories, brands");
+            }
+
+            if (! is_array($value) || ! array_is_list($value)) {
+                throw $refuse("[{$key}] is not a list");
+            }
+
+            foreach ($value as $id) {
+                if (! is_string($id)) {
+                    throw $refuse("[{$key}] holds an entry that is not a string");
+                }
+
+                $lists[$key][] = strtoupper($id);
             }
         }
 
-        return $ids;
+        return $lists;
     }
 
     /**

@@ -214,3 +214,8 @@ it('refuses a malformed discounted subtotal by name', function () {
     expect(Build::reasonOf(fn () => DiscountCalculator::forBill(Build::discount(scope: DiscountScope::Bill), Build::AT, ['-1.0000'])))->toBe('invalid_amount')
         ->and(Build::reasonOf(fn () => DiscountCalculator::forBill(Build::discount(scope: DiscountScope::Bill), Build::AT, ['99999999999999.9999', '0.0001'])))->toBe('out_of_range');
 });
+
+it('accepts a percentage discount of exactly 100 and refuses one a hair above (the numeric cap)', function () {
+    expect(Build::discount(value: '100.0000')->value)->toBe('100.0000')
+        ->and(Build::reasonOf(fn () => Build::discount(value: '100.0001')))->toBe('invalid_amount');
+});

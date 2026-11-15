@@ -15,6 +15,11 @@ use Flexipos\Contracts\Pricing\TaxGroupState;
  * the default is owned by pricing and asked through the published
  * {@see TaxGroupDirectory}. The ids given here are folded to upper case before
  * the call, because the directory compares exactly (K-10).
+ *
+ * **Every question is a locking read** (`lock: true`, W-2, D-39): these run
+ * inside the product write's transaction, and a plain read there would judge the
+ * group on the snapshot the transaction fixed, so a group deactivated since would
+ * still look active and a live product would be written onto it.
  */
 final class TaxGroups
 {
@@ -23,7 +28,7 @@ final class TaxGroups
      */
     public static function assertUsable(TaxGroupDirectory $directory, string $taxGroupId, string $field): void
     {
-        match ($directory->state($taxGroupId)) {
+        match ($directory->state($taxGroupId, lock: true)) {
             TaxGroupState::Active => null,
             TaxGroupState::Unknown => throw CatalogRefused::unknownTaxGroup("The {$field} [{$taxGroupId}] is not a tax group."),
             TaxGroupState::Inactive => throw CatalogRefused::inactiveTaxGroup("The {$field} [{$taxGroupId}] is an inactive tax group."),
@@ -45,7 +50,7 @@ final class TaxGroups
             return $named;
         }
 
-        $default = $directory->defaultGroupId();
+        $default = $directory->defaultGroupId(lock: true);
 
         if ($default === null) {
             throw CatalogRefused::noDefaultTaxGroup('No tax_group_id was given and the tenant has no active default tax group.');

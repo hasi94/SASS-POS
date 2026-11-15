@@ -92,3 +92,40 @@ it('refuses a malformed row', function () {
         ->and(fn () => new RateRow('15.0000', '2025-02-01', '2025-01-01'))->toThrow(\InvalidArgumentException::class, '[effectiveTo]')
         ->and(Build::reasonOf(fn () => new RateRow('-1.0000', '2025-02-01')))->toBe('invalid_amount');
 });
+
+/**
+ * D-36 (AC-7, AC-30.10): two rows on one `effectiveFrom` are refused whether or
+ * not either qualifies, in either order, so the result is a function of the row set.
+ *
+ * @return array<string, array{list<RateRow>, string, string|null}> rows, date, the winning rate or null when refused
+ */
+function rateResolverDuplicateCases(): array
+{
+    return [
+        'a qualifying pair on 2024-01-01' => [[Build::rate('15.0000', '2024-01-01', '2024-06-01'), Build::rate('18.0000', '2024-01-01')], '2024-03-01', null],
+        'a non-qualifying pair beside a qualifying row' => [[Build::rate('12.0000', '2026-01-01'), Build::rate('13.0000', '2026-01-01'), Build::rate('15.0000', '2024-01-01')], '2025-01-01', null],
+        'no duplicate resolves as before' => [[Build::rate('15.0000', '2024-01-01', '2025-01-01'), Build::rate('18.0000', '2025-01-01')], '2025-06-01', '18.0000'],
+    ];
+}
+
+it('refuses two rows that share an effective_from, in either input order', function (array $rows, string $date, ?string $winner) {
+    foreach ([$rows, array_reverse($rows)] as $ordered) {
+        if ($winner === null) {
+            expect(Build::reasonOf(fn () => RateResolver::resolve($ordered, $date, 'VAT')))->toBe('invalid_amount');
+        } else {
+            expect(RateResolver::resolve($ordered, $date, 'VAT')->rate)->toBe($winner);
+        }
+    }
+})->with(rateResolverDuplicateCases());
+
+it('names the tax and the date in the duplicate refusal', function () {
+    try {
+        RateResolver::resolve([Build::rate('15.0000', '2024-01-01'), Build::rate('18.0000', '2024-01-01')], '2025-01-01', 'VAT');
+    } catch (PricingRefused $refused) {
+        expect($refused->getMessage())->toContain('VAT')->toContain('2024-01-01');
+
+        return;
+    }
+
+    throw new \RuntimeException('Expected a refusal.');
+});

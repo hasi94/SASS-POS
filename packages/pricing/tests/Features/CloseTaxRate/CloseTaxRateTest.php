@@ -89,7 +89,8 @@ it('requires an effective_to, and refuses one that inverts the range', function 
 
 it('refuses an effective_to that would make the range overlap the next rate, and accepts one that touches it', function () {
     $tax = PricingSeed::tax(PricingSeed::authority('IRD'), 'VAT');
-    $first = PricingSeed::rate($tax, '15.0000', '2024-01-01', '2025-01-01');
+    // Open-ended: a closed rate cannot be closed again (AC-6a). The later row is raw-seeded.
+    $first = PricingSeed::rate($tax, '15.0000', '2024-01-01');
     PricingSeed::rate($tax, '18.0000', '2025-06-01');
 
     PricingAdminRefusals::expect(PricingAdminRefusal::Overlap, fn () => ctrcClose($first, ['effective_to' => '2025-07-01']));
@@ -98,3 +99,19 @@ it('refuses an effective_to that would make the range overlap the next rate, and
 
     expect(PricingSeed::row('tax_rates', $first)['effective_to'])->toBe('2025-06-01');
 });
+
+it('refuses to close a rate that is already closed, earlier, later or equal, and changes nothing (AC-6a)', function (string $newEnd) {
+    $tax = PricingSeed::tax(PricingSeed::authority('IRD'), 'VAT');
+    $rate = PricingSeed::rate($tax, '15.0000', '2024-01-01', '2025-01-01');
+    $before = PricingSeed::row('tax_rates', $rate);
+
+    $refused = PricingAdminRefusals::expect(PricingAdminRefusal::Validation, fn () => ctrcClose($rate, ['effective_to' => $newEnd, 'note' => 'again']));
+
+    expect($refused->getMessage())->toContain('already closed')
+        ->and(PricingSeed::row('tax_rates', $rate))->toBe($before)
+        ->and(PricingSeed::connection()->table('audit_logs')->count())->toBe(0);
+})->with([
+    'earlier' => ['2024-06-01'],
+    'later' => ['2026-01-01'],
+    'equal' => ['2025-01-01'],
+]);

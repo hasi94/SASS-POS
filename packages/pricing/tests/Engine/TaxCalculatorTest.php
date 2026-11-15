@@ -276,3 +276,54 @@ it('refuses a fixed tax that claims to compound, and an unknown sequence', funct
     expect(fn () => Build::member('F', '1.0000', 1, true, TaxType::Fixed))->toThrow(\InvalidArgumentException::class, 'cannot compound')
         ->and(fn () => Build::member('F', '1.0000', 300))->toThrow(\InvalidArgumentException::class, '[sequence]');
 });
+
+/**
+ * D-34 (AC-11.6 sub-criteria 6a to 6d). Every expectation below was derived by
+ * hand from the arithmetic in the plan and typed here; none was read back from
+ * the engine. Each row: members, gross, net, [code, base, amount] per line, total.
+ *
+ * @return array<string, array{list<TaxMember>, string, string, list<array{string, string, string}>, string}>
+ */
+function taxCalcZeroRateResidueCases(): array
+{
+    $zero = static fn (string $label, int $sequence): TaxMember => Build::member($label, '0.0000', $sequence);
+
+    return [
+        '6a: 15 % then a 0 % levy, gross 9.9900' => [
+            [Build::member('VAT', '15.0000', 1), $zero('LEVY', 2)], '9.9900', '8.6870',
+            [['VAT', '8.6870', '1.3030'], ['LEVY', '8.6870', '0.0000']], '1.3030',
+        ],
+        '6b: the same group, gross 10.0000' => [
+            [Build::member('VAT', '15.0000', 1), $zero('LEVY', 2)], '10.0000', '8.6957',
+            [['VAT', '8.6957', '1.3043'], ['LEVY', '8.6957', '0.0000']], '1.3043',
+        ],
+        '6c: the 0 % levy first (control)' => [
+            [$zero('LEVY', 1), Build::member('VAT', '15.0000', 2)], '9.9900', '8.6870',
+            [['LEVY', '8.6870', '0.0000'], ['VAT', '8.6870', '1.3030']], '1.3030',
+        ],
+        '6d: every rate zero (control)' => [
+            [$zero('VAT', 1), $zero('LEVY', 2)], '9.9900', '9.9900',
+            [['VAT', '9.9900', '0.0000'], ['LEVY', '9.9900', '0.0000']], '0.0000',
+        ],
+        'three members: the residue goes to the LAST non-zero one, not the first' => [
+            [Build::member('VAT', '15.0000', 1), Build::member('NBT', '2.0000', 2), $zero('LEVY', 3)], '9.9900', '8.5385',
+            [['VAT', '8.5385', '1.2808'], ['NBT', '8.5385', '0.1707'], ['LEVY', '8.5385', '0.0000']], '1.4515',
+        ],
+    ];
+}
+
+it('puts the inclusive residue on the last member whose rate is not zero, and never on a 0 % member', function (array $members, string $gross, string $net, array $lines, string $total) {
+    $breakdown = taxCalc($members, $gross, true);
+
+    expect($breakdown->net)->toBe($net)
+        ->and(taxCalcLines($breakdown))->toBe($lines)
+        ->and($breakdown->total)->toBe($total)
+        ->and((string) BigDecimal::of($breakdown->net)->plus($breakdown->total))->toBe($gross);
+
+    // Every 0 % line is exactly round(base x 0 / 100): no residue, no sign.
+    foreach ($breakdown->lines as $line) {
+        if ($line->rate === '0.0000') {
+            expect($line->amount)->toBe('0.0000');
+        }
+    }
+})->with(taxCalcZeroRateResidueCases());

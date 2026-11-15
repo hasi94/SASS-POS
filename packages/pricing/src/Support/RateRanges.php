@@ -14,7 +14,12 @@ use Illuminate\Database\Connection;
  * and a row opening on 2025-01-01 do not collide. A null `effective_to` is
  * "forever", so a second open-ended row always collides. The caller holds a
  * `lockForUpdate()` on the parent `taxes` row, so two writers for one tax
- * serialise (a no-op on the SQLite stand-in, `[ENGINE]`).
+ * serialise, and the sibling read below is itself a locking read (W-1, D-39):
+ * under REPEATABLE READ a plain read would use the snapshot the transaction
+ * already fixed and miss a sibling committed since, while a locking read returns
+ * the latest committed rows. Both callers already hold the parent lock, so the
+ * extra lock costs nothing. All of it is a no-op on the SQLite stand-in
+ * (`[ENGINE]`), so it is NOT VERIFIED at run time until the engine hold lifts.
  *
  * Dates are compared as `Y-m-d` strings, which order correctly by construction.
  * This is the write path's own check, not the pure engine's `RateResolver`.
@@ -26,7 +31,7 @@ final class RateRanges
      */
     public static function assertNoOverlap(Connection $connection, string $taxId, string $from, ?string $to, ?string $exceptRateId = null): void
     {
-        $query = $connection->table('tax_rates')->where('tax_id', $taxId);
+        $query = $connection->table('tax_rates')->where('tax_id', $taxId)->lockForUpdate();
 
         if ($exceptRateId !== null) {
             $query->where('id', '!=', $exceptRateId);

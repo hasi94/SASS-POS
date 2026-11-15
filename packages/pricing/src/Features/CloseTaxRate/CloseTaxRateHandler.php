@@ -21,7 +21,20 @@ use Flexipos\Pricing\Support\TenantConnection;
  * `rate` and `effective_from` are immutable once written, because documents
  * were resolved against them, so naming either is refused as an unknown field.
  * The new end may not precede the start and may not make the range overlap
- * another rate of the same tax.
+ * another rate of the same tax. A rate that already has an `effective_to` cannot
+ * be closed again (AC-6a, D-37): moving the end of a closed rate would re-resolve
+ * documents already priced against it, and closing is not an edit path. So this
+ * only ever shortens an open-ended range.
+ *
+ * **Lock order (W-1, D-39): `taxes`, then `tax_rates`, the order `CreateTaxRate`
+ * uses.** The rate's `tax_id` is read before the transaction, because no slice
+ * ever changes it, so the value cannot go stale and the read does not fix the
+ * transaction's snapshot. The first statement inside the transaction is then the
+ * locking read of the parent tax, and the rate is read under a lock after it: a
+ * locking read returns the latest committed row, so the AC-6a check and the
+ * overlap check see what a concurrent writer committed. Locking the rate first
+ * would deadlock against `CreateTaxRate`. On the SQLite stand-in the locks are
+ * no-ops: this is NOT VERIFIED at run time until the engine hold lifts.
  */
 final class CloseTaxRateHandler
 {
@@ -50,11 +63,23 @@ final class CloseTaxRateHandler
 
         $connection = $this->tenant->get();
 
-        $connection->transaction(function () use ($connection, $command, $id, $changes, $to): void {
-            $before = Lookup::any($connection, 'tax_rates', $id, 'tax rate');
+        // A plain key read, outside the transaction: `tax_id` is never updated.
+        $taxId = $connection->table('tax_rates')->where('id', $id)->value('tax_id');
 
-            // Lock the parent first: the overlap check below reads its siblings.
-            Lookup::any($connection, 'taxes', $before->tax_id, 'tax', lock: true);
+        if ($taxId === null) {
+            throw PricingAdminRefused::notFound("No tax rate has id [{$id}].");
+        }
+
+        $connection->transaction(function () use ($connection, $command, $id, $taxId, $changes, $to): void {
+            // Lock the parent first, before any plain read: the overlap check
+            // below reads its siblings.
+            Lookup::any($connection, 'taxes', $taxId, 'tax', lock: true);
+
+            $before = Lookup::any($connection, 'tax_rates', $id, 'tax rate', lock: true);
+
+            if ($before->effective_to !== null) {
+                throw PricingAdminRefused::validation('This rate is already closed; closing is not an edit path.');
+            }
 
             $from = (string) $before->effective_from;
 

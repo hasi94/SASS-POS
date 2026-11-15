@@ -157,12 +157,12 @@ it('asks the published directory and not the table: a bound double decides the d
     {
         public function __construct(private readonly ?string $chosen) {}
 
-        public function state(string $taxGroupId): TaxGroupState
+        public function state(string $taxGroupId, bool $lock = false): TaxGroupState
         {
             return TaxGroupState::Active;
         }
 
-        public function defaultGroupId(): ?string
+        public function defaultGroupId(bool $lock = false): ?string
         {
             return $this->chosen;
         }
@@ -181,4 +181,53 @@ it('leaves no product with a null tax group after any create path (F-3, the appl
 
     expect(CatalogSeed::connection()->table('products')->whereNull('tax_group_id')->count())->toBe(0)
         ->and(CatalogSeed::connection()->table('products')->count())->toBe(3);
+});
+
+/**
+ * A directory that records every question it is asked, as `[lock, transaction
+ * level of the tenant connection]`, and answers from the real one (W-2, D-39).
+ *
+ * @return TaxGroupDirectory&object{calls: list<array{string, bool, int}>}
+ */
+function cptgRecordingDirectory(): TaxGroupDirectory
+{
+    return new class(app(TaxGroupDirectory::class)) implements TaxGroupDirectory
+    {
+        /** @var list<array{string, bool, int}> */
+        public array $calls = [];
+
+        public function __construct(private readonly TaxGroupDirectory $real) {}
+
+        public function state(string $taxGroupId, bool $lock = false): TaxGroupState
+        {
+            $this->calls[] = ['state', $lock, CatalogSeed::connection()->transactionLevel()];
+
+            return $this->real->state($taxGroupId, $lock);
+        }
+
+        public function defaultGroupId(bool $lock = false): ?string
+        {
+            $this->calls[] = ['defaultGroupId', $lock, CatalogSeed::connection()->transactionLevel()];
+
+            return $this->real->defaultGroupId($lock);
+        }
+    };
+}
+
+it('asks the directory for a locking read, inside the product transaction, on the named, purchase and default paths (W-2)', function () {
+    $directory = cptgRecordingDirectory();
+    app()->instance(TaxGroupDirectory::class, $directory);
+
+    cptgCreate(cptgFields(['tax_group_id' => cptgGroup('VAT15'), 'purchase_tax_group_id' => cptgGroup('PURCH')]));
+    cptgCreate(cptgFields());
+
+    $names = array_map(static fn (array $call): string => $call[0], $directory->calls);
+
+    // Named group and purchase group (two state calls), then the default path.
+    expect($names)->toBe(['state', 'state', 'defaultGroupId']);
+
+    foreach ($directory->calls as [$name, $lock, $level]) {
+        expect($lock)->toBeTrue("{$name} must pass lock: true")
+            ->and($level)->toBeGreaterThanOrEqual(1, "{$name} must run inside the transaction");
+    }
 });

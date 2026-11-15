@@ -83,3 +83,4 @@
 - [T-029 pricing chunk B](project_t029_pricing_chunk_b.md) - pure engine + 112 fixtures: inclusive affine solve, R1 absorbed, factor-scan exemption pulled into chunk B.
 - [T-029 pricing chunk C](project_t029_pricing_chunk_c.md) - 12/31/3984, 991s; slice layout, audit catalogue literal, STANDARD default group, stan double trap.
 - [T-029 pricing chunk D](project_t029_pricing_chunk_d.md) - adapter that never orders, scans, held engine test; the 12-vs-13 failure is APP_KEY, test:fast is ~843s.
+- [T-029 fix round 1](project_t029_fix_round_1.md) - 13/41/4109 final, foreign bench_load.php slows the gate, WSL-bash and raw-string traps in scripts.

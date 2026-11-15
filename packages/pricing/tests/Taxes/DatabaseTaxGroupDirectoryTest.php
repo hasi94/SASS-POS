@@ -91,3 +91,45 @@ it('never names an inactive group as the default, even when the flag is still se
 
     expect(tgdDirectory()->defaultGroupId())->toBeNull();
 });
+
+it('gives the same answers with the lock as without it (W-2): the lock branch changes no answer', function () {
+    $active = PricingSeed::group('A');
+    $inactive = PricingSeed::group('I', ['is_active' => false]);
+    $unknown = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    $default = (string) PricingSeed::connection()->table('tax_groups')->where('code', 'STANDARD')->value('id');
+
+    foreach ([$active, $inactive, $unknown] as $id) {
+        expect(tgdDirectory()->state($id, lock: true))->toBe(tgdDirectory()->state($id));
+    }
+
+    expect(tgdDirectory()->state($active, lock: true))->toBe(TaxGroupState::Active)
+        ->and(tgdDirectory()->state($inactive, lock: true))->toBe(TaxGroupState::Inactive)
+        ->and(tgdDirectory()->state($unknown, lock: true))->toBe(TaxGroupState::Unknown)
+        ->and(tgdDirectory()->defaultGroupId(lock: true))->toBe($default)
+        ->and(tgdDirectory()->defaultGroupId())->toBe($default);
+
+    // An inactive default is no default, locked or not; and no default at all is null.
+    PricingSeed::connection()->table('tax_groups')->where('is_default', true)->update(['is_active' => false]);
+
+    expect(tgdDirectory()->defaultGroupId(lock: true))->toBeNull()
+        ->and(tgdDirectory()->defaultGroupId())->toBeNull();
+
+    PricingSeed::connection()->table('tax_groups')->update(['is_default' => false]);
+
+    expect(tgdDirectory()->defaultGroupId(lock: true))->toBeNull();
+});
+
+it('reads the default through its unique key and not through the unindexed flag (W-2)', function () {
+    $db = PricingSeed::connection();
+    $db->flushQueryLog();
+    $db->enableQueryLog();
+
+    tgdDirectory()->defaultGroupId(lock: true);
+
+    $statements = array_map(static fn (array $entry): string => strtolower((string) $entry['query']), $db->getQueryLog());
+    $db->disableQueryLog();
+
+    expect($statements)->toHaveCount(1)
+        ->and($statements[0])->toContain('"default_marker" = ?')
+        ->and($statements[0])->not->toContain('"is_default"');
+});

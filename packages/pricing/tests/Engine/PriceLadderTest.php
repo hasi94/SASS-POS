@@ -317,3 +317,8 @@ it('is a LadderInput with exactly the facts it names', function () {
         ->and($input->sellingPrice)->toBe('7.5000')
         ->and($input->branchSellingPrice)->toBeNull();
 });
+
+it('accepts an item discount of exactly 100 and refuses one a hair above (the numeric cap)', function () {
+    expect(Build::item(null, '1.0000', '1.0000', '100.0000')->discountPercent)->toBe('100.0000')
+        ->and(fn () => Build::item(null, '1.0000', '1.0000', '100.0001'))->toThrow(\InvalidArgumentException::class, '[discountPercent]');
+});

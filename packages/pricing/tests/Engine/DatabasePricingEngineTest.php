@@ -11,6 +11,7 @@ use Flexipos\Contracts\Catalog\UnitSnapshot;
 use Flexipos\Contracts\Pricing\BillQuote;
 use Flexipos\Contracts\Pricing\LineQuote;
 use Flexipos\Contracts\Pricing\PricingEngine;
+use Flexipos\Contracts\Pricing\PricingRefused;
 use Flexipos\Contracts\Pricing\TaxContext;
 use Flexipos\Contracts\Pricing\TaxQuote;
 use Flexipos\Pricing\Engine\DatabasePricingEngine;
@@ -18,6 +19,7 @@ use Flexipos\Pricing\Tests\Support\Build;
 use Flexipos\Pricing\Tests\Support\FixtureDatabase;
 use Flexipos\Pricing\Tests\Support\FixtureReplay;
 use Flexipos\Pricing\Tests\Support\PricingSeed;
+use Illuminate\Database\QueryException;
 use Tests\TestCase;
 
 /*
@@ -576,4 +578,141 @@ it('never orders or limits a candidate set in SQL while it quotes', function () 
             expect($statement)->not->toContain($column);
         }
     }
+});
+
+// ------------------------------------------------- D-34: a real 0.0000 rate row
+
+it('reads a suspended levy as a 0.0000 rate row and gives the inclusive residue to the VAT before it', function () {
+    $authority = PricingSeed::authority('D34');
+    $vat = PricingSeed::tax($authority, 'VAT');
+    $levy = PricingSeed::tax($authority, 'LEVY');
+
+    PricingSeed::rate($vat, '15.0000', '2020-01-01');
+    // The levy was 2 % until 2025-01-01 and is suspended from that day by a 0.0000 row.
+    PricingSeed::rate($levy, '2.0000', '2020-01-01', '2025-01-01');
+    PricingSeed::rate($levy, '0.0000', '2025-01-01');
+
+    $group = PricingSeed::group('INCL', ['is_inclusive' => true]);
+
+    PricingSeed::member($group, $vat, 1);
+    PricingSeed::member($group, $levy, 2);
+
+    $breakdown = dpeEngine()->computeTax(new TaxQuote($group, '9.9900', '1.0000', '2025-06-01', TaxContext::Sale));
+
+    // The amounts of fixture tax-inclusive-residue-skips-a-zero-rate-member (6a), typed by hand.
+    expect($breakdown->isInclusive)->toBeTrue()
+        ->and($breakdown->net)->toBe('8.6870')
+        ->and(array_map(static fn ($line): array => [$line->code, $line->rate, $line->base, $line->amount], $breakdown->lines))->toBe([
+            ['VAT', '15.0000', '8.6870', '1.3030'],
+            ['LEVY', '0.0000', '8.6870', '0.0000'],
+        ])
+        ->and($breakdown->total)->toBe('1.3030');
+
+    // Control: before the suspension the levy is a live 2 % member and takes its own share.
+    expect(dpeEngine()->computeTax(new TaxQuote($group, '9.9900', '1.0000', '2024-06-01', TaxContext::Sale))->lines[1]->rate)->toBe('2.0000');
+});
+
+// ------------------------------------------- W-4 (D-38): a bad applies_to is refused
+
+/**
+ * Stored `applies_to` values that are not the D-32 shape (raw text, as the
+ * column would hold it). Every one must be refused, none may widen the discount.
+ *
+ * @return array<string, array{string}>
+ */
+function dpeMalformedAppliesTo(): array
+{
+    return [
+        'a bare string' => ['"X"'],
+        'a bare number' => ['123'],
+        'an empty list' => ['[]'],
+        'a list of ids' => ['["X"]'],
+        'a JSON null' => ['null'],
+        'a products value that is a string' => ['{"products": "X"}'],
+        'a non-string entry' => ['{"products": [123]}'],
+        'a products value that is an object' => ['{"products": {"a": "X"}}'],
+        'an unknown key' => ['{"skus": ["X"]}'],
+        'an unknown key beside a valid one' => ['{"products": ["X"], "tags": []}'],
+        'a nested list entry' => ['{"products": [["X"]]}'],
+    ];
+}
+
+it('refuses a malformed stored applies_to as invalid_amount, and never widens the discount', function (string $stored) {
+    $bare = dpeBareProduct();
+    $discount = PricingSeed::discount('BAD', ['applies_to' => $stored]);
+
+    $reason = Build::reasonOf(fn () => dpeEngine()->quoteLine(dpeBareQuote($bare, null, $discount)));
+
+    expect($reason)->toBe('invalid_amount');
+
+    try {
+        dpeEngine()->quoteLine(dpeBareQuote($bare, null, $discount));
+    } catch (PricingRefused $refused) {
+        expect($refused->getMessage())->toContain(strtoupper($discount))->toContain('applies_to');
+    }
+})->with(dpeMalformedAppliesTo());
+
+it('refuses a malformed stored applies_to on the bill path as well', function () {
+    $discount = PricingSeed::discount('BADBILL', ['scope' => 'bill', 'applies_to' => '{"products": "X"}']);
+
+    expect(Build::reasonOf(fn () => dpeEngine()->billDiscount(new BillQuote($discount, Build::AT, ['10.0000']))))->toBe('invalid_amount');
+});
+
+it('refuses undecodable applies_to text when the stand-in lets it be stored (defence only on the engines, whose column refuses it)', function () {
+    $bare = dpeBareProduct();
+
+    try {
+        $discount = PricingSeed::discount('TEXT', ['applies_to' => 'not json']);
+    } catch (QueryException) {
+        // The column's JSON validity check refused the insert: the branch is defence only.
+        expect(true)->toBeTrue();
+
+        return;
+    }
+
+    expect(Build::reasonOf(fn () => dpeEngine()->quoteLine(dpeBareQuote($bare, null, $discount))))->toBe('invalid_amount');
+});
+
+it('still applies to everything for NULL and {}, applies to a listed product, and skips an unlisted one (controls)', function () {
+    $bare = dpeBareProduct();
+
+    $everything = PricingSeed::discount('NULLALL', ['applies_to' => null]);
+    $emptyObject = PricingSeed::discount('EMPTYALL', ['applies_to' => '{}']);
+    $listed = PricingSeed::discount('LISTED', ['applies_to' => json_encode(['products' => [strtolower($bare['product'])]])]);
+    $other = PricingSeed::discount('OTHER', ['applies_to' => json_encode(['products' => [strtolower(PricingSeed::product('ELSE'))]])]);
+
+    foreach ([$everything, $emptyObject, $listed] as $applies) {
+        expect(dpeEngine()->quoteLine(dpeBareQuote($bare, null, $applies))->discountAmount)->toBe('0.1000');
+    }
+
+    expect(Build::reasonOf(fn () => dpeEngine()->quoteLine(dpeBareQuote($bare, null, $other))))->toBe('not_applicable');
+});
+
+// -------------------------------------------- S-7: a dangling tax link is named
+
+it('names the tax when a group links a tax that does not exist, and keeps the unknown_tax_group reason', function () {
+    $group = PricingSeed::group('DANGLING');
+    $ghost = '01ARZ3NDEKTSV4RRFFQ69G5FAV';
+    $db = PricingSeed::connection();
+
+    $db->statement('PRAGMA foreign_keys = OFF');
+
+    try {
+        $db->table('tax_group_taxes')->insert(['tax_group_id' => $group, 'tax_id' => $ghost, 'sequence' => 1]);
+    } finally {
+        $db->statement('PRAGMA foreign_keys = ON');
+    }
+
+    $quote = new TaxQuote($group, '100.0000', '1.0000', Build::DATE, TaxContext::Sale);
+
+    try {
+        dpeEngine()->computeTax($quote);
+    } catch (PricingRefused $refused) {
+        expect($refused->reason->value)->toBe('unknown_tax_group')
+            ->and($refused->getMessage())->toContain($ghost)->toContain($group);
+
+        return;
+    }
+
+    throw new \RuntimeException('Expected a refusal.');
 });

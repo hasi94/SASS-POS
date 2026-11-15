@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flexipos\Pricing\Engine;
 
+use Brick\Math\BigDecimal;
 use Flexipos\Contracts\Pricing\Shape;
 use InvalidArgumentException;
 
@@ -32,7 +33,7 @@ final readonly class LadderItem
         $this->price = Shape::money($price, 'price');
         $this->discountPercent = $discountPercent === null ? null : Shape::rate($discountPercent, 'discountPercent');
 
-        if ($this->discountPercent !== null && version_compare($this->discountPercent, '100.0000', '>')) {
+        if ($this->discountPercent !== null && BigDecimal::of($this->discountPercent)->compareTo(100) > 0) {
             throw new InvalidArgumentException('[discountPercent] must not exceed 100.');
         }
     }

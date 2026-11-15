@@ -1,9 +1,17 @@
 <?php
 
+use Flexipos\Catalog\Exceptions\CatalogRefused;
+use Flexipos\Catalog\Features\CreateProduct\CreateProduct;
+use Flexipos\Catalog\Features\CreateProduct\CreateProductHandler;
 use Flexipos\Contracts\Catalog\FactorSource;
 use Flexipos\Contracts\Catalog\UnitSnapshot;
 use Flexipos\Contracts\Pricing\LineQuote;
 use Flexipos\Contracts\Pricing\PricingEngine;
+use Flexipos\Pricing\Exceptions\PricingAdminRefused;
+use Flexipos\Pricing\Features\CloseTaxRate\CloseTaxRate;
+use Flexipos\Pricing\Features\CloseTaxRate\CloseTaxRateHandler;
+use Flexipos\Pricing\Features\UpdateTaxGroup\UpdateTaxGroup;
+use Flexipos\Pricing\Features\UpdateTaxGroup\UpdateTaxGroupHandler;
 use Flexipos\Testing\Engine\EngineConnection;
 use Flexipos\Testing\Engine\EngineDatabase;
 use Flexipos\Testing\Engine\EngineOnHold;
@@ -377,6 +385,283 @@ it('D-29: the real adapter orders four equal-priority promotions bytewise on thi
     } finally {
         config(['tenancy.connection' => $before]);
         app()->forgetInstance(PricingEngine::class);
+        $db->drop($tenantName);
+    }
+})->skip(fn (): bool => EngineConnection::onHold(), 'ENGINE_HOLD: see Flexipos\Testing\Engine\EngineOnHold');
+
+// ---------------------------------------------------------------------------
+// T-029 fix round, steps 27 and 28 (review W-1 and W-2, D-39): the lock-order
+// fixes, seen from two sessions. NOT VERIFIED: written for gate G-1, never run.
+//
+// Each case is single-process and non-blocking: the first session always
+// commits before the second proceeds. The second session fixes its snapshot
+// with a plain read (what a handler's first plain statement does under
+// REPEATABLE READ), the first session commits a change, and the handler then
+// runs on the second session inside that already-open transaction by pointing
+// `tenancy.connection` at it for the call. A locking read returns the latest
+// committed row whatever the snapshot, which is exactly what the fixes rely on.
+// ---------------------------------------------------------------------------
+
+/**
+ * One migrated tenant database seen through two connections.
+ *
+ * @return array{first: Connection, second: Connection, firstName: string}
+ */
+function pricingEngineTwoSessions(): array
+{
+    $firstName = pricingEngineMigrate();
+
+    config(['database.connections.t029_second' => config('database.connections.'.$firstName)]);
+
+    return ['first' => DB::connection($firstName), 'second' => DB::connection('t029_second'), 'firstName' => $firstName];
+}
+
+/**
+ * Run a handler call with the tenant connection pointed at one session.
+ *
+ * @template T
+ *
+ * @param  callable(): T  $work
+ * @return T
+ */
+function pricingEngineAs(string $connectionName, callable $work): mixed
+{
+    $before = config('tenancy.connection');
+
+    config(['tenancy.connection' => $connectionName]);
+
+    try {
+        return $work();
+    } finally {
+        config(['tenancy.connection' => $before]);
+    }
+}
+
+function pricingEngineTax(Connection $connection): string
+{
+    $authority = pricingEngineId();
+    $tax = pricingEngineId();
+
+    $connection->table('tax_authorities')->insert(['id' => $authority, 'created_at' => now(), 'updated_at' => now(), 'code' => 'TA', 'name' => 'Authority']);
+    $connection->table('taxes')->insert([
+        'id' => $tax, 'created_at' => now(), 'updated_at' => now(), 'authority_id' => $authority, 'code' => 'VAT', 'name' => 'VAT',
+        'type' => 'percentage', 'is_compound' => 0, 'applies_to' => 'both', 'is_recoverable' => 0, 'is_withholding' => 0, 'is_active' => 1,
+    ]);
+
+    return $tax;
+}
+
+function pricingEngineRate(Connection $connection, string $tax, string $from, ?string $to): string
+{
+    $id = pricingEngineId();
+
+    $connection->table('tax_rates')->insert([
+        'id' => $id, 'created_at' => now(), 'updated_at' => now(), 'tax_id' => $tax, 'rate' => '15.0000',
+        'effective_from' => $from, 'effective_to' => $to, 'note' => null,
+    ]);
+
+    return $id;
+}
+
+function pricingEngineRefusal(callable $work): PricingAdminRefused|CatalogRefused
+{
+    try {
+        $work();
+    } catch (PricingAdminRefused|CatalogRefused $refused) {
+        return $refused;
+    }
+
+    throw new RuntimeException('The call was expected to be refused and succeeded.');
+}
+
+it('E-1 (W-1, AC-6a): a close on a stale snapshot still sees that the rate was closed meanwhile', function () {
+    $db = EngineDatabase::engine();
+    $tenantName = pricingEngineTenantName();
+
+    $db->recreate($tenantName);
+
+    try {
+        ['first' => $first, 'second' => $second, 'firstName' => $firstName] = pricingEngineTwoSessions();
+
+        $tax = pricingEngineTax($first);
+        $rate = pricingEngineRate($first, $tax, '2024-01-01', null);
+
+        $second->beginTransaction();
+
+        try {
+            // Fixes the second session's snapshot: the rate is open on it.
+            $second->table('tax_rates')->count();
+
+            pricingEngineAs($firstName, fn () => app(CloseTaxRateHandler::class)->handle(new CloseTaxRate($rate, ['effective_to' => '2025-01-01'])));
+
+            // The control: the hazard is real on this engine. A plain read is
+            // stale, a locking read is current.
+            expect($second->table('tax_rates')->where('id', $rate)->value('effective_to'))->toBeNull()
+                ->and($second->table('tax_rates')->where('id', $rate)->lockForUpdate()->value('effective_to'))->toBe('2025-01-01');
+
+            $refused = pricingEngineRefusal(fn () => pricingEngineAs('t029_second', fn () => app(CloseTaxRateHandler::class)->handle(new CloseTaxRate($rate, ['effective_to' => '2026-01-01']))));
+
+            expect($refused->reason->value)->toBe('validation');
+        } finally {
+            $second->rollBack();
+        }
+
+        expect($first->table('tax_rates')->where('id', $rate)->value('effective_to'))->toBe('2025-01-01');
+    } finally {
+        DB::purge('t029_second');
+        $db->drop($tenantName);
+    }
+})->skip(fn (): bool => EngineConnection::onHold(), 'ENGINE_HOLD: see Flexipos\Testing\Engine\EngineOnHold');
+
+it('E-2 (W-1, AC-6): the overlap check on a stale snapshot still sees a sibling written meanwhile', function () {
+    $db = EngineDatabase::engine();
+    $tenantName = pricingEngineTenantName();
+
+    $db->recreate($tenantName);
+
+    try {
+        ['first' => $first, 'second' => $second] = pricingEngineTwoSessions();
+
+        $tax = pricingEngineTax($first);
+        $rate = pricingEngineRate($first, $tax, '2024-01-01', null);
+
+        $second->beginTransaction();
+
+        try {
+            $second->table('tax_rates')->count();
+
+            // Data written another way: a sibling that the second snapshot cannot see.
+            pricingEngineRate($first, $tax, '2025-01-01', null);
+
+            $refused = pricingEngineRefusal(fn () => pricingEngineAs('t029_second', fn () => app(CloseTaxRateHandler::class)->handle(new CloseTaxRate($rate, ['effective_to' => '2026-01-01']))));
+
+            expect($refused->reason->value)->toBe('overlap');
+        } finally {
+            $second->rollBack();
+        }
+    } finally {
+        DB::purge('t029_second');
+        $db->drop($tenantName);
+    }
+})->skip(fn (): bool => EngineConnection::onHold(), 'ENGINE_HOLD: see Flexipos\Testing\Engine\EngineOnHold');
+
+it('E-3 (W-1): closing a rate takes the parent tax row first, so a holder of that row blocks it', function () {
+    $db = EngineDatabase::engine();
+    $tenantName = pricingEngineTenantName();
+
+    $db->recreate($tenantName);
+
+    try {
+        ['first' => $first, 'second' => $second] = pricingEngineTwoSessions();
+
+        $tax = pricingEngineTax($first);
+        $rate = pricingEngineRate($first, $tax, '2024-01-01', null);
+
+        $second->statement('set session innodb_lock_wait_timeout = 1');
+
+        $first->beginTransaction();
+
+        try {
+            $first->table('taxes')->where('id', $tax)->lockForUpdate()->first();
+
+            expect(fn () => pricingEngineAs('t029_second', fn () => app(CloseTaxRateHandler::class)->handle(new CloseTaxRate($rate, ['effective_to' => '2025-01-01']))))->toThrow(QueryException::class);
+        } finally {
+            $first->rollBack();
+        }
+
+        // Control: with the first session's lock gone the same call succeeds.
+        pricingEngineAs('t029_second', fn () => app(CloseTaxRateHandler::class)->handle(new CloseTaxRate($rate, ['effective_to' => '2025-01-01'])));
+
+        expect($first->table('tax_rates')->where('id', $rate)->value('effective_to'))->toBe('2025-01-01');
+    } finally {
+        DB::purge('t029_second');
+        $db->drop($tenantName);
+    }
+})->skip(fn (): bool => EngineConnection::onHold(), 'ENGINE_HOLD: see Flexipos\Testing\Engine\EngineOnHold');
+
+/**
+ * @return array<string, mixed>
+ */
+function pricingEngineProductFields(string $unit, string $category, ?string $group): array
+{
+    $fields = ['type' => 'simple', 'sku' => 'P'.Str::random(8), 'name' => 'Widget', 'category_id' => $category, 'stock_unit_id' => $unit];
+
+    if ($group !== null) {
+        $fields['tax_group_id'] = $group;
+    }
+
+    return $fields;
+}
+
+it('E-4 (W-2): a product created on a stale snapshot is still refused a tax group deactivated meanwhile', function () {
+    $db = EngineDatabase::engine();
+    $tenantName = pricingEngineTenantName();
+
+    $db->recreate($tenantName);
+
+    try {
+        ['first' => $first, 'second' => $second, 'firstName' => $firstName] = pricingEngineTwoSessions();
+
+        $seed = pricingEngineProduct($first);
+        $group = pricingEngineId();
+
+        $first->table('tax_groups')->insert([
+            'id' => $group, 'created_at' => now(), 'updated_at' => now(), 'code' => 'G', 'name' => 'G',
+            'is_inclusive' => 0, 'is_default' => 0, 'is_active' => 1,
+        ]);
+
+        $second->beginTransaction();
+
+        try {
+            // Fixes the second session's snapshot: the group is active on it.
+            $second->table('tax_groups')->count();
+
+            pricingEngineAs($firstName, fn () => app(UpdateTaxGroupHandler::class)->handle(new UpdateTaxGroup($group, ['is_active' => false])));
+
+            $fields = pricingEngineProductFields($seed['unit'], $seed['category'], $group);
+            $refused = pricingEngineRefusal(fn () => pricingEngineAs('t029_second', fn () => app(CreateProductHandler::class)->handle(new CreateProduct($fields))));
+
+            expect($refused->reason->value)->toBe('inactive_tax_group');
+        } finally {
+            $second->rollBack();
+        }
+
+        expect($first->table('products')->where('tax_group_id', $group)->count())->toBe(0);
+    } finally {
+        DB::purge('t029_second');
+        $db->drop($tenantName);
+    }
+})->skip(fn (): bool => EngineConnection::onHold(), 'ENGINE_HOLD: see Flexipos\Testing\Engine\EngineOnHold');
+
+it('E-5 (W-2): a product created on a stale snapshot is refused when the default group was retired meanwhile', function () {
+    $db = EngineDatabase::engine();
+    $tenantName = pricingEngineTenantName();
+
+    $db->recreate($tenantName);
+
+    try {
+        ['first' => $first, 'second' => $second, 'firstName' => $firstName] = pricingEngineTwoSessions();
+
+        $seed = pricingEngineProduct($first);
+        $default = (string) $first->table('tax_groups')->where('is_default', 1)->value('id');
+
+        $second->beginTransaction();
+
+        try {
+            $second->table('tax_groups')->count();
+
+            // Retiring the default group clears its default flag.
+            pricingEngineAs($firstName, fn () => app(UpdateTaxGroupHandler::class)->handle(new UpdateTaxGroup($default, ['is_active' => false])));
+
+            $fields = pricingEngineProductFields($seed['unit'], $seed['category'], null);
+            $refused = pricingEngineRefusal(fn () => pricingEngineAs('t029_second', fn () => app(CreateProductHandler::class)->handle(new CreateProduct($fields))));
+
+            expect($refused->reason->value)->toBe('no_default_tax_group');
+        } finally {
+            $second->rollBack();
+        }
+    } finally {
+        DB::purge('t029_second');
         $db->drop($tenantName);
     }
 })->skip(fn (): bool => EngineConnection::onHold(), 'ENGINE_HOLD: see Flexipos\Testing\Engine\EngineOnHold');

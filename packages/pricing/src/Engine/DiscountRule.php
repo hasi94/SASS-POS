@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flexipos\Pricing\Engine;
 
+use Brick\Math\BigDecimal;
 use Flexipos\Contracts\Pricing\PricingRefused;
 use Flexipos\Contracts\Pricing\Shape;
 use InvalidArgumentException;
@@ -68,7 +69,7 @@ final readonly class DiscountRule
         $this->startsAt = $startsAt === null ? null : Shape::instant($startsAt, 'startsAt');
         $this->endsAt = $endsAt === null ? null : Shape::instant($endsAt, 'endsAt');
 
-        if ($type === DiscountType::Percentage && version_compare($this->value, '100.0000', '>')) {
+        if ($type === DiscountType::Percentage && BigDecimal::of($this->value)->compareTo(100) > 0) {
             throw PricingRefused::invalidAmount('[value] a percentage discount must not exceed 100.');
         }
     }

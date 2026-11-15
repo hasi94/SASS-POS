@@ -39,8 +39,11 @@ use Flexipos\Contracts\Pricing\TaxLine;
  *    charges on a fixed amount before it. `net = round((gross - fixed - K) / M, 4)`
  *    rounds once; the taxes are then computed forward from that net, and the
  *    rounding residue `gross - net - the sum of all amounts` is added to the
- *    **last percentage member in sequence**, so `net + total = gross` exactly and
- *    one predictable member absorbs the cent.
+ *    **last percentage member in sequence whose resolved rate is not zero**
+ *    (D-34), so `net + total = gross` exactly and one predictable member absorbs
+ *    the cent. A member at a zero rate is skipped: a residue on it would show a
+ *    negative amount or tax on a 0 % line. When every percentage rate is zero
+ *    the residue is itself zero.
  */
 final class TaxCalculator
 {
@@ -78,8 +81,10 @@ final class TaxCalculator
         if (! $residue->isZero()) {
             $last = self::lastPercentage($computed);
 
-            // A residue with no percentage member to absorb it cannot occur:
-            // with only fixed members the net is exactly gross - fixed.
+            // A non-zero residue always has a member to land on. With only
+            // fixed members, or only zero-rate percentage members, the slope
+            // and the constant are zero, so the net is exactly gross - fixed
+            // and the residue is zero.
             if ($last !== null) {
                 $computed[$last]['amount'] = $computed[$last]['amount']->plus($residue);
             }
@@ -214,6 +219,8 @@ final class TaxCalculator
     }
 
     /**
+     * The last percentage member whose resolved rate is not zero (D-34).
+     *
      * @param  list<array{member: TaxMember, rate: BigDecimal, base: BigDecimal, amount: BigDecimal}>  $computed
      */
     private static function lastPercentage(array $computed): ?int
@@ -221,7 +228,7 @@ final class TaxCalculator
         $last = null;
 
         foreach ($computed as $index => $entry) {
-            if ($entry['member']->type === TaxType::Percentage) {
+            if ($entry['member']->type === TaxType::Percentage && ! $entry['rate']->isZero()) {
                 $last = $index;
             }
         }

@@ -20,6 +20,15 @@ use Illuminate\Database\UniqueConstraintViolationException;
  * Update a tax (T-029 AC-5, F-9). The authority is not an update field. The
  * `fixed` + compound refusal is checked against the row as it would be after
  * the update, so changing only one of the two cannot slip past it.
+ *
+ * **`type` and `is_compound` are frozen once the tax has any rate** (AC-5a, D-35,
+ * D-42): flipping either would silently change how every past document re-taxes
+ * and what every future quote charges (a `15.0000` percentage becoming 15.0000
+ * per stock unit). Only a change is refused; sending the stored value again is
+ * accepted, and with no rate row the change is allowed. This check runs before
+ * the `fixed_cannot_compound` one. The rate-existence read is a plain read: it
+ * follows the locked parent row, every rate writer takes that lock first, and no
+ * slice deletes a rate.
  */
 final class UpdateTaxHandler
 {
@@ -52,6 +61,15 @@ final class UpdateTaxHandler
 
         $connection->transaction(function () use ($connection, $command, $id, $changes): void {
             $before = Lookup::live($connection, 'taxes', $id, 'tax', lock: true);
+
+            foreach ([
+                'type' => array_key_exists('type', $changes) && (string) $changes['type'] !== (string) $before->type,
+                'is_compound' => array_key_exists('is_compound', $changes) && (bool) $changes['is_compound'] !== (bool) $before->is_compound,
+            ] as $field => $changed) {
+                if ($changed && $connection->table('tax_rates')->where('tax_id', $id)->exists()) {
+                    throw PricingAdminRefused::validation("The {$field} cannot change once the tax has rates; create a new tax instead.");
+                }
+            }
 
             TaxFields::assertCoherent(
                 (string) ($changes['type'] ?? $before->type),

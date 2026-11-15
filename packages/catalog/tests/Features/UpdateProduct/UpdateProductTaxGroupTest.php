@@ -10,6 +10,8 @@ use Flexipos\Catalog\Features\UpdateProduct\UpdateProductHandler;
 use Flexipos\Catalog\Support\CatalogRefusal;
 use Flexipos\Catalog\Tests\Support\CatalogRefusals;
 use Flexipos\Catalog\Tests\Support\CatalogSeed;
+use Flexipos\Contracts\Pricing\TaxGroupDirectory;
+use Flexipos\Contracts\Pricing\TaxGroupState;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -122,4 +124,43 @@ it('lets purchase_tax_group_id be cleared back to null, which the documented col
     uptgUpdate($product, ['purchase_tax_group_id' => null]);
 
     expect(CatalogSeed::connection()->table('products')->where('id', $product)->value('purchase_tax_group_id'))->toBeNull();
+});
+
+it('asks the directory for a locking read, inside the product transaction, for both columns (W-2)', function () {
+    $product = uptgProduct();
+    $real = app(TaxGroupDirectory::class);
+
+    $directory = new class($real) implements TaxGroupDirectory
+    {
+        /** @var list<array{string, bool, int}> */
+        public array $calls = [];
+
+        public function __construct(private readonly TaxGroupDirectory $real) {}
+
+        public function state(string $taxGroupId, bool $lock = false): TaxGroupState
+        {
+            $this->calls[] = ['state', $lock, CatalogSeed::connection()->transactionLevel()];
+
+            return $this->real->state($taxGroupId, $lock);
+        }
+
+        public function defaultGroupId(bool $lock = false): ?string
+        {
+            $this->calls[] = ['defaultGroupId', $lock, CatalogSeed::connection()->transactionLevel()];
+
+            return $this->real->defaultGroupId($lock);
+        }
+    };
+
+    app()->instance(TaxGroupDirectory::class, $directory);
+
+    uptgUpdate($product, ['tax_group_id' => uptgGroup('VAT15'), 'purchase_tax_group_id' => uptgGroup('PURCH')]);
+
+    expect($directory->calls)->toHaveCount(2);
+
+    foreach ($directory->calls as [$name, $lock, $level]) {
+        expect($name)->toBe('state')
+            ->and($lock)->toBeTrue('state must pass lock: true')
+            ->and($level)->toBeGreaterThanOrEqual(1, 'state must run inside the transaction');
+    }
 });

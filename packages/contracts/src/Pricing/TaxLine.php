@@ -11,9 +11,10 @@ namespace Flexipos\Contracts\Pricing;
  * `taxCode` is the printed code and may be null. `rate` is the resolved
  * percentage (`15.0000` means 15 %) or, for a `fixed` tax, the amount per stock
  * unit. `base` is the amount the tax was computed on (the line amount for a
- * `fixed` tax). In an inclusive group the last percentage member's `amount`
- * also carries the rounding residue (AC-11.6), so it can differ from
- * `round(base x rate / 100)` by the odd 0.0001.
+ * `fixed` tax). In an inclusive group the last percentage member whose rate is
+ * not zero carries the rounding residue in its `amount` (AC-11.6, D-34), so it
+ * can differ from `round(base x rate / 100)` by the odd 0.0001. A member at a
+ * zero rate never does: its `amount` is always `0.0000`.
  */
 final readonly class TaxLine
 {
