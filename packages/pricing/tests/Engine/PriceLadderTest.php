@@ -6,11 +6,13 @@ namespace Flexipos\Pricing\Tests\Engine;
 
 use Flexipos\Contracts\Pricing\PriceBasis;
 use Flexipos\Pricing\Engine\LadderInput;
+use Flexipos\Pricing\Engine\LadderItem;
 use Flexipos\Pricing\Engine\LadderOutcome;
 use Flexipos\Pricing\Engine\ListType;
 use Flexipos\Pricing\Engine\PriceLadder;
 use Flexipos\Pricing\Engine\ScopeType;
 use Flexipos\Pricing\Tests\Support\Build;
+use Flexipos\Pricing\Tests\Support\FixtureReplay;
 
 /*
 |--------------------------------------------------------------------------
@@ -251,6 +253,50 @@ it('refuses nothing resolving, two rows at one min_qty, and an out-of-range deri
     expect(Build::reasonOf(fn () => PriceLadder::resolve(Build::ladder(priceEach(), '1.000000', '1.0000'))))->toBe('no_price_resolved')
         ->and(Build::reasonOf(fn () => PriceLadder::resolve(Build::ladder(priceCase(), '24.000000', '24.0000', [$duplicate], customer: priceCustomer()))))->toBe('invalid_amount')
         ->and(Build::reasonOf(fn () => PriceLadder::resolve(Build::ladder(priceCase(), '24.000000', '24.0000', price: '99999999999999.9999'))))->toBe('out_of_range');
+});
+
+it('gives every price fixture the same outcome with its lists, items and assignments reversed (D-29, AC-30.4)', function () {
+    $paths = array_values(array_filter(FixtureReplay::paths(), static fn (string $path): bool => basename(dirname($path)) === 'price'));
+
+    expect(count($paths))->toBeGreaterThan(30);
+
+    foreach ($paths as $path) {
+        /** @var array<string, mixed> $case */
+        $case = json_decode((string) file_get_contents($path), true);
+        $reversed = $case;
+        $lists = array_reverse($case['input']['lists']);
+
+        foreach ($lists as $i => $list) {
+            $lists[$i]['items'] = array_reverse($list['items']);
+            $lists[$i]['assignments'] = array_reverse($list['assignments']);
+        }
+
+        $reversed['input']['lists'] = $lists;
+
+        expect(FixtureReplay::replay($reversed))->toBe(FixtureReplay::replay($case), basename($path));
+    }
+});
+
+it('refuses a duplicate min_qty in any order, qualifying or not, and compares 1 with 1.0000 numerically', function (array $mins, string $base) {
+    $list = Build::list('L', array_map(static fn (string $min): LadderItem => Build::item(priceCase(), $min, '1.0000'), $mins), assignments: [Build::assignment(ScopeType::Customer, priceCustomer())]);
+
+    expect(Build::reasonOf(fn () => PriceLadder::resolve(Build::ladder(priceCase(), '24.000000', $base, [$list], customer: priceCustomer()))))->toBe('invalid_amount');
+})->with([
+    '1, 1, 5' => [['1.0000', '1.0000', '5.0000'], '10.0000'],
+    '5, 1, 1' => [['5.0000', '1.0000', '1.0000'], '10.0000'],
+    '1, 5, 1' => [['1.0000', '5.0000', '1.0000'], '10.0000'],
+    '1, 48, 48 above the base' => [['1.0000', '48.0000', '48.0000'], '24.0000'],
+    '1 and 1.0000 are one value' => [['5.0000', '1', '1.0000'], '10.0000'],
+]);
+
+it('does not inspect the items of another unit, so one bad row cannot poison an unrelated line', function () {
+    $list = Build::list('L', [
+        Build::item(priceEach(), '1.0000', '1.0000'),
+        Build::item(priceEach(), '1.0000', '2.0000'),
+        Build::item(priceCase(), '1.0000', '179.0000'),
+    ], assignments: [Build::assignment(ScopeType::Customer, priceCustomer())]);
+
+    expect(PriceLadder::resolve(Build::ladder(priceCase(), '24.000000', '24.0000', [$list], customer: priceCustomer()))->unitPrice)->toBe('179.0000');
 });
 
 it('refuses a malformed ladder input', function () {

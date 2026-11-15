@@ -550,7 +550,7 @@ Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The st
 
 ### Chunk C: CRUD and the catalog edge
 
-- [ ] **Step 10a: make the duplicate-`min_qty` refusal order-independent (K-9; AC-30.3, D-28).** Do this first in Chunk C; it is a pure-engine fix and touches no CRUD file.
+- [x] **Step 10a: make the duplicate-`min_qty` refusal order-independent (K-9; AC-30.3, D-28).** Do this first in Chunk C; it is a pure-engine fix and touches no CRUD file.
   - As shipped, `PriceLadder::greatestQualifying()` refuses a duplicate only when it ties the best item **found so far**. Items at `min_qty` 1, 1, 5 with base 10 are refused; the same items in the order 5, 1, 1 are priced at the 5-row. Two inputs that differ only in row order therefore give different outcomes, which breaks D-29's premise (order is the engine's, never the caller's) and the TypeScript twin's parity.
   - **Fix:** for each unit key the ladder evaluates in a list (the line's unit; then the null unit, only when the unit-matched branch found nothing), refuse `invalid_amount` when any two items share a `minQty`, **whether or not they qualify** (compare with `BigDecimal::compareTo`, so `1` and `1.0000` are one value). Items of other units are not inspected, so one bad row cannot poison an unrelated line.
   - **Fixtures (new):** `price-duplicate-min-qty-below-the-break-is-refused` (items 5, 1, 1 in that order, base 10) and `price-duplicate-min-qty-above-the-base-is-refused` (items 1, 48, 48, base 24). Both are `refusal: invalid_amount`. The existing `price-duplicate-min-qty-is-refused` stays green.
@@ -558,7 +558,7 @@ Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The st
   - **Order-insensitivity dataset in `PriceLadderTest`:** every `price` fixture replayed with its `lists`, each list's `items` and `assignments` reversed gives the same outcome or refusal. This is the pure-engine half of D-29's proof; step 16 carries the adapter half.
   - *(AC-30.3, AC-30.4; D-28, D-29.)*
 
-- [ ] **Step 11: authorities, taxes and rates** (six slices).
+- [x] **Step 11: authorities, taxes and rates** (six slices).
   - **AC-4:** a blank or duplicate code (also by case); `payable_account_id` refused as **unknown** (F-17); `filing_frequency` enum checked.
   - **AC-5:** an unknown authority; the enum fields; the defaults; `fixed` + `is_compound` refused (F-9).
   - **AC-6:**
@@ -568,7 +568,7 @@ Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The st
     - `CloseTaxRate` refuses changing `rate` or `effective_from` (unknown field) and refuses an `effective_to` that would create an overlap or invert the range.
   - **M-C1:** treat an open `effective_to` as closed. The open-open row goes red.
   - *(AC-4 to AC-6.)*
-- [ ] **Step 12: tax groups and members, plus `DatabaseTaxGroupDirectory`.**
+- [x] **Step 12: tax groups and members, plus `DatabaseTaxGroupDirectory`.**
   - **AC-8:** create A default, then B default: exactly one default remains, and it is B. This holds through create and update.
   - **AC-9:** an unknown group or tax; the duplicate pair; a duplicate `sequence`; `sequence` outside 0 to 255 is refused (the `TINYINT UNSIGNED` column and `TaxMember`'s own range); removing the last member is accepted.
   - **AC-10 (as F-6):** deactivation is refused while an active, non-soft-deleted product references the group via either column, naming the count. It is accepted after that product is soft-deleted. Deactivating the default clears `is_default`.
@@ -576,7 +576,7 @@ Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The st
   - **M-C2:** skip default-clearing. The backstop refuses, and the test goes red.
   - **M-C3:** count only `tax_group_id`. The purchase-column row goes red.
   - *(AC-8 to AC-10.)*
-- [ ] **Step 13: catalog AC-3.**
+- [x] **Step 13: catalog AC-3.**
   - `CreateProduct`:
     - omitting `tax_group_id` gives the default;
     - an unknown or inactive group is refused, naming the field;
@@ -588,7 +588,7 @@ Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The st
   - Existing `CreateProductTest`/`UpdateProductTest` expectations gain `tax_group_id` (predicted red, section 9).
   - **Seam:** with a fake `TaxGroupDirectory` bound, the handler resolves it, which proves the contract and not the table is used. The step 17 scan proves that catalog never names `tax_groups`.
   - *(AC-3.)*
-- [ ] **Step 14: price lists, items and assignments** (seven slices).
+- [x] **Step 14: price lists, items and assignments** (seven slices).
   - **AC-12:** a missing currency (F-7); a bad type; the window ordering; the defaults.
   - **AC-13:**
     - an unknown list or product;
@@ -601,7 +601,7 @@ Steps 5 to 10 are **done** (`fbf2aa1`: 112 fixtures, 19 mutation checks). The st
   - **AC-18:** deleting a list with assignments is refused, naming the count; after unassigning, the delete is accepted, and its items remain.
   - **M-C4:** catch `UnitResolutionRefused` and accept. The cross-dimension row goes red.
   - *(AC-12 to AC-14, AC-18.)*
-- [ ] **Step 15: discounts** (three slices).
+- [x] **Step 15: discounts** (three slices).
   - **AC-19:**
     - each required field; percentage above 100 is refused and **exactly 100 is accepted** (D-27, AC-30.2, matching `DiscountRule`); negative money is refused;
     - **`applies_to` shape (K-11):** a JSON object whose only keys are `products`, `categories` and `brands`, each optional and, when present, a list of strings; anything else is refused `validation`, naming the field. Ids are **not** existence-checked (AC-19) and are stored as supplied. This is the shape `DiscountRule` takes; without it a stored value such as `{"products": "X"}` could not be loaded by the adapter;

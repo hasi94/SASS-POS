@@ -34,4 +34,13 @@ enum CatalogRefusal: string
 
     /** Two units referenced together do not share a dimension. */
     case DimensionMismatch = 'dimension_mismatch';
+
+    /** A tax group id names no group (T-029 AC-3). */
+    case UnknownTaxGroup = 'unknown_tax_group';
+
+    /** A tax group id names a group that has been retired (T-029 AC-3). */
+    case InactiveTaxGroup = 'inactive_tax_group';
+
+    /** No tax group was named and the tenant has no active default to use (T-029 AC-3). */
+    case NoDefaultTaxGroup = 'no_default_tax_group';
 }

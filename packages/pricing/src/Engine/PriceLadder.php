@@ -221,7 +221,10 @@ final class PriceLadder
      * the base quantity, the one with the greatest `minQty`.
      *
      * Two items at the same `minQty` for one unit cannot exist (it is the unique
-     * key), and a duplicate is refused here rather than picked by order.
+     * key). A duplicate is refused here rather than picked by order, and it is
+     * refused whether or not either copy qualifies, so the outcome is a function
+     * of the item set and never of the order the rows arrive in (D-28, D-29,
+     * AC-30.3). Items of other units are not inspected.
      *
      * @throws PricingRefused
      */
@@ -229,6 +232,7 @@ final class PriceLadder
     {
         $best = null;
         $bestMin = null;
+        $seen = [];
 
         foreach ($list->items as $item) {
             if ($item->unitId !== $unitId) {
@@ -237,12 +241,16 @@ final class PriceLadder
 
             $min = Decimal::money($item->minQty, 'minQty');
 
-            if ($min->compareTo($baseQuantity) > 0) {
-                continue;
+            foreach ($seen as $earlier) {
+                if ($min->compareTo($earlier) === 0) {
+                    throw PricingRefused::invalidAmount("Price list [{$list->code}] holds two items at minQty [{$min}] for one unit.");
+                }
             }
 
-            if ($bestMin !== null && $min->compareTo($bestMin) === 0) {
-                throw PricingRefused::invalidAmount("Price list [{$list->code}] holds two items at minQty [{$min}] for one unit.");
+            $seen[] = $min;
+
+            if ($min->compareTo($baseQuantity) > 0) {
+                continue;
             }
 
             if ($bestMin === null || $min->compareTo($bestMin) > 0) {
