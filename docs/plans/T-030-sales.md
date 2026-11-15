@@ -1,6 +1,15 @@
 # Plan: T-030 Sales: cart, tenders, hold and recall, refunds, voids, cash shifts
 
-Spec: `docs/specs/T-030-sales.md` revision 3 (AC-1 to AC-46, plus AC-23a; AC-2, AC-11, AC-24 and AC-41 amended by D-51 to D-54). Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-54). Branch `ai/T-030-sales`. Revision 1 was planned at `a2e6631` and committed as `4614645`; revision 2 at `be48613`; **this revision (3) is planned at `74fceba`**, the merged tree.
+Spec: `docs/specs/T-030-sales.md` revision 3 (AC-1 to AC-46, plus AC-23a; AC-2, AC-11, AC-24 and AC-41 amended by D-51 to D-54). Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-54). Branch `ai/T-030-sales`. Revision 1 was planned at `a2e6631` and committed as `4614645`; revision 2 at `be48613`; revision 3 at `74fceba`, the merged tree.
+
+**Revision 4 (this revision), planned at `e4ed355`, after chunks A and B were committed (`86e8a09`, `f9181cd`).** Chunks C to E now build from **spec revision 5**: AC-1 to AC-58 plus AC-23a, and the four suffix ACs AC-12A, AC-14A, AC-24A and AC-47A; decisions D-1 to D-74. Steps 0 to 12, their ticks and the chunk B "As built" note are unchanged. Every claim about built code below was read in `packages/sales` at `e4ed355`. What changed:
+- **AC-12A (D-71):** `refund_not_allowed` is gone. A refund tender onto a method with `allows_refund = false` is `unsupported_method_type`. Step 16 edits the built `TenderRules::decide()` to add that cause, removes the built `SalesRefusal::RefundNotAllowed` case, and edits `SalesRegistryTest`, which pins all 43 codes (42 after the edit).
+- **AC-24A (D-72):** the branch is a column of the binding table. The built `ApprovalGate::consume()` already compares it, and `ApprovalGateTest` already has a branch mismatch row; steps 15, 19 and 20 add one slice-level row each.
+- **AC-47A (D-73):** `RefundSale` never runs Sales' sellability check. A soft-deleted product is still refused `unknown_product` by the engine until Q-1 is ruled (steps 14, 20).
+- **AC-14A (D-74):** the zero-total completion takes the ordinary path. Step 17 lists what that path writes and what it does not.
+- **Deadlock retry:** `CompleteSale` and `RefundSale` both call `DocumentNumbers::next()`, so both run as `transaction(..., 2)`, the way the built `OpenCashShift` does, with the same three deadlock-fake rows. The fake helpers move out of `OpenCashShiftTest` into `tests/Support`, because Pest file-level functions cannot be declared twice in one run (step 17).
+- **`AddTender`'s input matches the built `TenderRules` shape:** one `offered` figure, never a caller `amount`/`tendered` pair (step 16).
+- **Drift against the chunk B "As built" note, fixed in steps 13 to 21:** `BusinessClock`, `SaleType`, `LineWriter`, `SaleLocks` and `CreditPosting` are not built yet, and each step that first needs one now creates it. `SalesPermissions` still declares one key, so step 21 adds `sales.shifts.reconcile` and edits `SalesRegistryTest`. Q-3 to Q-11 were ruled as D-57 to D-65, every one at the plan's default, so their "if accepted" wording is removed. The rev-4 and rev-5 ACs are added to each step's AC list and to the proof table.
 
 **Revision 3: reconciled against the shipped code.** Both dependencies are DONE and merged into this branch: T-028 `customers` at `db5e772`, T-029 `pricing` at `74fceba` (the T-027 catalog came in underneath them). Revision 2 was reconciled against T-029's *plan*; this revision does the plan's own step 0 on paper, against the *code*. **Section 0.5 is the record**: 41 numbered findings, R-1 to R-41, of which R-1 to R-8 are marked serious. Where a finding changes a step, the step below is edited in place and names the finding (R-n). What changed, in short:
 - **`DiscountUsage` is confirmed unshipped** and still owed. Every other contract this plan calls exists with the shape revision 2 assumed, apart from small differences (no `taxAmount` on `PricedLine`, a `TaxQuote` that needs a base quantity and a context, and `Shape`'s split between refusals and caller-bug exceptions). Each is now written into the step that uses it.
@@ -700,15 +709,20 @@ Read at `74fceba`. Every symbol, signature, enum case, table, column, permission
 
 The `[SYNC]` columns (`origin` default `online`, `device_id`, `client_seq`, `client_created_at`, `sync_status` default `synced`, `synced_at`) are present and inert, with no FKs (D-28, the T-028 shape).
 
-**What each approval is bound to (F-21):**
+**What each approval is bound to (F-21, D-47, and AC-24A/D-72 for the branch):**
 
-| Approval | `reference_type` | `reference_id` | Payload |
-|---|---|---|---|
-| void | `sale` | the sale | — |
-| refund, against a sale | `sale` | the original sale | — |
-| refund, goodwill | `goodwill_refund` | null | — |
-| price override | `sale` | the sale | `{product_id, unit_id, unit_price}`, which must equal the write |
-| discount | `sale` | the sale | `{discount_id}` |
+| Approval | `branch_id` | `reference_type` | `reference_id` | Payload |
+|---|---|---|---|---|
+| void | the sale's branch | `sale` | the sale | — |
+| refund, against a sale | the refund's branch, which AC-54 requires to equal the original sale's | `sale` | the original sale | — |
+| refund, goodwill | the refund's branch (the refunding terminal's) | `goodwill_refund` | null | — |
+| price override | the sale's branch | `sale` | the sale | `{product_id, unit_id, unit_price}`, which must equal the write |
+| discount | the sale's branch | `sale` | the sale | `{discount_id}` |
+
+**As built (chunk B), checked in `packages/sales/src/Approvals/ApprovalGate.php`.** `consume(type, branchId, referenceType, referenceId, ?payloadMatch, approvalId)` reads the row by id `FOR UPDATE` and refuses, in this order: `approval_required`, `approval_not_approved`, `approval_already_used`, then `approval_mismatch` when the type, the upper-cased `branch_id`, `reference_type`, the upper-cased `reference_id` or the payload differs. It writes `consumed_at` only after every check passes, so a mismatch leaves `consumed_at` unset. So AC-24A's branch check **is already built**, and `ApprovalGateTest` has a `branch` dataset row. Nothing in the gate changes. What is still owed is that each consuming slice passes the branch shown above, never a caller-supplied one.
+- `RequestApproval` already refuses a `sale`-bound request whose `branch_id` differs from the sale's (`validation`). Through the slices, the only approval that can reach a consuming write at another branch is a **goodwill refund** one.
+- For the `sale`-bound types, the AC-24A rows in steps 15 and 19 seed the approval row raw at another branch (a defence-in-depth row, named as such).
+- `ApprovalBinding`'s docblock table has no branch column. Step 19 adds it, because that is a comment-only edit in a file the step already reads.
 
 **Precision map (AC-44).** No fifth pair.
 
@@ -729,10 +743,12 @@ The `[SYNC]` columns (`origin` default `online`, `device_id`, `client_seq`, `cli
 |---|---|
 | General | `validation`, `not_found`, `duplicate`, `in_use`, `out_of_range` (R-39), `invalid_transition` (R-40), `numbering_refused` (R-40) |
 | Shifts | `no_open_shift`, `shift_already_open`, `shift_not_open`, `shift_has_open_sales`, `shift_closed` |
-| Cart | `sale_not_editable`, `unit_unresolvable`, `unresolvable_price` (plus the engine's own reasons, AC-5, carried as the cause per the Ruling 8 amendment), `price_override_not_allowed`, `discount_with_override`, `empty_sale`; `product_not_sellable` only if Q-3 is accepted |
-| Tenders | `customer_required`, `credit_refused`, `method_inactive`, `unsupported_method_type`, `reference_required`, `exceeds_balance`, `partial_not_allowed`, `refund_not_allowed`, `balance_due`, `tender_not_removable` |
+| Cart | `sale_not_editable`, `unit_unresolvable`, `unresolvable_price` (plus the engine's own reasons, AC-5, carried as the cause per the Ruling 8 amendment), `price_override_not_allowed`, `discount_with_override`, `empty_sale`, `product_not_sellable` (D-57, AC-47; `AddSaleLine` and `UpdateSaleLine` only, never a refund line, AC-47A) |
+| Tenders | `customer_required`, `credit_refused`, `method_inactive`, `unsupported_method_type` (a `loyalty` or `voucher` method, AC-12; **or a refund tender onto a method with `allows_refund = false`**, AC-12A/D-71), `reference_required`, `exceeds_balance`, `partial_not_allowed`, `balance_due`, `tender_not_removable` |
 | Approvals | `approval_required`, `approval_not_approved`, `approval_already_used`, `approval_mismatch`, `approval_not_pending`, `self_approval_not_allowed`, `pin_invalid`, `not_authorised` |
 | Corrections and replay | `sale_not_voidable`, `not_refundable`, `over_refund`, `fully_refunded`, `inherited_unit_mismatch`, `replay_conflict` |
+
+There is **no `refund_not_allowed`** (AC-12A: "No separate `refund_not_allowed` code exists"). Chunk A built it as `SalesRefusal::RefundNotAllowed`, and `SalesRegistryTest` pins it among 43 codes. Step 16 removes the case and edits that test to the 42 codes above. Nothing else names it: it is in no `src` call site.
 
 **Contracts:** Ruling 2. **Config:** `sales.page_size` (default and maximum), the customers `Pager` shape. **HTTP, console, jobs, hooks, outbox:** none (an outbox `sale.completed` event is a follow-up). **Dependencies:** the `flexipos/sales` path package only. `brick/math` is already locked.
 
@@ -934,7 +950,15 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 ### Chunk C: the cart, tenders, completion, hold
 
+*Revision 4: chunks C to E build from spec revision 5 (AC-1 to AC-58, AC-23a, AC-12A, AC-14A, AC-24A, AC-47A; D-1 to D-74). Q-3 to Q-11 are ruled (D-57 to D-65), each at this plan's default, so the defaults below are now the rule. Q-1 (D-55) and Q-2 (D-56) are still open with their built defaults. Q-2 must be ruled before chunk C is accepted, and Q-1 before chunk D.*
+
 - [ ] **Step 13: `CreateSale`.**
+  - **Creates `Support/BusinessClock.php` and `Sales/SaleType.php`.** Neither exists yet (chunk B "As built"). `BusinessClock` has three jobs:
+    - the UTC instant in `Shape::instant` form;
+    - the branch-local `Y-m-d` from `branches.timezone`;
+    - the `DATETIME(3)`-to-instant conversion that step 20 uses (R-10).
+
+    It gets a pure test file, `tests/Support/BusinessClockTest.php`. One row is a branch in a zone far from UTC, at an instant where the local date differs from the UTC date.
   - Writes `draft`, with branch and location from the terminal (never client-supplied), `employee_id` = the actor, `business_date` from `BusinessClock` in the branch timezone, `business_date_source = server`, `currency` from the branch, and `shift_id` = the terminal's open shift.
   - Refusals:
     - `no_open_shift`;
@@ -945,10 +969,11 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - **Lock order (R-5):**
     - the terminal's open shift id is read before the transaction;
     - the first statement locks that shift `sharedLock()` **by id** and re-checks `status = open` and the terminal. A shift that closed in between is `no_open_shift`;
-    - the customer is read with `Lookup::live(…, lock: true)` (Ruling 7, row 6).
+    - the customer is read with `Lookup::live(…, lock: true)` (Ruling 7, row 6). As built, `Lookup::live()` takes `bool|string $lock`, where `Lookup::SHARED` is the shared lock and `true` is `FOR UPDATE`.
   - **Race row:** a close that commits between the pre-read and the lock leaves no draft on the closed shift.
   - *(AC-1; D-22, D-23.)*
 - [ ] **Step 14: `AddSaleLine`, `UpdateSaleLine`, `RemoveSaleLine`, `ListSaleLines`**, against the **real** `UnitResolver` and `PricingEngine`, seeded through T-029's seeds.
+  - **Creates `Sales/LineWriter.php` and `Sales/SaleLocks.php`.** Neither exists yet. The header rollup uses the built `SaleRollup::of(connection, saleId): SaleTotals` and `SaleTotals::toColumns()`, which already refuse `out_of_range` (AC-51).
   - **AC-2:**
     - 1 case of 24 gives `unit_factor 24.000000`, base 24, `unit_code` copied;
     - renaming the product afterwards leaves the line unchanged.
@@ -960,8 +985,11 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - **AC-5:**
     - **no price gives `unresolvable_price` through `FakePricingEngine` only** (R-3). Against the real engine, an unpriced product quotes `0.0000` with source step 6 (FP-440), and the row pins that, pending Q-2;
     - an engine `not_applicable` discount surfaces as `not_applicable` (the fake engine covers the remaining reasons by dataset), with the `PricingRefusal` carried as the cause (Ruling 8 amendment).
-  - **Quantity (R-14):** `0`, `-1` and `"-0.5"` are `validation` before the resolver is called; the resolver itself would accept them.
-  - **Product facts (Q-3, default):** a product that is `is_active = false`, `is_sellable = false` or of `type = variant_parent` is refused `product_not_sellable`, naming the product and the fact. If `ba` rules against it, these rows are deleted.
+  - **Quantity (R-14, AC-52):** `0`, `-1` and `"-0.5"` are `validation` before the resolver is called; the resolver itself would accept them.
+  - **Product facts (AC-47, D-57; ruled, no longer a default):** a product that is `is_active = false`, `is_sellable = false` or of `type = variant_parent` is refused `product_not_sellable` on `AddSaleLine` and `UpdateSaleLine`. The refusal names the product and the fact, and nothing is written.
+    - **Scope (AC-47A, D-73).** The check is one private step of these two slices, not a shared helper, and `RefundSale` never calls it. A goodwill refund line is exempt, and so is a referenced one, because AC-47 names only `AddSaleLine` and `UpdateSaleLine` (lead question 1). Step 20 has the rows that prove the exemption.
+    - **The engine still decides on deletion.** A soft-deleted product is refused `unknown_product` by `quoteLine()` (AC-53). That holds for a goodwill refund too, until Q-1 is ruled. An inactive product that still exists is quoted normally.
+    - **Test rows:** one per fact, on both `AddSaleLine` and `UpdateSaleLine`. Plus one row showing that the same inactive product **is** accepted as a goodwill refund line (step 20's row, referenced here so the two stay paired).
   - **AC-6 and F-10:**
     - `pending_payment` is `sale_not_editable`;
     - `held` from `draft` is accepted;
@@ -973,7 +1001,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - those fields are refused if supplied.
   - Optional `employee_id` (line salesperson) is validated via `Contracts\Access\EmployeeDirectory::isLive()` (F-24).
   - **Mutation M4:** compute `base_quantity` locally. The AC-2 row still passes, but step 23's scan goes red, which is the point of that scan.
-  - *(AC-2 to AC-6, AC-8 to AC-10.)*
+  - *(AC-2 to AC-6, AC-8 to AC-10, AC-47, AC-51's rollup half, AC-52; D-57, D-70.)*
 - [ ] **Step 15: price override and the discount approval.** *(AC-7, AC-23a; D-37, D-40, D-47.)*
   - **AC-7:**
     - an override without an approval is `approval_required`;
@@ -987,9 +1015,36 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - an override plus a `discount_id` is `discount_with_override`;
     - a payload `unit_price` different from the write is `approval_mismatch`.
   - **F-12:** a line discount with `requires_approval = true` is `approval_required` without a matching consumed approval and accepted with one; a discount without the flag needs none.
-  - **Re-pricing a line that already carries an approval (Q-5, default):** an `UpdateSaleLine` that keeps the same `discount_id`, or the same override `{product_id, unit_id, unit_price}`, is accepted when a matching approval was **already consumed by this sale**. A different discount or price needs a new approval. One row each way.
-  - *(AC-7, AC-23a; D-13, D-15.)*
-- [ ] **Step 16: `AddTender`, `RemoveTender`.** *(AC-11 to AC-13, AC-37's tender half; D-29, D-41; F-22's reading.)*
+  - **Re-pricing a line that already carries an approval (AC-55, D-59):** an `UpdateSaleLine` that keeps the same `discount_id`, or the same override `{product_id, unit_id, unit_price}`, is accepted when a matching approval was **already consumed by this sale**. A different discount or price needs a new approval. One row each way.
+  - **AC-24A, the branch:** the gate is called with the **sale's** `branch_id`, never a caller-supplied one.
+    - An override approval seeded raw at another branch (`RequestApproval` would refuse it, so this is a defence-in-depth row) is `approval_mismatch`, and its `consumed_at` stays null.
+    - The same approval at the sale's branch is consumed.
+  - *(AC-7, AC-23a, AC-24A, AC-55; D-13, D-15, D-59, D-72.)*
+- [ ] **Step 16: `AddTender`, `RemoveTender`.** *(AC-11 to AC-13, AC-12A, AC-37's tender half, AC-56; D-29, D-41, D-60, D-71; F-22's reading.)*
+  - **16a. Edit the built `TenderRules` first (AC-12A, D-71).** This changes an existing file, `packages/sales/src/Tenders/TenderRules.php`, and its test, `tests/Tenders/TenderRulesTest.php`. It is done red-first.
+    - **What is built** (read at `e4ed355`): `decide(object $method, string $offered, ?string $reference, string $balance): TenderOutcome`. It refuses in this order:
+      1. `validation` when `offered` is not positive;
+      2. `unsupported_method_type` when the type is unknown or is not `MethodType::isTenderable()`, which covers `loyalty` and `voucher`;
+      3. `method_inactive`;
+      4. `reference_required` when the reference is missing or blank;
+      5. `exceeds_balance` when nothing is owing;
+      6. `exceeds_balance` when `offered` is over the balance, unless `allows_change`, in which case the amount is the balance and the rest is change;
+      7. `partial_not_allowed`.
+
+      The method object's documented shape has **no `allows_refund`**, and nothing reads it.
+    - **The edit:** add a trailing parameter, `bool $refund = false`, and an `allows_refund` key to the method shape, which is read only when `$refund` is true. The new cause goes into the **existing** check 2: a refund onto a method whose `allows_refund` is false is `unsupported_method_type`, with a message naming the method as not refundable. It never becomes a new code. Placing it at check 2 means a method that is both inactive and non-refundable is refused `unsupported_method_type` on a refund. The docblock's order list is updated to match.
+    - **Refund semantics in the same edit.** With `$refund = true`, `offered` and `balance` are **magnitudes**: what the drawer pays out, and what is still owed back. Both are positive, and the caller negates the result (step 20). A payout gives no change, so on a refund check 6 is `exceeds_balance` whatever `allows_change` says, and `tendered` is null. That is this plan's reading, not a ruling (lead question 2).
+    - **`TenderRulesTest` rows, red first:**
+      - a refund onto `allows_refund = false` is `unsupported_method_type`;
+      - the same method on an ordinary tender (`$refund = false`) is accepted. The test passes `allows_refund = 0`, so a check that ignores the flag goes red (AC-12A's second clause);
+      - a refund onto `allows_refund = true` with an acceptable type is accepted;
+      - a refund onto an inactive, non-refundable method is `unsupported_method_type`, which pins the order;
+      - a cash refund with `offered` over the balance is `exceeds_balance`, not change.
+
+      The existing `tenderMethod()` helper keeps its defaults. The refund rows pass `allows_refund` explicitly.
+    - **Remove `SalesRefusal::RefundNotAllowed`** and edit `tests/Registry/SalesRegistryTest.php`: delete `refund_not_allowed` from the pinned list and change `toHaveCount(43)` to 42. Run it red first, by removing the case before the test edit.
+    - **Mutation M8:** drop the `$refund &&` guard, so that `allows_refund` is read on every tender. The ordinary-tender row goes red.
+  - **AddTender's input follows the built `offered` shape** (chunk B "As built"). The caller sends one money field, `offered`: the tendered figure for a method that gives change, and the amount for any other. `amount`, `tendered` and `change_given` are **computed** and are refused as unknown fields if supplied. The stored row is the `TenderOutcome`. `AddTender` calls `decide()` with `$refund = false` and the sale's balance (`total − Σ amount`) as a `Money` difference.
   - **F-22, implicit recall:** a tender on a sale held from `pending_payment` at terminal B, which has an open shift:
     - writes one `recall` row in `sale_holds`;
     - moves `terminal_id` and `shift_id` to B's;
@@ -1008,12 +1063,14 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - a replayed tender id with the same payload is a no-op; a different payload is `replay_conflict`;
     - the replay check runs **right after the sale lock and before any state check**, so a replay that arrives after the sale has completed still returns the original row, and a replay of an implicit-recall tender writes no second `recall` row;
     - an id already used by a tender **of another sale** is `replay_conflict`;
-    - amounts are compared numerically (R-8).
-  - **Replay after removal (Q-6, default):** a replay of an `AddTender` whose tender was since removed by `RemoveTender` adds it again while the sale is still open. A row pins this as documented behaviour.
+    - amounts are compared numerically (R-8);
+    - **what is compared is the request, not the outcome.** The outcome depends on the balance, which the first tender changed. The stored request is `payment_method_id`, `reference`, and `offered = tendered ?? amount`. That works because the built `TenderRules` records `tendered` for every change-giving tender and null for any other, and a non-change tender's amount always equals what was offered. One row: a cash tender of 50 against 45 (amount 45, change 5) replayed with `offered = "50"` is a no-op, and with `"45"` it is `replay_conflict`.
+  - **Replay after removal (AC-56, D-60):** a replay of an `AddTender` whose tender was since removed by `RemoveTender` adds it again while the sale is still open. A row pins this as documented behaviour.
   - **Lock order (R-5):**
     - sale `lockForUpdate()` first, then the payment method `sharedLock()`. An inactive method is `method_inactive`; a soft-deleted one is `not_found`;
     - with an implicit recall: the tendering terminal's open shift first (`sharedLock()`, by id, re-checked), then the sale.
-  - **Inputs (R-39):** `amount` is strictly positive and `tendered` is not below `amount`, both strings with at most 14 integer and 4 fraction digits. Change is given only when the method's `allows_change` is true.
+  - **Inputs (R-39):** `offered` is a string, strictly positive (`Fields::positiveMoney`), with at most 14 integer and 4 fraction digits. Change is given only when the method's `allows_change` is true, which is `TenderRules`' rule, not the slice's.
+  - **AC-12A on `AddTender`:** one row. A method with `allows_refund = false` takes an ordinary sale tender normally.
   - **AC-13:**
     - removal deletes the row;
     - removing the last tender moves the sale back to `draft`;
@@ -1021,11 +1078,23 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - **Concurrency shape:** the `sales` row is read `for update` before the balance check (SQL pinned).
   - *(AC-11 to AC-13.)*
 - [ ] **Step 17: `CompleteSale`.**
+  - **Creates `Tenders/CreditPosting.php`**, which is not built yet. It builds the `CreditLedgerEntry` for each credit tender, mirror and refund tender (F-2 to F-4, R-20), and steps 19 and 20 reuse it.
   - **AC-14:**
     - a short balance is `balance_due`, naming the remainder;
     - an exact balance sets `completed`, `completed_at`, `paid_total`, `change_due`, `balance_due = 0` and `number = S000001`;
-    - a total of 0 with lines completes from `draft`;
-    - no lines is `empty_sale`.
+    - no lines is `empty_sale`. It is checked before the balance, so a draft with no lines is `empty_sale` and never `balance_due`;
+    - a `draft` with a positive total and no tenders is `balance_due`, naming the total. The status is one Ruling 4 allows, so it is not `invalid_transition`, and the empty sum simply falls short.
+  - **AC-14A, zero-total completion (D-74): the ordinary path, no branch of its own.** One dataset row is a `draft` with one line fully discounted by a discount with `usage_limit = 5`, so `total = 0.0000`, and no tenders. In one transaction it:
+    - allocates `number` through `DocumentNumbers::next('sale', $branchId)`. That is the same sequence and prefix as a paid sale: a paid sale completed after it gets `S000002`;
+    - consumes `DiscountUsage` once for that discount, so `used_count` goes from 0 to 1;
+    - makes no ledger post and writes no `customer_ledger` row, because there are no tender rows;
+    - writes exactly **one** sales audit row (`completed`) and no customers audit row;
+    - sets `status = completed`, `completed_at`, `paid_total = 0.0000`, `change_due = 0.0000` and `balance_due = 0.0000`;
+    - leaves `stock_applied = false` and writes no `sale_tenders` row.
+
+    The row compares the whole tables before and after, so a special case that skips numbering or usage goes red.
+    - **Second row:** the same zero-total sale reaching `pending_payment` is impossible, because the built `TenderRules` refuses any tender on a sale with nothing owing (`exceeds_balance`). The row pins that, so the only zero-total completion is from `draft`.
+    - **Mutation M9:** short-circuit a zero total, returning `completed` before numbering and usage. The AC-14A row goes red on `number` and `used_count`.
   - **F-2 and F-3:**
     - two credit tenders write **two** `credit_sale` rows keyed `('sale_tender', <tender id>)`;
     - `credit_checked = true`;
@@ -1035,12 +1104,24 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - **R-4:** a `customer_ledger` row pre-seeded under `('sale_tender', <tender id>, credit_sale)` with the same customer and amount makes the writer report `replayed = true`. `CompleteSale` refuses `credit_refused` carrying `replay_conflict`, and nothing is written: no status change, no number, no usage. The pre-seeded row is still the only ledger row.
   - **F-12:** `DiscountUsage::consume()` runs once per distinct discount, **in ascending discount-id order** (R-5); `usage_limit_reached` refuses the whole completion.
   - **Lock order (R-5):** sale → discounts (ascending) → customers (inside the ledger) → `number_sequences` (`DocumentNumbers`, last) → the audit row. The SQL shape pins the order of the locking statements.
+  - **Deadlock retry, exactly as the built `OpenCashShift` does it.** The whole write runs as `$connection->transaction(fn, self::ATTEMPTS)` with `private const ATTEMPTS = 2`.
+    - A deadlock rolls everything back and runs the closure once more: the number, the usage increment, the ledger rows with their customers audit rows, the status change and the sales audit row. A second deadlock reaches the caller as the engine's `QueryException`.
+    - It retries only as the outermost transaction (Laravel's own rule). The handler's docblock says so, in `OpenCashShiftHandler`'s wording.
+    - The engine and resolver calls stay **before** the transaction (Ruling 7 item 1), so the retry re-runs only the locked body. Nothing the closure computes may be captured by reference across attempts.
+    - **Shared helpers first.** `numberingWrapper()` and `deadlock()` are file-level functions in `tests/Features/OpenCashShift/OpenCashShiftTest.php`, and a second test file declaring them would be a fatal redeclaration in one Pest run. So this step moves them into `tests/Support/DeadlockingNumbers.php`, as a class with static `wrap(Closure): object` and `deadlock(): QueryException`, and edits `OpenCashShiftTest` to call it. That file's three deadlock rows must stay green with no other change, and that is the check that the move is behaviour-neutral.
+    - **The three rows**, each marked NOT VERIFIED on a real engine as `OpenCashShiftTest`'s are:
+      - (a) numbering deadlocks on call 1 and succeeds on call 2. The sale is `S000001`, `next_number` is 2, `used_count` was incremented **once**, there is one `credit_sale` row per credit tender, one customers audit row per posting and one sales audit row;
+      - (b) numbering deadlocks on both calls. It surfaces `QueryException` ('Deadlock found'), the wrapper's call count is 2, and **nothing is written**: the status is still `pending_payment`, there is no number, `used_count` and `customer_ledger` are unchanged, and there is no audit row;
+      - (c) a non-deadlock `QueryException` is not retried (call count 1).
+    - **Mutation M10:** drop `ATTEMPTS`. Row (a) goes red.
   - **Audit (R-20):** one sales audit row, plus one customers audit row per credit tender (written by the ledger writer itself).
   - **The way out of a refused completion (risk 12):** a sale refused `usage_limit_reached` at completion is unstuck by removing its tenders (back to `draft`), removing or changing the line, tendering again and completing. One row walks the whole path.
   - **Mutation M7:** ignore `replayed`. The R-4 row goes red.
   - **AC-15:** no `stock_*` table is touched (asserted by query count on stock tables, which do not exist, plus a source scan in step 23); `stock_applied` stays false.
   - **Mutation M5:** post the ledger before the balance check, with the balance short. A ledger row survives, and the "nothing written" assertion goes red.
-  - *(AC-14, AC-15; D-29, D-31, D-37, D-42.)*
+  - **AC-50:** a `yearly` `sale` sequence, or one whose prefix makes the number longer than 30 characters, is `numbering_refused`, carrying the cause, and nothing is written.
+  - **AC-58:** a discount deactivated between the quote and the completion is still consumed, and the completion succeeds.
+  - *(AC-14, AC-14A, AC-15, AC-48, AC-49, AC-50, AC-51, AC-58; D-29, D-31, D-37, D-42, D-65, D-66, D-68, D-74.)*
 - [ ] **Step 18: `HoldSale`, `RecallSale`, `ListSales`, `GetSale`.**
   - **AC-17:** `draft` and `pending_payment` can be held, and one `sale_holds` row records `from_status`; any other status is refused `invalid_transition`, naming it (R-40). `RecallSale` of a sale that is not `held`, and `CompleteSale` from any status Ruling 4 does not list, are refused the same way.
   - **Lock order (R-5):** `RecallSale` takes the recalling terminal's open shift (`sharedLock()`, by id, re-checked) first, then the sale.
@@ -1055,7 +1136,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - another branch's held sale is absent;
     - pagination works.
   - **Gate: `composer check` (end of chunk C).**
-  - *(AC-17 to AC-20; D-24, D-25.)*
+  - *(AC-17 to AC-20, AC-51's transition half; D-24, D-25.)*
 
 ### Chunk D: corrections and shift close
 
@@ -1074,9 +1155,14 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - each `credit_note` carries a positive credit equal to |the mirror's amount| (R-20). A `replayed = true` posting is refused `credit_refused` carrying `replay_conflict`, with nothing written (R-4);
     - a customer merged since the sale is `credit_refused` carrying `customer_not_live` (risk 7).
   - **Lock order (R-5):** the completed sale's own `shift_id` is read before the transaction; then the shift `sharedLock()` by id, then the sale `lockForUpdate()`, which re-checks that `shift_id` is unchanged and the shift is `open`; then the approval; then the customers. **Race row:** a `CloseCashShift` that commits between the pre-read and the lock makes the void `shift_closed`, and no mirror lands on the closed shift.
+  - **AC-24A, the branch (D-72):** the gate is called with the **sale's** `branch_id`.
+    - A `void` approval for this sale, seeded raw at another branch, is `approval_mismatch` (a defence-in-depth row, since `RequestApproval` refuses such a request). The sale stays `completed`, no mirror is written, and `consumed_at` stays null.
+    - The same approval at the sale's branch is consumed.
+    - In the same step, `ApprovalBinding`'s docblock table gains its `branch_id` column (a comment-only edit, matching the Data section's table).
+  - **Ledger post:** built through step 17's `CreditPosting`. There is no number allocation, so **no** deadlock retry is needed here.
   - **Mutation M6:** edit the original tender to a zero amount instead of mirroring. The byte-identity assertion goes red.
-  - *(AC-21, AC-22; D-14 to D-16.)*
-- [ ] **Step 20: `RefundSale`.** *(AC-25 to AC-31; D-32, D-38, D-43, D-47.)*
+  - *(AC-21, AC-22, AC-24A, AC-48; D-14 to D-16, D-66, D-72.)*
+- [ ] **Step 20: `RefundSale`.** *(AC-25 to AC-31, AC-12A, AC-24A, AC-47A, AC-48, AC-50, AC-53, AC-54, AC-57; D-32, D-38, D-43, D-47, D-55, D-58, D-63, D-64, D-71 to D-73.)*
   - **AC-25:**
     - a new `type = refund` row, number `R000001`, `reference_sale_id` set;
     - a goodwill refund has a null reference;
@@ -1097,10 +1183,23 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - `refunded_quantity` accumulates in base across a case refund and a single refund;
     - only `type = sale` in `completed` or `partially_refunded` is refundable (`not_refundable`).
   - **AC-29:** without approval, `approval_required`; goodwill takes the same gate; an approval bound to another sale is `approval_mismatch`.
-  - **AC-30 and F-14:**
+  - **AC-24A, the branch (D-72):** the gate is called with the **refund's** branch, which is the refunding terminal's.
+    - A goodwill `refund` approval requested and approved at branch A, consumed by a goodwill `RefundSale` at a terminal of branch B, is `approval_mismatch`: no refund row, no number consumed, and `consumed_at` null. This row goes through the real `RequestApproval` and `DecideApproval`, because a goodwill request has no sale whose branch `RequestApproval` could check.
+    - The same refund at branch A consumes it.
+    - A referenced refund at another branch than the original sale's is refused `not_refundable` (AC-54) before the gate is reached. One row shows that the approval is untouched.
+  - **AC-30, F-14 and AC-12A, tender rules:**
     - tenders are negative and Σ = −total, otherwise `balance_due`;
-    - `allows_refund = false` is `refund_not_allowed`;
+    - each refund tender goes through the built `TenderRules::decide()` as edited in step 16a, with `$refund = true`, the method row read under `sharedLock()` (including `allows_refund`), `offered` = the payout magnitude, and `balance` = what is still owed back, a magnitude computed by `Money` from the refund total and the tenders decided so far. The stored `amount` is `Money::negate($outcome->amount)`, `tendered` is null and `change_given` is `0.0000`;
+    - **a refund tender onto a method with `allows_refund = false` is `unsupported_method_type`, and nothing is written** (AC-12A). There is no refund row, no `refunded_quantity` change, no number, and the approval is unconsumed;
+    - the same method with `allows_refund = true` is accepted;
+    - `loyalty` and `voucher` are `unsupported_method_type` as on a sale (AC-12);
+    - a zero-total refund (a fully discounted line refunded) takes no tender and completes with Σ = 0 = −0, as AC-14A does for a sale;
     - a credit refund method writes a `refund` ledger row (credit side) keyed on the refund tender.
+  - **AC-47A, the goodwill sellability exemption (D-73):**
+    - a goodwill refund line for a product that is `is_active = false`, or `is_sellable = false`, is **accepted**: `product_not_sellable` is never raised, and the engine quotes it normally;
+    - a referenced refund line for a product deactivated since the sale is accepted too (lead question 1);
+    - a goodwill line for a **soft-deleted** product is still refused `unknown_product` by the engine (AC-53, R-1(d)). **That is the built default until owner question Q-1 is ruled.** The row is written so that a Q-1 ruling for option (b) flips it, and it is not deleted;
+    - **Mutation M11:** call step 14's sellability check on refund lines. The inactive-goodwill row goes red.
   - **AC-31:** no stock or GL effect.
   - **R-1, the engine's live-state checks (default pending Q-1):** one dataset row each. The refund is refused under the engine's own reason, and nothing is written:
     - the original line's discount has since reached its usage limit, including the case where **this sale's own consumption** reached it (`usage_limit = 1`): `usage_limit_reached`;
@@ -1111,7 +1210,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     The rows are written so that Q-1's ruling flips them, rather than having to be discovered.
   - **R-8:** the original line's stored `unit_factor`, which the stand-in reads back as a number, is canonicalised before `snapshotInherited()`. The refund of a 24-factor line works on SQLite.
   - **R-10:** `at` is the original `completed_at`, converted from `DATETIME(3)` to `YYYY-MM-DDTHH:MM:SS.mmmZ`.
-  - **The refund's customer and branch (Q-4, defaults):**
+  - **The refund's customer and branch (AC-54, D-58; ruled):**
     - a referenced refund copies the original sale's `customer_id` and its snapshots;
     - a goodwill refund takes an optional `customer_id`, with AC-1's liveness check;
     - a `credit` refund tender with no customer is `customer_required`;
@@ -1119,6 +1218,15 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - **Ledger:** a `credit` refund tender posts a `refund` entry with a positive credit equal to |the tender's amount|, keyed `('sale_tender', <refund tender id>, refund)`. A replayed posting is refused (R-4). Refund tender ids are generated by the server.
   - **Replay safety:** a `RefundSale` retried after success is refused `approval_already_used`, because the first call consumed the approval. That is the refund's idempotency guard, and a row pins it.
   - **Lock order (R-5):** the refunding terminal's open shift (`sharedLock()`, by id) → the original sale (`lockForUpdate()`; every refund of a sale takes it, so `refunded_quantity` is read fresh after it) → the approval → the payment methods (`sharedLock()`) → the customers → `number_sequences` last.
+  - **Deadlock retry, as `OpenCashShift` and step 17:** the whole write runs as `transaction(fn, self::ATTEMPTS)` with `ATTEMPTS = 2`, retrying only as the outermost transaction.
+    - The engine quotes and `snapshotInherited()`/`snapshot()` stay **before** the transaction. The retry re-runs only the locked body, which re-reads `refunded_quantity` under the sale lock on each attempt.
+    - The server-generated ids (the refund sale, its lines and its tenders) are generated **inside** the closure, so nothing from a rolled-back attempt is reused.
+    - **The three rows** use step 17's `tests/Support/DeadlockingNumbers`, wrapping the `refund` allocation, and are marked NOT VERIFIED on a real engine:
+      - (a) a deadlock on call 1 succeeds on call 2: `R000001`, one refund row, `refunded_quantity` incremented **once**, the approval consumed once, one `refund` ledger row per credit refund tender, and one sales audit row;
+      - (b) two deadlocks surface `QueryException`, and nothing is written: no refund row, `refunded_quantity` and the original status unchanged, `consumed_at` null, and no ledger or audit row;
+      - (c) a non-deadlock error is not retried.
+  - **AC-50:** a refused `refund` sequence is `numbering_refused`, carrying the cause, and nothing is written, the approval included.
+  - **AC-57:** the Q-9 and Q-10 residual gaps (promotion ended, customer group changed) each have one dataset row showing that the refund differs from the charge, as accepted behaviour.
   - *(AC-25 to AC-31; D-17 to D-19.)*
 - [ ] **Step 21: `CloseCashShift`, `ReconcileCashShift`.**
   - **AC-34:**
@@ -1129,10 +1237,12 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - not `open` is `shift_not_open`;
     - an open `pending_payment` sale on the shift is `shift_has_open_sales` (F-15).
   - **AC-35:** `totals_by_method`, `sales_count`, `refunds_count`, `gross`, `discounts`, `tax` and `net` over a seeded mixed shift (two sales, one voided, one refund), with exact strings.
+  - **Permission key (chunk B "As built"):** `SalesPermissions` declares only `sales.approvals.decide` today. This step adds `sales.shifts.reconcile` (branch-scoped) and edits `tests/Registry/SalesRegistryTest.php`, whose `toHaveCount(1)` becomes 2, with a second key assertion and the sync row extended to both keys (D-69).
   - **AC-36:**
     - `closed` → `reconciled` with `reconciled_by`;
     - a different supervisor than the closer is accepted;
     - without `sales.shifts.reconcile`, `not_authorised`;
+    - held at another branch only, `not_authorised`; held at the null scope (company-wide), allowed (D-69, the same pair as step 10's);
     - an `open` shift is `shift_not_open`.
   - **AC-37:** close and reconcile replayed with the same payload are no-ops; a close replayed with a different `counted_cash` is `replay_conflict`. `counted_cash` is compared numerically (R-8).
   - **Lock order (R-5):** both take the shift `lockForUpdate()` by id as their first statement; `CloseCashShift` then reads sales, tenders and movements with plain reads, which are fresh because nothing was read before the lock. **Race rows:** a `CreateSale`, a `RecordCashMovement` or a completed-sale `VoidSale` that commits between the pre-read and its own shift lock is either counted by the close or refused, never silently attached to a closed shift.
@@ -1141,7 +1251,8 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 ### Chunk E: scans, engine, documents, close-out
 
-- [ ] **Step 22: the cross-slice invariant sweep** (`SalesInvariantTest`). After a scripted day (open → three sales with split and credit tenders → hold, recall elsewhere → void one → refund one → close → reconcile), assert:
+- [ ] **Step 22: the cross-slice invariant sweep** (`SalesInvariantTest`). After a scripted day (open → three sales with split and credit tenders, **plus one fully discounted zero-total sale** (AC-14A) → hold, recall elsewhere → void one → refund one → close → reconcile), assert:
+  - the zero-total sale is numbered in sequence with the others and has exactly one audit row;
   - every completed sale's Σ tender `amount` = `total` (−`total` for a refund);
   - every void has an exact mirror;
   - every credit tender has exactly one ledger row;
@@ -1164,7 +1275,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - `JsonValidity`;
   - contract file 10 on a populated `loyalty_transactions`;
   - two connections completing the same sale: the second waits on the row lock and then sees `completed` (`innodb_lock_wait_timeout = 1`);
-  - concurrent `DocumentNumbers` gives distinct numbers, and a concurrent **first** use (both connections finding no row) gives distinct numbers through the locking retry (R-27);
+  - concurrent `DocumentNumbers` gives distinct numbers, and a concurrent **first** use (both connections finding no row) gives distinct numbers through the locking retry (R-27). This row calls `DocumentNumbers` directly, so it does not exercise any slice's retry. A sibling row runs two `CompleteSale` calls on two connections against a fresh `sale` sequence and asserts that both complete with distinct numbers. That is the only real-engine evidence for the `transaction(..., 2)` retry (chunk B's NOT VERIFIED item), and it is skipped under the hold like the rest;
   - `CloseCashShift` on connection A holding the shift lock makes `CreateSale` on connection B wait, then refuse `no_open_shift` (R-5);
   - two completions consuming discounts {A, B} on two connections both succeed, with no deadlock (ascending order, R-5);
   - migrating twice is a no-op.
@@ -1196,7 +1307,11 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 - **Owned elsewhere:** `SnapshotInheritedTest` (catalog), `HandlerPinVerifierTest` (access), `DocumentNumbersTest` (organization), `DiscountUsageTest` (pricing).
 - **Static:** `SalesTenantSchemaTest`, `LoyaltySaleIdMigrationsTest`, `TenantDecimalPrecisionTest`, `QaSalesSourceRulesTest`, the catalogue `is_destructive` assertions, and deptrac with the demo control.
 - **Engine:** `SalesSchemaEngineTest`, skipped under the hold.
-- **Mutations:** U1, N1, N2, M1 to M7.
+- **Mutations:** U1, N1, N2, M1 to M11. Revision 4 adds four:
+  - M8, the `allows_refund` guard (step 16a);
+  - M9, a zero-total short circuit (step 17);
+  - M10, the dropped retry (step 17);
+  - M11, the sellability check on refund lines (step 20).
 
 | ACs | Proved by |
 |---|---|
@@ -1223,6 +1338,22 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 | 44 | 8, 24 |
 | 45 | 7, 24 |
 | 46 | 6, 10, 18 |
+| 12A | 16a (`TenderRulesTest`, `SalesRegistryTest`), 16 (sale tender unaffected), 20 (refund refused and accepted) |
+| 14A | 17 (zero-total row, M9), 22 |
+| 24A | 10 (`ApprovalGateTest`'s branch row, built), 15, 19 (raw-seeded rows), 20 (goodwill, end to end) |
+| 47 | 14 |
+| 47A | 14 (scope), 20 (goodwill rows, M11; deleted product still `unknown_product` pending Q-1) |
+| 48 | 17, 19, 20 |
+| 49 | 17 |
+| 50 | 12 (built), 17, 20 |
+| 51 | 9 (built rollup), 14, 17, 18 |
+| 52 | 14, 20 |
+| 53 | 20 (default pending Q-1) |
+| 54 | 20 |
+| 55 | 15 |
+| 56 | 16 |
+| 57 | 20 |
+| 58 | 5 (built), 17 |
 
 ## Risks & rollback
 
@@ -1268,6 +1399,11 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 | `tests/Engine/CustomersSchemaEngineTest.php` | the same column, if it lists them | 7 |
 | `tests/Feature/TenantDecimalPrecisionTest.php` | the T-030 map | 8 |
 | permission registry sweep tests (the `DeclaresPermissions` set) | expected green with no edit: every one reads the registry dynamically (`QaAccessHttpSurfaceTest`, `QaAccessGuardIsolationHttpTest`, `AccessBumpSweepTest`, `OwnerRoleSyncTest`). The two keys are branch-scoped, and `QaAccessHttpSurfaceTest` refuses a branch-scoped key only on a route; Sales has none (R-25). A red here is a stop | 10 |
+| `packages/sales/src/Tenders/TenderRules.php`, `packages/sales/tests/Tenders/TenderRulesTest.php` | built in chunk B. `decide()` gains `bool $refund = false` and reads `allows_refund` on a refund (AC-12A); new rows (rev 4) | 16a |
+| `packages/sales/src/Exceptions/SalesRefusal.php`, `packages/sales/tests/Registry/SalesRegistryTest.php` | `RefundNotAllowed` removed; the pinned list goes from 43 codes to 42 (rev 4) | 16a |
+| `packages/sales/tests/Features/OpenCashShift/OpenCashShiftTest.php` | `numberingWrapper()` and `deadlock()` move to `tests/Support/DeadlockingNumbers.php`; its rows otherwise unchanged and still green (rev 4) | 17 |
+| `packages/sales/src/Approvals/ApprovalBinding.php` | docblock table gains `branch_id` (comment only, rev 4) | 19 |
+| `packages/sales/src/Registry/SalesPermissions.php`, `packages/sales/tests/Registry/SalesRegistryTest.php` | `sales.shifts.reconcile`; the permission count goes from 1 to 2 (rev 4) | 21 |
 | `docs/database.md`, `docs/architecture.md` | step 25 | 25 |
 
 Anything red that is not in this table means stop and report to `architect`.
@@ -1305,6 +1441,8 @@ Anything red that is not in this table means stop and report to `architect`.
 
 ## Questions for `ba` (revision 3; routed through `lead`)
 
+**Revision 4 status.** Q-3 to Q-11 are **ruled**, as D-57 to D-65 (spec revision 4), each at the default below, so the table is kept as the record. Q-1 (D-55) and Q-2 (D-56) are still **open** and owner-level, and their defaults are what is built.
+
 `architect` cannot message `ba`. Each question has a default, the plan builds that default, and the step it changes is named. None blocks Chunk A. Q-1 and Q-2 change customer-visible behaviour and are owner-level. Q-1 should be ruled before Chunk D is accepted, and Q-2 before Chunk C is.
 
 | # | Question | Default the plan builds | Step |
@@ -1320,6 +1458,13 @@ Anything red that is not in this table means stop and report to `architect`.
 | **Q-9** (D-38) | A line is quoted when it is added, but a refund is quoted at the sale's `completed_at`, because `sale_items` stores no quote instant. A promotion that ended between the line's add and the completion prices the refund differently from what was charged | Keep D-38 (`completed_at`), and name it as a residual gap alongside the unversioned price lists | 20 |
 | **Q-10** (R-10) | A refund passes the customer's **current** `group_id` to the engine, because the sale does not store the group at sale time. A customer moved to another group since then can be refunded at a different group price | Use the current group, and name the residual gap | 20 |
 | **Q-11** (R-15) | `DiscountUsage::consume()` re-checks only existence and the limit, not `is_active` or the window. A discount deactivated between quote and completion is still consumed and honoured | Accept: those are facts checked at quote time, and the line was priced while the discount was valid | 5, 17 |
+
+## Questions for `lead` (revision 4)
+
+Neither blocks: each has a default, which the plan builds.
+
+1. **A referenced refund line and the sellability check.** AC-47A exempts a goodwill refund line. AC-47 names only `AddSaleLine`/`UpdateSaleLine`, so a referenced refund line of a product deactivated since the sale is not checked either. **Default:** `RefundSale` never runs the check, for either kind of line (steps 14 and 20). The reason is the same as D-73's: the shop's catalogue change should not block a return.
+2. **Change on a refund tender.** AC-30 says refund tenders follow "AC-12's method rules exactly". But paying out more than is owed and taking change back is not a real flow. **Default:** with `$refund = true`, `TenderRules` gives no change. An over-payout is `exceeds_balance` whatever `allows_change` says, and `tendered` is null (step 16a). If the lead wants change honoured on refunds, the `$refund` branch is removed from check 6 only.
 
 ## Questions for the human
 
