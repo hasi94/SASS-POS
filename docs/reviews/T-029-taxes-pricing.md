@@ -63,3 +63,36 @@ Fix: give the residue to the last percentage member whose resolved rate is not z
 - Migrations match D-14 and F-17: expand, backfill and contract, all catalogued `is_destructive: false`; none of the three Finance account columns exists.
 - The catalog change is narrow: ids are folded before the directory call (K-10), and the explicit-null refusal on both handlers enforces F-3's application-level NOT NULL.
 - Test quality is high: the fixture lint forbids JSON numbers, the replay walks every file with an anti-vacuity count, and controls prove the lint and the replay can fail.
+
+## Round 2 - Verdict: APPROVE
+
+Reviewer: `reviewer5`, tip `6715a98`, fix commit `5d466d2` read from the real diff. Nothing Critical. R-1 is fixed correctly, and so are W-1 to W-5, S-1, S-2, S-4 and S-7.
+
+What was run: `vendor/bin/pest ../../packages/pricing/tests tests/Feature/QaPricingSourceRulesTest.php tests/Feature/PricingLockOrderSourceRulesTest.php` plus the two catalog `*TaxGroupTest.php` files: 731 passed (2547 assertions), 43.0 s. `composer check` was not re-run (QA ran it). The tree was left clean.
+
+Re-verified on the merits:
+- **R-1:** by hand, gross 9.9900 gives net 8.6870, VAT 1.3030 (1.3031 forward, residue -0.0001 onto VAT), levy 0.0000; gross 10.0000 gives net 8.6957, VAT 1.3043. A fixed member never receives the residue; a compound member after a 0 percent member is unaffected; an all-zero group has no residue.
+- **W-1 lock order:** every writer of `tax_rates` (`CreateTaxRate`, `CloseTaxRate`, `UpdateTax`) locks `taxes` first; `DatabasePricingEngine` only reads. The pre-transaction `tax_id` read is safe because no slice changes `tax_id` or deletes a rate.
+- **W-2:** the contract change reaches the only implementer and the three test doubles; catalog's calls run inside its transaction on the same connection, so the shared lock conflicts with `UpdateTaxGroup`'s exclusive lock the way the design needs; reading the default by `default_marker` locks one index entry.
+- **W-3, W-4, W-5, S-2:** each refusal sits where the spec puts it, and none rejects valid data.
+- **NOT VERIFIED claims are honest** (database.md 6.4, the scan header, the engine test banner, the docblocks), with two exceptions: E-5 is wrong as written (W-1 below) and E-3's title overclaims (S-3).
+
+### Warnings (non-blocking, filed as follow-ups)
+
+- **W-1** `modules/host/tests/Engine/PricingSchemaEngineTest.php:645,654`: E-5 cannot pass once the engine hold lifts. `pricingEngineProduct()` inserts a live product on the seeded default `STANDARD` group, then E-5 deactivates that same default; AC-10's guard counts the product and refuses `in_use`, so the test errors before exercising the W-2 default path. Fix: take the seed product off the default first, and assert the group is inactive afterwards. Fix before the hold lifts.
+- **W-2** `packages/pricing/src/Support/RateRanges.php:34`: the new sibling `lockForUpdate()` takes next-key and gap locks across tax boundaries, a new deadlock class (error 1213): two `CreateTaxRate` calls for two different taxes with no rates yet and adjacent ULIDs both take a gap lock, then each insert's insert-intention lock waits on the other. The database rolls one back, so there is no corruption, but it surfaces as a raw exception (the transaction has one attempt). The docblock's "costs nothing" is wrong. Fix, pick one: drop the lock from `assertNoOverlap` (the parent lock already makes the plain sibling read fresh) and reword L2/E-2; or keep it with `attempts: 3` on both rate transactions and record the residual. Resolve before the hold lifts.
+- **W-3** `PricingLockOrderSourceRulesTest.php:290-299` (QA's N-1, FP-446): L1 does not pin WHICH table is locked first, and it is the only guard on the order while the hold lasts. Give each writer its expected first table, assert the first locking statement names it, and add a planted control.
+- **W-4** spec AC-7 / D-43 / `docs/database.md` 6.4: the duplicate-date scope wording is narrower than the code, which also skips a member whose `applies_to` excludes the quoted context. A TypeScript twin built from D-43's words would refuse what the PHP engine prices. Amend D-43 and AC-7 to "members that survive the step-1 filter (deleted, inactive, or applies_to excludes the context)" and add one `QaPricingEngineTest` row.
+
+### Suggestions
+
+- **S-1** `TaxCalculator.php:81-91`: a wider variant of FP-444: the absorbing member's amount only has to be smaller than |residue|, and |residue| can exceed 0.0001 with three or more members. Worked case: VAT 15 percent, levies at 5 percent and 1 percent, all non-compound, inclusive, gross 0.0060 gives residue -0.0002 and the 1 percent member refused `out_of_range`. Sub-cent grosses only; widen FP-444's wording.
+- **S-2** `CloseTaxRateHandler.php:78-90`: make the pre-read assumption self-checking (refuse if the locked row's `tax_id` differs from the pre-read one, and use `$taxId` at the overlap check).
+- **S-3** `PricingSchemaEngineTest.php:548`: E-3's title says it takes the parent row first, but it only proves the parent lock is taken at some point; rename it or prove order via the engine's lock-wait views.
+- **S-4** `QaPricingEngineTest.php:183,185`: assert the refusal reason, not only the exception class.
+- **S-5** E-2 has no stale-snapshot control (unlike E-1's plain-versus-locking pair).
+- **S-6** `docs/qa/T-029-taxes-pricing.md:211-212`: the S-4 and S-7 rows are swapped.
+
+### Done well
+
+R-1 is a one-predicate fix with the right proof (the 15/2/0 fixture tells last non-zero from first non-zero). The lock-order design departs from the review's literal suggestion for a sound reason, written into the handler, the plan and D-39. W-2 is minimal and sound. The W-4 adapter is strict without over-reach. AC-5a and AC-6a refuse exactly what the spec says, leaving refused calls byte-identical with no audit row. The new scan is well built, with planted controls and a scope proof. Reporting is honest throughout.
