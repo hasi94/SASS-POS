@@ -324,9 +324,24 @@ it('holds exactly the declared foreign keys, and the branch keys of T-014 (AC-3,
     // red.
     expect(tenantTreeForeignKeys())->toBe([
         'access_log.employee_id -> employees.id',
+        // T-030 step 6: the eight Sales tables' 36 foreign keys (sorted in among
+        // the rest), plus the one loyalty_transactions.sale_id key step 7's
+        // contract file adds (37 in all).
+        'approval_requests.branch_id -> branches.id',
+        'approval_requests.decided_by -> employees.id',
+        'approval_requests.requested_by -> employees.id',
+        'approval_requests.terminal_id -> terminals.id',
         'branches.created_by -> employees.id',
         'branches.default_location_id -> locations.id',
         'branches.updated_by -> employees.id',
+        'cash_movements.approved_by -> employees.id',
+        'cash_movements.employee_id -> employees.id',
+        'cash_movements.shift_id -> cash_shifts.id',
+        'cash_shifts.branch_id -> branches.id',
+        'cash_shifts.closed_by -> employees.id',
+        'cash_shifts.employee_id -> employees.id',
+        'cash_shifts.reconciled_by -> employees.id',
+        'cash_shifts.terminal_id -> terminals.id',
         // T-027 step 3: the twelve catalog tables' 27 foreign keys.
         'categories.parent_id -> categories.id',
         // T-028 step 3: the eight customer tables' 17 foreign keys.
@@ -369,6 +384,7 @@ it('holds exactly the declared foreign keys, and the branch keys of T-014 (AC-3,
         'loyalty_transactions.customer_id -> customers.id',
         'loyalty_transactions.employee_id -> employees.id',
         'loyalty_transactions.program_id -> loyalty_programs.id',
+        'loyalty_transactions.sale_id -> sales.id',
         'modifiers.group_id -> modifier_groups.id',
         'modifiers.linked_product_id -> products.id',
         'modifiers.linked_unit_id -> units.id',
@@ -402,6 +418,30 @@ it('holds exactly the declared foreign keys, and the branch keys of T-014 (AC-3,
         'products.updated_by -> employees.id',
         'role_permissions.permission_key -> permissions.key',
         'role_permissions.role_id -> roles.id',
+        'sale_holds.employee_id -> employees.id',
+        'sale_holds.sale_id -> sales.id',
+        'sale_holds.terminal_id -> terminals.id',
+        'sale_items.discount_id -> discounts.id',
+        'sale_items.employee_id -> employees.id',
+        'sale_items.price_overridden_by -> employees.id',
+        'sale_items.product_id -> products.id',
+        'sale_items.refund_of_item_id -> sale_items.id',
+        'sale_items.sale_id -> sales.id',
+        'sale_items.tax_group_id -> tax_groups.id',
+        'sale_items.unit_id -> units.id',
+        'sale_tenders.payment_method_id -> payment_methods.id',
+        'sale_tenders.sale_id -> sales.id',
+        'sales.approval_request_id -> approval_requests.id',
+        'sales.bill_discount_id -> discounts.id',
+        'sales.branch_id -> branches.id',
+        'sales.customer_id -> customers.id',
+        'sales.employee_id -> employees.id',
+        'sales.location_id -> locations.id',
+        'sales.price_list_id -> price_lists.id',
+        'sales.reference_sale_id -> sales.id',
+        'sales.shift_id -> cash_shifts.id',
+        'sales.terminal_id -> terminals.id',
+        'sales.voided_by -> employees.id',
         'settings.key -> settings_registry.key',
         'settings.updated_by -> employees.id',
         'tax_group_taxes.tax_group_id -> tax_groups.id',
@@ -448,13 +488,17 @@ it('holds exactly the declared foreign keys, and the branch keys of T-014 (AC-3,
     sort($referencing);
 
     expect($referencing)->toBe([
+        // T-030 step 6: three Sales tables key onto branches.
+        'approval_requests', 'cash_shifts',
         // T-028 step 3: customer_ledger.branch_id joins the list of tables
         // with a key to branches.
         'customer_ledger',
         'employee_branches', 'employee_permissions', 'employee_roles', 'locations', 'number_sequences',
         // T-027 step 3: product_branches.branch_id joins the list of tables
         // with a key to branches.
-        'product_branches', 'terminals',
+        'product_branches',
+        // T-030 step 6: sales.branch_id.
+        'sales', 'terminals',
         // T-020 step 3: workflow_instances.branch_id joins the list of
         // tables with a key to branches.
         'workflow_instances',

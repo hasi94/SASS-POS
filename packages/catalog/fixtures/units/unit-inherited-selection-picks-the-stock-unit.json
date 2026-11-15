@@ -1,0 +1,24 @@
+{
+  "name": "unit-inherited-selection-picks-the-stock-unit",
+  "kind": "inherited",
+  "discriminates": "T-030 D-32: asked for the stock unit, the selection returns factor 1 and ignores the referenced line's factor.",
+  "input": {
+    "product_id": "01PRODUCT0000000000000000A",
+    "stock_unit_id": "01UNITEACH000000000000000A",
+    "referenced_unit_id": "01UNITCASE000000000000000A",
+    "referenced_unit_factor": "24.000000",
+    "unit_id": "01UNITEACH000000000000000A",
+    "unit_code": "each",
+    "line_unit_precision": "0",
+    "stock_unit_precision": "0",
+    "quantity": "7"
+  },
+  "expect": {
+    "unit_id": "01UNITEACH000000000000000A",
+    "unit_code": "each",
+    "source": "stock_unit",
+    "quantity": "7.0000",
+    "unit_factor": "1.000000",
+    "base_quantity": "7.0000"
+  }
+}

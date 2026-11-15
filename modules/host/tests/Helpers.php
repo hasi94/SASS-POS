@@ -584,6 +584,16 @@ function tenantTreeTables(): array
         'price_list_items',
         'price_list_assignments',
         'discounts',
+        // T-030 step 6: the eight Sales tables (docs/database.md sections 6.7
+        // and 6.8, plus this task's own sale_holds).
+        'payment_methods',
+        'cash_shifts',
+        'cash_movements',
+        'approval_requests',
+        'sales',
+        'sale_items',
+        'sale_tenders',
+        'sale_holds',
     ]);
 
     sort($tables);

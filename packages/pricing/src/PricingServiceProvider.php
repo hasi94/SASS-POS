@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Flexipos\Pricing;
 
 use Flexipos\Contracts\Audit\DeclaresAuditActions;
+use Flexipos\Contracts\Pricing\DiscountUsage;
 use Flexipos\Contracts\Pricing\PricingEngine;
 use Flexipos\Contracts\Pricing\TaxGroupDirectory;
+use Flexipos\Pricing\Discounts\DatabaseDiscountUsage;
 use Flexipos\Pricing\Engine\DatabasePricingEngine;
 use Flexipos\Pricing\Registry\PricingAuditActions;
 use Flexipos\Pricing\Taxes\DatabaseTaxGroupDirectory;
@@ -37,6 +39,11 @@ final class PricingServiceProvider extends ServiceProvider implements DeclaresAu
     {
         $this->app->singleton(TaxGroupDirectory::class, DatabaseTaxGroupDirectory::class);
         $this->app->singleton(PricingEngine::class, DatabasePricingEngine::class);
+
+        // T-030 D-37, F-12. The one writer of `discounts.used_count`, taken under a
+        // row lock inside the completing sale's transaction. It refuses before it
+        // writes, so there is no permissive state.
+        $this->app->singleton(DiscountUsage::class, DatabaseDiscountUsage::class);
     }
 
     /**

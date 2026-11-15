@@ -71,6 +71,53 @@ final class DatabaseUnitResolver implements UnitResolver
         return SnapshotCalculator::compute($factor, $lineUnitId, $lineUnitCode, $lineUnitPrecision, $stockUnitPrecision, $quantity);
     }
 
+    /**
+     * A referencing line's snapshot (T-030 D-32, F-7): `InheritedFactor` picks
+     * the factor from what the caller holds, `SnapshotCalculator` does the
+     * rounding and the base quantity, and **`UnitLadder` is never called** - so
+     * `unit_conversions` is not read at all. The stock unit is read off the
+     * product here and never taken from the caller, and it is immutable on a
+     * product (T-027 AC-22), so the answer cannot drift between a sale and its
+     * refund. `products.deleted_at` is deliberately not read, as `resolve()`
+     * does not read it: whether a product may still be sold is the pricing
+     * engine's question, and a refund of a since-deleted product reaches here.
+     */
+    public function snapshotInherited(
+        string $productId,
+        string $referencedUnitId,
+        string $referencedUnitFactor,
+        string $unitId,
+        int|string $quantity,
+    ): UnitSnapshot {
+        $connection = $this->tenant->get();
+
+        $productId = strtoupper($productId);
+        $referencedUnitId = strtoupper($referencedUnitId);
+        $unitId = strtoupper($unitId);
+
+        $product = $connection->table('products')->where('id', $productId)->first(['stock_unit_id']);
+
+        if ($product === null) {
+            throw UnitResolutionRefused::unknownProduct("The product [{$productId}] does not exist.");
+        }
+
+        $stockUnitId = strtoupper((string) $product->stock_unit_id);
+
+        $factor = InheritedFactor::select($productId, $stockUnitId, $referencedUnitId, $referencedUnitFactor, $unitId);
+
+        $catalogue = $this->catalogue($connection);
+
+        $lineUnitCode = $catalogue->code($unitId);
+        $lineUnitPrecision = $catalogue->precision($unitId);
+        $stockUnitPrecision = $catalogue->precision($stockUnitId);
+
+        if ($lineUnitCode === null || $lineUnitPrecision === null || $stockUnitPrecision === null) {
+            throw UnitResolutionRefused::unknownUnit("The unit [{$unitId}] does not exist.");
+        }
+
+        return SnapshotCalculator::compute($factor, $unitId, $lineUnitCode, $lineUnitPrecision, $stockUnitPrecision, $quantity);
+    }
+
     private function catalogue(Connection $connection): UnitCatalogue
     {
         $rows = $connection->table('units')->get()->map(static fn (object $row): array => [

@@ -126,6 +126,28 @@ it('matches T-027s own exact column map: quantities/money (18,4), factor columns
         '2026_11_10_002911_create_discounts_table.php' => [
             ['value', 18, 4], ['min_amount', 18, 4], ['max_discount', 18, 4], ['approval_threshold', 18, 4],
         ],
+        // T-030 step 8 (AC-44, D-45): the Sales tables' exact column map. Money and
+        // quantity are (18,4), unit_factor (18,6), the two percent columns (9,4) and
+        // exchange_rate (18,8); no fifth pair is introduced. The loyalty sale_id
+        // migration and the contract file declare no decimal at all.
+        '2026_11_10_003001_create_payment_methods_table.php' => [['surcharge_percent', 9, 4]],
+        '2026_11_10_003002_create_cash_shifts_table.php' => [
+            ['opening_cash', 18, 4], ['expected_cash', 18, 4], ['counted_cash', 18, 4], ['variance', 18, 4],
+            ['gross', 18, 4], ['discounts', 18, 4], ['tax', 18, 4], ['net', 18, 4],
+        ],
+        '2026_11_10_003003_create_cash_movements_table.php' => [['amount', 18, 4]],
+        '2026_11_10_003005_create_sales_table.php' => [
+            ['exchange_rate', 18, 8], ['subtotal', 18, 4], ['discount_total', 18, 4], ['tax_total', 18, 4],
+            ['service_charge', 18, 4], ['rounding', 18, 4], ['total', 18, 4], ['paid_total', 18, 4],
+            ['change_due', 18, 4], ['balance_due', 18, 4], ['bill_discount_value', 18, 4], ['cost_total', 18, 4],
+        ],
+        '2026_11_10_003006_create_sale_items_table.php' => [
+            ['quantity', 18, 4], ['unit_factor', 18, 6], ['base_quantity', 18, 4], ['list_price', 18, 4],
+            ['unit_price', 18, 4], ['subtotal', 18, 4], ['discount_percent', 9, 4], ['discount_amount', 18, 4],
+            ['tax_amount', 18, 4], ['line_total', 18, 4], ['unit_cost', 18, 4], ['line_cost', 18, 4],
+            ['refunded_quantity', 18, 4],
+        ],
+        '2026_11_10_003007_create_sale_tenders_table.php' => [['amount', 18, 4], ['tendered', 18, 4], ['change_given', 18, 4]],
     ];
 
     foreach ($expected as $file => $columns) {
@@ -158,4 +180,112 @@ it('red-first (T-029): a rate declared decimal(rate, 9, 2) is read back as that 
 
     // And the shipped column is the right pair, so the map above is not vacuous.
     expect(tenantDecimalCalls()['2026_11_10_002903_create_tax_rates_table.php'])->toBe([['rate', 9, 4]]);
+});
+
+it('red-first (T-030): an amount declared decimal(amount, 18, 2) is read back as that wrong pair, and the shipped Sales money columns are all at their documented pair', function () {
+    $wrongAmount = "<?php\nclass X { public function up() { \$table->decimal('amount', 18, 2); } }";
+
+    $calls = decimalCallsIn($wrongAmount);
+
+    expect($calls)->toBe([['amount', 18, 2]])
+        ->and(in_array([$calls[0][1], $calls[0][2]], [[18, 4], [18, 6], [9, 4], [18, 8]], true))->toBeFalse();
+
+    // And the shipped column is the right pair, so the T-030 map above is not vacuous.
+    expect(tenantDecimalCalls()['2026_11_10_003007_create_sale_tenders_table.php'])->toBe([['amount', 18, 4], ['tendered', 18, 4], ['change_given', 18, 4]]);
+});
+
+/*
+|--------------------------------------------------------------------------
+| T-030 AC-43, AC-46, D-33: the columns this task does NOT build
+|--------------------------------------------------------------------------
+|
+| The static half of AC-43's absence list; SalesTenantSchemaTest's exact column
+| equality is the runtime half. A deferred column is deferred entirely: no
+| T-030 migration may declare any of the names below, on any table. The scan
+| reads code only (comments and docblocks removed), so a docblock that explains
+| why a column is absent is not an offence, and it matches the name as a quoted
+| string, so `order_id` does not match `sales_order_id`.
+*/
+
+/**
+ * The columns no Sales migration may declare (AC-43, D-6, D-7, D-9, D-33, F-8).
+ *
+ * @return list<string>
+ */
+function t030DeferredColumns(): array
+{
+    return [
+        'journal_entry_id', 'ar_document_id', 'sales_order_id', 'order_id', 'custom_fields',
+        'financial_account_id', 'gateway', 'settings', 'gateway_transaction_id', 'payment_id',
+        'batch_id', 'serial_id', 'kitchen_station_id',
+    ];
+}
+
+/**
+ * Every `file: column` offence in the migrations of a directory.
+ *
+ * @return list<string>
+ */
+function t030DeferredColumnOffenders(string $directory, string $glob = '/2026_11_10_0030*.php'): array
+{
+    $offenders = [];
+
+    foreach (glob($directory.$glob) ?: [] as $file) {
+        $code = SourceRules::codeOnly((string) file_get_contents($file));
+
+        foreach (t030DeferredColumns() as $column) {
+            if (preg_match('/[\'"]'.preg_quote($column, '/').'[\'"]/', $code) === 1) {
+                $offenders[] = basename($file).': '.$column;
+            }
+        }
+    }
+
+    return $offenders;
+}
+
+it('T-030 AC-43: no Sales migration declares a Finance, gateway, order, batch, serial or kitchen column', function () {
+    $directory = base_path((string) config('schema.tenant_migration_path'));
+
+    expect(glob($directory.'/2026_11_10_0030*.php'))->toHaveCount(10)
+        ->and(t030DeferredColumnOffenders($directory))->toBe([]);
+});
+
+it('T-030 AC-43 red-first: a scratch migration declaring one of them is reported, and a docblock naming one is not', function () {
+    $directory = sys_get_temp_dir().'/t030_absence_scan_'.bin2hex(random_bytes(6));
+    mkdir($directory);
+
+    try {
+        file_put_contents($directory.'/2026_11_10_003099_scratch_sales_table.php', <<<'PHP'
+<?php
+return new class {
+    public function up(): void
+    {
+        Schema::create('sales', function ($table) {
+            $table->ulid('journal_entry_id')->nullable();
+        });
+    }
+};
+PHP);
+        file_put_contents($directory.'/2026_11_10_003098_prose_only_table.php', <<<'PHP'
+<?php
+/*
+ * journal_entry_id and `ar_document_id` are not built (D-33).
+ */
+// financial_account_id is Finance's.
+return new class {
+    public function up(): void
+    {
+        $table->ulid('sale_ref');
+    }
+};
+PHP);
+
+        expect(t030DeferredColumnOffenders($directory))->toBe(['2026_11_10_003099_scratch_sales_table.php: journal_entry_id']);
+    } finally {
+        foreach (glob($directory.'/*.php') ?: [] as $file) {
+            unlink($file);
+        }
+
+        rmdir($directory);
+    }
 });

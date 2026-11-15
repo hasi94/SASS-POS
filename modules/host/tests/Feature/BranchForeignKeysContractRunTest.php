@@ -105,6 +105,24 @@ function bfkRunT029V(): int
     return $version;
 }
 
+/**
+ * T-030's contract step: the one loyalty_transactions.sale_id key, the last file
+ * of the shipped tree. It carries the same planner rule as V, as T-011's own
+ * contract step and as T-029's, so a run that reaches it from further back than
+ * the version before it is refused, and the two tests below that take a tenant
+ * "to the top" need one more stop again. Found by name, like the others.
+ */
+function bfkRunT030V(): int
+{
+    $version = bfkRunSet()->versionOf('2026_11_10_003010_add_loyalty_sale_foreign_key');
+
+    if ($version === null) {
+        throw new RuntimeException('The tenant tree does not hold T-030\'s contract step.');
+    }
+
+    return $version;
+}
+
 function bfkRunTemplatePath(int $upTo): string
 {
     return storage_path('app'.DIRECTORY_SEPARATOR.'bfk-run-template-'.$upTo.'.sqlite');
@@ -278,7 +296,7 @@ it('refuses a run including the key step for a fleet at T-011s top, naming it an
         ->and(runFixtureRunRows())->toBe([]);
 });
 
-it('takes a tenant at T-011s top carrying T-010 data to the top in exactly three runs, every seeded row unchanged (AC-4)', function () {
+it('takes a tenant at T-011s top carrying T-010 data to the top in exactly four runs, every seeded row unchanged (AC-4)', function () {
     bfkRunBuildTemplate(bfkRunT011Top());
 
     $server = migrateFixtureServer();
@@ -328,10 +346,17 @@ it('takes a tenant at T-011s top carrying T-010 data to the top in exactly three
         ->and(bfkRunKeys('tenant-a', 'employee_branches'))->toContain('branch_id -> branches.id')
         ->and(bfkRunKeys('tenant-a', 'number_sequences'))->toContain('branch_id -> branches.id');
 
-    // Run 3: to the top.
-    $third = bfkRunExecute([$tenant], null)['result'];
+    // Run 3: to the version before T-030's own contract step (which has the
+    // same rule, so it needs a run of its own).
+    $third = bfkRunExecute([$tenant], bfkRunT030V() - 1)['result'];
 
     expect($third->jobs[0]->succeeded)->toBeTrue()
+        ->and((int) migrateFixtureMappingRow($tenant)['schema_version'])->toBe(bfkRunT030V() - 1);
+
+    // Run 4: to the top.
+    $fourth = bfkRunExecute([$tenant], null)['result'];
+
+    expect($fourth->jobs[0]->succeeded)->toBeTrue()
         ->and((int) migrateFixtureMappingRow($tenant)['schema_version'])->toBe(bfkRunTop());
 
     foreach ($tables as $table) {
@@ -339,7 +364,7 @@ it('takes a tenant at T-011s top carrying T-010 data to the top in exactly three
     }
 });
 
-it('takes a fresh tenant at version 0 to the top, in four runs because each earlier contract step has the same rule (AC-4)', function () {
+it('takes a fresh tenant at version 0 to the top, in five runs because each earlier contract step has the same rule (AC-4)', function () {
     bfkRunBuildTemplate(0);
 
     $server = migrateFixtureServer();
@@ -349,7 +374,7 @@ it('takes a fresh tenant at version 0 to the top, in four runs because each earl
     File::delete(migrateFixtureDatabasePath('tenant-a'));
     (new PDO('sqlite:'.migrateFixtureDatabasePath('tenant-a')))->exec('create table _empty (x integer)');
 
-    $stops = [bfkRunT011Top() - 1, bfkRunV() - 1, bfkRunT029V() - 1, null];
+    $stops = [bfkRunT011Top() - 1, bfkRunV() - 1, bfkRunT029V() - 1, bfkRunT030V() - 1, null];
 
     foreach ($stops as $stop) {
         $result = bfkRunExecute([$tenant], $stop)['result'];

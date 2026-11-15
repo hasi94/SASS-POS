@@ -502,5 +502,85 @@
         "checksum": "9a42893794517e277c23b710efab13d6d6afb44a4f703f50701ab2643182e133",
         "is_destructive": false,
         "requires_offline": false
+    },
+    {
+        "version": 64,
+        "migration": "2026_11_10_003001_create_payment_methods_table",
+        "phase": "expand",
+        "checksum": "6ed1ca3f736adae72c9fa8184b754883dc2f36b4e56441cfff68db0dfb5a89e0",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 65,
+        "migration": "2026_11_10_003002_create_cash_shifts_table",
+        "phase": "expand",
+        "checksum": "fdd3d3a3f6f8c8e01ea82762a9f7513d6c8ebd796d6f14394c3567210d53ee96",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 66,
+        "migration": "2026_11_10_003003_create_cash_movements_table",
+        "phase": "expand",
+        "checksum": "e08ac95db5baa0347e6f771110292df3ad20a18b6b0681882419e00e33786f2a",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 67,
+        "migration": "2026_11_10_003004_create_approval_requests_table",
+        "phase": "expand",
+        "checksum": "8aff1895bdd89fb1e3e898d1d8f54dd07745b4114fa34ac4e722818255ec4a8e",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 68,
+        "migration": "2026_11_10_003005_create_sales_table",
+        "phase": "expand",
+        "checksum": "46282b96f5b899329f95c14910d968a7f6be0a7449deef0715f68e3cd654f616",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 69,
+        "migration": "2026_11_10_003006_create_sale_items_table",
+        "phase": "expand",
+        "checksum": "4cdb8cf8a6bbf981479b7e28ea9fd1b34a12f92191ec6273bdd180b364b11fa7",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 70,
+        "migration": "2026_11_10_003007_create_sale_tenders_table",
+        "phase": "expand",
+        "checksum": "da88e91e935c09a2aeaaff51c96abdece7e5c8386b2812d54efb21201852d33e",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 71,
+        "migration": "2026_11_10_003008_create_sale_holds_table",
+        "phase": "expand",
+        "checksum": "cee7f4c3c4f9614a264d8181c2a26f2542d58bb975d8aae5adcf5673a32c7a11",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 72,
+        "migration": "2026_11_10_003009_add_sale_id_to_loyalty_transactions_table",
+        "phase": "expand",
+        "checksum": "dfece3fd423177cf0983d106fb805e90c46e20eb1a8674d4387e2163f934157e",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 73,
+        "migration": "2026_11_10_003010_add_loyalty_sale_foreign_key",
+        "phase": "contract",
+        "checksum": "fe2108eed14b2afb6dfdf5dd803767a43f17c3598a8fd8908f68631df70e5c5a",
+        "is_destructive": false,
+        "requires_offline": false
     }
 ]

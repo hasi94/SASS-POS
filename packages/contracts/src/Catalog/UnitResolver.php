@@ -37,4 +37,37 @@ interface UnitResolver
      * @throws UnitResolutionRefused
      */
     public function snapshot(string $productId, string $unitId, int|string $quantity): UnitSnapshot;
+
+    /**
+     * The snapshot for a line that **refers to another line** - a refund line
+     * (T-030 D-32, F-7; `docs/database.md` §6.5). The ladder is never walked.
+     *
+     * Three outcomes, decided in this order:
+     *
+     * 1. `$unitId` is the product's own **stock** unit: the factor is
+     *    `1.000000`, source {@see FactorSource::StockUnit}, whatever
+     *    `$referencedUnitFactor` says. The resolver reads the stock unit
+     *    itself and never trusts a caller's.
+     * 2. `$unitId` is `$referencedUnitId`: the referenced line's own
+     *    `unit_factor`, source {@see FactorSource::Inherited}. The ladder
+     *    may have moved since the sale, and the refund must not follow it.
+     * 3. Any other unit is refused {@see UnitRefusal::InheritedUnitMismatch}.
+     *
+     * `$referencedUnitFactor` is what the caller read off the referenced line.
+     * A database driver may hand it back as `"24"` rather than `"24.000000"`,
+     * so it is canonicalised here, and a value that cannot be a factor is a
+     * named refusal ({@see UnitRefusal::FactorBelowOne},
+     * {@see UnitRefusal::FactorOutOfRange}, {@see UnitRefusal::InexactFactor}),
+     * never an `InvalidArgumentException`. The quantity is rounded to the line
+     * unit's own precision first, exactly as {@see self::snapshot()} does.
+     *
+     * @throws UnitResolutionRefused
+     */
+    public function snapshotInherited(
+        string $productId,
+        string $referencedUnitId,
+        string $referencedUnitFactor,
+        string $unitId,
+        int|string $quantity,
+    ): UnitSnapshot;
 }

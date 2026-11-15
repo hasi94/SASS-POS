@@ -112,9 +112,13 @@ it('is the catalogue top entry, phase expand, version 43', function () {
         true
     );
 
+    // T-030 steps 6 and 7 republished the catalogue with its own ten
+    // migrations on top (63 becomes 73), the last of which is a contract step
+    // (the one loyalty_transactions.sale_id key). Stale by name again, left
+    // alone for the reason the notes above give.
     $top = end($catalogue);
 
-    expect($top['version'])->toBe(63)
-        ->and($top['migration'])->toBe('2026_11_10_002912_add_product_tax_group_foreign_keys')
+    expect($top['version'])->toBe(73)
+        ->and($top['migration'])->toBe('2026_11_10_003010_add_loyalty_sale_foreign_key')
         ->and($top['phase'])->toBe('contract');
 });

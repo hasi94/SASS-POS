@@ -1,0 +1,22 @@
+{
+  "name": "unit-inherited-same-unit-keeps-the-sold-factor",
+  "kind": "unit",
+  "discriminates": "T-030 D-32: a refund line in the sold unit keeps the sold factor (24), so two cases are base 48 even after the ladder moved to 12.",
+  "input": {
+    "unit_id": "01UNITCASE000000000000000A",
+    "unit_code": "case",
+    "factor": "24.000000",
+    "factor_source": "inherited",
+    "line_unit_precision": "0",
+    "stock_unit_precision": "0",
+    "quantity": "2"
+  },
+  "expect": {
+    "unit_id": "01UNITCASE000000000000000A",
+    "unit_code": "case",
+    "source": "inherited",
+    "quantity": "2.0000",
+    "unit_factor": "24.000000",
+    "base_quantity": "48.0000"
+  }
+}

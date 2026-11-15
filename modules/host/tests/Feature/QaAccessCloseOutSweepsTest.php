@@ -138,7 +138,15 @@ function closeOutNewTables(): array
         'tax_group_taxes', 'tax_groups', 'tax_rates', 'taxes',
     ];
 
-    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017, $t019, $t020, $t021, $t027, $t028, $t029));
+    // T-030's eight Sales tables are excluded the same way: this sweep's
+    // exercise never writes a payment method, shift, movement, approval, sale,
+    // sale line, tender or hold.
+    $t030 = [
+        'approval_requests', 'cash_movements', 'cash_shifts', 'payment_methods', 'sale_holds', 'sale_items',
+        'sale_tenders', 'sales',
+    ];
+
+    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017, $t019, $t020, $t021, $t027, $t028, $t029, $t030));
 }
 
 /**

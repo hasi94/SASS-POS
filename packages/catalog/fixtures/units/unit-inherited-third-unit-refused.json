@@ -1,0 +1,17 @@
+{
+  "name": "unit-inherited-third-unit-refused",
+  "kind": "inherited",
+  "discriminates": "T-030 D-32: a unit that is neither the referenced line's unit nor the stock unit is refused, never re-resolved through the ladder.",
+  "input": {
+    "product_id": "01PRODUCT0000000000000000A",
+    "stock_unit_id": "01UNITEACH000000000000000A",
+    "referenced_unit_id": "01UNITCASE000000000000000A",
+    "referenced_unit_factor": "24.000000",
+    "unit_id": "01UNITDOZEN00000000000000A",
+    "unit_code": "dozen",
+    "line_unit_precision": "0",
+    "stock_unit_precision": "0",
+    "quantity": "1"
+  },
+  "refusal": "inherited_unit_mismatch"
+}

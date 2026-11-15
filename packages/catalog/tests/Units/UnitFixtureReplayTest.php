@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Flexipos\Catalog\Units\InheritedFactor;
 use Flexipos\Catalog\Units\SnapshotCalculator;
 use Flexipos\Contracts\Catalog\FactorSource;
 use Flexipos\Contracts\Catalog\ResolvedFactor;
@@ -80,8 +81,8 @@ function unitFixtureLint(string $path): array
         }
     }
 
-    if (($decoded['kind'] ?? null) !== 'unit') {
-        $problems[] = 'kind must be unit';
+    if (! in_array($decoded['kind'] ?? null, ['unit', 'inherited'], true)) {
+        $problems[] = 'kind must be unit or inherited';
     }
 
     if (($decoded['name'] ?? null) !== basename($path, '.json')) {
@@ -114,10 +115,22 @@ function unitFixtureReplay(array $case): array
     /** @var array<string, string> $input */
     $input = $case['input'];
 
-    // The product and stock-unit ids play no part in the arithmetic.
-    $factor = new ResolvedFactor('01PRODUCT0000000000000000A', $input['unit_id'], '01STOCKUNIT00000000000000A', $input['factor'], FactorSource::from($input['factor_source']));
-
     try {
+        if (($case['kind'] ?? 'unit') === 'inherited') {
+            // T-030 D-32: the selection first (the referenced unit, the stock unit, or a
+            // refusal), then the same arithmetic. The ladder is not a step of it.
+            $factor = InheritedFactor::select(
+                $input['product_id'],
+                $input['stock_unit_id'],
+                $input['referenced_unit_id'],
+                $input['referenced_unit_factor'],
+                $input['unit_id'],
+            );
+        } else {
+            // The product and stock-unit ids play no part in the arithmetic.
+            $factor = new ResolvedFactor('01PRODUCT0000000000000000A', $input['unit_id'], '01STOCKUNIT00000000000000A', $input['factor'], FactorSource::from($input['factor_source']));
+        }
+
         $snapshot = SnapshotCalculator::compute(
             $factor,
             $input['unit_id'],
@@ -162,7 +175,7 @@ it('lints clean', function (string $path) {
     expect(unitFixtureLint($path))->toBe([]);
 })->with(unitFixtureDataset());
 
-it('replays through SnapshotCalculator to exactly what it expects', function (string $path) {
+it('replays through SnapshotCalculator (and InheritedFactor for the inherited kind) to exactly what it expects', function (string $path) {
     /** @var array<string, mixed> $case */
     $case = json_decode((string) file_get_contents($path), true);
 

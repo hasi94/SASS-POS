@@ -1,0 +1,22 @@
+{
+  "name": "unit-inherited-stock-unit-is-one",
+  "kind": "unit",
+  "discriminates": "T-030 D-32: a refund line in the product's stock unit has factor 1, source stock_unit, whatever the referenced line used.",
+  "input": {
+    "unit_id": "01UNITEACH000000000000000A",
+    "unit_code": "each",
+    "factor": "1.000000",
+    "factor_source": "stock_unit",
+    "line_unit_precision": "0",
+    "stock_unit_precision": "0",
+    "quantity": "5"
+  },
+  "expect": {
+    "unit_id": "01UNITEACH000000000000000A",
+    "unit_code": "each",
+    "source": "stock_unit",
+    "quantity": "5.0000",
+    "unit_factor": "1.000000",
+    "base_quantity": "5.0000"
+  }
+}

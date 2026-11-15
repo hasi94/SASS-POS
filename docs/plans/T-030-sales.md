@@ -755,7 +755,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 ### Chunk A: reconciliation, plumbing, owed contracts, schema, statics
 
-- [ ] **Step 0: verify the merged tree and measure the baseline.** *(No AC. Revision 3: no rebase, R-41.)*
+- [x] **Step 0: verify the merged tree and measure the baseline.** *(No AC. Revision 3: no rebase, R-41.)*
   - Confirm that `db5e772` (T-028) and `74fceba` (T-029) are ancestors of `HEAD`, and that the tree is clean.
   - Then run `composer check` with **no `APP_KEY`** in the environment. Record passed, failed and skipped, the `test` seconds, and the process list. The failed set must be exactly R-41's 13 by name. **Any other failure is a stop**, reported before anything is written.
   - The `test` seconds recorded here are the reference for the 10 % stop line at every chunk gate.
@@ -770,12 +770,12 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     **Stop and report to `architect`** on any difference that changes a step. Renames are fixed in place.
   - Confirm the schema numbers: top version 63, 58 tenant tables, 63 tenant files (R-31). Record the FK inventory baseline.
   - Build from spec revision 3 (AC-1 to AC-46 plus AC-23a; D-1 to D-54, with D-51 to D-54 folding F-22 to F-25 in exactly as this plan reads them), never from the first draft (`a2e6631`, whose AC numbers differ) and never from this plan's paraphrase. Check whether `ba` has ruled on Q-1 to Q-11 (the "Questions for `ba`" section). Apply any ruling to the step it names; until then, the stated default holds.
-- [ ] **Step 1: package plumbing.** *(Groundwork.)*
+- [x] **Step 1: package plumbing.** *(Groundwork.)*
   - `composer.json`, an empty provider, the deptrac/PHPStan/`providers.php` edits (with R-7's test-layer grant), host `composer.json` (`require`, `autoload-dev` `Flexipos\\Sales\\Tests\\`), `composer update flexipos/sales`, and `'sales'` added to `QaToolchainRegistryCoverageTest`'s literal (line 446).
   - The provider declares its audit actions from this step, so `AuditCatalogueTest`'s two module lists gain `sales` here (R-6). If the declarations land later, this edit moves with them.
   - **`SalesProviderTest`:** the provider is loaded and `BigDecimal` autoloads.
   - **Negative control:** a scratch class in `modules/demo/src` importing `Flexipos\Sales\Support\Money` fails deptrac; one importing `Flexipos\Contracts\Pricing\PricingEngine` passes. Delete both.
-- [ ] **Step 2: `snapshotInherited()`.** *(AC-38, AC-26's unit half; D-32.)*
+- [x] **Step 2: `snapshotInherited()`.** *(AC-38, AC-26's unit half; D-32.)*
   - The contract method, `FactorSource::Inherited`, `UnitRefusal::InheritedUnitMismatch`, the pure `InheritedFactor`, and the `DatabaseUnitResolver` method (it calls `SnapshotCalculator::compute()` and never `UnitLadder`).
   - **`SnapshotInheritedTest`:**
     - (a) same unit, referenced factor `24.000000`, quantity 2: base `48.0000`, source `inherited`, **after** `unit_conversions` is edited to 12 (the §6.5 walk-through);
@@ -791,13 +791,13 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - catalog's `FactorSource`/`UnitRefusal` enum-list tests (`CatalogEnumsTest`);
     - `UnitFixtureReplayTest`'s lint (the new kind);
     - **`AddPriceListItemTest`**, whose anonymous `UnitResolver` double becomes a fatal error until it gains the method (R-2). It is fixed in this step.
-- [ ] **Step 3: `PinVerifier`.** *(AC-39, AC-23's PIN half; D-30.)*
+- [x] **Step 3: `PinVerifier`.** *(AC-39, AC-23's PIN half; D-30.)*
   - Interface, `HandlerPinVerifier`, binding.
   - **Test:**
     - the right code and PIN return the id;
     - a wrong PIN, an unknown code and a locked employee each return null, and the three nulls are indistinguishable;
     - **the hazard, pinned:** a wrong PIN verified inside an outer transaction that is then rolled back loses its `pin_failed_attempts` increment. The test asserts that loss, which is why Ruling 5 calls the verifier outside any transaction, and the contract's docblock says so.
-- [ ] **Step 4: `DocumentNumbers`.** *(AC-40; the numbering for AC-14, AC-25 and AC-32; D-31.)*
+- [x] **Step 4: `DocumentNumbers`.** *(AC-40; the numbering for AC-14, AC-25 and AC-32; D-31.)*
   - **Test:**
     - first use creates the company-wide default and returns `S000001`, then `S000002`;
     - a branch row, when present, wins over the company row;
@@ -809,7 +809,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - a sequence whose prefix, padded digits and suffix would exceed 30 characters is refused `number_too_long`, and nothing changes.
   - **Mutation N1:** drop the lock. The SQL-shape assertion (`for update`) goes red.
   - **Mutation N2:** make the retry read plain. Its SQL-shape row goes red.
-- [ ] **Step 5: `DiscountUsage`.** *(AC-41; D-37; F-25's reading.)*
+- [x] **Step 5: `DiscountUsage`.** *(AC-41; D-37; F-25's reading.)*
   - **Test:**
     - `consume()` increments `used_count` by one;
     - **boundary (F-25):** with `usage_limit = 2`, two calls succeed (`used_count` 0 → 1 → 2), and the third refuses `usage_limit_reached` and writes nothing;
@@ -819,7 +819,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - an inactive discount, or one outside its window, is consumed normally. Those are quote-time facts (R-15, Q-11), and the row documents the choice;
     - the lock is pinned in the SQL shape, and it is the first statement (R-15).
   - **No ordering, no limit, no sort, and a keyed read:** the file is in pricing's read path, so `QaPricingSourceRulesTest` already scans it. `dev` confirms that the scan enumerates it, and that it reports nothing.
-- [ ] **Step 6: migrations 01 to 08, with `SalesTenantSchemaTest`.** *(The schema halves of AC-1 to AC-37; AC-43, AC-46; D-33, D-44.)*
+- [x] **Step 6: migrations 01 to 08, with `SalesTenantSchemaTest`.** *(The schema halves of AC-1 to AC-37; AC-43, AC-46; D-33, D-44.)*
   - Each table's sorted column list equals the Data section **exactly**, with nullability. That proves every F-8 absence, `journal_entry_id` included.
   - **Unique keys, by raw double insert:**
     - `open_terminal_key`: two `open` shifts on one terminal are refused; an `open` and a `closed` shift are accepted;
@@ -830,7 +830,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - The FK set equals the recounted list, and the three cascades delete their children.
   - `SourceRules::inspect()` reports nothing, and no file declares `down`.
   - **Predicted red** (all in the "Edits to existing files" table): `Helpers.php`'s `tenantTreeTables()`, `MigrationTreeDisciplineTest` (58 becomes 66), `TenantBaselineBuildsTest` (FK inventory), `QaAccessCloseOutSweepsTest` and `QaAccessSchemaShapeTest` (a `$t030` list of the eight tables), and the catalogue with `.env.example` (versions 64 to 71 at this step). `IdempotencyKeysSchemaTest` is red here too, because the top becomes version 71, `sale_holds`, phase `expand`. Edit it once, at step 7's final values; record it red at the end of step 6.
-- [ ] **Step 7: migrations 09 and 10, with `LoyaltySaleIdMigrationsTest`.** *(AC-45; D-34.)*
+- [x] **Step 7: migrations 09 and 10, with `LoyaltySaleIdMigrationsTest`.** *(AC-45; D-34.)*
   - **Expand:**
     - a nullable column and the unique key;
     - existing loyalty rows survive with `sale_id` null;
@@ -846,7 +846,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - `IdempotencyKeysSchemaTest`: the catalogue top is 73, file 10's name, `contract`;
     - `BranchForeignKeysContractRunTest`: a `bfkRunT030V()` helper finds file 10 by name, and each "to the top" case gains one run (three becomes four, four becomes five);
     - `TenantBaselineBuildsTest`: the one contract key.
-- [ ] **Step 8: AC-43 and AC-44 statics.** *(AC-43, AC-44.)*
+- [x] **Step 8: AC-43 and AC-44 statics.** *(AC-43, AC-44.)*
   - Extend `TenantDecimalPrecisionTest`'s column map with the Data section's map, under a T-030 comment. The allow-list stays at four pairs. **Red-first:** a fixture `decimal('amount', 18, 2)` is reported.
   - AC-43, AC-46: the static half of AC-43's full absence list. No migration of this task's declares any of:
     - `journal_entry_id` (on `sales` or `cash_shifts`);

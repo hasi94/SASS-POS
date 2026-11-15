@@ -129,6 +129,11 @@ it('asks the published UnitResolver and no other source for reachability', funct
         {
             throw new LogicException('Not used.');
         }
+
+        public function snapshotInherited(string $productId, string $referencedUnitId, string $referencedUnitFactor, string $unitId, int|string $quantity): UnitSnapshot
+        {
+            throw new LogicException('Not used.');
+        }
     };
 
     app()->instance(UnitResolver::class, $double);

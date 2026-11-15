@@ -77,6 +77,11 @@ deptrac:
     # layer below matches them.
     - ../../packages/pricing/src
     - ../../packages/pricing/tests
+    # T-030 step 1. The sales package, registered with its test tree, whose
+    # files declare Flexipos\Sales\Tests\..., so the Package_Sales_Tests
+    # layer below matches them.
+    - ../../packages/sales/src
+    - ../../packages/sales/tests
     - ../../packages/testing/src
     # T-020 step 1. The workflow engine package, registered and collected
     # for the reason stated above: its files declare
@@ -287,6 +292,24 @@ deptrac:
         - type: classLike
           value: ^Flexipos\\Pricing\\Tests\\.*
 
+    # T-030 step 1. The sales package: payment methods, cash shifts, approvals,
+    # carts, tenders, hold and recall, voids and refunds. Two layers, the same
+    # shape as pricing's and customers': the first pattern excludes `Tests\`,
+    # so a class is in exactly one of them. Its source reaches only the kernel
+    # and the published contracts (plan Ruling 1) - never Package_Catalog,
+    # Package_Pricing, Package_Customers, Package_Organization or
+    # Package_Access directly - and every price, unit, ledger, number and PIN
+    # question goes through Flexipos\Contracts.
+    - name: Package_Sales
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Sales\\(?!Tests\\).*
+
+    - name: Package_Sales_Tests
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Sales\\Tests\\.*
+
     - name: Package_Testing
       collectors:
         - type: classLike
@@ -326,6 +349,7 @@ deptrac:
       - Package_Platform
       - Package_PluginSdk
       - Package_Pricing
+      - Package_Sales
       - Package_Testing
       - Package_Workflow
 
@@ -358,6 +382,8 @@ deptrac:
       - Package_PluginSdk_Tests
       - Package_Pricing
       - Package_Pricing_Tests
+      - Package_Sales
+      - Package_Sales_Tests
       - Package_Testing
       - Package_Workflow
       - Package_Workflow_Tests
@@ -478,6 +504,26 @@ deptrac:
       - Package_Contracts
       - Package_Kernel
       - Package_Access
+    # T-030 step 1 (plan Ruling 1, R-7). Source reaches the kernel and the
+    # published contracts only - never an implementation package. Unit
+    # resolution, pricing, the credit ledger, numbering and the PIN check are
+    # all reached through their Flexipos\Contracts interfaces.
+    Package_Sales:
+      - Package_Kernel
+      - Package_Contracts
+    # This package's tests reach real implementations through the container,
+    # by contract, so no other package's SOURCE layer is granted. What they do
+    # need is two test-support layers: Package_Access (which collects access's
+    # tests too, so it covers AccessTenantFixture and AccessSeed - the
+    # fixture tenant it builds on is access's) and Package_Pricing_Tests,
+    # which holds PricingSeed (units, products, customers, taxes, price lists
+    # and discounts), the seed the Sales integration tests build on (R-7).
+    Package_Sales_Tests:
+      - Package_Sales
+      - Package_Contracts
+      - Package_Kernel
+      - Package_Access
+      - Package_Pricing_Tests
     Package_Contracts: ~
     # T-018 step 1. Widened from `~` so the writer, the relay and the
     # consumer runner may read the kernel (RunnerClock, Tenancy,
