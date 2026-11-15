@@ -33,15 +33,47 @@ parameters:
         - ../demo/src
         - ../demo/tests
         # packages/*
+        # The access package (T-010 step 1). Its test tree is the first in this
+        # repository declared in a namespace of its own rather than globally,
+        # which changes nothing for PHPStan - it matches on files - and is what
+        # makes it collectable by Deptrac; see deptrac.yaml.
+        - ../../packages/access/src
+        - ../../packages/access/tests
         - ../../packages/auth/src
+        # The auth package's tests (T-009 step 5b). They were in neither
+        # registry, which QaToolchainRegistryCoverageTest could not see
+        # while it checked src only.
+        - ../../packages/auth/tests
+        # T-027, source and tests.
+        - ../../packages/catalog/src
+        - ../../packages/catalog/tests
         - ../../packages/contracts/src
+        # T-028, source and tests.
+        - ../../packages/customers/src
+        - ../../packages/customers/tests
         - ../../packages/eventbus/src
+        # T-018, source and tests, for the reason the access package's two
+        # lines above are here.
+        - ../../packages/eventbus/tests
         # Str::studly('http-client') === 'HttpClient'; the directory stays kebab-case.
         - ../../packages/http-client/src
         - ../../packages/kernel/src
         - ../../packages/kernel/tests
+        # The organization package (T-014 step 2), source and tests, for the
+        # reason the access package's two lines above are here.
+        - ../../packages/organization/src
+        - ../../packages/organization/tests
+        # T-016, source and tests.
+        - ../../packages/platform/src
+        - ../../packages/platform/tests
         # Str::studly('plugin-sdk') === 'PluginSdk'; the directory stays kebab-case.
+        # T-019, source and tests, for the reason the access package's two
+        # lines above are here.
         - ../../packages/plugin-sdk/src
+        - ../../packages/plugin-sdk/tests
         - ../../packages/testing/src
+        # T-020, source and tests.
+        - ../../packages/workflow/src
+        - ../../packages/workflow/tests
 
     tmpDir: storage/framework/cache/phpstan

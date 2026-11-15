@@ -85,6 +85,8 @@ A modular monolith, not microservices. Modules are Composer path packages under 
 | **Sync** | Offline push and pull, the POS replica, terminal sync state |
 | **Printing** | Printers, routes, kitchen stations, templates, print jobs, agent heartbeat |
 
+**As built, a shared business domain ships under `packages/`, not as a leaf module under `modules/<module>/`.** This table and the layout below describe the design's eventual module boundaries, but every domain actually shipped so far that later modules read through a contract — organization, access, platform, workflow, eventbus, auth, and now catalog (T-027) — lives under `packages/<name>/src`, with the published contract under `packages/contracts/src/<Name>/`. The rule each of those tasks applied: a domain every later module reads through a contract is shared infrastructure, the same category as the kernel, not a leaf `modules/*` module booted from `MODULES` — and placing it under `packages/` gives it the same deptrac boundary layer the kernel already has, rather than a weaker one. `modules/` currently holds only `host` (the Laravel host application) and `demo` (the boundary check's own negative control).
+
 Boundaries are enforced, not merely described: a module may depend on the kernel and on another module's published contracts, never on its internals. That rule is checked in the gate, which is what keeps later extraction possible.
 
 Because everything lives in one database per tenant, **foreign keys across modules are normal and encouraged**. The projections, reference tables and snapshot endpoints v0.3 needed are deleted. Snapshot *columns* on financial documents stay, because reprinting an old receipt exactly is still a requirement.
@@ -182,6 +184,8 @@ The single largest operational cost of this architecture, and therefore foundati
 
 **Server placement.** Tables, not disk, are the real ceiling. At roughly 190 tables per tenant — [database.md](database.md) §10 computes ≈193 core plus ≈10 plugin and models a rounded 200, and that figure is the denominator of every capacity argument here — a thousand tenants is on the order of 200,000 tables on one server, and table-cache and metadata pressure bite well before storage does. Plan for a few hundred tenants per server. The mapping stores host and port precisely so tenants spread across servers, and a large customer can be moved to dedicated infrastructure by moving data and updating one row.
 
+**As built (T-026, FP-206).** `php artisan tenant:provision` is the one resumable job this section calls for: eleven steps (identity, server, database, credentials, users, mapping, the full migration set, seed defaults, the owner login, a post-seed verification, then activation), each journalled intent-first so a crash anywhere resumes from exactly where it stopped rather than from the top. A database-level credential is never generated or read by the orchestrator itself — a dedicated writable secret store does that — and the only engine implementation bound outside tests is opt-in by configuration, so a developer's shell or a forgotten test fixture fails closed rather than reaching a live server. `--abandon` is the one compensating path for a run that cannot be resumed: it archives the tenant and its mapping row, drops the two database users it created and forgets their secrets, but never drops the database itself — an operator does that by hand, because the gate that already governs this codebase forbids a second place issuing that statement.
+
 ---
 
 ## 8. API architecture
@@ -192,6 +196,8 @@ The single largest operational cost of this architecture, and therefore foundati
 - Idempotency keys on every state-changing request that creates a financial record; for offline documents the client identifier is the key.
 - Rate limits per tenant, per user and per terminal.
 - Route groups: `platform/*` for platform administrators against the master, `tenant/*` for back office, `pos/*` for tills, `sync/*`, `plugins/*`, `agent/*`.
+
+**As built (T-021).** The envelope, the error-code catalogue, the opt-in idempotency middleware, the limiter's three buckets and `api:openapi` are now shipped machinery in the kernel and the host, proved on the demo ping and on fixtures; the auth, access, organization, terminal and platform endpoints still answer their pre-existing bodies until FP-369 migrates them (D-1). A module calls `Flexipos\Kernel\Api\ApiResponse` instead of hand-writing a body, declares its error codes through `Flexipos\Kernel\Api\DeclaresErrorCodes`, and opts an individual route into idempotency with `App\Http\Middleware\RequireIdempotencyKey`. Rate limits (tenant, user, terminal, or one IP bucket when unauthenticated) are configuration in `config/api.php`, read from `App\Support\Api\ApiLimits`, and fail open on a limiter-store outage. `GET /api/v1/openapi.json` publishes the generated document only when `API_DOCS_ENABLED` is set.
 
 ---
 
@@ -266,11 +272,13 @@ Plugin code runs in-process behind a hook gateway with named extension points, e
 
 Plugins may not modify core tables. They extend through custom fields or their own tables keyed by core identifiers.
 
+**As built (T-019).** One dispatch runs `before` (any veto stops it there), then `filter` (chained in registration order), then (`override` or the point's own action) together with `add` and `after` inside one tenant transaction - so an action that rolls back leaves no `after` row either. A failing `before` or `filter` is fail-open: the dispatch still proceeds, because the alternative would let a crashing plugin block a till the same way a badly behaved one would. The timeout that feeds the circuit breaker is measured once a handler's call returns, not enforced while it runs - PHP has no portable way to interrupt a call mid-flight - so a handler that never returns is bounded only by the process's own execution-time limit. `after` never runs in the same request: it writes one outbox row per registration, naming only the hook point in the row's own type and carrying the plugin's identity in the row's actor and payload, and a consumer group drains it through the same outbox mechanism the event bus already provides.
+
 ---
 
 ## 14. Workflow engine
 
-Approvals are configuration, not code. A rule names a trigger point, a condition and a sequence of steps, and the engine runs as a hook handler at that point.
+Approvals are configuration, not code. A rule names a trigger point, a condition and a sequence of steps.
 
 ```text
 discount above 20%        → manager approval
@@ -279,6 +287,8 @@ purchase order above 500,000 → manager, then director
 ```
 
 One engine serves discounts, expenses, purchase orders, payroll and leave, rather than each module growing its own approval logic.
+
+**As built (T-020).** The engine is **not** a hook handler and does not run through the plugin gateway's `dispatch()` (D-2, D-3): it is a standalone contract, `Flexipos\Contracts\Workflow\WorkflowGate`, that a module calls directly and synchronously, inside its own transaction. The reason is fail-closed behaviour - the plugin gateway's `before` mode is fail-open by design (a `before` handler that throws or times out is recorded and the dispatch proceeds anyway), and an approval engine that failed open on an error would defeat its own purpose. `evaluate()` instead throws on any error it cannot resolve, and the caller's gated action must not proceed past that exception. Nothing in this task adds a hook point, a `HookMode`, or any change to `packages/plugin-sdk`. The engine itself ships as `packages/workflow`, a shared path package every future module may depend on through the published contract only - never its internals - the same shape `packages/organization` and `packages/platform` already follow. Proven on one labelled fixture (`entity_type='custom'`), not any real business workflow: discounts, expenses, purchase orders, payroll and leave each wire in when the module that owns that entity type ships.
 
 ---
 
@@ -341,7 +351,7 @@ The mapping table is what makes every step a data move plus a row update rather 
 
 Unit tests for the calculation engine, posting rules, conflict rules and the permission resolver. Feature tests per module against a two-tenant fixture. A generated cross-tenant suite that must pass to merge. Sync scenarios covering duplicates, ordering, dependencies and conflicts. Plugin lifecycle and isolation. Migration tests that run the tenant set against a fresh database and an existing one. Frontend unit and end-to-end tests including the offline sale. Print agent tests against a mock transport with golden output. Load tests for checkout latency and sync bursts. **Quantity invariants run nightly and are tested like any other rule** (database.md §6.5): the maintained stock level equals the sum of the ledger, the running balance on the ledger is consistent, and a posted goods receipt's base quantities equal the movements it wrote — the last of those being the only check that spans the document boundary and therefore the only one that can see a unit-conversion bug. Three static tests guard the design rather than the behaviour: no unit column below the document layer, no `decimal()` without a precision in a tenant migration, and no partial unit column set on a document line.
 
-The gate runs formatting, static analysis, boundary rules and tests. It must stay fast enough that people keep running it.
+The gate runs formatting, static analysis, boundary rules and tests. It must stay fast enough that people keep running it. **The generated cross-tenant suite is permanent, not a one-off audit** (T-022, FP-216): four files under the host's feature tests enumerate the live route list, the queued-job inventory, the cache-key construction sites and the plugin hook catalogue at run time and run the same tenant-A-versus-tenant-B attempt against every member found, plus one engine-gated file proving the queued migration job against a real server; a future route, job, cache key or hook point is covered by these same sweeps with no new test file required unless it introduces a wholly new kind of surface.
 
 ---
 

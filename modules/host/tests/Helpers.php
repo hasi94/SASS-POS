@@ -1,5 +1,6 @@
 <?php
 
+use Flexipos\Kernel\Schema\Support\MigrationTree;
 use Illuminate\Support\Facades\File;
 use Symfony\Component\Finder\Finder;
 
@@ -113,6 +114,9 @@ function toolchainGroupExemptions(): array
  * Every function form is matched only as a bare call, never as a method or
  * static call: a naive /\bexec\s*\(/ also matches $pdo->exec('create table
  * ...'), which would sweep the whole tenancy fixture in as a toolchain test.
+ * `exec(` also excludes a preceding `function `, so a test double declaring
+ * a method literally named exec() (T-026's TenantStatementExecutor seam) is
+ * not swept in as a spawner either - it never calls the real builtin.
  *
  * @return array<string, non-empty-string>
  */
@@ -124,7 +128,7 @@ function toolchainSpawnTokens(): array
         'shell_exec(' => '/(?<![\w$>:])shell_exec\s*\(/',
         'popen(' => '/(?<![\w$>:])popen\s*\(/',
         'passthru(' => '/(?<![\w$>:])passthru\s*\(/',
-        'exec(' => '/(?<![\w$>:])exec\s*\(/',
+        'exec(' => '/(?<![\w$>:]|function\s)exec\s*\(/',
     ];
 }
 
@@ -382,4 +386,262 @@ function qaFixturePackageNames(): array
         'trustfixture',
         'unlistedfixture',
     ];
+}
+
+/*
+|--------------------------------------------------------------------------
+| The table lists of T-008's two schemas
+|--------------------------------------------------------------------------
+|
+| Here rather than in a test file because three files need them - the static
+| tree sweep, the master apply and the tenant baseline apply - and a bare
+| function declared in whichever file happened to be collected first is the trap
+| FP-164 closes: it would make a single-file run fail and a full run pass.
+|
+| These are the *criteria's* lists, written out once so that a table added to a
+| migration tree has to be added here too, in a diff a reviewer sees.
+|
+*/
+
+/**
+ * The master application tables AC-1 governs, plus T-009's four.
+ *
+ * T-009 step 3 adds `login_history`, `refresh_tokens`, `security_events` and
+ * `signing_keys` (AC-50, FP-207), taking the list from seventeen to
+ * twenty-one. The four are `docs/database.md` section 4.1's and were absent
+ * from the tree; the counts pinned in MigrationTreeDisciplineTest and
+ * QaSchemaSignatureInstrumentTest move with them.
+ *
+ * AC-1 and `docs/database.md` section 4.10 disagree about one name - the design
+ * lists `personal_access_tokens`, AC-1 lists `sessions` - and **AC-1 governs**
+ * (D-27, D-18): nothing in this task issues an API token, and the stock
+ * `sessions` table stays because the shipped `.env.example` names the database
+ * session driver and a test pins it. A recount against the design will differ
+ * by that one name and that is not a defect.
+ *
+ * @return list<string>
+ */
+function masterApplicationTables(): array
+{
+    return [
+        'database_servers',
+        'feature_flags',
+        'licences',
+        'login_history',
+        'plan_features',
+        'plan_limits',
+        'plans',
+        'platform_audit_logs',
+        'platform_settings',
+        // T-019 step 3: the master-side plugin registry and enablement model
+        // (docs/database.md section 4.3).
+        'plugin_dependencies',
+        'plugin_tenant_access',
+        'plugin_versions',
+        'plugins',
+        'refresh_tokens',
+        'schema_versions',
+        'security_events',
+        'signing_keys',
+        'subscriptions',
+        'tenant_databases',
+        'tenant_feature_flags',
+        'tenant_migration_jobs',
+        'tenant_migration_runs',
+        'tenant_plugins',
+        // T-026 step 1: the resumable provisioning run (docs/database.md
+        // section 4.7).
+        'tenant_provisioning_runs',
+        'tenant_provisioning_steps',
+        'tenant_users',
+        'tenants',
+        'users',
+    ];
+}
+
+/**
+ * The Laravel system tables the master tree creates: seven of AC-1's eight.
+ *
+ * `migrations` is the eighth and is deliberately absent - the framework creates
+ * it itself before it runs the first migration, so a tree that created it would
+ * fail on the statement that records it.
+ *
+ * @return list<string>
+ */
+function masterSystemTables(): array
+{
+    return [
+        'cache',
+        'cache_locks',
+        'failed_jobs',
+        'job_batches',
+        'jobs',
+        'password_reset_tokens',
+        'sessions',
+    ];
+}
+
+/**
+ * The six tables of the tenant baseline (AC-23).
+ *
+ * `migrations` is Laravel's own and is created by the runner, for the same
+ * reason it is absent from the master list. There is **no projection-state
+ * table and no claim-mark column** (D-1): `docs/patterns.md` section 5 requires
+ * a measurement before a projection exists and there is none, and the mark the
+ * first relay needs is already served by the (status, occurred_at) index.
+ *
+ * @return list<string>
+ */
+function tenantBaselineTables(): array
+{
+    return [
+        'audit_logs',
+        'number_sequences',
+        'outbox_events',
+        'schema_meta',
+        'settings',
+        'settings_registry',
+    ];
+}
+
+/**
+ * Every table the shipped tenant tree creates: T-008's baseline six plus
+ * T-010's eight plus T-014's five (branches, locations, terminals, devices,
+ * terminal_credentials) plus T-017's one (audit_logs_archive).
+ *
+ * **Two concepts, deliberately not one list** (T-010 Ruling 2). Three sites
+ * read "the whole tree" and three read "the baseline", and until T-010 those
+ * were the same set, so one helper answered both. Widening
+ * {@see tenantBaselineTables()} to fourteen would have made its own name
+ * false; it keeps its six and is accurate for the first time, and the
+ * whole-tree sites moved here.
+ *
+ * @return list<string>
+ */
+function tenantTreeTables(): array
+{
+    $tables = array_merge(tenantBaselineTables(), [
+        'access_log',
+        'audit_logs_archive',
+        'branches',
+        // T-027 step 3: the twelve catalog tables (docs/database.md section
+        // 6.3).
+        'brands',
+        'categories',
+        'devices',
+        'employee_branches',
+        'employee_permissions',
+        'employee_roles',
+        'employees',
+        // T-021 AC-26: the idempotency store (docs/database.md section 6.21).
+        'idempotency_keys',
+        'locations',
+        'modifier_groups',
+        'modifiers',
+        'permissions',
+        // T-019 step 4: the tenant-side plugin data tables
+        // (docs/database.md section 6.20).
+        'plugin_execution_logs',
+        'plugin_migrations',
+        'plugin_settings',
+        'product_barcodes',
+        'product_branches',
+        'product_components',
+        'product_locations',
+        'product_modifier_groups',
+        'products',
+        'role_permissions',
+        'roles',
+        'terminal_credentials',
+        'terminals',
+        'unit_conversions',
+        'units',
+        // T-020 step 3: the five workflow-engine tables (docs/database.md
+        // section 6.15).
+        'workflow_definitions',
+        'workflow_events',
+        'workflow_instances',
+        'workflow_steps',
+        'workflow_tasks',
+        // T-028 step 3: the eight customer tables (docs/database.md section
+        // 6.9).
+        'customer_groups',
+        'customers',
+        'customer_addresses',
+        'customer_ledger',
+        'loyalty_programs',
+        'loyalty_transactions',
+        'customer_notes',
+        'customer_communications',
+    ]);
+
+    sort($tables);
+
+    return $tables;
+}
+
+/**
+ * How many migration files the tenant tree holds.
+ *
+ * **Derived, because the identity it used to be written as has broken.**
+ * Three sites used `count(tenantBaselineTables())` as a stand-in for the
+ * number of tenant migration files - the highest catalogue version, the
+ * published row count, the version after the baseline. That held only
+ * because T-008 shipped one table per file. T-010 was planned to break it
+ * with a step that creates no table (AC-10's foreign key); Ruling 3
+ * correction (c) withdrew that step, so T-010 ships eight files and eight
+ * tables and the identity happens to hold again. One number with two homes
+ * is FP-181's shape regardless, so the number comes from the tree itself.
+ *
+ * It globs rather than calling `migrationTreeSources()`, which is declared in
+ * a *test file*: a filtered single-file run that never loads that file would
+ * otherwise die on an undefined function, and one of the three callers lives
+ * in `packages/kernel/tests`. The directory still has one authority,
+ * {@see migrationTreeDirectory()}.
+ */
+function tenantMigrationFileCount(): int
+{
+    $directory = migrationTreeDirectory(MigrationTree::Tenant);
+
+    return count(glob($directory.DIRECTORY_SEPARATOR.'*.php') ?: []);
+}
+
+/*
+|--------------------------------------------------------------------------
+| Where the two migration trees are
+|--------------------------------------------------------------------------
+|
+| T-008 step 5. Three files apply or scan a tree - the static tree sweep, the
+| source-rules scan and the baseline apply - and each of them used to build
+| `database/migrations-tenant` out of a literal of its own. config/schema.php's
+| `tenant_migration_path` is now the **one authority** for that location, and
+| these two helpers are the only place the suite reads it, so a tree that moves
+| moves for every caller at once.
+|
+| The master tree is deliberately *not* a configuration key: it is the
+| directory Laravel itself discovers, so the framework is its authority and
+| `database_path('migrations')` is how to ask.
+|
+| Both are proven to follow the configuration rather than merely agree with it:
+| SchemaCataloguePublishTest moves the key and asserts the helpers move with it.
+|
+*/
+
+/**
+ * The tenant tree's path relative to the base path - the form `migrate --path`
+ * takes.
+ */
+function tenantMigrationPath(): string
+{
+    return (string) config('schema.tenant_migration_path');
+}
+
+/**
+ * The absolute directory of one migration tree.
+ */
+function migrationTreeDirectory(MigrationTree $tree): string
+{
+    return $tree === MigrationTree::Tenant
+        ? base_path(tenantMigrationPath())
+        : database_path('migrations');
 }

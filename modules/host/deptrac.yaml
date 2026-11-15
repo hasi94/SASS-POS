@@ -20,16 +20,65 @@ deptrac:
     - tests
     - ../demo/src
     - ../demo/tests
+    # The access package (T-010 step 1). Unlike every other test tree here,
+    # this one is registered *and* collected: its files declare
+    # Flexipos\Access\Tests\..., so the Package_Access layer below matches
+    # them. The three trees for which registration is still inert are recorded
+    # in qaGlobalNamespaceTestTrees() against FP-303; this adds no fourth.
+    - ../../packages/access/src
+    - ../../packages/access/tests
     - ../../packages/auth/src
+    # The auth package's tests (T-009 step 5b), for the reason stated
+    # above: a layer is matched by namespace and not by directory, and
+    # these were in neither registry.
+    - ../../packages/auth/tests
+    # T-027 step 1. The catalog package, registered with its test tree, whose
+    # files declare Flexipos\Catalog\Tests\..., so the Package_Catalog_Tests
+    # layer below matches them.
+    - ../../packages/catalog/src
+    - ../../packages/catalog/tests
     - ../../packages/contracts/src
+    # T-028 step 1. The customers package, registered with its test tree,
+    # whose files declare Flexipos\Customers\Tests\..., so the
+    # Package_Customers_Tests layer below matches them.
+    - ../../packages/customers/src
+    - ../../packages/customers/tests
     - ../../packages/eventbus/src
+    # T-018 step 1. The event bus package's tests, registered and collected
+    # for the same reason the access package's are (above): its files
+    # declare Flexipos\Eventbus\Tests\..., so the Package_Eventbus_Tests
+    # layer below matches them.
+    - ../../packages/eventbus/tests
     # Str::studly('http-client') === 'HttpClient'; the directory stays kebab-case.
     - ../../packages/http-client/src
     - ../../packages/kernel/src
     - ../../packages/kernel/tests
+    # The organization package (T-014 step 2): branches, locations, terminals,
+    # devices, activation and the settings hierarchy. Registered with its test
+    # tree, whose files declare Flexipos\Organization\Tests\..., so the
+    # Package_Organization_Tests layer below matches them.
+    - ../../packages/organization/src
+    - ../../packages/organization/tests
+    # T-016. Plans, subscriptions, licensing and feature flags - the master-only
+    # commercial layer. Registered with its test tree, whose files declare
+    # Flexipos\Platform\Tests\..., so the Package_Platform_Tests layer below
+    # matches them.
+    - ../../packages/platform/src
+    - ../../packages/platform/tests
     # Str::studly('plugin-sdk') === 'PluginSdk'; the directory stays kebab-case.
+    # T-019 step 1. The plugin SDK package's tests, registered and collected
+    # for the same reason the access and eventbus packages' are (above):
+    # its files declare Flexipos\PluginSdk\Tests\..., so the
+    # Package_PluginSdk_Tests layer below matches them.
     - ../../packages/plugin-sdk/src
+    - ../../packages/plugin-sdk/tests
     - ../../packages/testing/src
+    # T-020 step 1. The workflow engine package, registered and collected
+    # for the reason stated above: its files declare
+    # Flexipos\Workflow\Tests\..., so the Package_Workflow_Tests layer
+    # below matches them.
+    - ../../packages/workflow/src
+    - ../../packages/workflow/tests
 
   layers:
     - name: HostApp
@@ -56,20 +105,73 @@ deptrac:
         - type: classLike
           value: ^Flexipos\\Module\\Demo\\.*
 
+    # T-010. The tenant-local authorization package: employees, roles,
+    # branch-scoped permissions, PINs and the resolver. The pattern covers
+    # Flexipos\Access\Tests\... as well, so this package's test code is
+    # boundary-checked like its source - which is the first time that is true
+    # of a package test tree here.
+    - name: Package_Access
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Access\\.*
+
     - name: Package_Auth
       collectors:
         - type: classLike
           value: ^Flexipos\\Auth\\.*
+
+    # T-027 step 1. The catalog package: categories, brands, units and
+    # conversions, the UnitResolver and its snapshot contract, products and
+    # variants, barcodes, product-branch settings, product_components and
+    # modifiers. Two layers, the same shape as eventbus's and workflow's:
+    # the first pattern excludes `Tests\`, so a class is in exactly one of
+    # them. Its source reaches only the kernel and the published contracts
+    # (Ruling 1) - never Package_Access directly - which is AC-41's
+    # instrument together with Module_Demo's own omission below.
+    - name: Package_Catalog
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Catalog\\(?!Tests\\).*
+
+    - name: Package_Catalog_Tests
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Catalog\\Tests\\.*
 
     - name: Package_Contracts
       collectors:
         - type: classLike
           value: ^Flexipos\\Contracts\\.*
 
+    # T-028 step 1. The customers package: groups, customers, addresses, the
+    # credit ledger, loyalty programs and transactions, notes and
+    # communications. Two layers, the same shape as catalog's: the first
+    # pattern excludes `Tests\`, so a class is in exactly one of them. Its
+    # source reaches only the kernel and the published contracts (Ruling 1)
+    # - never Package_Access directly - which is AC-38's instrument together
+    # with Module_Demo's own omission below.
+    - name: Package_Customers
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Customers\\(?!Tests\\).*
+
+    - name: Package_Customers_Tests
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Customers\\Tests\\.*
+
+    # T-018 step 1. Split the same way organization's and platform's layers
+    # are: the first pattern excludes `Tests\`, so a class is in exactly one
+    # of the two and Deptrac never warns about a double match.
     - name: Package_Eventbus
       collectors:
         - type: classLike
-          value: ^Flexipos\\Eventbus\\.*
+          value: ^Flexipos\\Eventbus\\(?!Tests\\).*
+
+    - name: Package_Eventbus_Tests
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Eventbus\\Tests\\.*
 
     # Str::studly('http-client') === 'HttpClient' — the namespace is not a literal
     # transliteration of the hyphenated package directory name.
@@ -78,59 +180,357 @@ deptrac:
         - type: classLike
           value: ^Flexipos\\HttpClient\\.*
 
+    # Everything in the kernel except the three tenant-database status
+    # symbols, which the next layer owns. The negative lookahead keeps the
+    # two layers disjoint: a token in both would be matched twice and
+    # Deptrac would warn on every run.
     - name: Package_Kernel
       collectors:
         - type: classLike
-          value: ^Flexipos\\Kernel\\.*
+          value: ^Flexipos\\Kernel\\(?!Tenancy\\(TenantConnectionPurpose|TenantDatabase|TenantStatusPolicy)$).*
+
+    # T-009 section 9. The three symbols that decide whether a tenant
+    # *database* is served: the serving-status list, the mapping row that
+    # carries the status, and the policy that reads them. Nothing moved on
+    # disk - they stay in the kernel's Tenancy namespace - but they are a
+    # layer of their own so a ruleset can grant the kernel without granting
+    # them.
+    #
+    # Package_Auth is granted Package_Kernel and deliberately NOT this
+    # layer. That omission is the instrument for AC-47's *symbol* half, and
+    # the wording matters: it proves that authentication holds no **type
+    # reference** - a `use`, a type hint, a `::class`, a catch type - to one
+    # of these three, however it is imported, aliased or re-exported, with
+    # no exemption available. It must never be described as proving that
+    # authentication holds no **copy of the status list**. Measured twice
+    # (plan section 9): the collector is `classLike`, the resolved type
+    # graph, and it does not read class names out of string literals - the
+    # FQCN in double quotes, in single quotes, as a [FQCN, 'method']
+    # callable and as `new $className` all produce zero violations, as does
+    # a class holding ['active', 'read_only'] with an in_array() over it.
+    # Value copying, which is exactly what T-008's scan existed to catch, is
+    # invisible here and is carried behaviourally instead: step 13's
+    # TenantDatabaseNotActive plus a never-called handler spy, and step 6's
+    # moved-value proof for TenantSelectionPolicy.
+    - name: Package_Kernel_TenancyStatus
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Kernel\\Tenancy\\(TenantConnectionPurpose|TenantDatabase|TenantStatusPolicy)$
+
+    # T-014. The tenant-local organization package. Two layers, the second
+    # carved out by namespace so the package's tests may reach the access
+    # fixtures (which seed employees) while its source stays bound to the
+    # kernel and the contracts. The first pattern excludes `Tests\`, so a class
+    # is in exactly one of them and Deptrac never warns about a double match.
+    - name: Package_Organization
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Organization\\(?!Tests\\).*
+
+    - name: Package_Organization_Tests
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Organization\\Tests\\.*
 
     # Str::studly('plugin-sdk') === 'PluginSdk' — see the note above.
+    # T-016. The platform package: plans, subscriptions, licensing and feature
+    # flags, master-only. Two layers, the same shape as organization's, so the
+    # package's tests may import the published contracts and the kernel while
+    # its source stays bound to the same two.
+    - name: Package_Platform
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Platform\\(?!Tests\\).*
+
+    - name: Package_Platform_Tests
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Platform\\Tests\\.*
+
+    # T-019 step 1. The plugin SDK package: manifest, registry, enablement,
+    # gateway, breaker, runtime and the console commands. Two layers, the
+    # same shape as eventbus's and organization's, so the package's tests
+    # may reach the access fixtures and the eventbus's stand-in bus while
+    # its source stays bound to the kernel, the kernel's tenancy-status
+    # symbols (plan Ruling 6) and the published contracts. The first pattern
+    # excludes `Tests\`, so a class is in exactly one of them and Deptrac
+    # never warns about a double match.
     - name: Package_PluginSdk
       collectors:
         - type: classLike
-          value: ^Flexipos\\PluginSdk\\.*
+          value: ^Flexipos\\PluginSdk\\(?!Tests\\).*
+
+    - name: Package_PluginSdk_Tests
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\PluginSdk\\Tests\\.*
 
     - name: Package_Testing
       collectors:
         - type: classLike
           value: ^Flexipos\\Testing\\.*
 
+    # T-020 step 1. The workflow engine: definitions, conditions, approver
+    # resolution, instances, tasks and events. Two layers, the same shape
+    # as eventbus's and organization's: the first pattern excludes
+    # `Tests\`, so a class is in exactly one of them. Its source reaches
+    # only the kernel and the published contracts (Ruling 1) - never
+    # Package_PluginSdk and never Package_Access, which is AC-30's
+    # instrument together with Module_Demo's own omission below.
+    - name: Package_Workflow
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Workflow\\(?!Tests\\).*
+
+    - name: Package_Workflow_Tests
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Workflow\\Tests\\.*
+
   # A module layer may depend only on shared packages/* layers — never on another
   # module layer. packages/* layers depend on nothing (`~`).
   ruleset:
     HostApp:
+      - Package_Access
       - Package_Auth
+      - Package_Catalog
       - Package_Contracts
+      - Package_Customers
       - Package_Eventbus
       - Package_HttpClient
       - Package_Kernel
+      - Package_Kernel_TenancyStatus
+      - Package_Organization
+      - Package_Platform
       - Package_PluginSdk
       - Package_Testing
+      - Package_Workflow
 
     # The host's tests may use the host application and the shared packages.
     # No Module_* layer appears here on purpose: see the layer comment above.
+    # Package_Access is granted here as well as to HostApp. The host's own
+    # tests are where the access HTTP surface, the two middleware and the
+    # cross-package criteria are proved from (plan section 7), so withholding
+    # it would make the qa-owned tests of steps 19 to 24 unwritable. The
+    # omission that carries AC-11 is Module_Demo's, below, and it is
+    # unaffected.
     HostTests:
       - HostApp
+      - Package_Access
       - Package_Auth
+      - Package_Catalog
+      - Package_Catalog_Tests
       - Package_Contracts
+      - Package_Customers
+      - Package_Customers_Tests
       - Package_Eventbus
       - Package_HttpClient
       - Package_Kernel
+      - Package_Kernel_TenancyStatus
+      - Package_Organization
+      - Package_Organization_Tests
+      - Package_Platform
+      - Package_Platform_Tests
       - Package_PluginSdk
+      - Package_PluginSdk_Tests
       - Package_Testing
+      - Package_Workflow
+      - Package_Workflow_Tests
 
+    # Package_Access is deliberately absent, and the omission is AC-11's
+    # instrument: a module reaching into the access tables' own classes is a
+    # reportable violation from day one, while the same module asking the
+    # authorization question through Flexipos\Contracts\Access is not. The
+    # pair is what discriminates - both are "a reference"; only one is
+    # forbidden. Stated limit (T-009 D-33): this proves the absence of *type
+    # references* only. It cannot see a table name in a string, which is why
+    # AC-2's and AC-73's query-log scans carry that half.
+    #
+    # T-018 step 1: Package_Eventbus is now ALSO absent, and the narrowing is
+    # AC-37's instrument - a module may reach the event bus only through
+    # Flexipos\Contracts\Events, never through the transport port or the
+    # writer's internals. Measured: nothing in modules/demo referenced
+    # Flexipos\Eventbus before this edit.
+    #
+    # T-019 step 1: Package_PluginSdk is now ALSO absent, and the narrowing
+    # is AC-47's instrument - a module may reach the plugin framework only
+    # through Flexipos\Contracts\Plugins, never through plugin-sdk's
+    # internals. Measured: nothing in modules/demo referenced
+    # Flexipos\PluginSdk before this edit.
+    #
+    # T-020 step 1: Package_Workflow is deliberately NOT granted here
+    # either, and that omission is AC-30's instrument - a module may reach
+    # the workflow engine only through Flexipos\Contracts\Workflow, never
+    # through the engine's internals.
+    #
+    # T-027 step 1: Package_Catalog is deliberately NOT granted here either,
+    # and that omission is AC-41's instrument - a module may reach the
+    # catalog only through Flexipos\Contracts\Catalog, never through
+    # DatabaseUnitResolver or the ladder's internals.
+    #
+    # T-028 step 1: Package_Customers is deliberately NOT granted here
+    # either, and that omission is AC-38's instrument - a module may reach
+    # customer data only through Flexipos\Contracts\Customers, never
+    # through the ledger writers' or calculators' internals.
     Module_Demo:
       - Package_Auth
       - Package_Contracts
-      - Package_Eventbus
       - Package_HttpClient
       - Package_Kernel
-      - Package_PluginSdk
+      - Package_Kernel_TenancyStatus
       - Package_Testing
 
-    Package_Auth: ~
+    # T-009 step 1. Widened from `~` so authentication may use the kernel
+    # (RunnerClock, IdentifierColumn, Tenancy) and other modules' published
+    # contracts; docs/patterns.md section 4.1 grants exactly this edge. It
+    # is a new *allowed edge*, not an exemption - nothing is silenced and no
+    # baseline or skip list is touched. Package_Kernel_TenancyStatus is
+    # withheld on purpose; see that layer's comment.
+    # T-010 step 1. The access package reads the kernel (IdentifierColumn,
+    # RunnerClock, Tenancy) and publishes its surface through
+    # packages/contracts. Package_Kernel_TenancyStatus is withheld for the
+    # same reason it is withheld from authentication: deciding whether a
+    # tenant *database* is served is not this package's question.
+    #
+    # Nothing is granted *to* Package_Auth here. Authentication reaches the
+    # employee-derived claims through Flexipos\Contracts\Access\
+    # EmployeeClaimSource, an edge it already has, so T-010 adds no allowed
+    # edge to authentication at all.
+    Package_Access:
+      - Package_Kernel
+      - Package_Contracts
+    Package_Auth:
+      - Package_Kernel
+      - Package_Contracts
+    # T-027 step 1 (plan Ruling 1). Source reaches the kernel and the
+    # published contracts only - never Package_Access directly.
+    Package_Catalog:
+      - Package_Kernel
+      - Package_Contracts
+    # This package's tests may additionally reach
+    # Flexipos\Access\Tests\Support\AccessTenantFixture and AccessSeed - the
+    # same eventbus-tests/plugin-sdk-tests/workflow-tests precedent -
+    # because the fixture tenant it builds on is access's, not a tenant this
+    # package owns one of.
+    Package_Catalog_Tests:
+      - Package_Catalog
+      - Package_Contracts
+      - Package_Kernel
+      - Package_Access
+    # T-028 step 1 (plan Ruling 1). Source reaches the kernel and the
+    # published contracts only - never Package_Access directly.
+    Package_Customers:
+      - Package_Kernel
+      - Package_Contracts
+    # This package's tests may additionally reach
+    # Flexipos\Access\Tests\Support\AccessTenantFixture and AccessSeed - the
+    # same catalog-tests/eventbus-tests/plugin-sdk-tests/workflow-tests
+    # precedent - because the fixture tenant it builds on is access's, not a
+    # tenant this package owns one of.
+    Package_Customers_Tests:
+      - Package_Customers
+      - Package_Contracts
+      - Package_Kernel
+      - Package_Access
     Package_Contracts: ~
-    Package_Eventbus: ~
+    # T-018 step 1. Widened from `~` so the writer, the relay and the
+    # consumer runner may read the kernel (RunnerClock, Tenancy,
+    # IdentifierColumn's shape) and the published contracts - the same kind
+    # of allowed edge T-009 added for authentication and T-010 for access.
+    # The transport port itself stays internal (Ruling 2); only
+    # Flexipos\Contracts\Events is what a module may depend on.
+    Package_Eventbus:
+      - Package_Kernel
+      - Package_Contracts
+    # T-018 step 1. This package's tests may additionally reach
+    # Flexipos\Access\Tests\Support\AccessTenantFixture - the same
+    # organization-tests precedent (Package_Organization_Tests) - because the
+    # fixture tenant it builds on is access's, not a tenant this package owns
+    # one of.
+    Package_Eventbus_Tests:
+      - Package_Eventbus
+      - Package_Access
+      - Package_Contracts
+      - Package_Kernel
     Package_HttpClient: ~
-    Package_Kernel: ~
-    Package_PluginSdk: ~
+    # The kernel's own features - the migration planner, the connection
+    # factory - read the status symbols, so the carve-out needs this one
+    # edge back.
+    Package_Kernel:
+      - Package_Kernel_TenancyStatus
+    # The status symbols read the rest of the kernel; the carve-out is
+    # about who may read *them*, not about isolating them.
+    Package_Kernel_TenancyStatus:
+      - Package_Kernel
+    # T-014. Source reaches the kernel and the published contracts only. It
+    # never imports access or auth: it asks them through
+    # Flexipos\Contracts\*, so a type reference to either is a reportable
+    # violation. Its tests are the one place that may reach access's fixtures.
+    Package_Organization:
+      - Package_Kernel
+      - Package_Contracts
+    Package_Organization_Tests:
+      - Package_Organization
+      - Package_Access
+      - Package_Contracts
+      - Package_Kernel
+    # T-016. Source reaches the kernel and the published contracts only, and
+    # never imports organization's or access's internals - the AC-32 seam.
+    # T-026 step 12 widens this the same way T-019 widened Package_PluginSdk:
+    # seed_core opens the tenant connection under
+    # TenantConnectionPurpose::Migrating, the same way the kernel's own
+    # runner and the plugin migration runner do, so the status symbols'
+    # carve-out needs this one edge back here too.
+    Package_Platform:
+      - Package_Kernel
+      - Package_Kernel_TenancyStatus
+      - Package_Contracts
+    Package_Platform_Tests:
+      - Package_Platform
+      - Package_Contracts
+      - Package_Kernel
+      - Package_Kernel_TenancyStatus
+    # T-019 step 1 (plan Ruling 6, section 5, -> lead). Widened from `~` so
+    # the gateway, the registry and the enablement slices may read the
+    # kernel (RunnerClock, Tenancy, RequestId, SourceRules, MigrationTree,
+    # IdentifierColumn) and the published contracts - the same kind of
+    # allowed edge T-009 added for authentication and T-010 for access.
+    # Package_Kernel_TenancyStatus is a new edge *for a package*: plugin
+    # migrations run DDL against the tenant connection under
+    # TenantConnectionPurpose::Migrating, the same way the kernel's own
+    # runner does. Step 15 narrows the use to two files by a source scan.
+    Package_PluginSdk:
+      - Package_Kernel
+      - Package_Kernel_TenancyStatus
+      - Package_Contracts
+    # This package's tests may additionally reach
+    # Flexipos\Access\Tests\Support\AccessTenantFixture - the same
+    # eventbus-tests precedent (Package_Eventbus_Tests) - because the
+    # fixture tenant it builds on is access's, not a tenant this package
+    # owns one of; and Flexipos\Eventbus, to inspect the stand-in bus in
+    # the proof of pipeline.
+    Package_PluginSdk_Tests:
+      - Package_PluginSdk
+      - Package_Contracts
+      - Package_Kernel
+      - Package_Kernel_TenancyStatus
+      - Package_Access
+      - Package_Eventbus
     Package_Testing: ~
+    # T-020 step 1 (plan Ruling 1). Source reaches the kernel and the
+    # published contracts only - never Package_PluginSdk and never
+    # Package_Access (Ruling 6a's RoleHolders contract is how it reaches
+    # access instead).
+    Package_Workflow:
+      - Package_Kernel
+      - Package_Contracts
+    # This package's tests may additionally reach
+    # Flexipos\Access\Tests\Support\AccessTenantFixture and AccessSeed -
+    # the same eventbus-tests/plugin-sdk-tests precedent - because the
+    # fixture tenant it builds on is access's, not a tenant this package
+    # owns one of.
+    Package_Workflow_Tests:
+      - Package_Workflow
+      - Package_Contracts
+      - Package_Kernel
+      - Package_Access

@@ -164,5 +164,5 @@ it('serves liveness without a modules key so the two health endpoints stay disti
 
     $ready = get('/health/ready')->assertOk();
 
-    expect($ready->json())->toBe(['status' => 'ok', 'modules' => ['demo']]);
+    expect($ready->json())->toBe(['status' => 'ok', 'modules' => ['demo'], 'checks' => ['master_database' => 'ok', 'redis' => 'skipped']]);
 });

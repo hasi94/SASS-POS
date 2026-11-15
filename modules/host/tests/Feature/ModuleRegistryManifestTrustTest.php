@@ -332,7 +332,7 @@ it('boots the committed demo package unchanged under the tightened rule', functi
 
     expect(app(ModuleRegistry::class)->booted())->toBe(['demo']);
 
-    get('/api/v1/demo/ping')->assertOk()->assertJson(['module' => 'demo', 'status' => 'ok']);
+    get('/api/v1/demo/ping')->assertOk()->assertJson(['success' => true, 'data' => ['module' => 'demo', 'status' => 'ok']]);
 
-    get('/health/ready')->assertOk()->assertExactJson(['status' => 'ok', 'modules' => ['demo']]);
+    get('/health/ready')->assertOk()->assertExactJson(['status' => 'ok', 'modules' => ['demo'], 'checks' => ['master_database' => 'ok', 'redis' => 'skipped']]);
 });

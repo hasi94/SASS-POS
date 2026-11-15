@@ -46,6 +46,26 @@
         <env name="APP_ENV" value="testing"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
+        <!--
+            The Argon2id work factor the suite hashes at (T-009 step 4). The
+            shipped defaults in config/hashing.php are the real ones -
+            memory 65536, time 4, threads 1 - and they are asserted from that
+            file itself, so this override cannot be mistaken for the
+            platform's choice.
+
+            Measured on this machine: default Argon2id costs 0.232 s to hash
+            and 0.222 s to verify, against 0.0015 s / 0.0014 s at the triple
+            below - 150x. The lockout criteria alone submit dozens of
+            passwords, so the default would add tens of seconds to a gate
+            whose slowest step is budgeted at 106 s cache-cold. **The
+            algorithm under test is unchanged**; only its work factor moves,
+            which is the same decision BCRYPT_ROUNDS=4 above already encodes.
+            A test asserting a duration would be invalid under this, and the
+            spec's security NFR already forbids one.
+        -->
+        <env name="ARGON_MEMORY" value="1024"/>
+        <env name="ARGON_TIME" value="1"/>
+        <env name="ARGON_THREADS" value="1"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
         <env name="DB_CONNECTION" value="sqlite"/>
@@ -61,12 +81,110 @@
         <env name="DB_MASTER_DRIVER" value="sqlite"/>
         <env name="DB_MASTER_DATABASE" value=":memory:"/>
         <env name="TENANCY_ALLOWED_DRIVERS" value="mysql,mariadb,sqlite"/>
+        <!--
+            The suite's mapping source is the local stand-in: a configuration
+            array, read by InMemoryTenantDatabaseRepository, with no master
+            schema behind it. The shipped default in config/tenancy.php is
+            `master` - one joined read of tenant_databases + database_servers -
+            and that default is asserted from the config file itself in
+            MasterTenantDatabaseRepositoryTest, which then selects `master`
+            explicitly and migrates the stand-in master to read from.
+
+            This is the same kind of decision as DB_MASTER_DRIVER above: a
+            tenancy proof that needs two tenants and a marker table should not
+            also need seventeen master migrations and a mapping row, and T-003's
+            and T-007's isolation proofs predate the master schema entirely.
+        -->
+        <env name="TENANCY_MAPPING_SOURCE" value="config"/>
+        <!--
+            An explicit zero: "no serving version floor; tenant_databases.status
+            is the only guard". Since T-008 step 7a the floor has three states
+            and an **absent** variable is a misconfiguration the serving gate
+            refuses on, so the suite has to name one of the other two. Zero is
+            the one that keeps T-003's and T-007's isolation fixtures - whose
+            tenants are at schema version 0 - serving, and leaves every version
+            the gate tests need to the tests themselves, which set
+            tenancy.required_schema_version directly.
+
+            The absent state is still exercised: TenancyVersionFloorStatesTest
+            removes the variable from all three places Laravel's Env repository
+            reads and evaluates config/tenancy.php, because <env> here writes
+            only two of the three.
+        -->
+        <env name="APP_REQUIRED_SCHEMA_VERSION" value="0"/>
+        <!--
+            The engine the engine-group tests run against (T-008). These name an
+            engine rather than a database: the suite's databases are created and
+            dropped by Flexipos\Testing\Engine\EngineDatabase, under the
+            reserved prefix flexipos_t8test_, and no other name is allowed near
+            a CREATE or a DROP. An unreachable engine fails the tests with the
+            engine named; it never skips them (AC-63).
+        -->
+        <!--
+            ENGINE_HOLD suspends every connection to that engine, and it is ON.
+            On 2026-10-14 a deliberately permissive stub of ReservedDatabaseName,
+            written to prove the guard test red, was handed to an engine-wide
+            sweep and dropped sixteen of the owner's databases on this server.
+            There is no backup. Until the owner has decided whether file-level
+            recovery will be attempted, no test may write to that engine: every
+            write can overwrite the blocks the dropped files used. The tests that
+            need the engine are skipped with the reason printed; an unreachable
+            engine still FAILS once the hold is cleared (AC-63).
+
+            The authority is NOT this declaration: it is the constant
+            Flexipos\Testing\Engine\EngineOnHold::HELD, and clearing the hold is
+            an edit to that line, by the owner. Measured 2026-10-15: with the
+            hold read from here, ENGINE_HOLD=0 in the shell won - <env> does not
+            overwrite a variable that is already set, and the reader preferred
+            $_SERVER, which <env> never writes. These two entries remain, forced
+            on both <env> and <server>, so that any other reader of the variable
+            - a tool, a child process - also sees the held value and a shell
+            variable cannot make the suite's environment disagree with the
+            constant.
+        -->
+        <env name="ENGINE_HOLD" value="1" force="true"/>
+        <server name="ENGINE_HOLD" value="1" force="true"/>
+        <!--
+            T-026 review round 1 W-6: the refusing-default provisioning
+            driver is pinned the same way ENGINE_HOLD itself is - forced on
+            both <env> and <server>, so no local .env following
+            .env.example's own documented TENANCY_PROVISIONING_DRIVER key can
+            silently bind the real mysql driver for a test that doesn't
+            explicitly bind the stand-in itself.
+        -->
+        <env name="TENANCY_PROVISIONING_DRIVER" value="refusing" force="true"/>
+        <server name="TENANCY_PROVISIONING_DRIVER" value="refusing" force="true"/>
+        <env name="ENGINE_DRIVER" value="mariadb"/>
+        <env name="ENGINE_HOST" value="127.0.0.1"/>
+        <env name="ENGINE_PORT" value="3306"/>
+        <env name="ENGINE_USERNAME" value="root"/>
+        <env name="ENGINE_PASSWORD" value=""/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
+        <!--
+            T-018 Ruling 8. The suite's event bus driver is the deterministic
+            in-memory stand-in, never the Redis adapter: no test may reach a
+            real Redis connection by accident. EventBusContractTest's `redis`
+            dataset row is a separate, explicit opt-in gated by
+            EVENTBUS_REDIS_TEST_CONNECTION (Ruling 9), unaffected by this.
+        -->
+        <env name="EVENTBUS_DRIVER" value="memory"/>
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
         <env name="MODULES" value="demo" force="true"/>
+        <!--
+            T-021: a test about something else must not meet a 429. Many
+            existing tests make dozens of calls from one address or token
+            inside a single test; the production defaults (D-9) are asserted
+            separately from App\Support\Api\ApiLimits's own constants, and the
+            rate-limiter tests set their own small limits through
+            config()->set().
+        -->
+        <env name="API_RATE_LIMIT_TENANT" value="100000"/>
+        <env name="API_RATE_LIMIT_USER" value="100000"/>
+        <env name="API_RATE_LIMIT_TERMINAL" value="100000"/>
+        <env name="API_RATE_LIMIT_UNAUTHENTICATED" value="100000"/>
     </php>
 </phpunit>

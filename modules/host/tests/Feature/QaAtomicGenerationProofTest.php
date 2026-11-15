@@ -122,7 +122,7 @@ it('leaves nothing behind when generation fails on an early file, and the retry 
 
     get("/api/v1/{$name}/ping")
         ->assertOk()
-        ->assertJson(['module' => $name, 'status' => 'ok']);
+        ->assertJson(['success' => true, 'data' => ['module' => $name, 'status' => 'ok']]);
 
     get('/health/ready')->assertOk()->assertJsonPath('modules', ['demo', $name]);
 });

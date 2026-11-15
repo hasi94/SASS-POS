@@ -2,18 +2,20 @@
 
 namespace Flexipos\Module\Demo\Http\Controllers;
 
+use Flexipos\Kernel\Api\ApiResponse;
 use Illuminate\Http\JsonResponse;
 
 /**
  * Sample endpoint proving the route prefix of this module is mounted.
  *
- * Replace it with real endpoints; the full API envelope is a later backlog row.
+ * The in-repo example of the T-021 envelope: every module calls
+ * {@see ApiResponse} instead of hand-writing a response body.
  */
 class PingController
 {
     public function index(): JsonResponse
     {
-        return response()->json([
+        return ApiResponse::success([
             'module' => 'demo',
             'status' => 'ok',
         ]);

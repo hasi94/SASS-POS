@@ -17,12 +17,18 @@
     ],
     "require": {
         "php": "^8.2",
+        "flexipos/access": "*",
         "flexipos/auth": "*",
+        "flexipos/catalog": "*",
         "flexipos/contracts": "*",
+        "flexipos/customers": "*",
         "flexipos/eventbus": "*",
         "flexipos/http-client": "*",
         "flexipos/kernel": "*",
+        "flexipos/organization": "*",
+        "flexipos/platform": "*",
         "flexipos/plugin-sdk": "*",
+        "flexipos/workflow": "*",
         "laravel/framework": "^12.0",
         "laravel/tinker": "^2.10.1"
     },
@@ -50,6 +56,14 @@
     },
     "autoload-dev": {
         "psr-4": {
+            "Flexipos\\Access\\Tests\\": "../../packages/access/tests/",
+            "Flexipos\\Catalog\\Tests\\": "../../packages/catalog/tests/",
+            "Flexipos\\Customers\\Tests\\": "../../packages/customers/tests/",
+            "Flexipos\\Eventbus\\Tests\\": "../../packages/eventbus/tests/",
+            "Flexipos\\Organization\\Tests\\": "../../packages/organization/tests/",
+            "Flexipos\\Platform\\Tests\\": "../../packages/platform/tests/",
+            "Flexipos\\PluginSdk\\Tests\\": "../../packages/plugin-sdk/tests/",
+            "Flexipos\\Workflow\\Tests\\": "../../packages/workflow/tests/",
             "Tests\\": "tests/"
         }
     },
@@ -81,8 +95,10 @@
             "@php vendor/bin/pest --group=toolchain"
         ],
         "probes:clean": "@php tools/clean-probes.php",
+        "engine:clean": "@php tools/clean-engine.php",
         "check": [
             "@probes:clean",
+            "@engine:clean",
             "@lint",
             "@stan",
             "@deptrac",
@@ -112,8 +128,9 @@
         "test": "Run the Pest suite through tools/gate-step.php, so the step owns its own timer instead of borrowing the package manager's: a kill prints FLEXIPOS-GATE-TIMEOUT and exits 3, and a completed run ends with FLEXIPOS-GATE-MARGIN. Every line names which limit was in force. The limit itself, the dated cache-cold measurement it is derived from and the command that re-measures it all live in extra.flexipos.gate - one authority, and nothing else repeats the number.",
         "test:fast": "Inner development loop only: the whole suite except the toolchain group (the tests that spawn a child process to boot a whole tool). Never the gate - use check.",
         "test:slow": "Only the toolchain group, so the split can be proved by count and by name.",
+        "engine:clean": "Report, and never drop, any reserved test database (prefix flexipos_t8test_) a killed engine run left behind: it lists them and exits 0. First in check, beside probes:clean, and for the same measured reason: check runs lint, stan and deptrac before any test, so nothing driven from a test hook ever runs ahead of the steps a leftover breaks. It enumerates information_schema and filters in PHP - SQL LIKE is forbidden, because `_` is a single-character wildcard there and SHOW DATABASES LIKE 'flexipos_%' returns the owner's real flexipos-master. It honours ENGINE_HOLD, so under the hold it opens no connection at all. The sweep it used to perform was deleted on 2026-10-14, after a permissive stub of the name guard turned that shape of sweep into sixteen dropped databases: EngineDatabase::recreate() already drops the one name it is about to create, so the sweep bought nothing, and no file but EngineDatabase may issue a database drop (enforced by tests/Feature/DestructiveStatementContainmentTest.php).",
         "probes:clean": "Delete any probe a killed run left behind. Each carries a deliberate defect, so a survivor aborts stan or deptrac before any test hook could remove it - which is why this runs first in check, not from a test.",
-        "check": "Run probes:clean, lint, stan, deptrac and test in sequence (CI gate)."
+        "check": "Run probes:clean, engine:clean, lint, stan, deptrac and test in sequence (CI gate)."
     },
     "extra": {
         "laravel": {
@@ -121,21 +138,22 @@
         },
         "flexipos": {
             "gate": {
-                "cache-cold-slowest-step-seconds": 106,
+                "cache-cold-slowest-step-seconds": 1232,
+                "cache-cold-slowest-step-seconds-provenance": "2026-11-05, lead (ported from T-020's own FP-328 fix, ai/T-020-workflow-engine commits bb52ac3/3e0e9cd/2fb3a2b/b122ffc, before this branch was rebased onto T-020's final tip). The slowest step is no longer a cold-cache toolchain step (the original 106s figure): it is now the `test` step itself, at 1232.06s warm, measured with COMPOSER_PROCESS_TIMEOUT=2400 after the gate's own 900s limit killed the step outright (FLEXIPOS-GATE-TIMEOUT, elapsed=883.42s, no result produced). Test-suite growth across T-016 through T-020 is the cause, not toolchain cache state - this field's name now undersells what it measures, but is kept for continuity with `remeasure-with` below, and with GateStepTimerTest's AC-2 formula (limit >= headroom-factor x machine-cold-factor x this value), which is still read against this field regardless of what actually made it the slowest.",
                 "machine-cold-slowest-step-seconds": null,
                 "machine-cold-factor": 3,
                 "machine-cold-factor-provenance": "D-12, rounded up from the session's first whole-gate run at 240.87s [state: MACHINE-COLD] against 87.34s [state: WARM], 2026-10-07, dev. A whole-gate figure, not a per-process one, which is why it is a factor here and not a duration: machine-cold-slowest-step-seconds stays null until someone measures one step that way.",
                 "headroom-factor": 2,
-                "measured-on": "2026-10-07",
-                "measured-by": "dev, T-007 step 0",
-                "remeasure-with": "in modules/host: delete storage/framework/cache/phpstan and storage/framework/cache/.deptrac.cache, then time each of composer probes:clean, composer lint, composer stan, composer deptrac and composer test, and take the largest wall time"
+                "measured-on": "2026-11-05",
+                "measured-by": "lead, autonomous T-020 close-out (FP-328 escalated from a low-headroom warning to an actual FLEXIPOS-GATE-TIMEOUT); ported onto this branch the same day",
+                "remeasure-with": "in modules/host: delete storage/framework/cache/phpstan and storage/framework/cache/.deptrac.cache, then time each of composer probes:clean, composer lint, composer stan, composer deptrac and composer test, and take the largest wall time. As of 2026-11-05 that is always `test`, and its growth with the suite - not toolchain cache state - is the real constraint; consider splitting the test step (e.g. toolchain group already runs separately) before raising this limit again. The shipped limit must clear headroom-factor x machine-cold-factor x cache-cold-slowest-step-seconds (GateStepTimerTest enforces this as AC-2) - 2 x 3 x 1232 = 7392. GateStepTimerTest actually asserts this against the *budget* (limit minus the reserve of max(2, ceil(limit * 0.02))), not the raw limit, so the limit needs slack to absorb that reserve too - 7500 left a budget of 7350, 42 short; 7600 cleared the budget (7448) but was not a multiple of 300, a separate structural check the same test enforces. 7800 clears all three constraints, leaving a budget of 7644."
             }
         }
     },
     "config": {
         "optimize-autoloader": true,
         "preferred-install": "dist",
-        "process-timeout": 900,
+        "process-timeout": 7800,
         "sort-packages": true,
         "allow-plugins": {
             "pestphp/pest-plugin": true,

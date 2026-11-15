@@ -100,7 +100,7 @@ it('never reports an entry it did not actually register', function () {
 
     get('/health/ready')
         ->assertOk()
-        ->assertExactJson(['status' => 'ok', 'modules' => ['demo']]);
+        ->assertExactJson(['status' => 'ok', 'modules' => ['demo'], 'checks' => ['master_database' => 'ok', 'redis' => 'skipped']]);
 });
 
 it('boots with zero modules and still serves HTTP when MODULES is empty', function () {

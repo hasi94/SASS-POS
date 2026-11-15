@@ -1,0 +1,131 @@
+// Shared design tokens and the few primitives both applications use.
+:root {
+  --fp-bg: #f4f5f7;
+  --fp-surface: #ffffff;
+  --fp-text: #1b2430;
+  --fp-muted: #667085;
+  --fp-border: #d8dde5;
+  --fp-primary: #1f6feb;
+  --fp-primary-text: #ffffff;
+  --fp-danger: #c4302b;
+  --fp-radius: 8px;
+  --fp-font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fp-bg: #11151b;
+    --fp-surface: #1a2029;
+    --fp-text: #e6e9ee;
+    --fp-muted: #98a2b3;
+    --fp-border: #2c3542;
+    --fp-primary: #4c8dff;
+    --fp-danger: #ff6b66;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--fp-font);
+  background: var(--fp-bg);
+  color: var(--fp-text);
+}
+
+.fp-auth {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.fp-card {
+  width: min(100%, 380px);
+  background: var(--fp-surface);
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  h1 {
+    margin: 0;
+    font-size: 1.4rem;
+  }
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.875rem;
+  }
+
+  input {
+    font: inherit;
+    padding: 10px 12px;
+    border: 1px solid var(--fp-border);
+    border-radius: var(--fp-radius);
+    background: var(--fp-bg);
+    color: var(--fp-text);
+  }
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  padding: 10px 14px;
+  border-radius: var(--fp-radius);
+  border: 1px solid var(--fp-border);
+  background: var(--fp-surface);
+  color: var(--fp-text);
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  &.fp-primary {
+    background: var(--fp-primary);
+    border-color: var(--fp-primary);
+    color: var(--fp-primary-text);
+  }
+
+  &.fp-link {
+    border: 0;
+    background: none;
+    color: var(--fp-primary);
+    padding: 4px 0;
+    text-align: left;
+  }
+}
+
+.fp-muted {
+  color: var(--fp-muted);
+  margin: 0;
+}
+
+.fp-error {
+  color: var(--fp-danger);
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.fp-choices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  button {
+    width: 100%;
+    text-align: left;
+  }
+}

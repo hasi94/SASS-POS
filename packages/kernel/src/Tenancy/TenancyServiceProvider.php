@@ -2,17 +2,30 @@
 
 namespace Flexipos\Kernel\Tenancy;
 
+use Flexipos\Kernel\Http\RequestId;
 use Flexipos\Kernel\Tenancy\Contracts\TenantDatabaseRepository;
+use Flexipos\Kernel\Tenancy\Contracts\TenantFleet;
+use Flexipos\Kernel\Tenancy\Contracts\TenantMigrationTargetRepository;
 use Flexipos\Kernel\Tenancy\Exceptions\TenancyException;
+use Flexipos\Kernel\Tenancy\Provisioning\Contracts\TenantDatabaseProvisioner;
+use Flexipos\Kernel\Tenancy\Provisioning\MySqlTenantDatabaseProvisioner;
+use Flexipos\Kernel\Tenancy\Provisioning\RecordingTenantDatabaseProvisioner;
+use Flexipos\Kernel\Tenancy\Provisioning\RefusingTenantDatabaseProvisioner;
 use Flexipos\Kernel\Tenancy\Secrets\ConnectionPassword;
 use Flexipos\Kernel\Tenancy\Secrets\EnvSecretResolver;
+use Flexipos\Kernel\Tenancy\Secrets\FileSecretResolver;
+use Flexipos\Kernel\Tenancy\Secrets\FileSecretStore;
 use Flexipos\Kernel\Tenancy\Secrets\SchemeSecretResolver;
+use Flexipos\Kernel\Tenancy\Secrets\SchemeSecretStore;
 use Flexipos\Kernel\Tenancy\Secrets\Secret;
 use Flexipos\Kernel\Tenancy\Secrets\SecretResolver;
+use Flexipos\Kernel\Tenancy\Secrets\WritableSecretStore;
+use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Config\Repository as ConfigRepository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\Connectors\ConnectionFactory;
+use Illuminate\Database\DatabaseManager;
 use Illuminate\Support\ServiceProvider;
 use Symfony\Component\VarDumper\Caster\Caster;
 use Symfony\Component\VarDumper\Cloner\AbstractCloner;
@@ -77,22 +90,132 @@ final class TenancyServiceProvider extends ServiceProvider
         // verifiable.
         $this->app->scoped(TenantConnectionAuthority::class);
 
+        // The migratable-status authority (plan section 18, step 13e). A
+        // singleton because it is immutable shipped data, and bound to
+        // shipped() rather than to a constructor the container could autowire
+        // - the constructor is private, and a binding is the one place a
+        // reviewer looks to see which list the process runs on. There is no
+        // configuration key behind this and there must never be one: the
+        // reconciliation in plan section 18.2 depends on the production value
+        // being a compile-time constant.
+        $this->app->singleton(TenantStatusPolicy::class, static fn (): TenantStatusPolicy => TenantStatusPolicy::shipped());
+
         $this->app->singleton(SecretResolver::class, static function (Application $app): SecretResolver {
-            // env:// only in T-003 (decision D-31). Every other scheme
-            // docs/database.md section 4.4 lists is refused by
+            // env:// since T-003 (decision D-31); file:// since T-026 (D-6) -
+            // the writable driver this task builds. Every other scheme
+            // docs/database.md section 4.4 lists is still refused by
             // SchemeSecretResolver until the task that needs it adds a driver.
+            $config = $app->make(ConfigRepository::class);
+
             return new SchemeSecretResolver([
                 EnvSecretResolver::SCHEME => new EnvSecretResolver($app),
+                FileSecretResolver::SCHEME => new FileSecretResolver(
+                    (string) $config->get('tenancy.secrets.file_root')
+                ),
             ]);
+        });
+
+        // T-026 D-6: the write half. env:// is deliberately not registered
+        // here - it stays read-only (D-31) - so a put() against it is
+        // refused as an unregistered scheme, not by a special case.
+        $this->app->singleton(WritableSecretStore::class, static function (Application $app): WritableSecretStore {
+            $config = $app->make(ConfigRepository::class);
+
+            return new SchemeSecretStore([
+                FileSecretResolver::SCHEME => new FileSecretStore(
+                    (string) $config->get('tenancy.secrets.file_root')
+                ),
+            ]);
+        });
+
+        // T-026 Ruling 4. The default refuses - "no provisioner configured" -
+        // and the real MySQL/MariaDB implementation is bound only when a
+        // deployment sets tenancy.provisioning.driver=mysql explicitly.
+        // phpunit.xml never sets it, so a test that forgets to bind the
+        // recording stand-in fails closed instead of reaching a live server
+        // (ENGINE_HOLD).
+        $this->app->singleton(TenantDatabaseProvisioner::class, static function (Application $app): TenantDatabaseProvisioner {
+            $config = $app->make(ConfigRepository::class);
+            $driver = (string) $config->get('tenancy.provisioning.driver', 'refusing');
+
+            return match ($driver) {
+                'mysql' => $app->make(MySqlTenantDatabaseProvisioner::class),
+                'recording' => $app->make(RecordingTenantDatabaseProvisioner::class),
+                default => $app->make(RefusingTenantDatabaseProvisioner::class),
+            };
         });
 
         $this->app->singleton(
             TenantDatabaseRepository::class,
             static function (Application $app): TenantDatabaseRepository {
-                /** @var array<string, mixed> $databases */
-                $databases = (array) $app->make(ConfigRepository::class)->get('tenancy.databases', []);
+                $config = $app->make(ConfigRepository::class);
 
-                return InMemoryTenantDatabaseRepository::fromConfig($databases);
+                // The local stand-in: a configuration array and no query. It is
+                // what T-003 shipped and what T-003's and T-007's fixtures
+                // still use, so those proofs need no master schema. Selecting
+                // it outside local development is refused in MappingSource,
+                // not here, so the runner's binding below cannot drift from
+                // this one (review S-4).
+                if (MappingSource::isConfigStandIn($config, $app)) {
+                    /** @var array<string, mixed> $databases */
+                    $databases = (array) $config->get('tenancy.databases', []);
+
+                    return InMemoryTenantDatabaseRepository::fromConfig($databases);
+                }
+
+                // The shipped source (FP-205): one joined read of the master
+                // schema, behind the 300-second window. Built here rather than
+                // bound separately because the decorator is not optional - a
+                // request that resolved the bare reader would read the master
+                // on every query that opens a tenant connection.
+                return new CachingTenantDatabaseRepository(
+                    $app->make(MasterTenantDatabaseRepository::class),
+                    $app->make(CacheFactory::class)->store(),
+                    (int) $config->get('tenancy.mapping.ttl', 300),
+                );
+            }
+        );
+
+        // The runner's mapping source, selected by the same key as the serving
+        // one so a fixture gets a matching pair. It is a separate binding, not
+        // a second method on the serving repository: only one of the two may
+        // ever be reachable from a request (AC-18).
+        $this->app->singleton(
+            TenantMigrationTargetRepository::class,
+            static function (Application $app): TenantMigrationTargetRepository {
+                $config = $app->make(ConfigRepository::class);
+
+                if (MappingSource::isConfigStandIn($config, $app)) {
+                    /** @var array<string, mixed> $targets */
+                    $targets = (array) $config->get('tenancy.migration_targets', []);
+
+                    return InMemoryTenantMigrationTargetRepository::fromConfig($targets);
+                }
+
+                return $app->make(MasterTenantMigrationTargetRepository::class);
+            }
+        );
+
+        // T-017 Ruling 1. A singleton holding a closure, never a captured
+        // request, for ClientIp's reason (packages/access): the id is read
+        // at write time, so one container serving many requests reports
+        // each request's own id. A test that needs a chosen id binds
+        // RequestId::fixed() over this.
+        $this->app->singleton(RequestId::class, static fn ($app): RequestId => RequestId::fromRequests($app));
+
+        // T-017 Ruling 6. The same MappingSource switch as the serving
+        // repository above, so a fixture that got one of each would be
+        // proving nothing about either.
+        $this->app->singleton(
+            TenantFleet::class,
+            static function (Application $app): TenantFleet {
+                $config = $app->make(ConfigRepository::class);
+
+                if (MappingSource::isConfigStandIn($config, $app)) {
+                    return new InMemoryTenantFleet($config);
+                }
+
+                return new MasterTenantFleet($app->make(DatabaseManager::class), $config);
             }
         );
 

@@ -1,0 +1,21 @@
+{
+    "name": "flexipos/organization",
+    "description": "FlexiPOS organization: tenant-local branches, locations and warehouses, terminals and their devices, terminal activation and the settings hierarchy.",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "proprietary",
+    "require": {
+        "flexipos/contracts": "*",
+        "php": "^8.2"
+    },
+    "autoload": {
+        "psr-4": {
+            "Flexipos\\Organization\\": "src/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

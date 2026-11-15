@@ -213,7 +213,7 @@ Terminal activation needs no master directory table: an activation code is issue
 | plans | `[ID]` `[TS]` `[SOFT]`, code unique, name, description, price DECIMAL(18,4), currency, billing_cycle enum(monthly, quarterly, yearly), trial_days, is_public, is_active, sort_order |
 | plan_features | plan_id FK, feature_key VARCHAR(60) FK feature_flags, value JSON (boolean, number or config); PK (plan_id, feature_key) |
 | plan_limits | plan_id FK, limit_key enum(branches, locations, terminals, users, employees, products, monthly_sales, storage_mb, api_calls_per_day), value INT; PK (plan_id, limit_key) |
-| subscriptions | `[ID]` `[TS]`, tenant_id FK, plan_id FK, status enum(trial, active, past_due, paused, cancelled, expired), quantity INT (seats/terminals), unit_price, currency, starts_at, current_period_start, current_period_end, trial_ends_at, cancel_at, cancelled_at, cancellation_reason, external_ref VARCHAR(100) (gateway subscription id). Index (tenant_id, status), (current_period_end) |
+| subscriptions | `[ID]` `[TS]`, tenant_id FK, plan_id FK, status enum(trial, active, past_due, paused, cancelled, expired), quantity INT (seats/terminals), unit_price, currency, starts_at, current_period_start, current_period_end, past_due_at (T-016 D-13: when the status entered `past_due`, nullable; the grace-period clock reads this and never `current_period_end`, which is a different fact that can predate or postdate it), trial_ends_at, cancel_at, cancelled_at, cancellation_reason, external_ref VARCHAR(100) (gateway subscription id). Index (tenant_id, status), (current_period_end), (status, past_due_at) |
 | billing_invoices | `[ID]` `[TS]`, tenant_id FK, subscription_id FK NULL, number unique, status enum(draft, open, paid, void, uncollectible), issue_date, due_date, currency, subtotal, tax_total, total, amount_paid, amount_due, pdf_path, external_ref. Index (tenant_id, status, due_date) |
 | billing_invoice_lines | `[ID]`, invoice_id FK CASCADE, description, period_start, period_end, quantity, unit_price, amount, tax_rate, tax_amount, metric_key NULL (usage-based lines) |
 | billing_payments | `[ID]` `[TS]`, tenant_id FK, invoice_id FK NULL, amount, currency, method enum(card, bank_transfer, cash, credit), status enum(pending, succeeded, failed, refunded), gateway, gateway_ref, paid_at, failure_reason |
@@ -233,6 +233,8 @@ Master decides **whether** a plugin may run; the tenant database holds the plugi
 | plugin_dependencies | plugin_version_id FK, depends_on_plugin VARCHAR(100), version_constraint; PK (plugin_version_id, depends_on_plugin) |
 | plugin_tenant_access | plugin_id FK, tenant_id FK, granted_by FK users, `[TS]`; PK (plugin_id, tenant_id). Private plugins only |
 | tenant_plugins | `[ID]` `[TS]`, tenant_id FK, plugin_id FK, plugin_version_id FK, status enum(installing, enabled, disabled, updating, error), **schema_version BIGINT** (how far this plugin's per-tenant migrations have run inside that tenant database), licence_id FK licences NULL, installed_at, enabled_at, disabled_at, installed_by FK users, failure_count, tripped_at, last_error; unique (tenant_id, plugin_id) |
+
+**As built (T-019).** `installed_by` and `granted_by` are nullable - a console action may have no platform user behind it. `latest_version_id` carries no foreign key: it names a `plugin_versions` row created after `plugins`, and the design states none. The breaker columns (`failure_count`, `tripped_at`, `last_error`, and `status` moving to and from `error`) are written by the gateway's circuit breaker alone, per (tenant, plugin) pair, on a consecutive-failure count with a default threshold of five; nothing resets them but a deliberate operator action.
 
 ### 4.4 The mapping — `database_servers` and `tenant_databases`
 
@@ -285,8 +287,10 @@ Resolution and caching:
 
 | Table | Columns / notes |
 |---|---|
-| tenant_provisioning_runs | `[ID]` `[TS]`, tenant_id FK, type enum(create, restore, clone, move, deprovision), source_tenant_id NULL, target_server_id FK NULL, status enum(running, completed, failed, rolled_back), current_step, started_at, finished_at, error TEXT, initiated_by FK users |
+| tenant_provisioning_runs | `[ID]` `[TS]`, tenant_id FK NULL (filled at `reserve_identity`), type enum(create, restore, clone, move, deprovision), source_tenant_id NULL, target_server_id FK NULL, status enum(running, completed, failed, rolled_back), current_step VARCHAR(40) NULL, input JSON NULL (the validated options, no secrets — a resume needs none), claimed_by VARCHAR(100) NULL, heartbeat_at DATETIME(3) NULL, started_at, finished_at, error TEXT, initiated_by FK users NULL; index (status), (tenant_id) |
 | tenant_provisioning_steps | `[ID]`, run_id FK CASCADE, step VARCHAR(40), sequence SMALLINT, status enum(pending, running, done, failed, skipped, compensated), attempts, started_at, finished_at, output JSON, error TEXT; unique (run_id, step) |
+
+**As built (T-026, FP-206).** Only `type = 'create'` is written today; `restore`, `clone`, `move` and `deprovision` are reserved for the related lifecycles noted in section 8. `tenant_provisioning_runs.input`, `claimed_by` and `heartbeat_at` are this task's own addition to the columns above, carrying the compare-and-set lease a `--resume` or `--abandon` claims through (`status = 'failed'`, or a non-stale `running` row past `heartbeat_at`) and the run's own validated options. The eleven real `step` values a `create` run writes, in order, are: `reserve_identity`, `select_server`, `create_database`, `store_credentials`, `create_users`, `write_mapping`, `migrate_remainder`, `seed_core`, `create_owner`, `verify`, `activate` — no `import_template` step (out of scope, D-3). `seed_core`, `create_owner` and `verify` are the only steps that open the tenant connection, and only while `tenant_databases.status = 'provisioning'`. `store_credentials` writes both generated passwords through a new writable `file://` reference scheme (the pre-T-026 `env://` resolver stays read-only) before `create_users` ever runs, so a crash between the two always finds a password already durably on disk. `abandon` (`tenant:provision --abandon=<run id>`) compensates a `failed` or stale `running` run by archiving — never deleting or dropping — both `tenants.status` and `tenant_databases.status`, dropping the two database users it created, and forgetting the two stored secret versions; it never issues `DROP DATABASE`, and the mapping row (and the `database_name` it records) stays readable for an operator to drop by hand.
 
 ### 4.8 Backup catalogue
 
@@ -418,7 +422,7 @@ erDiagram
 | **locations** | `[ID]` `[TS]` `[SOFT]` `[BY]`, branch_id FK **NULL** (a central warehouse belongs to no branch), code unique, name, type enum(**branch_store**, **warehouse**, transit, consignment, damaged, virtual), address JSON, manager_employee_id FK employees NULL, allow_negative_stock BOOL, is_sellable_from BOOL, is_purchasable_to BOOL, is_active, sort_order. **Stock is keyed by `location_id`, not `branch_id`** (closes gap G-7). Every branch gets one `branch_store` location at provisioning, so single-shop tenants never see the distinction |
 | terminals | `[ID]` `[TS]` `[SOFT]`, branch_id FK, location_id FK (what it sells from), code VARCHAR(10), name, status enum(pending, active, inactive, revoked), activation_code, activation_expires_at, current_device_id FK devices NULL, invoice_prefix VARCHAR(20), default_price_list_id FK NULL, last_seen_at, last_sync_at, offline_since, app_version, agent_version, settings JSON; unique (branch_id, code) |
 | devices | `[ID]` `[TS]`, terminal_id FK, fingerprint CHAR(64), platform, browser, os, screen, registered_at, last_seen_at, revoked_at, revoked_by FK employees NULL |
-| settings | `[ID]` `[TS]`, scope_type enum(company, branch, terminal, employee), scope_id CHAR(26) NULL, key VARCHAR(120) FK settings_registry, value JSON, updated_by FK employees NULL; unique (scope_type, scope_id, key). Effective value = terminal → branch → company → registry default |
+| settings | `[ID]` `[TS]`, scope_type enum(company, branch, terminal, employee), scope_id CHAR(26) NULL, key VARCHAR(120) FK settings_registry, value JSON, updated_by FK employees NULL (shipped by T-011 as a contract-phase migration: a data-clean pre-check refuses a tenant whose `updated_by` names no employee, and that tenant fails alone); unique (scope_type, scope_id, key). Effective value = terminal → branch → company → registry default |
 | settings_registry | key VARCHAR(120) PK, module VARCHAR(40), type, default_value JSON, validation JSON, sync_to_pos BOOL, is_secret BOOL, plugin_name NULL. Declared by modules and plugins at boot |
 | custom_field_definitions | `[ID]` `[TS]` `[SOFT]`, entity_type enum(product, customer, supplier, sale, purchase_order, order, employee, expense), key, label, type enum(text, number, date, boolean, dropdown, multi_select, currency, barcode), options JSON, is_required, default_value JSON, validation JSON, is_indexed, show_in_pos, sort_order, plugin_name NULL; unique (entity_type, key) |
 | number_sequences | `[ID]`, branch_id FK NULL, document_type enum(sale, refund, quotation, sales_order, purchase_request, purchase_order, grn, purchase_return, supplier_invoice, supplier_payment, customer_payment, stock_adjustment, stock_transfer, stock_count, **stock_production**, expense, journal_entry, payslip, commission_payout), prefix, next_number BIGINT, padding TINYINT, suffix, reset_period enum(never, yearly, monthly, daily), last_reset_at, `[TS]`; unique (branch_id, document_type). Allocated with `UPDATE … SET next_number = LAST_INSERT_ID(next_number + 1)` inside the document transaction |
@@ -533,6 +537,53 @@ Two guards on top of the ladder:
 One rule serves four thousand PLUs. Per-product prefix columns would mean four thousand copies of one fact and no way to onboard a second scale with a different prefix, which is why this is a rules table and not three columns on `products`.
 
 Label printing needs nothing new: `printers.type = label` and `print_templates.type = label` already exist (§6.17).
+
+#### As built (T-027)
+
+T-027 is the first implementation of this section — twelve tenant migrations (`units`, `categories`,
+`brands`, `products`, `unit_conversions`, `product_barcodes`, `product_locations`, `product_branches`,
+`product_components`, `modifier_groups`, `modifiers`, `product_modifier_groups`), `UnitResolver` and
+its snapshot contract, and 31 CRUD slices under `packages/catalog`. `barcode_rules` and its dual-engine
+parser remain out of scope here (FP-423).
+
+**Eight documented columns deferred, by a two-step mechanism rather than one.** `products.tax_group_id`,
+`purchase_tax_group_id`, `income_account_id`, `cogs_account_id`, `inventory_account_id`,
+`kitchen_station_id`, and `categories.income_account_id`, `kitchen_station_id` are not built, because
+`tax_groups`, `accounts` and a kitchen-station table do not exist yet. Each owning task (FP-231,
+FP-260, FP-239) owes an **expand** migration for the column and a separate **contract** migration for
+the foreign key with a data-clean pre-check — a key onto an already-existing table is a contract-phase
+change under this codebase's own migration source rules, never a single step — and `tax_group_id` also
+needs a backfill before it can be made `NOT NULL` as documented. `products.custom_fields` is likewise
+deferred (no `custom_field_definitions` table exists), following `branches`' own precedent.
+`product_suppliers` and `barcode_rules` stay out of scope for the same reasons as their owning tables.
+
+**The ladder's lookup keys, exactly.** `UnitResolver` reads a `unit_conversions` row only as
+`from_unit_id = the line unit, to_unit_id = the product's own stock unit` — never inverted, never
+chained through an intermediate unit. A **product-scoped** row whose `to_unit_id` is not that
+product's own `stock_unit_id` could therefore never be read by the ladder, and creating one is refused
+at write time; a **global** row's `to_unit_id` carries no such constraint, because it serves every
+product whose stock unit happens to equal it. The chain step (step 3) walks `units.base_unit_id`/
+`factor` to a common root and divides exactly, with `brick/math` at unbounded scale — an inexact
+quotient is refused rather than rounded, so an explicit conversion row is always the remedy and always
+read first.
+
+**The snapshot's rounding mode and order.** The entered quantity is rounded to the **line unit's own**
+precision first, `HALF_UP` (MySQL's `ROUND()` on exact values), then `base_quantity` is computed from
+that already-rounded value, also `HALF_UP` — never the reverse order, because FP-237's TypeScript twin
+must match this exactly. `units.precision` **defaults to 4**, the storage scale, not `0` — a `0`
+default would silently round every fractional entry on a unit nobody meant to restrict to whole
+numbers.
+
+**`product_barcodes.primary_product_id`** is the one-primary-per-product backstop: a stored generated
+column, `CASE WHEN is_primary THEN product_id END`, with a plain unique index — NULL on every
+non-primary row (so those stay unconstrained) and the product id on the primary one. Deliberately not
+the §3.3 sentinel, because here NULL-distinctness is exactly the behaviour wanted.
+
+**`categories.path`'s depth limit is 17.** `path VARCHAR(500)` holds root-to-self 26-character ULIDs
+joined by `/`; the 18th ancestor would push a row past 500 characters, so depth 17 is the deepest
+category a create or a move may produce, refused by name rather than silently truncated.
+
+**`modifier_groups.max_select`'s "unlimited" is stored as `NULL`**, not a sentinel integer.
 
 ### 6.4 Pricing and tax
 
@@ -663,7 +714,7 @@ This is the second dimension of a rule §7 already states for money — *amounts
 | Where the rate came from | `exchange_rates` | `unit_conversions` + the `units` chain |
 | What the ledger stores | company currency | the product's stock unit |
 
-Therefore **`stock_movements`, `stock_levels`, `stock_batch_levels`, `batches`, `stock_reservations`, `purchase_price_history` and `journal_lines` carry no `unit_id` column, ever.** Their quantities are base by definition. A reader who needs to know what the clerk typed follows `reference_line_id` back to the line, which carries the unit, the factor and the original number — the same way a reader who needs the invoice currency reads the document, not the ledger. **One qualification, because the key now admits several movements per line:** for a movement against the line's own product that back-reference gives exactly what was typed; for a **derived** movement — a component of a composite, a depleting modifier — it gives the **parent's** unit and quantity, and the component's own factor comes from the `product_components` or `modifiers` row that generated it, snapshotted when that row was written (D-62). The movement is still in base either way; it is the provenance that has two hops rather than one.
+Therefore **`stock_movements`, `stock_levels`, `stock_batch_levels`, `batches`, `stock_reservations`, `purchase_price_history` and `journal_lines` carry no `unit_id` column, ever.** Their quantities are base by definition. A reader who needs to know what the clerk typed follows `reference_line_id` back to the line, which carries the unit, the factor and the original number — the same way a reader who needs the invoice currency reads the document, not the ledger. **One qualification, because the key now admits several movements per line:** for a movement against the line's own product that back-reference gives exactly what was typed; for a **derived** movement — a component of a composite, a depleting modifier — it gives the **parent's** unit and quantity, and the component's own factor comes from the row that generated it: `product_components` snapshots its factor when that row is written (§3.1, §14's exemption list), while a depleting `modifiers` row carries no stored factor at all — it is exempt from `[UOM]`'s full quad by name (§14). How and when that factor gets resolved is the depletion posting rule itself, which is deliberately unspecified here and belongs to the restaurant workstream (AC-40, §6.3). The movement is still in base either way; it is the provenance that has two hops rather than one.
 
 This one rule is what stops the design growing twenty unit-bearing tables and twenty places to get the conversion wrong. The tempting fix for v0.4's defect — four line tables carried a unit, nothing else did, and no sentence anywhere said what unit the rest were in — is to add `unit_id` wherever a quantity appears, which puts a conversion in every write path in the product and a second one in every report. The boundary is the opposite answer: the unit goes on the one row where a human typed a number, and the conversion happens there, once. **A static test asserts the absence** (§14), because a boundary that is only described is a boundary that grows a column in the third sprint.
 
@@ -1183,6 +1234,70 @@ Split bill: several `sales` sharing `order_id` and `split_group`. Merge: source 
 | customer_notes | `[ID]` `[TS]` `[BY]`, customer_id FK CASCADE, note TEXT, pinned BOOL, follow_up_date NULL |
 | customer_communications | `[ID]` `[TS]`, customer_id FK, channel enum(call, email, sms, whatsapp, visit, campaign), direction enum(in, out), subject, body, campaign_ref, employee_id FK NULL, occurred_at, delivery_id FK NULL |
 
+#### As built (T-028)
+
+T-028 is the first implementation of this section — eight tenant migrations (`customer_groups`,
+`customers`, `customer_addresses`, `customer_ledger`, `loyalty_programs`, `loyalty_transactions`,
+`customer_notes`, `customer_communications`), the credit-ledger and loyalty calculators, the two
+append-only writers, and 24 CRUD slices under `packages/customers`.
+
+**Five documented columns deferred, by the same two-step mechanism as T-027.** `customers.
+receivable_account_id` (`accounts`, Finance), `customer_ledger.ar_document_id` (`ar_documents`,
+Finance), `loyalty_transactions.sale_id` (`sales`, plus its own `unique(sale_id, type)`) and
+`customer_communications.delivery_id` (`deliveries`, as `BIGINT UNSIGNED` — §6.16 gives `deliveries.
+id` a BIGINT AUTO key, not a ULID) are not built, because none of their target tables exist yet. Each
+owning task (FP-260, FP-264, FP-233, FP-295) owes an **expand** migration for the column and a
+separate **contract** migration for the foreign key — never a single combined step, under this
+codebase's own migration source rules. `customers.custom_fields` is likewise deferred, following
+`products`' own precedent: no `custom_field_definitions` table exists.
+
+**Points are `DECIMAL(18,4)`, not `(18,2)`.** `customer_groups.default_credit_limit`, `customers.
+credit_limit`/`credit_balance`/`opening_balance`/`lifetime_value`/`loyalty_points`, both ledgers'
+`debit`/`credit`/`balance_after`/`points`/`value` are all `(18,4)`; `customer_groups.discount_percent`
+and `loyalty_multiplier` are `(9,4)`, the rate/percentage pair. Every amount is an exact `brick/math`
+`BigDecimal` and is never rounded — the one exception, reserved for a future earn engine that
+multiplies money by a rate before calling the loyalty writer, rounds `HALF_UP` to 4 decimals **before**
+that call; neither calculator shipped here ever multiplies.
+
+**Debit/credit side and points sign are hard rules, not conventions.** Credit-ledger entry types are
+fixed to one side (`credit_sale`/`debit_note` debit-only; `payment`/`refund`/`credit_note`/`write_off`
+credit-only) or either side (`opening`, `adjustment`); loyalty `earn` is always positive, `redeem` and
+`expire` always negative, and `adjust`/`transfer` take either sign. A breach is refused by name
+(`wrong_side`/`wrong_sign`) before anything is written.
+
+**`loyalty_programs.tier_rules` carries one minimal validated shape**: `null`, or a non-empty list of
+`{"tier": <string, ≤ 50 chars>, "min_points": <decimal string, ≤ 4 dp>}` with unique tier names and
+unique `min_points` values. The tier is the entry with the greatest `min_points` at or below the
+customer's balance; no qualifying entry, or `null` rules, gives tier `null`. `earn_rule` and
+`redeem_rule` stay fully opaque — nothing in this task evaluates either, since the caller supplies
+`points` directly.
+
+**Merging two customers moves balances by compensating ledger entries, never by rewriting history.**
+A non-zero source balance posts a credit-ledger `adjustment` pair (reference `customer_merge_out` on
+the source, `customer_merge_in` on the target, both keyed by the source's id) and a loyalty `transfer`
+pair under the program of the source's most recent loyalty row; the source's own ledger and loyalty
+rows never change `customer_id`. Only `customer_addresses`, `customer_notes` and
+`customer_communications` are reassigned to the target. The source ends with `merged_into_id` set and
+is soft-deleted, its balances already zero by the ledger itself.
+
+**Replay is a named outcome, not silent.** A `customer_ledger` write is keyed by
+`(reference_type, reference_id, type)`; the same key with the same `customer_id`/`debit`/`credit`/
+`currency` returns the original row with `replayed = true` and writes nothing more, while a different
+payload under the same key is refused as `replay_conflict`, naming the existing row. A
+`loyalty_transactions` write may additionally carry a caller-supplied `id` (the `[SYNC]`-entity shape
+in §3.1) as the same kind of replay key.
+
+**`[SYNC]` is built present but inert** on `customers` and `loyalty_transactions`: `origin` defaults to
+`online`, `sync_status` defaults to `synced`, every other `[SYNC]` column defaults to null, and none
+carries a foreign key, because §3.1's tag states none. Nothing in this task reads or branches on any of
+them; FP-237 (Sync) is the first consumer.
+
+**Two generated-column backstops, the `product_barcodes.primary_product_id` shape.**
+`customer_groups.default_marker` (`CASE WHEN is_default THEN 1 END`, unique) keeps exactly one default
+group; `customer_addresses.default_customer_id` (`CASE WHEN is_default THEN customer_id END`, unique
+with `type`) keeps exactly one default address per `(customer, type)`. Both leave every non-default row
+unconstrained, because NULLs are distinct in a unique index on both engines.
+
 ### 6.10 Finance — general ledger, AR, AP, cash and bank
 
 This is the domain that the v0.3 split made impractical and that one database makes ordinary: the ledger joins the subledgers.
@@ -1377,6 +1492,14 @@ One engine for expenses, purchase requests, purchase orders, supplier invoices, 
 | workflow_tasks | `[ID]` `[TS]`, instance_id FK CASCADE, step_sequence, assignee_employee_id FK NULL, assignee_role_id FK NULL, status enum(pending, approved, rejected, delegated, expired, skipped), decided_by FK employees NULL, decided_at, comment, delegated_to FK NULL, notified_at, reminded_at; index (assignee_employee_id, status), (instance_id, step_sequence) |
 | workflow_events | id BIGINT AUTO PK, instance_id FK CASCADE, task_id FK NULL, event enum(started, assigned, approved, rejected, delegated, escalated, commented, cancelled, expired, completed), actor_employee_id NULL, comment, data JSON, created_at |
 
+**As built (T-020).** All five tables are VARCHAR(30) where this table names an "enum", with the matching application enum published beside the column (`SourceRules` AC-35(b) forbids a native `enum`, the same convention T-010 and T-019 shipped). `workflow_events.actor_employee_id` gets a foreign key to `employees`, which this document's bare "NULL" above does not show (D-12). There is one additional index on `workflow_definitions` over `(entity_type, is_active, priority)`, used by evaluation's own read; it is additive and changes no column. There is no `delegated_by` column: the out-of-scope paragraph of the spec names one, but it is not in the table above, and the table above is what shipped.
+
+`conditions` is a flat AND of `{field, operator, value}` comparisons, evaluated in stored order; there is no OR and no nesting. `branch_ids`, when not null, is an implicit `branch_id in branch_ids` condition, checked before `conditions` - and a context with no branch at all is a named evaluation error, not a silent non-match, because treating "no branch" as "does not apply" would let a caller skip a branch-scoped rule by omitting the branch. `approver_ref` is `{"roles": [...], "employees": [...]}`, both keys optional.
+
+Only four of the seven documented `approver_type` values resolve against real data today: `role`, `employee`, `any_of` and `all_of`. `manager_of_requester`, `department_head` and `branch_manager` have no data source anywhere in the shipped schema - `employees` carries no manager column (T-014 D-14), no `departments` table exists (HR is unbuilt), and `branches` carries no manager column. All seven values still ship in the enum, so a future HR task adds only a resolver, never an expand migration onto a wrong shape; a defined step naming one of the three unresolvable types is refused at definition-write time with a named error, and the engine fails closed if one is ever reached at step-activation time regardless.
+
+The escalation and SLA columns (`workflow_steps.sla_hours`/`escalate_to`/`can_skip_if`, `workflow_instances.sla_due_at`, `workflow_tasks.notified_at`/`reminded_at`) are present and writable exactly as documented, but nothing in this task reads them, schedules against them, or acts on a breach - they are a signal for a future task, not a built mechanism (D-9).
+
 ### 6.16 Notifications
 
 | Table | Columns / notes |
@@ -1436,8 +1559,10 @@ Master says whether a plugin may run; here is what it stores.
 |---|---|
 | plugin_settings | plugin_name VARCHAR(100), key VARCHAR(120), value TEXT (encrypted when `is_secret`), is_secret BOOL, updated_by FK employees NULL, `[TS]`; PK (plugin_name, key) |
 | plugin_migrations | plugin_name VARCHAR(100), migration VARCHAR(191), batch INT, ran_at; PK (plugin_name, migration). Per tenant database, so a plugin enabled for 40 tenants has 40 independent migration states — tracked in master on `tenant_plugins.schema_version` (§4.3) and run by the same runner as core (§9.6) |
-| plugin_execution_logs | id BIGINT AUTO PK, plugin_name, point VARCHAR(60), mode enum(before, after, filter, override), duration_ms, status enum(ok, veto, error, timeout), error, request_id, created_at. 30-day retention |
+| plugin_execution_logs | id BIGINT AUTO PK, plugin_name, point VARCHAR(60), mode enum(add, before, after, filter, override), duration_ms, status enum(ok, veto, error, timeout, refused), error, request_id, created_at. 30-day retention |
 | `plg_<plugin>_*` | plugin-owned tables. May hold foreign keys **into** core tables (`plg_loyalty_accounts.customer_id` → `customers.id`); core tables never reference them. Dropped when the plugin is uninstalled for that tenant, after an export |
+
+**As built (T-019).** `mode`'s application enum holds all five modes the gateway dispatches, naming `add` alongside the three already listed here. `status` gained `refused`: every registration the gateway or `PluginAfterHookConsumer` skips without calling the handler - an already-open breaker, or one this dispatch just tripped - writes one `refused` row and one `warning`-level log line, from `HookInvoker::refuse()` (AC-31, plan Ruling 10).
 
 ### 6.21 System tables
 
@@ -1445,9 +1570,10 @@ Master says whether a plugin may run; here is what it stores.
 |---|---|
 | **schema_meta** | key VARCHAR(60) PK, value VARCHAR(255). Rows: `tenant_id` (the owning tenant's ULID — the only place a tenant id appears inside a tenant database, and it is metadata, not a column on business rows), `tenant_code`, `database_identifier`, `schema_version`, `provisioned_at`, `provisioned_from_template`, `app_version`, `last_migrated_at`, `checksum`. **The safety interlock**: before any write the application asserts `schema_meta.tenant_id` equals the tenant in the request context, so a mis-resolved mapping or a restored-into-the-wrong-place database fails loudly instead of writing one tenant's sale into another's ledger |
 | audit_logs | id BIGINT AUTO PK, actor_type enum(employee, terminal, system, plugin, platform_staff), actor_id CHAR(26) NULL, actor_name (snapshot), branch_id FK NULL, module VARCHAR(40), action VARCHAR(80), subject_type, subject_id, before JSON, after JSON, changed_fields JSON, ip VARBINARY(16), user_agent, request_id CHAR(26), created_at; indexes (created_at), (subject_type, subject_id), (actor_id, created_at), (module, action, created_at). Mandatory coverage (`Refference/ERP.md` §24): price changes, discounts, refunds, voids, stock adjustments, payroll changes, journal entries, permission changes, plugin changes, deletions |
+| audit_logs_archive | Same columns and indexes as `audit_logs` (T-017 D-10) — the destination of the scheduled chunked move described in §11, never written to directly by anything else |
 | security_events | id BIGINT AUTO PK, type enum(pin_bruteforce, permission_denied, override_used, after_hours_access, bulk_export, mass_delete, negative_stock_forced), employee_id NULL, terminal_id NULL, detail JSON, severity enum(info, warn, critical), ip, created_at |
-| outbox_events | `[ID]`, type VARCHAR(80), version SMALLINT, branch_id FK NULL, aggregate_type, aggregate_id, payload JSON, occurred_at DATETIME(3), correlation_id, causation_id, actor JSON, status enum(pending, published, failed), published_at, attempts, last_error; index (status, occurred_at), (aggregate_type, aggregate_id). **Still needed** — not for module-to-module communication (that is now a function call inside a transaction) but for the outward edges: notifications, webhooks, the print relay, plugins and the platform analytics feed (`Refference/ARCH.md` §17). 30-day retention |
-| idempotency_keys | key VARCHAR(80) PK, request_hash CHAR(64), response_code SMALLINT, response_body JSON, created_at. 24-hour retention. Public POST idempotency |
+| outbox_events | `[ID]`, type VARCHAR(80), version SMALLINT, branch_id FK NULL, aggregate_type, aggregate_id, payload JSON, occurred_at DATETIME(3), correlation_id, causation_id, actor JSON, status enum(pending, published, failed), published_at, attempts, last_error; index (status, occurred_at), (aggregate_type, aggregate_id). **Still needed** — not for module-to-module communication (that is now a function call inside a transaction) but for the outward edges: notifications, webhooks, the print relay, plugins and the platform analytics feed (`Refference/ARCH.md` §17). 30-day retention. **Shape, as built (T-018):** `actor` is `{type, id, name}`, the same closed vocabulary `audit_logs.actor_type` already documents, written by the one event bus outbox writer and never re-joined later. `status='failed'` means the relay itself exhausted its publish attempts against the bus — a different failure from a message the bus *did* deliver but no consumer ever finished: that second case is never written here, it moves to a dedicated dead-letter **stream** in Redis, not a table (see `docs/eventbus.md`) |
+| idempotency_keys | key VARCHAR(80) PK, request_hash CHAR(64), response_code SMALLINT, response_body JSON, created_at. 24-hour retention. Public POST idempotency. **As built (T-021):** `response_code` and `response_body` are nullable — a null `response_code` is the in-flight claim, held while the handler runs; an index on `created_at` backs the retention sweep (`idempotency:prune`); `request_hash` covers the method, the path, the actor and the body, and deliberately excludes the query string |
 | jobs / job_batches / failed_jobs | Laravel queue tables. Per-tenant queues are **not** used — the queue is Redis and jobs carry the tenant id in their payload; these tables exist only for the database-queue fallback and for `failed_jobs` triage |
 | migrations | Laravel's own, the authority for what has run in **this** database. `tenant_databases.schema_version` in master is a cached mirror of it (§9.2) |
 
@@ -1561,6 +1687,14 @@ Financial reports and where they read from: **Trial balance** and **Balance shee
 
 The whole run is **idempotent by step**: re-running with `--resume` skips `done` steps and retries from the first non-`done` one. A run left `failed` for more than 24 hours is reported by the nightly consistency check as an `orphan_database` candidate.
 
+**As built (T-026, FP-206).** The table above is the original design sketch; what actually shipped differs in a few places worth stating plainly rather than leaving the reader to reconcile the two:
+
+- there is no `import_template` fast-path step — every tenant applies the full baseline migration tree through the same runner §9 already describes (D-3, out of scope for this task);
+- the real order is the eleven steps listed in section 4.7's "as built" note above, with `select_server` immediately after `reserve_identity` (no `data_region` column exists on `database_servers` today — selection is by `accepts_new_tenants`, `status = active` and `tenant_count < max_tenants` only, lowest `tenant_count` winning ties) and `store_credentials`/`create_users` in that order, deliberately, so a crash between the two always finds a password already durably written before any user is created;
+- `seed_core` ships permissions, the `owner` system role, a schema-identity stamp and one default branch — the richer seed list above (chart of accounts, fiscal periods, tax groups, payment methods, print templates…) belongs to the modules that own those tables and is explicitly out of scope here (D-5);
+- compensation is never per-step. `abandon` (`--abandon=<run id>`) is the only path that compensates a `failed` or stale `running` run, and it never issues `DROP DATABASE`/`DROP USER`-the-whole-database: it archives both `tenants.status` and `tenant_databases.status`, drops the two created database *users* (not the database), and forgets the two stored secret versions, leaving the database itself for an operator to drop by hand once they are certain nothing else needs it;
+- `activate` starts the subscription `trial` by default, or `active` under `--active`, and bumps `database_servers.tenant_count` only on the write that actually flips the mapping from `provisioning` to `active` — a resumed, already-active run writes nothing a second time.
+
 Related lifecycles, same machinery:
 
 | Operation | Steps |
@@ -1635,7 +1769,9 @@ Rules of thumb baked into review: no `ALTER` on a table over 5 M rows without `i
 
 ### 9.6 Plugin migrations
 
-Same runner, different scope: `tenant:migrate --plugin=loyalty` walks tenants where `tenant_plugins.status = enabled` for that plugin, runs the plugin's migrations against the tenant connection, records them in the tenant's `plugin_migrations` and mirrors the version to `tenant_plugins.schema_version` in master. Enabling a plugin for a tenant is itself a one-tenant run of this command. Disabling does **not** drop tables; uninstalling exports then drops them.
+A different command, same shape: `plugin:migrate {plugin} {--tenant=*}` walks tenants where `tenant_plugins.status = enabled` for that plugin, runs the plugin's migrations against the tenant connection, records them in the tenant's `plugin_migrations` and mirrors the version to `tenant_plugins.schema_version` in master. Enabling a plugin for a tenant is itself a one-tenant run of this command. Disabling does **not** drop tables; uninstalling exports then drops them.
+
+**As built (T-019).** The command is `plugin:migrate`, not a `tenant:migrate` flag: it lives in the plugin package, and the kernel's own migration runner may not depend on it.
 
 ---
 
@@ -1690,7 +1826,7 @@ Idempotency uniques (the ones that make replay safe): **`stock_movements`** — 
 
 | Profile (`tenant_databases.profile`) | Strategy |
 |---|---|
-| **standard** (default, ~95 % of tenants) | no partitions. Retention instead: `sync_inbox` payload nulled at 90 days and rows dropped at 180; `outbox_events` 30 days; `audit_logs` archived to `audit_logs_archive_<year>` yearly and exported; `print_jobs` 30 days; `plugin_execution_logs` 30 days; `deliveries` 90 days. Deletion is chunked by a scheduled job, never one big `DELETE` |
+| **standard** (default, ~95 % of tenants) | no partitions. Retention instead: `sync_inbox` payload nulled at 90 days and rows dropped at 180; `outbox_events` 30 days; `audit_logs` moved into the one permanent `audit_logs_archive` table (same columns and indexes, T-017 D-10) once a row passes the configured retention threshold (default 365 days), in bounded chunks, never a yearly per-tenant table created at runtime; `print_jobs` 30 days; `plugin_execution_logs` 30 days; `deliveries` 90 days. Deletion — and the archival move — is chunked by a scheduled job, never one big `DELETE`/`INSERT` pair |
 | **large** (opt-in, set when `size_bytes` or row estimates cross a threshold, and for dedicated servers) | monthly RANGE partitions on `sales`, `sale_items`, `stock_movements`, `journal_lines`, `audit_logs`, `sync_inbox`; partitions past retention exported and dropped |
 
 **One constraint on the `large` profile, which predates v0.5 and is not fixed by it.** MySQL requires every unique key — including the primary key — to contain every partitioning column. `stock_movements` is keyed on `id` and on the idempotency key of §6.5, and **neither contains `created_at`**, so **partitioning that table by month cannot be created as the profile describes**. The same was true of the v0.4 key; v0.5 neither causes nor cures it. Resolving it means either adding the partition column to both keys or partitioning something else, and it must be settled before the `large` profile is built rather than discovered by the migration that tries it.
@@ -1777,7 +1913,7 @@ Offline sales are why `sales.business_date_source` and `sync_status` exist, and 
 | **XAMPP / MariaDB 10.4** (this machine) | `flexipos_master` plus 2–3 tenant databases (`flx_t_000001`, `flx_t_000002`, one empty for provisioning tests) created by `infra/scripts/xampp-dev.ps1`. Credential driver `env://`. Differences that matter: no `utf8mb4_0900_ai_ci` (the script substitutes `utf8mb4_unicode_ci`); `JSON` is a `LONGTEXT` alias with working JSON functions; **no functional indexes**, so indexed custom fields use stored generated columns — the same mechanism `stock_movements.batch_key` / `serial_key` use for the v0.5 idempotency key (§6.5), so that key needs no engine branch; `CHECK` constraints and partitioning are supported; `ALTER … ALGORITHM=INSTANT` support differs, which matters for §9.4 rehearsals |
 | **Docker dev and CI** | MySQL 8.4, master + a two-tenant fixture (`TwoTenantFixture`). CI jobs: migrate-from-scratch, migrate-from-previous-release, template-equals-migrations, `tenant:provision` end to end, `tenant:migrate --all` across the fixture including one deliberately broken tenant to prove failure isolation, and a schema-drift diff against the committed dump |
 | **Boundary enforcement** | Deptrac rules keep modules from reaching into each other's models; **cross-module foreign keys are allowed, cross-module direct model access is not** — a module calls another module's service, which is now an in-process call, not an HTTP hop. A static test asserts no `tenant_id` column exists in any tenant migration and no query string contains a second schema name. **Three more static tests come with v0.5:** (1) no `unit_id`, `unit_factor` or `unit_code` column on any of the seven tables §6.5 names as below the document layer — the conversion boundary is an absence, and an absence only stays true if something checks; (2) `decimal()` without a precision argument is forbidden in a tenant migration, because MySQL reads it as `DECIMAL(10,0)` and truncates half a kilogram to zero (§3.2); (3) **the `[UOM]` tag is complete wherever it is claimed** — stated below as something that can actually pass, because a criterion specified so that it must fail is worse than no criterion: the first person to implement it weakens it to green (D-67) |
-| **The `[UOM]` completeness test, exactly** | MEASURED: a literal "all four columns on every tagged table" would fail on **five of the seventeen** on the day it was written — `price_list_items`, `product_barcodes`, `modifiers` (degenerate tags, §3.1) and `stock_count_items`, `stock_transfer_items` (the entered quantity is not called `quantity`). So the test asserts three things instead. **(a)** All seventeen tagged tables declare a unit column (`unit_id`, or `linked_unit_id` on `modifiers`). **(b)** The other **fourteen** — the thirteen document-line tables **plus `product_components`**, see (c) — additionally declare `unit_factor` and **one base column for each entered quantity column they carry**: `quantity`/`base_quantity` on twelve of them, plus `received_quantity`/`received_base_quantity` again on `purchase_order_items`; `counted_quantity`/`base_quantity` on `stock_count_items`; and `qty_sent`/`base_qty_sent` with `qty_received`/`base_qty_received` on `stock_transfer_items`, which records two quantity events (D-58). **(c)** Exactly **three** tables are exempt **by name** — `price_list_items`, `product_barcodes` and `modifiers`, which carry the unit column only. `product_components` is **not** exempt: it is master data, but it carries the whole quad and passes (b) unaided, and exempting a table that would pass is how an exemption list quietly becomes a list of tables nobody checks. An exemption list that is not in the document is an exemption list the implementer invents |
+| **The `[UOM]` completeness test, exactly** | MEASURED: a literal "all four columns on every tagged table" would fail on **five of the seventeen** on the day it was written — `price_list_items`, `product_barcodes`, `modifiers` (degenerate tags, §3.1) and `stock_count_items`, `stock_transfer_items` (the entered quantity is not called `quantity`). So the test asserts three things instead. **(a)** All seventeen tagged tables declare a unit column (`unit_id`, or `linked_unit_id` on `modifiers`). **(b)** The other **fourteen** — the thirteen document-line tables **plus `product_components`**, see (c) — additionally declare `unit_factor` and **one base column for each entered quantity column they carry**: `quantity`/`base_quantity` on twelve of them, plus `received_quantity`/`received_base_quantity` again on `purchase_order_items`; `counted_quantity`/`base_quantity` on `stock_count_items`; and `qty_sent`/`base_qty_sent` with `qty_received`/`base_qty_received` on `stock_transfer_items`, which records two quantity events (D-58). **(c)** Exactly **three** tables are exempt **by name** — `price_list_items`, `product_barcodes` and `modifiers`, which carry the unit column only. `product_components` is **not** exempt: it is master data, but it carries the whole quad and passes (b) unaided, and exempting a table that would pass is how an exemption list quietly becomes a list of tables nobody checks. An exemption list that is not in the document is an exemption list the implementer invents. **As built (T-027):** this test now exists, at `modules/host/tests/Feature/UomColumnSetsTest.php` — run today over the three of the seventeen tables T-027 actually builds (`product_barcodes`, `modifiers`, `product_components`); the other fourteen arrive with their own owning tasks |
 | **Testing** | feature tests run against a real tenant database created per test class and dropped afterwards (transactions alone cannot test provisioning or migrations). A `RefreshTenantDatabase` trait imports the template rather than migrating, to keep the suite fast |
 
 ---

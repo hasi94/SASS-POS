@@ -45,6 +45,23 @@ pest()->group('toolchain')->in(...array_map(
 
 /*
 |--------------------------------------------------------------------------
+| The engine group
+|--------------------------------------------------------------------------
+|
+| T-008. Every test under tests/Engine needs the real database engine the
+| environment names, and fails - never skips - when it is unreachable (AC-63).
+| The group exists so a report can name those tests and the engine they ran on,
+| not so they can be excluded: `composer test`, and therefore the gate, passes
+| no group flag, and the group is deliberately absent from test:fast's
+| exclusions too. An engine test that only the slow path runs is an engine test
+| nobody runs.
+|
+*/
+
+pest()->group('engine')->in(__DIR__.DIRECTORY_SEPARATOR.'Engine');
+
+/*
+|--------------------------------------------------------------------------
 | Helpers
 |--------------------------------------------------------------------------
 |

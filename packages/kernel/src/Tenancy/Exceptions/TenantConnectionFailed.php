@@ -18,19 +18,29 @@ namespace Flexipos\Kernel\Tenancy\Exceptions;
  * The reason string is the driver's message with every occurrence of the
  * credential replaced, not the driver exception itself, so ops still gets a
  * diagnosable message.
+ *
+ * Not final, and extended exactly once: {@see TenantCredentialRejected} is the
+ * one failure a re-read of the mapping can fix (AC-16). `new static` rather
+ * than `new self` so the subclass keeps this message and does not restate it.
  */
-final class TenantConnectionFailed extends TenancyException
+class TenantConnectionFailed extends TenancyException
 {
-    public static function forTenant(string $tenantId, string $driver, string $sanitisedReason): self
+    /**
+     * Final, so `new static()` below is safe: no subclass can change what
+     * constructing one of these needs, and the message stays this class's.
+     */
+    final public function __construct(string $message)
     {
-        return new self(
-            sprintf(
-                'Could not open the database for tenant [%s] using driver [%s]: %s',
-                $tenantId,
-                $driver,
-                $sanitisedReason
-            ),
-            previous: null
-        );
+        parent::__construct($message, 0, previous: null);
+    }
+
+    public static function forTenant(string $tenantId, string $driver, string $sanitisedReason): static
+    {
+        return new static(sprintf(
+            'Could not open the database for tenant [%s] using driver [%s]: %s',
+            $tenantId,
+            $driver,
+            $sanitisedReason
+        ));
     }
 }

@@ -1,0 +1,318 @@
+name: CI
+
+# T-024 (FP-218). Runs on every push and every pull request, with no branch
+# or path filter (D-7): a documentation-only push still gets the full gate
+# (AC-20), and a push to any branch gets the same gate a pull request would.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: modules/host
+    # Forces `bash --noprofile --norc -eo pipefail`. The runner's own default
+    # shell has no `pipefail`, so a piped command could mask a failure.
+    shell: bash
+
+jobs:
+  # Format, static analysis, boundaries and the full test suite (D-5, D-6).
+  # No `services:` block here (D-4, AC-4): nothing outside the two migration
+  # jobs below ever touches a live database, keeping ENGINE_HOLD's spirit for
+  # everything this job runs.
+  quality:
+    runs-on: ubuntu-24.04
+    # Above composer.json's own gate limit (7800s / extra.flexipos.gate), so a
+    # slow run reports the gate's own FLEXIPOS-GATE-TIMEOUT, not a silent
+    # runner kill.
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, intl, bcmath, gd, zip, pdo_mysql, pdo_sqlite, fileinfo, openssl
+          coverage: none
+          tools: composer:v2
+          ini-values: memory_limit=512M
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Lint (Pint)
+        run: composer lint
+
+      - name: Static analysis (PHPStan)
+        run: composer stan
+
+      - name: Boundary rules (Deptrac)
+        run: composer deptrac
+
+      - name: Test suite (Pest, the full suite)
+        run: composer test
+
+  # Migration test, fresh database (Group B). D-1 is the only reason a
+  # database service exists at all: the project owner's own ruling that
+  # ENGINE_HOLD does not cover a CI runner's own ephemeral, disposable
+  # database container (docs/decisions/T-024-ci-pipeline.md D-1). This
+  # container is destroyed with the job (AC-10): no `volumes:` entry, so
+  # nothing written to it persists past the job.
+  migrate-fresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-dev-only
+          MYSQL_DATABASE: flexipos_master
+        # The ephemeral mapped port, never a fixed 3306: a fixed mapping
+        # would put the shared engine's own conventional address into job
+        # env, which AC-17 forbids, and could collide with the runner
+        # image's own stopped MySQL.
+        ports:
+          - 3306
+        # mysqladmin ping exits 0 even on "Access denied" (T-023's review
+        # correction), so the credentials are proven separately, by this
+        # job's own "Verify MySQL 8.4 and credentials" step below.
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 --password=ci-root-dev-only --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+          --health-start-period=60s
+    env:
+      APP_ENV: testing
+      MODULES: demo
+      DB_CONNECTION: master
+      DB_MASTER_DRIVER: mysql
+      DB_MASTER_HOST: 127.0.0.1
+      DB_MASTER_DATABASE: flexipos_master
+      DB_MASTER_USERNAME: root
+      DB_MASTER_PASSWORD: ci-root-dev-only
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      EVENTBUS_DRIVER: memory
+      LOG_CHANNEL: stderr
+      CI_TENANT_ID: CIMIGRATIONTENANTXXXXXXXXX
+      CI_TENANT_PASSWORD: ci-root-dev-only
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, intl, bcmath, gd, zip, pdo_mysql, pdo_sqlite, fileinfo, openssl
+          coverage: none
+          tools: composer:v2
+          ini-values: memory_limit=512M
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      # Job-level env cannot read the job context, so the mapped port is
+      # exported here, from the one job-scoped service this job has.
+      - name: Export the mapped MySQL port
+        run: echo "DB_MASTER_PORT=${{ job.services.mysql.ports['3306'] }}" >> "$GITHUB_ENV"
+
+      - name: Verify MySQL 8.4 and the credentials
+        run: |
+          actual_version=$(mysql -h 127.0.0.1 -P "$DB_MASTER_PORT" -uroot --password="$DB_MASTER_PASSWORD" -N -e 'SELECT VERSION()')
+          echo "MySQL reports: ${actual_version}"
+          case "$actual_version" in
+            8.4*) ;;
+            *) echo "Expected MySQL 8.4, got ${actual_version}" >&2; exit 1 ;;
+          esac
+
+      - name: Migrate the master schema
+        run: php artisan migrate --database=master --force
+
+      - name: Publish the tenant migration catalogue
+        run: php artisan schema:publish
+
+      - name: Read the catalogue head and head-1
+        run: |
+          php -r '
+            $catalogue = json_decode(file_get_contents("database/catalogue/tenant_schema_versions.json"), true);
+            $head = max(array_column($catalogue, "version"));
+            if ($head < 2) {
+                fwrite(STDERR, "catalogue head below 2\n");
+                exit(1);
+            }
+            file_put_contents(getenv("GITHUB_ENV"), "CATALOGUE_HEAD=" . $head . "\n", FILE_APPEND);
+            file_put_contents(getenv("GITHUB_ENV"), "CATALOGUE_HEAD_MINUS_1=" . ($head - 1) . "\n", FILE_APPEND);
+          '
+
+      - name: Register the CI tenant (master schema migrated, catalogue published, mapping row written)
+        run: mysql -h 127.0.0.1 -P "$DB_MASTER_PORT" -uroot --password="$DB_MASTER_PASSWORD" -e "SET @ci_port = $DB_MASTER_PORT; SOURCE ../../.github/ci/register-ci-tenant.sql"
+
+      # AC-8, AC-9, AC-21: an empty tenant database, migrated once, to head,
+      # with no --to flag.
+      - name: Migrate the tenant to head
+        run: php artisan tenant:migrate --tenant="$CI_TENANT_ID"
+
+      - name: Assert the tenant reached head (AC-9)
+        run: bash ../../.github/ci/assert-tenant-state.sh "$CATALOGUE_HEAD"
+
+  # Migration test, existing database (Group C, D-9): its own, independent
+  # service container (AC-11) carrying a partial migration history before the
+  # second tenant:migrate invocation runs.
+  migrate-existing:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-dev-only
+          MYSQL_DATABASE: flexipos_master
+        ports:
+          - 3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 --password=ci-root-dev-only --silent"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+          --health-start-period=60s
+    env:
+      APP_ENV: testing
+      MODULES: demo
+      DB_CONNECTION: master
+      DB_MASTER_DRIVER: mysql
+      DB_MASTER_HOST: 127.0.0.1
+      DB_MASTER_DATABASE: flexipos_master
+      DB_MASTER_USERNAME: root
+      DB_MASTER_PASSWORD: ci-root-dev-only
+      CACHE_STORE: array
+      SESSION_DRIVER: array
+      QUEUE_CONNECTION: sync
+      EVENTBUS_DRIVER: memory
+      LOG_CHANNEL: stderr
+      CI_TENANT_ID: CIMIGRATIONTENANTXXXXXXXXX
+      CI_TENANT_PASSWORD: ci-root-dev-only
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, intl, bcmath, gd, zip, pdo_mysql, pdo_sqlite, fileinfo, openssl
+          coverage: none
+          tools: composer:v2
+          ini-values: memory_limit=512M
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Export the mapped MySQL port
+        run: echo "DB_MASTER_PORT=${{ job.services.mysql.ports['3306'] }}" >> "$GITHUB_ENV"
+
+      - name: Verify MySQL 8.4 and the credentials
+        run: |
+          actual_version=$(mysql -h 127.0.0.1 -P "$DB_MASTER_PORT" -uroot --password="$DB_MASTER_PASSWORD" -N -e 'SELECT VERSION()')
+          echo "MySQL reports: ${actual_version}"
+          case "$actual_version" in
+            8.4*) ;;
+            *) echo "Expected MySQL 8.4, got ${actual_version}" >&2; exit 1 ;;
+          esac
+
+      - name: Migrate the master schema
+        run: php artisan migrate --database=master --force
+
+      - name: Publish the tenant migration catalogue
+        run: php artisan schema:publish
+
+      - name: Read the catalogue head and head-1
+        run: |
+          php -r '
+            $catalogue = json_decode(file_get_contents("database/catalogue/tenant_schema_versions.json"), true);
+            $head = max(array_column($catalogue, "version"));
+            if ($head < 2) {
+                fwrite(STDERR, "catalogue head below 2\n");
+                exit(1);
+            }
+            file_put_contents(getenv("GITHUB_ENV"), "CATALOGUE_HEAD=" . $head . "\n", FILE_APPEND);
+            file_put_contents(getenv("GITHUB_ENV"), "CATALOGUE_HEAD_MINUS_1=" . ($head - 1) . "\n", FILE_APPEND);
+          '
+
+      - name: Register the CI tenant (master schema migrated, catalogue published, mapping row written)
+        run: mysql -h 127.0.0.1 -P "$DB_MASTER_PORT" -uroot --password="$DB_MASTER_PASSWORD" -e "SET @ci_port = $DB_MASTER_PORT; SOURCE ../../.github/ci/register-ci-tenant.sql"
+
+      # AC-12, AC-13: one version short of head first, against a fresh
+      # tenant database, as its own separate step.
+      - name: Migrate the tenant to head-1
+        run: php artisan tenant:migrate --tenant="$CI_TENANT_ID" --to="$CATALOGUE_HEAD_MINUS_1"
+
+      - name: Assert the tenant reached head-1 (AC-13)
+        run: bash ../../.github/ci/assert-tenant-state.sh "$CATALOGUE_HEAD_MINUS_1"
+
+      # AC-12, AC-14: a second, separate invocation with no --to flag,
+      # against the same, now partially-migrated database.
+      - name: Migrate the tenant the rest of the way to head
+        run: php artisan tenant:migrate --tenant="$CI_TENANT_ID"
+
+      - name: Assert the tenant reached head (AC-14)
+        run: bash ../../.github/ci/assert-tenant-state.sh "$CATALOGUE_HEAD"
+
+      # AC-15: a third invocation with nothing pending, folded into this job
+      # as the idempotency check (D-9). Zero jobs planned, neither store
+      # changed.
+      - name: Migrate the tenant a third time (idempotency check)
+        run: php artisan tenant:migrate --tenant="$CI_TENANT_ID"
+
+      - name: Assert nothing changed on the no-op run (AC-15)
+        run: bash ../../.github/ci/assert-tenant-state.sh "$CATALOGUE_HEAD" "0"
+
+  # T-025 (FP-219), D-11: an independent job, sibling to the three above, not
+  # folded into `quality` - a frontend failure never blocks the backend
+  # quality signal, or vice versa, and nothing here needs a working-directory
+  # override on every step the way folding into `quality` would.
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests (pos, admin, shared)
+        run: npm test
+
+      - name: Production build (pos)
+        run: npx ng build pos
+
+      - name: Production build (admin)
+        run: npx ng build admin
+
+      # The explicit rc handling is deliberate: a bare `! grep` also "passes"
+      # on exit code 2 (a missing or unreadable file), so it would go green
+      # on a job whose build produced nothing.
+      - name: Mock backend absent from both production bundles
+        run: |
+          for app in pos admin; do
+            compgen -G "dist/${app}/browser/*.js" > /dev/null || { echo "no ${app} bundles to check" >&2; exit 1; }
+            set +e
+            grep -l "demo@flexipos.test" dist/"${app}"/browser/*.js
+            rc=$?
+            set -e
+            case "$rc" in
+              1) echo "${app}: mock backend absent" ;;
+              0) echo "${app}: mock backend found in a production bundle" >&2; exit 1 ;;
+              *) echo "${app}: grep failed (exit ${rc})" >&2; exit 1 ;;
+            esac
+          done
