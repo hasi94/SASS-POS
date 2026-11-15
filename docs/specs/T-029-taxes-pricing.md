@@ -269,20 +269,36 @@ Re-derived from the files, not assumed:
      — compound or not. A **non-compound** member's base is always the plain line base.
   4. **Fixed members** (`type = fixed`, never compound — refused at write, AC-5): `amount =
      round(rate × base_quantity, 4)` — `rate` is an amount per the product's stock unit, matching
-     every other money column on `products` being per stock unit (§6.3).
+     every other money column on `products` being per stock unit (§6.3). Its breakdown line's
+     `base` is the **line amount** (the net, in an inclusive group), not the quantity (D-30).
   5. **Exclusive groups** (`tax_groups.is_inclusive = false`): each member's amount is added on
      top of the line amount; the breakdown total is the sum, and `net = amount` (the line amount
      is already tax-exclusive).
-  6. **Inclusive groups:** the supplied `amount` is gross. Every **fixed** member's amount is
-     subtracted from the gross first; if the fixed amounts alone exceed the gross, the computation
-     refuses (`inclusive_amount_too_small`). The remaining gross is then divided by the exact
-     product `M` of every percentage member's `(1 + rate/100)` factor in `sequence` order (`M`
-     itself never rounded) to give `net = round(remaining_gross / M, 4)`; each percentage member's
-     amount is computed forward from `net` by step 3's rule; the residue
-     `remaining_gross − net − Σ(percentage amounts)` that an exact division can still leave is
-     added to the **last percentage member in `sequence`**, so `net + Σ(all member amounts) =
-     amount` exactly, with a fixed, predictable member absorbing the rounding every time (never
-     "iteratively, tax by tax," which would compound rounding at each step).
+  6. **Inclusive groups** (rule corrected by D-25; the earlier "product of every `(1 + rate/100)`"
+     wording is **superseded**, it holds only when every percentage member is compound): the
+     supplied `amount` is gross. The relation between net and gross is exactly linear:
+     `gross − F = net × (1 + S) + K`, where `F` is the sum of every fixed member's amount and `S`
+     and `K` are exact (never rounded) values built by walking the surviving members in `sequence`
+     order, starting from `S = 0`, `K = 0`, `Fb = 0` (`Fb` is the fixed amount accumulated so far):
+     - a **fixed** member: `a = round(rate × base_quantity, 4)` (step 4); `Fb = Fb + a`;
+     - a **non-compound percentage** member with `f = rate/100`: `S = S + f`;
+     - a **compound percentage** member with `f = rate/100`: both updates use the values from
+       before this member, `S' = S + f × (1 + S)` and `K' = K + f × (K + Fb)`.
+     Then: if `F` is greater than the gross, refuse `inclusive_amount_too_small`; let
+     `R = gross − F − K`; if `R` is negative, refuse `inclusive_amount_too_small`; otherwise
+     `net = round(R / (1 + S), 4)`, the **only** rounding in the back-out (half up). Each member's
+     base and amount are then computed forward from `net` by steps 3 and 4; the residue
+     `gross − net − Σ(all member amounts)` that the single rounding can leave is added to the
+     **last percentage member in `sequence`**, so `net + Σ(all member amounts) = amount` exactly,
+     with a fixed, predictable member absorbing the rounding every time (never "iteratively, tax
+     by tax," which would compound rounding at each step). In a group whose percentage members
+     are all compound and with no fixed member, `1 + S` equals the product of every
+     `(1 + rate/100)`; with two non-compound members of 5% and 10% it is `1.15`, not `1.155`.
+     Worked checks (shipped fixtures): a fixed member of 1.0000 per unit on a base quantity of 2
+     followed by a compound 10% on gross 112.2000 gives `F = 2`, `S = 0.1`, `K = 0.2`,
+     `R = 110`, `net = 100.0000`, the compound member's base `102.0000` and amount `10.2000`;
+     a non-compound 15% with a fixed 0.5000 per unit on a base quantity of 24 and gross 179.0000
+     gives `F = 12`, `R = 167`, `net = round(167 / 1.15, 4) = 145.2174`.
   7. **Breakdown entry shape:** `{tax_id, code, tax_code, type, is_compound, rate, base, amount}`
      per surviving member, in `sequence` order, plus a `total`. `tax_code` may be null (it is
      nullable on `taxes`). `base` is each member's own computed base (useful for a tax return).
@@ -547,6 +563,20 @@ Re-derived from the files, not assumed:
   3. **no tenant migration this task adds names `accounts` in a foreign key**, and **none
      declares `payable_account_id`, `receivable_account_id` or `sales_discount_account_id`** at
      all (F-17 — asserting the columns' absence, not merely their nullability).
+- **AC-30** (engine refusals and ordering ruled after Chunk B, D-26 to D-30):
+  1. Given a line quantity or amount that is negative, When the pure engine prices it, Then it is
+     refused `invalid_amount` (D-26).
+  2. Given a percentage discount whose value is above 100, Then it is refused `invalid_amount`;
+     exactly 100 is accepted (D-27).
+  3. Given one price list holding two items for the same product and unit with equal `min_qty`,
+     When the ladder reads it, Then it is refused `invalid_amount` (D-28).
+  4. Given two lists (or two taxes) that tie on every earlier key, Then the order falls to a
+     bytewise comparison of `code` (tax members: of the tax id), so `"10"` sorts before `"9"`; the
+     database adapter must produce the identical order, proven by a test (D-29).
+  5. Given a fixed tax in a line breakdown, Then its `base` equals the line amount (the net in an
+     inclusive group), not the quantity (D-30).
+  6. Given the inclusive back-out of AC-11.6, Then non-compound 5% and 10% on gross 115.0000 give
+     `net = 100.0000` with no residue (D-25).
 
 ## Out of scope
 
@@ -632,6 +662,11 @@ Re-derived from the files, not assumed:
 - The compounding definition (a compound member's base includes every preceding member's amount,
   compound or not — D-15/F-9) is the conventional reading where the schema states no rule;
   reversible by a one-line change in the tax calculator if the owner states otherwise.
+- The inclusive back-out is the exact linear rule of AC-11.6 as corrected by D-25, not the
+  product of `(1 + rate/100)` (superseded).
+- Engine rulings added after Chunk B (D-26 to D-30): negative quantities refused, a percentage
+  discount above 100 refused, a duplicate `min_qty` refused, bytewise code ties, and the fixed-tax
+  `base`. D-29 leaves one open risk for the database adapter (see Open questions).
 - The price-ladder step-ordering and filtering rules (D-16/F-10 — assignment priority, then list
   priority, then code; the currency/window filter applied uniformly; promotions optionally
   scoped) are the conventional reading of §6.4's prose, made concrete enough to be fixture-proven;
@@ -642,6 +677,12 @@ Re-derived from the files, not assumed:
 
 ## Open questions
 
-None — every design question this task raised was decided and logged in
+1. OPEN RISK (not blocking Chunk B, for the architect before Chunk C/D, D-29): the pure engine
+   breaks ties between codes bytewise, but the database adapter's SQL ordering follows the column
+   collation, which may order differently (case, accents, numeric-looking codes). The adapter
+   must produce the same order as the engine, proven by a test; how (ordering in the adapter after
+   reading, or a binary collation on the sort) is the architect's call.
+
+Every other design question this task raised was decided and logged in
 `docs/decisions/T-029-taxes-pricing.md` (`ba`'s own calls), per the team's autonomous-mode
 protocol.

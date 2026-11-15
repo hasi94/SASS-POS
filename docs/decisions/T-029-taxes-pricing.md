@@ -437,3 +437,55 @@ found by `architect` checking the migration tree directly rather than trusting t
 unchecked assumption; a dangling assignment to a nonexistent customer or group would otherwise be
 silent, undetected bad data. | Reversible: yes — ordinary handler validation logic, no schema
 change.
+
+D-25 (corrects D-15's inclusive-group rounding bullet and AC-11.6) | D-15 and AC-11.6 said the
+net of an inclusive amount is `round(remaining gross / M, 4)` with `M` "the product of every
+percentage member's `(1 + rate/100)`". That is true only when every percentage member is compound.
+For two non-compound percentages (5% and 10%) the gross is net × 1.15 but the product is 1.155,
+which would push about 0.5 of the amount into the rounding residue. Found by `dev` in Chunk B;
+fixtures `tax-inclusive-fixed-before-compound` and `tax-inclusive-fixed-comes-off-first` fail
+under the product wording. | **The exact linear rule replaces it**, verified against
+`TaxCalculator::inclusiveNet` and both fixtures. Walk the surviving members in `sequence` order
+with exact values `S = 0`, `K = 0`, `Fb = 0`. Fixed member: `Fb += round(rate × base_quantity, 4)`
+(and `F`, the total of fixed amounts, grows the same way). Non-compound percentage, `f = rate/100`:
+`S += f`. Compound percentage: `S' = S + f(1 + S)` and `K' = K + f(K + Fb)`, both from the old
+values. Then refuse `inclusive_amount_too_small` if `F` exceeds the gross or if `R = gross − F − K`
+is negative; else `net = round(R / (1 + S), 4)` half up, the only rounding in the back-out. Taxes
+are computed forward from `net`; the residue `gross − net − Σ(all amounts)` goes to the last
+percentage member in `sequence`. `1 + S` equals the old product only in the all-compound,
+no-fixed case. The product-of-`(1 + rate/100)` wording is **superseded** everywhere. The TypeScript
+twin (backlog FP-432) can implement this from AC-11.6 alone. | Reason: the exact relation
+`gross − F = net × (1 + S) + K` is what the forward computation implies; any other divisor leaves
+a residue that is not a rounding artefact. | Reversible: yes — one method.
+
+D-26 | The pure engine refuses a negative line quantity as `invalid_amount` (money and quantity
+inputs are non-negative strings, `Decimal`), although `UnitSnapshot` itself allows negatives. |
+**Adopted as built.** Forward dependency for the Sales task (FP-233 / T-030): refunds there use
+unsigned lines (the document type carries the direction), so this is consistent; if T-030 ever
+needs a signed line it must revisit this decision, not work around it. | Reason: a sign inside a
+money pipeline with half-up rounding is ambiguous. | Reversible: yes.
+
+D-27 | A percentage discount whose value is above 100 is refused `invalid_amount` (checked in
+`DiscountRule`); exactly 100 is allowed. | **Adopted.** | Reason: it would make a negative
+discounted subtotal; `invalid_amount` is the closest reason in the closed list. | Reversible: yes.
+
+D-28 | Two items of one price list for the same product and unit with equal `min_qty` are
+ambiguous. | **Refused `invalid_amount`** by the pure ladder (`PriceLadder`), the closest reason in
+the closed list. Complements AC-13's write-time duplicate refusal for data that arrives by another
+path. | Reversible: yes.
+
+D-29 | Ties between codes (price lists on equal priority; tax members on equal sequence fall to the
+tax id) were compared with PHP's spaceship operator, which compares numeric-looking strings as
+numbers, so `"9"` would sort before `"10"`. | **Compared bytewise (`strcmp`)** in the engine. **OPEN
+RISK for architect, Chunk C/D:** the database adapter's SQL ordering follows the column collation
+and can differ (case, accents, numeric strings). **Rule the adapter must meet:** its ordering is
+identical to the pure engine's, proven by a test using codes that expose the difference (for
+example `"10"`, `"9"`, `"a"`, `"B"`). Plan M-D1 (adapter passes lists unsorted) already leaves
+ordering to the engine; the architect decides whether the adapter relies on that or sorts
+bytewise. | Reversible: yes.
+
+D-30 | What `base` a fixed tax shows in a breakdown line. | **The line amount** (the net in an
+inclusive group), not the quantity, as built (`TaxCalculator::forward`; fixture
+`tax-inclusive-fixed-comes-off-first` shows base `145.2174` for the fixed line). The TypeScript
+twin must match. | Reason: `base` is the amount the tax was assessed against on the line, a
+consistent field across member types. | Reversible: yes.
