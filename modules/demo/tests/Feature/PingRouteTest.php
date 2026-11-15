@@ -28,8 +28,11 @@ it('answers the demo ping route under its own prefix', function () {
     get('/api/v1/demo/ping')
         ->assertOk()
         ->assertJson([
-            'module' => 'demo',
-            'status' => 'ok',
+            'success' => true,
+            'data' => [
+                'module' => 'demo',
+                'status' => 'ok',
+            ],
         ]);
 });
 

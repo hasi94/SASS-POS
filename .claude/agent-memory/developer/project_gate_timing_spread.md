@@ -80,3 +80,11 @@ which caches were warm.
 
 Related: [[project-backend-toolchain-constraints]],
 [[feedback-clean-up-probe-files-immediately]].
+
+**A yardstick for contamination (T-011, 2026-10-21).** `QaRealApplierOnStandInTest`
+was unchanged across three consecutive gates and took 4.07 s, 9.01 s and 17.27 s as
+foreign Scriber test runs came and went; the gate ratio fell from 2.81 to 1.75 with
+about 1 s of new tests. Quote an unchanged file-I/O-bound test beside the ratio: it
+separates "this tree got slower" from "the machine got busier". Waiting on a
+background gate here: `sleep` is blocked, so run a background
+`until grep -q '^exit=' log; do sleep 5; done` and wait for its notification.

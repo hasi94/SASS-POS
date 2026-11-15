@@ -491,7 +491,7 @@ it('still boots the committed demo package, so the rule blocks only what it shou
     expect(app(ModuleRegistry::class)->booted())->toBe(['demo'])
         ->and(qaTrustLoader()->getPrefixesPsr4())->toHaveKey('Flexipos\\Module\\Demo\\');
 
-    get('/api/v1/demo/ping')->assertOk()->assertJson(['module' => 'demo', 'status' => 'ok']);
+    get('/api/v1/demo/ping')->assertOk()->assertJson(['success' => true, 'data' => ['module' => 'demo', 'status' => 'ok']]);
 });
 
 it('rejects a trailing newline in the shared name pattern itself', function () {

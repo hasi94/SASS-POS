@@ -11,6 +11,74 @@
 - [Cleanup must survive a killed process](feedback_cleanup_must_survive_a_killed_process.md) — probe cleanup belongs first in `composer check`, not in a test hook: stan and deptrac run before any hook.
 - [Repo-wide rename recipe](project_repo_wide_rename_recipe.md) — two commits, enumerate-then-classify tokens, the protect list, and the Composer path-package traps.
 - [Defer in a comment, or file a row](feedback_defer_in_a_comment_or_file_a_row.md) — which residuals earn a row, declared-beats-silent deviation, and when "gate: green" hits another role's files.
-- [Gate timing spread](project_gate_timing_spread.md) — no gap under ~35 s is evidence; list the other php processes before believing a red gate.
+- [Gate timing spread](project_gate_timing_spread.md) — no gap under ~35 s is evidence; list php processes; use an unchanged test as a contamination yardstick.
 - [Correct a claim in every copy](feedback_correct_a_claim_in_every_copy.md) — one false sentence, four files; sweep whitespace-collapsed, cite symbols not lines.
 - [A mutation must move the observable](feedback_mutation_must_move_the_observable.md) — a floor absorbed my mutation and the green run nearly read as a hole in the test.
+- [A red-first stub must be inert](feedback_red_first_stub_must_be_inert.md) — the permissive stub that destroyed 16 of the owner's databases, and the red phase that cannot act.
+- [The shared MariaDB is production](project_shared_mariadb_engine_is_production.md) — other projects' unbacked-up data on 127.0.0.1:3306; ENGINE_HOLD is on.
+- [Delete the capability, not the bound](feedback_delete_the_capability_not_the_bound.md) — a ceiling is a guess; the sweep went, and a self-scanning static test replaced the prose.
+- [SQLite stand-in vs the engine](project_sqlite_standin_vs_engine.md) — the four statements SQLite refuses, and why `migrate` in a test needs `--database=master`.
+- [Exempt by property, not by name](feedback_exempt_by_property_not_by_name.md) — a red scan over correct code is narrowed by a type or a phase, never by an allow-list entry.
+- [A red phase needs a restore path](feedback_red_phase_needs_a_restore_path.md) — `cp && script` short-circuited and the only copy of an uncommitted step was the mutated file.
+- [Prove an authority by moving it](feedback_prove_an_authority_by_moving_it.md) — a test that agrees with the shipped value cannot tell a config read from a second literal.
+- [Absence is a third state](feedback_absence_is_a_third_state.md) — a default that folds "unset" into "no guard", and why the refusal goes at the consulting site, not at boot.
+- [The FX seam](project_fx_seam_and_fixture_migrations.md) — version = position in the set, never merge-sorted; and why an FX migration reads nothing but its own connection.
+- [The suite absorbs a changed default](project_suite_absorbs_a_changed_default.md) — a new shipped default broke 34 cases in another role's files; phpunit.xml is where it goes.
+- [A pre-filter masks the statement](feedback_a_prefilter_masks_the_statement.md) — deleting both terms from the granting UPDATE left seven behavioural cases green; assert the executed SQL.
+- [Suite rules for new test files](project_suite_rules_for_new_test_files.md) — unique basenames across every collected directory, and no `*/` inside a file-header block comment.
+- [A statement pin needs an input](feedback_statement_pin_needs_an_input.md) — the query-log pin is half the evidence; find what has to happen between the read and the write.
+- [Name an exception for its throw site](feedback_name_an_exception_for_its_throw_site.md) — a criterion-named refusal gets written where the criterion is read, and is thrown nowhere.
+- [SQLite fixture costs, and Pest properties](project_sqlite_fixture_costs_and_pest_properties.md) — fsync per bare statement, and why `$this->applier` in a Pest test fails stan.
+- [Derive a list, or it drifts](feedback_derive_a_list_or_it_drifts.md) — two sites, one literal; and why PHP const expressions force the derived side to be a static method.
+- [Reachability is a closure, not a grep](feedback_reachability_is_a_closure_not_a_grep.md) — 14 reds, zero defects: sibling-called, test-only, and actually dead are three different reds.
+- [An instruction must be runnable](feedback_an_instruction_must_be_runnable.md) — two shipped messages named a CLI invocation the command's own argument guard refused.
+- [An incidental block is not a block](feedback_incidental_block_is_not_a_block.md) — when an optional defence-in-depth item earns code, and when a bound is softened instead of enforced.
+- [A type-graph rule does not see a literal](feedback_type_graph_rule_does_not_see_a_literal.md) — deptrac reports symbol reuse, not a copied value; plus two layer-carving mechanics.
+- [Master table list is pinned three times](project_master_table_list_is_pinned_three_times.md) — a new master table edits four files, two counts are literals; and SQLite reports types without lengths.
+- [A control must redden the file the plan names](feedback_a_control_must_redden_the_file_the_plan_names.md) — the named test scanned fixtures only; plus env() handing a numeric config value in as a string.
+- [JWT and OpenSSL seams](project_jwt_and_openssl_seams.md) — the static time seam, decode's blindness to `kid`, the ES256 boundary, and the openssl.cnf that works here.
+- [Observe during the write, not after](feedback_observe_during_the_write_not_after.md) — the decorated-throw control stayed green under the very transaction it forbade; the probe must run inside the statement.
+- [Hasher seam and assertion reds](project_hasher_seam_and_assertion_reds.md) — bind doubles under the contract, not the facade; Pest scalar datasets fail stan; run an assertion twice to prove it bites.
+- [An ordering mutation needs a refusable input](feedback_ordering_mutation_needs_a_refusable_input.md) — moving a guard later stays green against a fixture that succeeds.
+- [HTTP test seams](project_http_test_seams.md) — withHeaders leaks across requests, `$this->postJson` fails stan, guarded route; nested Artisan output needs a BufferedOutput.
+- [Mutate one decision, not the guard](feedback_middleware_mutations_need_the_right_case.md) — the coarse mutation reddened at 500 on the wrong case; and the duplicate validation no mutation can see.
+- [Logger and query-log probes](project_logger_and_query_log_probes.md) — the two reusable probes, and the singleton that empties the log one silently.
+- [Enumerate the sinks, not the scans](feedback_enumerate_the_sinks_not_the_scans.md) — `input()` reads the query string; the request URL was in nobody's list of four sinks.
+- [Say what a fix does not fix](feedback_say_what_a_fix_does_not_fix.md) — the conditional-UPDATE lockout changes structure, not sequential behaviour; bound the claim.
+- [Record the gap, do not assert zero](feedback_record_the_gap_dont_assert_zero.md) — a widened check ships with a named self-liquidating list; and Deptrac cannot see a global-namespace tree.
+- [Reproduce the defect in its exact shape](feedback_reproduce_the_defect_in_its_exact_shape.md) — a comment plant the old regex also missed read as "the fix changed nothing".
+- [Tenant tree top version is pinned everywhere](project_tenant_tree_top_version_is_pinned_everywhere.md) - one new tenant migration edits ~25 sites; a contract step in the shipped tree reddens 24 planner tests by design.
+- [Tenant fixture on the stand-in](project_tenant_fixture_on_the_standin.md) - foreign keys off, fsync costs, VACUUM INTO templates, and one provider class means one instance.
+- [A missing import binds the wrong symbol](feedback_missing_import_binds_the_wrong_symbol.md) - "not instantiable" names the interface you asked for, not the one the provider bound.
+- [Shell escaping destroys PHP namespaces](feedback_shell_escaping_destroys_php_namespaces.md) - one sed ate the backslashes in 14 files; write a PHP script instead, and commit first.
+- [where($col, null) is already whereNull](feedback_laravel_where_null_is_already_wherenull.md) - the mutation stayed green across 93 cases and the helper's stated reason was false in three files.
+- [Access guard seams](project_access_guard_seams.md) - the three T-010 safeguards, the null-actor refusal, and the transactionLevel probe with its liveness control.
+- [Access HTTP surface seams](project_access_http_surface_seams.md) - the middleware-parameter declaration, mapping a tenant by two keys, and Pest's variadic `toContain`.
+- [Defence in depth needs a discriminating input](feedback_defence_in_depth_needs_a_discriminating_input.md) - deleting the URL guard stayed green: the body-only reader already answered that input.
+- [The PIN slices](project_pin_slices.md) - the generated weak list, the one-statement lockout, and the dummy digest that keeps the hasher count at one.
+- [Token claims and selection seams](project_token_claims_and_selection_seams.md) - three claim shapes, the verifier that closes the all-or-none hole, and the Route that caches its controller.
+- [A sweep prints what it found](feedback_a_sweep_prints_what_it_found.md) - two green sweeps over the wrong domain in one step; the print caught both, the assertion could not.
+- [Field by field is silent about absence](feedback_field_by_field_is_silent_about_absence.md) - AC-70's ip shipped null through fourteen handlers and a green sweep.
+- [Lock clause pin on the stand-in](project_lock_clause_pin_on_the_standin.md) - MySqlGrammar + pretend() shows `for update`; lock the full owner set, self included.
+- [Worktree .env and the gate baseline](project_worktree_env_and_gate_baseline.md) - a bare worktree has no .env: 10 to 11 env failures, the harness blocks .env writes, use an exported APP_KEY.
+- [SQLite rebuild, measured for T-014](project_sqlite_rebuild_measured_t014.md) - nine contract keys rebuild cleanly on the stand-in; the transaction trap is real.
+- [Stage files during a gate run](feedback_stage_files_during_a_gate_run.md) - draft the next step in a scratchpad stage tree plus an installer; never write into the repo mid-gate.
+- [Organization slice test gotchas](project_organization_slice_test_gotchas.md) - per-slice mirrored test folder, Route caches its handler, sorted changed_fields, Pest stan chains.
+- [FP-316 gate cluster and backgrounding](project_fp316_gate_cluster_and_backgrounding.md) - the 12-failure signature to compare against, and why the gate's own output can undercount FAILED headers.
+- [SubagentHandback is terminal, not a status update](feedback_subagenthandback_is_terminal_not_a_status_update.md) - wait for the real backgrounded result before the one final call.
+- [Event bus and outbox seams](project_eventbus_outbox_seams.md) - a fixture wrapper that re-wipes on every call, signed-by-default diffInSeconds, Artisan::output()'s drain, and three PHPStan-vs-runtime-check frictions.
+- [Lead instruction to commit does not override role rule](feedback_lead_instruction_to_commit_does_not_override_role_rule.md) - a task prompt said "commit"; the dev role file says the lead commits - flag it, don't silently do either.
+- [Idempotency store CAS and JSON object fidelity](project_idempotency_store_cas_and_json_object_fidelity.md) - the stale-claim takeover race, and why decode(assoc)+reencode turns `{}` into `[]` at two separate round-trip points.
+- [A prose disclaimer defeats its own regex](feedback_a_prose_disclaimer_defeats_its_own_regex.md) - "No DROP anywhere" contains the word DROP; strip comment lines before asserting a forbidden token is absent.
+- [Disabled button needs native click](feedback_disabled_button_needs_native_click.md) - dispatchEvent(new Event('click')) fires on a disabled button; use .click() to prove the guard.
+- [T-026 provisioning kernel layer](project_t026_provisioning_kernel_layer.md) - what steps 1-5 actually shipped, the `%` host wildcard vs sprintf, cwd-pollution flake, and reading CPU time twice before calling a run "hung".
+- [T-026 reserve_identity/select_server](project_t026_reserve_identity_select_server.md) - a step tested outside the runner must journal its own idempotency marker; AC-37's static check needs normalise() inlined at every write site, not behind a variable.
+- [T-026 create_owner/verify/activate](project_t026_create_owner_verify_activate.md) - the password side-channel a journalled return value can't carry, the attach-vs-create ordering trap, and the sole-writer scan `activate` collides with.
+- [T-026 end-to-end, abandon, close-out](project_t026_e2e_abandon_and_closeout.md) - why the E2E test lives in modules/host, the generic crash-once decorator, the sole-writer scan recurring, and the final gate numbers.
+- [Gate reads the live filesystem, never edit during it](feedback_gate_reads_live_filesystem_never_edit_during_it.md) - tenantTreeTables()/tenantMigrationFileCount() re-glob at assertion time, not collection time; and tee|tail swallows composer check's real exit code.
+- [T-027 catalog Chunk B unit model](project_t027_catalog_chunk_b_unit_model.md) - ladder/snapshot design that shipped, M1-M8 all green, and the AuditCatalogueTest two-line break every new DeclaresAuditActions provider causes.
+- [T-028 customers chunk A](project_t028_customers_chunk_a.md) - baseline numbers, the IdempotencyKeysSchemaTest hardcoded-top-entry gap the plan missed, and the oneSided() literal-statement gotcha.
+- [T-028 customers chunk B](project_t028_customers_chunk_b.md) - the float/TypeError precedent over the plan's literal wording, a 78% gate-timing jump likely from contention, and a `;`-chained exit-code trap.
+- [T-028 customers chunk C](project_t028_customers_chunk_c.md) - groups/customers CRUD, the real credit ledger writer and replay semantics, the second AuditCatalogueTest predicted-red gap, and a SQLite-numeric-affinity re-canonicalize gotcha.
+- [T-028 customers chunk E (final)](project_t028_customers_chunk_e.md) - the one-writer scan's real exemption list, the two-connection lock-contention engine test shape, and the final gate numbers (T-028 now fully built).
+- [T-028 BUG-1 fix (missing CustomerStatus::Inactive)](project_t028_customers_bug1_fix.md) - the second-hidden-branch pattern, and why this gate's exit code is never "0 means clean" against a known baseline.

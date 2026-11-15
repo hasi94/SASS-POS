@@ -29,7 +29,7 @@ function qaStanProbePath(): string
 
 function qaRunShippedStan(): ProcessResult
 {
-    return Process::path(base_path())->run([
+    return Process::path(base_path())->timeout(180)->run([
         PHP_BINARY,
         base_path('vendor/bin/phpstan'),
         'analyse',

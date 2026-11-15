@@ -1,5 +1,21 @@
 <?php
 
+/*
+|--------------------------------------------------------------------------
+| The serving version floor, read once, before the array
+|--------------------------------------------------------------------------
+|
+| Read here rather than inline below because absence has to survive as
+| absence: `(int) env('APP_REQUIRED_SCHEMA_VERSION', 0)` folded "nobody chose
+| anything" into "no floor" and the serving gate then had no way to tell them
+| apart, which is risk R-14. An unset or empty variable yields **null** - a
+| misconfiguration the gate refuses to serve on - and only a value someone
+| actually wrote becomes a number, including an explicit 0.
+|
+*/
+
+$requiredSchemaVersion = env('APP_REQUIRED_SCHEMA_VERSION');
+
 return [
 
     /*
@@ -41,6 +57,77 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Where the mapping is read from
+    |--------------------------------------------------------------------------
+    |
+    | `master` is the shipped source (FP-205): one joined read of
+    | tenant_databases + database_servers on the master connection, behind a
+    | 300-second cache keyed by tenant id. `config` is the local stand-in that
+    | reads the `databases` key below and queries nothing - it is what T-003
+    | shipped, and the tenancy fixtures still use it so their proofs need no
+    | master schema.
+    |
+    | `ttl` is the cache window in seconds. The credential version travels as a
+    | value inside the entry rather than in the key, so a rotation cannot leave
+    | an entry behind that nothing will ever evict.
+    |
+    */
+
+    'mapping' => [
+        'source' => env('TENANCY_MAPPING_SOURCE', 'master'),
+        'ttl' => (int) env('TENANCY_MAPPING_TTL', 300),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | The tenant schema version this code requires
+    |--------------------------------------------------------------------------
+    |
+    | The floor the **serving** version gate compares a mapping's
+    | schema_version against: below it, a request for that tenant is refused
+    | with a named exception before any network connection is attempted, and
+    | the host renders it as HTTP 503 with Retry-After. Entering a tenant for
+    | the *migration* purpose is exempt from this gate and only from this gate -
+    | a tenant below the required version is the only kind the runner migrates.
+    |
+    | **This key is the floor's only site.** config/schema.php used to read the
+    | same variable a second time, which is the shape decision D-14 rules
+    | against; anything needing "the highest version the shipped tree can
+    | produce" reads the catalogue instead, because that is a different fact
+    | from "the floor this deployment chose". .env.example names the value a
+    | deployment ships with, and a test pins it against the catalogue.
+    |
+    | Three states, not two (ruling 13.1):
+    |
+    | - **a number** - the floor, as AC-19 and AC-20 describe it;
+    | - **an explicit 0** - "no floor; tenant_databases.status is the only
+    |   guard", a choice someone wrote down, and served;
+    | - **absent** - nobody chose anything. That is a misconfiguration, and a
+    |   serving entry is refused with RequiredSchemaVersionNotConfigured and
+    |   rendered 503 *without* Retry-After, because waiting does not help. The
+    |   migrating purpose stays exempt: refusing it would disable
+    |   `php artisan tenant:migrate`, the one command that fixes the condition.
+    |
+    */
+
+    'required_schema_version' => is_numeric($requiredSchemaVersion)
+        ? (int) $requiredSchemaVersion
+        : null,
+
+    /*
+    |--------------------------------------------------------------------------
+    | How long a client should wait when a tenant is behind
+    |--------------------------------------------------------------------------
+    |
+    | The Retry-After header's value, in seconds, on the 503 a behind tenant
+    | gets. It is a hint for a client, not a promise about the migration.
+    |
+    */
+
+    'behind_retry_after' => (int) env('TENANCY_BEHIND_RETRY_AFTER', 30),
+
+    /*
+    |--------------------------------------------------------------------------
     | Local tenant-to-database mapping
     |--------------------------------------------------------------------------
     |
@@ -67,5 +154,55 @@ return [
     */
 
     'databases' => [],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Writable secrets (T-026 D-6, D-29)
+    |--------------------------------------------------------------------------
+    |
+    | `file://` is the only writable credential driver this project builds
+    | (D-6); every reference must resolve under `file_root`, after `..` and
+    | symlinks are resolved. The default is a sensible local path under this
+    | project's existing storage convention; the real VPS placement and
+    | backup strategy are deliberately deferred to FP-221 (D-29) - this key
+    | only has to be configurable, not correct for a deployment that does not
+    | exist yet.
+    |
+    | `provisioning.driver` selects the real-engine database/user-creation
+    | implementation; the default is "refusing", which throws rather than
+    | reach a live server. It is bound to "mysql" only when a deployment sets
+    | this explicitly - never by the test suite (ENGINE_HOLD, T-026 Ruling 4).
+    | `provisioning.user_host` is the MySQL/MariaDB host pattern a created
+    | user is scoped to.
+    |
+    */
+
+    'secrets' => [
+        'file_root' => env('TENANCY_SECRETS_FILE_ROOT', storage_path('secrets')),
+    ],
+
+    'provisioning' => [
+        'driver' => env('TENANCY_PROVISIONING_DRIVER', 'refusing'),
+        'user_host' => env('TENANCY_PROVISIONING_USER_HOST', '%'),
+        'admin_username' => env('TENANCY_PROVISIONING_ADMIN_USERNAME', 'root'),
+        // The charset/collation `create_database` asks for (T-026 AC-16),
+        // mirroring config/database.php's own mysql/mariadb connection
+        // defaults - a tenant database is created the same way the master
+        // connection already is, not a second convention.
+        'charset' => env('TENANCY_PROVISIONING_CHARSET', 'utf8mb4'),
+        'collation' => env('TENANCY_PROVISIONING_COLLATION', 'utf8mb4_unicode_ci'),
+
+        // Review round 1 W-5: where modules/host/tests/Engine/
+        // TenantProvisionerEngineTest.php connects, once ENGINE_HOLD
+        // clears. Deliberately NOT database.connections.mysql.* - that
+        // connection's own shipped default is the shared XAMPP engine
+        // (127.0.0.1:3306), exactly the server ENGINE_HOLD exists to
+        // protect. The default below is T-023 docker-compose.yml's own
+        // published MySQL port (FLEXIPOS_MYSQL_PORT, default 13306) -
+        // never 3306, which that test refuses outright regardless of how
+        // it is reached.
+        'engine_test_host' => env('TENANCY_PROVISIONING_ENGINE_TEST_HOST', '127.0.0.1'),
+        'engine_test_port' => env('TENANCY_PROVISIONING_ENGINE_TEST_PORT', 13306),
+    ],
 
 ];

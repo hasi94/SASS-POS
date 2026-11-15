@@ -1,0 +1,21 @@
+{
+    "name": "flexipos/access",
+    "description": "FlexiPOS access: tenant-local employees, roles, branch-scoped permissions, cashier PINs and the permission resolver.",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "proprietary",
+    "require": {
+        "flexipos/contracts": "*",
+        "php": "^8.2"
+    },
+    "autoload": {
+        "psr-4": {
+            "Flexipos\\Access\\": "src/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

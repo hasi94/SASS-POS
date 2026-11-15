@@ -133,6 +133,19 @@ it('refuses a tenant whose status is not active, naming the actual status', func
 })->with([
     'suspended' => ['tenant-suspended', 'suspended'],
     'provisioning' => ['tenant-provisioning', 'provisioning'],
+    // AC-53 half (b): while the runner has tenant B `migrating`, a serving
+    // entry for B is refused and names the status. The literal form of AC-53
+    // - a serving entry *during* a run - is unreachable in one process (D-49,
+    // plan 15.2); this is the half that needs no run, no second process and
+    // no engine, and until this row it was true of the code and asserted
+    // nowhere.
+    'migrating' => ['tenant-migrating', 'migrating'],
+    // AC-51(d), plan 16.1: the migrating purpose waives this gate over
+    // `read_only`, `provisioning` and `failed`. Serving does not, and these
+    // rows are the only thing that would go red if the waiver leaked - the
+    // one way the BUG-1 fix could be worse than the defect it closed.
+    'read_only' => ['tenant-read-only', 'read_only'],
+    'failed' => ['tenant-failed', 'failed'],
 ]);
 
 it('refuses an empty or whitespace-only identifier without touching the mapping source', function (string $identifier) {

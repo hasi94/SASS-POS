@@ -35,6 +35,15 @@ Two corollaries from the same proof:
   child finish. Say that plainly and give the direct-invocation evidence instead; do not dress a
   corroborating assertion up as an independently proven one.
 
+**A second guard can absorb a deletion and change only the *reason*.** T-009 step 5: deleting
+the verifier's `token_type` check did not make its case pass - the claim-set comparison refused
+the same token anyway, because the two claim shapes differ by one claim name, and the case
+failed on `'claim_set'` where it expected `'token_type'`. That reads as "the check is
+redundant" and it is not: the input that separates them is a token whose *names* are exactly
+the other type's while only the type *value* differs, and under the mutation that one is
+**accepted**. When a deletion changes a label rather than an outcome, the mutation is right and
+the input is wrong - go looking for the input where the deleted guard is the only one left.
+
 Mutate from a pristine copy kept outside the repo, restore by copying it back, and print
 `md5_file()` after each restore: the hash in the report is what makes "restored byte-identically"
 checkable. Related: [[clean-up-probe-files-immediately]],

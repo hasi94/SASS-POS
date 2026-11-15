@@ -28,8 +28,11 @@ it('answers the {{name}} ping route under its own prefix', function () {
     get('/{{prefix}}/ping')
         ->assertOk()
         ->assertJson([
-            'module' => '{{name}}',
-            'status' => 'ok',
+            'success' => true,
+            'data' => [
+                'module' => '{{name}}',
+                'status' => 'ok',
+            ],
         ]);
 });
 

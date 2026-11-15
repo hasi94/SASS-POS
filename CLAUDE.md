@@ -12,8 +12,6 @@ Multi-tenant SaaS POS **and ERP** platform. Modular Laravel monolith, Angular PO
 
 Backend PHP 8.2+ / Laravel, one application with modules booted from configuration · MySQL 8.4 in Docker and CI, MariaDB 10.4 in XAMPP mode · Redis 7 (cache, queues, Streams event bus) · Angular 21 PWA (`frontend/`) · .NET 8 Worker Service (`print-agent/`) · Docker Compose.
 
-**Vocabulary note:** the code still says `services/` and `svc:make` from the pre-v0.4 design. The rename to `modules/` and `module:make` is backlog row FP-202. Until it lands, the paths below are correct as written.
-
 ## Local environment (Windows 11, this machine)
 
 PHP and Composer are **not on PATH**. Use these absolute paths in every command:
@@ -36,21 +34,21 @@ Run from the repo root unless stated otherwise. `composer` below means the full 
 
 | Purpose | Command |
 |---|---|
-| Install backend deps | `cd services/host && composer install` |
-| Lint (format check) | `cd services/host && composer lint` (Pint `--test`) |
-| Lint (fix) | `cd services/host && composer lint:fix` |
-| Static analysis | `cd services/host && composer stan` (PHPStan) |
-| Boundary rules | `cd services/host && composer deptrac` |
-| Unit + feature tests | `cd services/host && composer test` (Pest) |
-| Tests, fast inner loop | `cd services/host && composer test:fast` — excludes the `toolchain` group. Measured **warm**: 23s against 82s for the full run. A cold machine or CI pays considerably more, so do not quote these as the cost of the gate. **Never the gate**: task completion is always judged by `composer check` |
-| Tests, the excluded group only | `cd services/host && composer test:slow` |
-| All checks (CI gate) | `cd services/host && composer check` |
+| Install backend deps | `cd modules/host && composer install` |
+| Lint (format check) | `cd modules/host && composer lint` (Pint `--test`) |
+| Lint (fix) | `cd modules/host && composer lint:fix` |
+| Static analysis | `cd modules/host && composer stan` (PHPStan) |
+| Boundary rules | `cd modules/host && composer deptrac` |
+| Unit + feature tests | `cd modules/host && composer test` (Pest) |
+| Tests, fast inner loop | `cd modules/host && composer test:fast` — excludes the `toolchain` group. Measured **warm**: 23s against 82s for the full run. A cold machine or CI pays considerably more, so do not quote these as the cost of the gate. **Never the gate**: task completion is always judged by `composer check` |
+| Tests, the excluded group only | `cd modules/host && composer test:slow` |
+| All checks (CI gate) | `cd modules/host && composer check` |
 | Frontend install / test | `cd frontend && npm ci` · `npm test` |
 | Print agent build / test | `cd print-agent && dotnet build` · `dotnet test` |
 
 ## Conventions
 
-- Modules are Composer path packages booted by the host from the `SERVICES` environment variable. Module boundaries are enforced by the boundary check: a module may use the kernel and another module's published contracts, never its internals.
+- Modules are Composer path packages booted by the host from the `MODULES` environment variable. Module boundaries are enforced by the boundary check: a module may use the kernel and another module's published contracts, never its internals.
 - All modules share the **tenant** connection; there is no connection per module. Foreign keys across modules inside a tenant database are normal. Financial documents still snapshot what they need to be reprinted exactly.
 - Every schema change runs against **every tenant database**. Use the per-tenant migration runner, follow expand-and-contract, and never assume one database.
 - Branches `ai/<ID>-<slug>`; commits `<ID>: <title>`; conventional-commit prefixes for non-task work.

@@ -84,9 +84,10 @@ beforeEach(function () {
     // protects the gate is `composer probes:clean`, the first entry of the check
     // script, because a surviving copy of this probe - a module test class
     // importing the host's ModuleRegistry - aborts `composer check` at
-    // @deptrac, the fourth of its five steps: @probes:clean, @lint, @stan,
-    // @deptrac, @test. This line said "third of five" while naming those same
-    // five (reviewer W-3): third of five is @stan, so the ordinal sent a reader
+    // @deptrac, the fifth of its six steps: @probes:clean, @engine:clean,
+    // @lint, @stan, @deptrac, @test (T-008 step 0 added @engine:clean). This
+    // line said "third of five" while naming five (reviewer W-3): third of five
+    // was @stan, so the ordinal sent a reader
     // debugging a surviving probe to the wrong step. Count off the list, which
     // is why the list is now in the sentence. All of that happens before any
     // hook here could run. It

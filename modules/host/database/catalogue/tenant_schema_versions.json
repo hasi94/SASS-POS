@@ -1,0 +1,410 @@
+[
+    {
+        "version": 1,
+        "migration": "0001_01_01_000001_create_schema_meta_table",
+        "phase": "expand",
+        "checksum": "22d5106399666935d64241d65037985a07ad1ccc9af9b06e83f7e38c6a119073",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 2,
+        "migration": "0001_01_01_000002_create_settings_registry_table",
+        "phase": "expand",
+        "checksum": "510c0f4a3f3d9f756897f034f1ec5d9e84efb5c7bdd9d0a0577e573e9dcb6f5f",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 3,
+        "migration": "0001_01_01_000003_create_settings_table",
+        "phase": "expand",
+        "checksum": "46ed79a75b5c605939f8610ee18c27170f9b41c84e8e2e7f8780d5503eb3ef01",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 4,
+        "migration": "0001_01_01_000004_create_number_sequences_table",
+        "phase": "expand",
+        "checksum": "976937277c637c49bb50ce420eeb31cddfa43721e414c6fe3f370c84d5ef35a5",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 5,
+        "migration": "0001_01_01_000005_create_audit_logs_table",
+        "phase": "expand",
+        "checksum": "e3ac4eee50003809f5f74eedafc2cddf1ba90c5ec9bf12d1be53bac57f94d10c",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 6,
+        "migration": "0001_01_01_000006_create_outbox_events_table",
+        "phase": "expand",
+        "checksum": "4e1c09b9d5690be55e6135f0f558db14ec880285ffee2c3a1d8f4241df3584a6",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 7,
+        "migration": "2026_10_20_000301_create_permissions_table",
+        "phase": "expand",
+        "checksum": "9575c491a85f2e6a59095c1c9f0e0d52eac50073fd06f7887f963b80a9d28576",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 8,
+        "migration": "2026_10_20_000302_create_roles_table",
+        "phase": "expand",
+        "checksum": "33024734de3bbef94cd0b55d229f70d332d1636383eeab62b28c0bbd9e83f3a8",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 9,
+        "migration": "2026_10_20_000303_create_role_permissions_table",
+        "phase": "expand",
+        "checksum": "362994fc28366c16a2f21b2adf9b0c324b27a81d134b29bd2fe0ea6e29678820",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 10,
+        "migration": "2026_10_20_000304_create_employees_table",
+        "phase": "expand",
+        "checksum": "8e846c38e2dee5670d7b6bf587d49134a9f71b18886aa2bc4162c454c22d873d",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 11,
+        "migration": "2026_10_20_000305_create_employee_roles_table",
+        "phase": "expand",
+        "checksum": "c2853ebf9a052171af7e1152f4aa3e7f33ac25225d5c0eb7107a9bd35257c0fc",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 12,
+        "migration": "2026_10_20_000306_create_employee_permissions_table",
+        "phase": "expand",
+        "checksum": "33aee59755080ccf76d60bfdb25158e11d29f138728c0c7a5bcfe3a014dffe90",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 13,
+        "migration": "2026_10_20_000307_create_employee_branches_table",
+        "phase": "expand",
+        "checksum": "f7fb824ecea6ed0394b24ea8d8b54054174aeaadf83e93669668611037cb44fb",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 14,
+        "migration": "2026_10_20_000308_create_access_log_table",
+        "phase": "expand",
+        "checksum": "418527572c2ee733b1c2d2922d80b778fa361c921da3e688dfeeec3a08963998",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 15,
+        "migration": "2026_10_21_000401_add_updated_by_foreign_key_to_settings_table",
+        "phase": "contract",
+        "checksum": "4dd75595a674f0b344e93fc9faa77fac00001ca2ffeb37cd26df976ee33c098d",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 16,
+        "migration": "2026_10_22_000501_create_branches_table",
+        "phase": "expand",
+        "checksum": "d8c37a950d9049dff0506ad0612757ae3fc11c071498aaf64e54e1db0a949723",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 17,
+        "migration": "2026_10_22_000502_create_locations_table",
+        "phase": "expand",
+        "checksum": "15f9fb5b34b1553c662a3d4926b2c0f78c259a5c28dc9e34315970d1bb76e75a",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 18,
+        "migration": "2026_10_22_000503_create_terminals_table",
+        "phase": "expand",
+        "checksum": "8a1098a1c48ac889a43e67b58da4d603dc0ea22c4f4509dddd3be389d8820b56",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 19,
+        "migration": "2026_10_22_000504_create_devices_table",
+        "phase": "expand",
+        "checksum": "dc3bf47429e4580fd463d84c619b40a896f3eac226daa28a5d303139d0286f20",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 20,
+        "migration": "2026_10_22_000505_create_terminal_credentials_table",
+        "phase": "expand",
+        "checksum": "11fe2400c8250baf2b58d4c7a82d515bb4e245c93b8199cc02cfe761f1a89ebe",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 21,
+        "migration": "2026_10_22_000506_add_branch_foreign_keys",
+        "phase": "contract",
+        "checksum": "b6e4e78dbe37ab5bf70bda0bf1b4b31cbe5e834eabb5a5e5472fba222b45b29e",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 22,
+        "migration": "2026_10_29_000701_create_audit_logs_archive_table",
+        "phase": "expand",
+        "checksum": "62d45186b6a6850297865983a324c10b01984bf9da0c0af3a7768e3d4274c8f4",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 23,
+        "migration": "2026_10_29_000801_create_plugin_settings_table",
+        "phase": "expand",
+        "checksum": "a2900aa9c56d20be8fc46fa15fdd0adfa32b35421aa19a442d0ff0a37f378ad6",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 24,
+        "migration": "2026_10_29_000802_create_plugin_migrations_table",
+        "phase": "expand",
+        "checksum": "bdeb32478a759916622eb94f525ef241ba6bfc2fa296fea99576a432f378cc21",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 25,
+        "migration": "2026_10_29_000803_create_plugin_execution_logs_table",
+        "phase": "expand",
+        "checksum": "df16b6317ec5f79f47c1650ccf6ea98be2e28379c5b7bfddbb70150cbbc0d4a7",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 26,
+        "migration": "2026_10_30_000901_create_workflow_definitions_table",
+        "phase": "expand",
+        "checksum": "af4478cfea3c1e51549eb52353b835f82640ab140394bdccd8f2378dffd51d72",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 27,
+        "migration": "2026_10_30_000902_create_workflow_steps_table",
+        "phase": "expand",
+        "checksum": "37746e8eb265996266ceb34c40d3bfd58434e319966916fb1402a5889bdbd3cd",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 28,
+        "migration": "2026_10_30_000903_create_workflow_instances_table",
+        "phase": "expand",
+        "checksum": "4fc7480535deb8e86b945ecc425559877a4ad2cd59723619961ec712a06fffd8",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 29,
+        "migration": "2026_10_30_000904_create_workflow_tasks_table",
+        "phase": "expand",
+        "checksum": "d4b7daf12aa81ee62304847c4143530cdcf55a651baf66788c950562526dc983",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 30,
+        "migration": "2026_10_30_000905_create_workflow_events_table",
+        "phase": "expand",
+        "checksum": "b5255b1a8a54e71af7b3120ffd7c2c251761696e153bf2b46a6ddda7118264ed",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 31,
+        "migration": "2026_10_30_001001_create_idempotency_keys_table",
+        "phase": "expand",
+        "checksum": "3ad62ef433e64bc2eee7cc84157937431756865436396e7889090ba84eece481",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 32,
+        "migration": "2026_11_08_002701_create_units_table",
+        "phase": "expand",
+        "checksum": "252157f419c9744b8a94a0e1b52f0581f48d3d8b61b51b0acdb7d3d48a78fe68",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 33,
+        "migration": "2026_11_08_002702_create_categories_table",
+        "phase": "expand",
+        "checksum": "7b57eb7559d736d5283470cf275e6e433ba20dd4b46dd1d68e3f7a047caa00c0",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 34,
+        "migration": "2026_11_08_002703_create_brands_table",
+        "phase": "expand",
+        "checksum": "ed00daa127ab92df29eeb774186f5b27af5e39d5f92d9293f99d0700c4de6887",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 35,
+        "migration": "2026_11_08_002704_create_products_table",
+        "phase": "expand",
+        "checksum": "601914dcf3c378b88d6a9b01a87e0d938cf0a3c2e063e58092689406b31eca59",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 36,
+        "migration": "2026_11_08_002705_create_unit_conversions_table",
+        "phase": "expand",
+        "checksum": "9a5f3916afae2adb62a261a5cf2ae9fc96b5c7908b5b81e958634e169042b770",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 37,
+        "migration": "2026_11_08_002706_create_product_barcodes_table",
+        "phase": "expand",
+        "checksum": "e647877f3e01a77c2d910e17b770541763f7b10795091646c1c8f69fd353d58e",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 38,
+        "migration": "2026_11_08_002707_create_product_locations_table",
+        "phase": "expand",
+        "checksum": "4f13a36da7ba1069749ad4da89c952a5f193fd89fab313e5263d33b16fa6d5cb",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 39,
+        "migration": "2026_11_08_002708_create_product_branches_table",
+        "phase": "expand",
+        "checksum": "ab5124c7ffcaf87280737185548188c634ec53f71c447c0f28381e9c4c110ab2",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 40,
+        "migration": "2026_11_08_002709_create_product_components_table",
+        "phase": "expand",
+        "checksum": "08cca045b0947c6a46dd5fd0817247249f1da150e604a3440ec5b16264104987",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 41,
+        "migration": "2026_11_08_002710_create_modifier_groups_table",
+        "phase": "expand",
+        "checksum": "ca49c80a5239c6e6752b2240e705e35d29aa89e60989ee821547b181c88c1276",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 42,
+        "migration": "2026_11_08_002711_create_modifiers_table",
+        "phase": "expand",
+        "checksum": "0380985948fd249e3cb8eca0acc2d296465c9df586f609ca0334ff7031f9603c",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 43,
+        "migration": "2026_11_08_002712_create_product_modifier_groups_table",
+        "phase": "expand",
+        "checksum": "20a56fa0787796c5ba8f559f2a53e398c081e2e2f7721c0ed38cc8ee729c9a9e",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 44,
+        "migration": "2026_11_10_002801_create_customer_groups_table",
+        "phase": "expand",
+        "checksum": "ca75e6a01952f67f7b425bbf436a342c1d41273229d6b023218f3261001d0323",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 45,
+        "migration": "2026_11_10_002802_create_customers_table",
+        "phase": "expand",
+        "checksum": "363204aa6f5afcbb4a674e1e3ed4e7e0112f17393732ee3fc9b2064a529a1e0c",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 46,
+        "migration": "2026_11_10_002803_create_customer_addresses_table",
+        "phase": "expand",
+        "checksum": "39616c999b0f4640ae072d5fd0a52bab3971f5926fa30e2c97c35256cdc6c9f0",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 47,
+        "migration": "2026_11_10_002804_create_customer_ledger_table",
+        "phase": "expand",
+        "checksum": "73b35d4e6b03fa2dea8d7d94e072994e38a1a5a5e938c81fe76cb2c4284c69c1",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 48,
+        "migration": "2026_11_10_002805_create_loyalty_programs_table",
+        "phase": "expand",
+        "checksum": "445341566cba3c872bc6956183c40990ab9efa9392c6363c5ebbbf2a4ca64f63",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 49,
+        "migration": "2026_11_10_002806_create_loyalty_transactions_table",
+        "phase": "expand",
+        "checksum": "cb1e0f2372c2459fc1e22ee9a7c65c602f4c447c7a06c90bbc9dbb7d8611ba0c",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 50,
+        "migration": "2026_11_10_002807_create_customer_notes_table",
+        "phase": "expand",
+        "checksum": "9fedb43e1b29cd151be735f9b416b7e3c77a60055126111689652775d78b14f9",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 51,
+        "migration": "2026_11_10_002808_create_customer_communications_table",
+        "phase": "expand",
+        "checksum": "16bc4a407b18e685faac196d244105cc3358f9ebcf0f63e543a5007e699172e1",
+        "is_destructive": false,
+        "requires_offline": false
+    }
+]

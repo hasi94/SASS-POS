@@ -190,3 +190,17 @@ hits and a historical witness. Whatever token you add needs a planted survivor t
 
 Related: [[module-host-fragile-areas]], [[qa-assert-contract-not-symptom]],
 [[tenancy-boundary-leak-surfaces]], [[gate-split-and-shared-state]].
+
+**The `dirname(__DIR__, N)` off-by-one, found on T-016.** `QaPlatformSourceRulesTest.php`
+(`modules/host/tests/Feature/`) built every `packages/*/src` scan path as
+`dirname(__DIR__, 3).'/packages/.../src'`. From `tests/Feature` that lands on `.../modules`,
+one level short of the repo root, so every scan path was a directory that does not exist -
+and `qaPlatformSourceFiles()`'s own `is_dir()` guard skipped each one without complaint. The
+AC-15 sole-writer scans and the AC-4 absence scan had been passing by scanning only
+`modules/host/app`, never any package `src/`. Caught only because a brand-new scan I added
+next to them (AC-22/AC-23) kept passing suspiciously easily, and I checked the directories it
+claimed to be reading. **Always verify the actual level count with a throwaway PHP script
+(`dirname($knownPath, N)`, print it, `is_dir()` it) before trusting a scan's own directory
+list** - do not just read the dirname() call and assume the author counted right. Add a
+permanent `is_dir()` assertion over every entry in the directories-list function itself, so
+the same off-by-one can never again hide behind a silent `continue`.
