@@ -6,6 +6,28 @@ Backlog: FP-260. Branch: `ai/T-032-chart-of-accounts`. Gate directory: `modules/
 
 Everything about shipped code below was measured read-only in `.claude/worktrees/build-56f213` (branch `ai/T-028-customers`, tip `20ad316`, T-028 DONE), because this branch's own tree does not contain it (F-1).
 
+**Revision 2.** `ba` folded F-1 to F-19 into spec revision 2 and decisions D-20 to D-29 in `e5c99bb`. This revision was reconciled against that commit's diff, not a summary of it. Section 0.2 below is now the record of what was routed. Its resolutions are the spec's own text, and every "suggested" or "may prefer" alternative in it is **void**.
+
+| Finding | Now in the spec as | Decision |
+|---|---|---|
+| F-1 | "Current behaviour", Assumption 1, section I preamble | D-20 |
+| F-2, F-3 | **AC-58**, **AC-60** (three permitted kinds of test edit) | D-29 |
+| F-4, F-5 | Merge order, section I preamble, AC-52, forward dependencies | D-22 |
+| F-6 | **AC-52** (three expand files), **AC-53** (one contract file), **AC-54** (eight migrations) | D-21 |
+| F-7, F-8, F-12 | Assumptions 2 and 3, **AC-8** (`not_updatable_here`), **AC-18** (enforced through whichever operation applies), **AC-64** (**seven** keys: `finance.periods.view` added) | D-24 |
+| F-9, F-11 | **AC-10** (`parent_inactive` and the full check order, which also applies to re-parent), **AC-25** (cites AC-37 and AC-41; reason codes `has_postings` / `code_locked` / `control_type_locked`) | D-25 (all 14 proposed codes adopted as-is) |
+| F-10 | **AC-26** (subtypes) | D-23 |
+| F-13, F-14, F-17, F-18, F-19 | AC-47, AC-65, forward dependencies | D-28 |
+| F-15 | **AC-30**, AC-65 | D-27 |
+| F-16 | **AC-4** | D-26 |
+
+**What changed in this plan between revisions.** Only one design change: the **seventh permission key** (D-24) moves the year, period and date-lookup reads from `finance.accounts.view` to `finance.periods.view`. Rulings 5 and 9, step 8, sections 4 and 10, and the AC-64 matrix are updated for it. Everything else changes only in its references:
+- step 18 and section 9 now carry AC-60's third kind of test edit and AC-58's merged-customer clause;
+- FP-428 is cited as the backlog row step 18 partly closes;
+- three new findings, N-1 to N-3, are listed in section 0.2a.
+
+The step count is unchanged at 23 (steps 0 to 22, six chunks).
+
 ---
 
 ## 0. Verification, findings and rulings
@@ -27,9 +49,9 @@ Everything about shipped code below was measured read-only in `.claude/worktrees
 | Planner and contract steps | **Holds** | `PlanMigrationRunHandler` AC-58 guard: a contract step is planned only once every non-provisioning tenant is at the version before it. `2026_10_22_000506_add_branch_foreign_keys.php` is the shape: every data-clean count first, message names table, column and count only, skip a key already present, no `down()` |
 | Gate baseline | **Not re-measured here** | T-028 close (`20ad316`): `composer check` 13 failed (pre-existing) / 3483 passed / 38 skipped; `test` step about 1638 s. Step 0 measures it on the merged branch |
 
-### 0.2 Findings (numbered; S = serious)
+### 0.2 Findings routed to `ba` (numbered; S = serious): all resolved in `e5c99bb`
 
-**Need a spec or decision amendment, routed through `lead` to `ba`:**
+**These needed a spec or decision amendment** (the resolutions are now D-20 to D-29; see the mapping table at the top):
 
 - **F-1 (S, blocking, corrects Assumption 1 and D-19).** No section of this spec can be built on the current base: A to H and J need the tenant migration tree, the runner, `employees`, `permissions`, `PermissionResolver`, `AuditTrail` and provisioning, none of which exist here. **Resolution:** Step 0 brings `ai/T-028-customers` @ `20ad316` into this branch before any code. Preferred: `git merge 20ad316` (no history rewrite, keeps T-013; the only expected conflict is `docs/backlog.md`). Alternative: `git rebase --onto 20ad316 4ece505` (moves `262a2bf` alone; T-013 then returns when the chain reaches `main`). Git merge/checkout needs the human's permission on this machine, so `lead` must ask **at task start**. Once merged, T-027 and T-028 are present, so section I is buildable in the same pass. It still sits in a late chunk (E), as asked.
 - **F-2 (S, AC-60).** "Still pass unchanged" cannot hold. **Resolution:** AC-60 should read "still pass; the only edits are the assertions that pinned the five columns' absence, which now pin their presence, and the whole-row expectations that gain the five keys". Step 17/18 list each edited test in section 9.
@@ -38,7 +60,7 @@ Everything about shipped code below was measured read-only in `.claude/worktrees
 - **F-5 (S, scope gap).** T-029's F-17/section 10 routes three more owed columns to FP-260: `tax_authorities.payable_account_id` (expand, backfill, contract **NOT NULL**), `tax_authorities.receivable_account_id`, `discounts.sales_discount_account_id`. D-1/D-2 do not mention them. **Resolution:** this task builds the five only. The three tables do not exist on this branch unless T-029 merges first, and the `NOT NULL` tighten is destructive under today's classifier (T-029 F-3), which D-10 blocks. `lead` needs a backlog row (or a T-032 follow-up after T-029 lands). AC-52's "fails on a sixth" counter is scoped to `products`, `categories` and `customers`, so it does not go red when those three arrive.
 - **F-6 (S, operational, D-2/AC-53/AC-54).** "An expand and a separate contract migration per pair" means five contract files. Under the AC-58 planner guard, five consecutive contract files need five fleet runs (T-014 D-31). **Resolution:** three expand files (one per table) and **one** contract file holding all five keys, ordered after all three. AC-53's "separate migration, ordered after its expand migration" holds. AC-54's "the ten migrations" becomes "every T-032 migration (eight)".
 - **F-7 (Assumption 2, placement).** "Finance is a new module package booted from `MODULES`" contradicts `docs/architecture.md` §3's as-built rule, and it would be unsafe: catalog and customers resolve `ChartOfAccounts` inside their own update handlers (section I), so with `MODULES` lacking `finance` every product update would fail on an unbound interface. **Ruling 1** places it in `packages/finance`, registered in `bootstrap/providers.php`.
-- **F-8 (AC-64, mechanism and spelling).** No route layer exists to hang the keys on. **Resolution:** authorization is checked inside every Finance handler, first, through the published `PermissionResolver`, before any transaction opens and before any read of the target (Ruling 5). This is the codebase's first handler-level check. A handler refusal writes no `access_log` row (that is the HTTP layer's record; the route task adds it). **Spelling:** the six keys are kept **verbatim** from AC-64: `finance.accounts.view`, `finance.accounts.manage`, `finance.periods.manage`, `finance.periods.close`, `finance.periods.reopen`, `finance.periods.post_adjustment`. They satisfy `KEY_PATTERN` and the 80-character limit. The `finance.` namespace is deliberate: FP-261 to FP-268 add journals, AR, AP and bank keys under one module, and a bare `accounts.*` would sit next to FP-263's `financial_accounts`. The keys are the first three-segment keys. No amendment is needed, but one is suggested: AC-64 gives fiscal-year/period **reads** to `finance.accounts.view`. The plan follows that literally. `ba` may prefer a seventh key, `finance.periods.view`.
+- **F-8 (AC-64, mechanism and spelling).** No route layer exists to hang the keys on. **Resolution:** authorization is checked inside every Finance handler, first, through the published `PermissionResolver`, before any transaction opens and before any read of the target (Ruling 5). This is the codebase's first handler-level check. A handler refusal writes no `access_log` row (that is the HTTP layer's record; the route task adds it). **Spelling:** the six keys are kept **verbatim** from AC-64: `finance.accounts.view`, `finance.accounts.manage`, `finance.periods.manage`, `finance.periods.close`, `finance.periods.reopen`, `finance.periods.post_adjustment`. They satisfy `KEY_PATTERN` and the 80-character limit. The `finance.` namespace is deliberate: FP-261 to FP-268 add journals, AR, AP and bank keys under one module, and a bare `accounts.*` would sit next to FP-263's `financial_accounts`. The keys are the first three-segment keys. **Resolved by D-24: `ba` added a seventh key, `finance.periods.view`, for the year, period and date-lookup reads.** The plan now declares seven.
 - **F-9 (AC-25 text).** AC-25 lists AC-44 among the rules a bound fake must make refuse. AC-44 is the lock order. The port-driven refusals are AC-37 (`FiscalYearUsage`) and AC-41 (`PeriodCloseBlockers`). The plan tests AC-14, 15, 19, 22, 23, 37 and 41 with fakes.
 - **F-10 (D-6 underspecified).** D-6 fixes parents, types and control types but not the subtype of the non-control rows. The plan's seed table (section 4) picks: headers null; 2200 `long_term_liability`; 4100 `sales`; 5000 `cogs`; 6100 and 6300 `operating_expense`; 6200 `payroll_expense`. 2400 and 2500 are `current_liability` and 1100 to 1400, 2100, 2300 and 3100 take the subtype AC-16 requires. The product owner should review before FP-261 (D-6 already says system codes freeze once data posts).
 - **F-11 (AC-10 against AC-24).** AC-10 lets an active child be created under an inactive header, while AC-24 refuses to reactivate a child under one. **Resolution (safer):** create and re-parent also refuse an inactive parent, `parent_inactive`. Plan-added reason codes, for `ba` to adopt or rename: `parent_inactive`, `already_inactive`, `already_active`, `has_postings` (AC-14/15/19 "has postings" where AC-22 says `code_locked`), `control_type_locked` (AC-19), `not_updatable_here` (F-12), `period_not_found`, `fiscal_year_not_found`, `fiscal_year_not_open`, `later_year_not_open`, `name_in_use`, `not_permitted`, `page_size_invalid`, `cursor_invalid`.
@@ -56,6 +78,15 @@ Everything about shipped code below was measured read-only in `.claude/worktrees
 - **F-17.** The gate does not check "posting rights" (AC-47). It answers only the period question; FP-261 owns who may post at all.
 - **F-18.** §6.10 gives `fiscal_periods` no `[TS]`, so a period rename records no `updated_at`; the audit row is the record.
 - **F-19 (forward risk for FP-261).** Posting is asynchronous through the outbox (`architecture.md` §10). A document dated in a period that closes before its posting runs will be refused by the gate. FP-261 must decide what happens then (park and alert, or post to the next open period by rule). That is not this task's to build, but it is the gate's direct consequence.
+
+### 0.2a New findings against revision 2 (N-1 to N-3)
+
+- **N-1 (wording conflict, AC-15 against AC-25; not blocking).** AC-15 refuses a type change `type_change_refused` "naming the failing condition". Revised AC-25 says the postings refusals "use reason `has_postings`, except AC-22 `code_locked` and AC-19 `control_type_locked`", and AC-15 is in AC-25's list. Read literally, a retype of an account with postings must carry two different reason codes.
+  - **Plan (the safer reading, because it keeps AC-15's explicit code):** the reason is `type_change_refused`, and its `condition` field is `has_postings` (or `is_system`, `has_children`, `in_use`, `parent_type_mismatch`).
+  - AC-14 and AC-23 use `has_postings` as the reason itself.
+  - `ba` should add "AC-15 `type_change_refused`" to AC-25's exception list.
+- **N-2 (scope note, FP-428).** Backlog FP-428 (T-027 review round 1) covers **every** catalog update handler that skips `whereNull('deleted_at')`, not only products and categories. AC-58/D-29 fix products and categories only. Step 18 does exactly that, and FP-428 stays open for the remaining catalog update handlers (brands, units, barcodes and the rest). `lead` should annotate FP-428 rather than close it.
+- **N-3 (informational, AC-58 merged customers).** Revised AC-58 adds "or, for a customer, merged away". `MergeCustomersHandler` soft-deletes the source (T-028 Ruling 9 step 7), so `UpdateCustomerHandler`'s existing `whereNull('deleted_at')` already refuses a merged customer. No code change is needed. Step 18 adds one regression case: an account-field update on a merged-away source is refused.
 
 ### 0.3 The T-028 review classes, ruled out by construction
 
@@ -111,7 +142,14 @@ That is 22 files. Nothing else is published.
 
 `AccountInput::forCreate(array)` and `forUpdate(array)` compose Rulings 3 and 4's field-level checks into one validated draft. The seed test (AC-29) uses exactly these.
 
-**Ruling 5: authorization** (AC-64). `Support\Authorize::require(?string $actorId, string $key)` is the **first statement** of every Finance handler. A null actor is `not_permitted`. Otherwise it calls `PermissionResolver::decide($actorId, $key, null)` and refuses `not_permitted` naming the key, but never the resolver's finer cause (the D-26 precedent). It runs before any transaction opens (Ruling 6). Keys live as constants in `Registry\FinancePermissions` (module `finance`, groups `accounts` and `periods`, all `isBranchScoped = false`). The provider implements `DeclaresPermissions`, so `seed_core`'s `seedPermissions()` registers them at provisioning. Whether the owner role holds new keys automatically is verified at step 0. If it does not, nobody can use Finance after provisioning, and that is a follow-up row for the roles task (Assumption 3), not built here.
+**Ruling 5: authorization** (AC-64). `Support\Authorize::require(?string $actorId, string $key)` is the **first statement** of every Finance handler. A null actor is `not_permitted`. Otherwise it calls `PermissionResolver::decide($actorId, $key, null)` and refuses `not_permitted` naming the key, but never the resolver's finer cause (the T-010 D-26 precedent, not this task's D-26). It runs before any transaction opens (Ruling 6). The **seven** keys (AC-64, D-24) live as constants in `Registry\FinancePermissions` (module `finance`, groups `accounts` and `periods`, all `isBranchScoped = false`):
+- `finance.accounts.view`
+- `finance.accounts.manage`
+- `finance.periods.view`
+- `finance.periods.manage`
+- `finance.periods.close`
+- `finance.periods.reopen`
+- `finance.periods.post_adjustment` The provider implements `DeclaresPermissions`, so `seed_core`'s `seedPermissions()` registers them at provisioning. Whether the owner role holds new keys automatically is verified at step 0. If it does not, nobody can use Finance after provisioning, and that is a follow-up row for the roles task (Assumption 3), not built here.
 
 **Ruling 6: transactions and the lock table.** Every write handler runs `Authorize`, then pure parsing (rejections before locks), then `$connection->transaction(fn, attempts: 2)`. The second attempt exists only for a deadlock victim, which re-runs and then gets a named refusal.
 
@@ -155,7 +193,7 @@ The row list is a `public const ROWS` on the migration's class. A test re-derive
 | Account reads | `ListAccounts`, `GetAccount`, `GetAccountTree` | `finance.accounts.view` |
 | Years | `CreateFiscalYear`, `RenameFiscalYear`, `DeleteFiscalYear`, `RenameFiscalPeriod` | `finance.periods.manage` |
 | Transitions | `TransitionFiscalPeriod` (target `soft_closed`/`closed`/`open`), `CloseFiscalYear`, `ReopenFiscalYear` | close moves: `finance.periods.close`; reopen moves (closed→soft_closed, soft_closed→open, year reopen): `finance.periods.reopen` |
-| Year reads | `ListFiscalYears`, `ListFiscalPeriods`, `FindPeriodByDate` | `finance.accounts.view` (F-8) |
+| Year reads | `ListFiscalYears`, `ListFiscalPeriods`, `FindPeriodByDate` | `finance.periods.view` (D-24) |
 
 `TransitionFiscalPeriod` decides the key from the requested move, after the pure `transition()` check, so an `invalid_transition` request is refused before authorization can tell the caller anything. The contract implementations (`Accounts\DatabaseChartOfAccounts`, `Periods\DatabasePeriodGate`) are not slices and need no permission. They are called by trusted module code, and the gate checks `post_adjustment` itself.
 
@@ -283,7 +321,7 @@ The `2026_11_15_0032xx` prefix sorts after T-029's `2026_11_10_0029xx` whichever
 
 `is_system` = control type ≠ none (nine rows).
 
-**Contracts:** Ruling 2. **Permissions:** six keys (F-8). **HTTP, console, jobs, cache, hooks, outbox:** none. **Config:** `finance.php`. **Dependencies:** only the `flexipos/finance` path package; the `composer.lock` diff must add only that entry.
+**Contracts:** Ruling 2. **Permissions:** seven keys (Ruling 5, D-24). **HTTP, console, jobs, cache, hooks, outbox:** none. **Config:** `finance.php`. **Dependencies:** only the `flexipos/finance` path package; the `composer.lock` diff must add only that entry.
 
 ## 5. Boundary impact and merge order
 
@@ -315,7 +353,8 @@ Rules carried from T-027/T-028 §6, unchanged:
 ### Chunk A: base, plumbing, schema, static instruments
 
 - [ ] **Step 0: merge the base, measure it, verify every named symbol. STOP on any difference.**
-  - **Merge:** `lead` obtains the human's permission, then merges `ai/T-028-customers` @ `20ad316` into this branch (F-1); resolve `docs/backlog.md` only. If any other file conflicts, stop.
+  - **Spec:** build from spec revision 2 and D-20 to D-29 (`e5c99bb`), not from this plan's paraphrase and not from the first draft (`262a2bf`).
+  - **Merge:** `lead` obtains the human's permission, then merges `ai/T-028-customers` @ `20ad316` into this branch (F-1, D-20); resolve `docs/backlog.md` only. If any other file conflicts, stop.
   - **Baseline:** `composer check`: record passed, failed and skipped counts, the `test` seconds and the process list. Expected: 13 failed (pre-existing) / about 3483 passed / about 38 skipped. A different failing set means stop.
   - **Verify, by reading source; every row must hold, else stop and report to `architect`:**
     - `AuditTrail::record` has the signature in 0.1, and `DeclaresAuditActions` / `DeclaresPermissions` / `PermissionDeclaration` / `PermissionResolver::decide(employeeId, key, ?branchId): AccessDecision` (with `->allowed`) are as quoted;
@@ -429,13 +468,14 @@ Rules carried from T-027/T-028 §6, unchanged:
 - [ ] **Step 8: permissions, authorization, ports.**
   - `FinancePermissions`, which the provider declares.
   - `Authorize`; `ReferrerCensus`; the three `No*` defaults bound.
-  - `FinanceSeed` gives one employee per profile: none, view, manage, close, reopen, post_adjustment.
+  - `FinanceSeed` gives one employee per key (seven), plus one with none.
   - **AC-64 matrix (one dataset over every slice):**
     - a caller without the key is refused `not_permitted`, and a query listener proves **no** `accounts`/`fiscal_*` statement ran;
     - a null actor is refused;
     - a soft-deleted employee is refused;
-    - `close` does not grant `reopen`, and `reopen` does not grant `close`.
-  - The registry sweep finds the six keys through the booted provider.
+    - `close` does not grant `reopen`, and `reopen` does not grant `close`;
+    - **D-24 separation:** `finance.accounts.view` does not grant the year, period or date-lookup reads, and `finance.periods.view` does not grant the account reads.
+  - The registry sweep finds the seven keys through the booted provider.
   - **Mutation M11:** move `Authorize` inside the transaction after the target read, which makes the "no statement ran" assertion go red.
   - *(AC-64; AC-25 wiring.)*
 - [ ] **Step 9: `CreateAccount`.**
@@ -453,9 +493,9 @@ Rules carried from T-027/T-028 §6, unchanged:
   - **AC-20:** unknown or soft-deleted gives `account_not_live`, nothing written.
   - **AC-21:** unsupplied fields are unchanged.
   - **AC-14:** a header with a live child changed to postable gives `has_children`. A postable leaf changed to header: accepted with no usage; refused with a bound `AccountUsage` fake (`has_postings`) or a fake referrer (`in_use`).
-  - **AC-15:** each condition by name.
+  - **AC-15:** each condition by name: reason `type_change_refused`, with `condition` set to the failing one, including `has_postings` (N-1).
   - **AC-18:** the system immutables.
-  - **AC-19 and AC-22:** with fakes.
+  - **AC-19 and AC-22:** with fakes. The reasons are `control_type_locked` and `code_locked` (AC-25, D-25).
   - **F-12:** `parent_id` and `is_active` give `not_updatable_here`.
   - *(AC-14, AC-15, AC-18 to AC-22, AC-25 in part.)*
 - [ ] **Step 11: `ReparentAccount`, `DeactivateAccount`, `ReactivateAccount`, `DeleteAccount`.**
@@ -580,7 +620,10 @@ Rules carried from T-027/T-028 §6, unchanged:
   - **`CatalogAccountReferrers`, `CustomerAccountReferrers`:** `sharedLock()` counts, live and deleted separately.
   - **AC-55 and AC-56:** per field, each of the five reasons, plus a malformed id (catalog's or customers' own validation naming the field).
   - **AC-57:** `assignable` outside a transaction throws; the `sharedLock` call is observed; the race is `[ENGINE]`.
-  - **AC-58:** a soft-deleted product, category or customer refuses an account update **and** a name update (F-3 regression).
+  - **AC-58 (D-29):**
+    - a soft-deleted product, category or customer refuses an account update **and** a name update as not found, with nothing written (F-3 regression);
+    - a merged-away customer source refuses an account update (N-3);
+    - **AC-60(c):** any shipped T-027 test that expected a soft-deleted product or category to update successfully is edited to expect the refusal. `dev` lists each such file in the hand-back; section 9 names the candidates. If there are none, record "none found".
   - **AC-59:** reads carry the ids or null.
   - **AC-23 and AC-24 end to end:**
     - delete an account referenced by a soft-deleted product gives `in_use` (`products.income_account_id: 0 live, 1 deleted`);
@@ -708,7 +751,7 @@ Rules carried from T-027/T-028 §6, unchanged:
 | `modules/host/config/finance.php` *(new)* | Ruling 10 | 1 |
 | `tests/Feature/QaToolchainRegistryCoverageTest.php` | `'finance'` | 1 |
 | `packages/access/tests/Support/AuditCatalogueTest.php` | `'finance'` in both module literals, when the first action lands | 8 or 9 |
-| access permission-count tests, if any count the total registered keys | +6 (record the exact files at step 8) | 8 |
+| access permission-count tests, if any count the total registered keys | +7 (record the exact files at step 8) | 8 |
 | `database/catalogue/tenant_schema_versions.json` | republished | 2, 16, 17 |
 | `.env.example` | version 51 → 54 → 55 → 59 (base-relative) | 2, 16, 17 |
 | `tests/Helpers.php` `tenantTreeTables()` | three names under a T-032 comment | 2 |
@@ -722,7 +765,7 @@ Rules carried from T-027/T-028 §6, unchanged:
 | T-029's `ProductTaxGroupMigrationsTest` (only if T-029 merged first) | AC-29.3 narrowed to T-029's files (F-4) | 17 |
 | `packages/catalog/src/Features/{CreateProduct,UpdateProduct,CreateCategory,UpdateCategory}/*Handler.php`, `CatalogServiceProvider.php` | section 3, F-3 | 18 |
 | `packages/customers/src/Features/{CreateCustomer,UpdateCustomer}/*Handler.php`, `CustomersServiceProvider.php` | section 3 | 18 |
-| `packages/catalog/tests/Features/{CreateProduct,UpdateProduct,CreateCategory,UpdateCategory}/*Test.php`, `packages/catalog/tests/Support/CatalogSeed.php` | whole-row expectations +account keys; F-3 regression cases | 18 |
+| `packages/catalog/tests/Features/{CreateProduct,UpdateProduct,CreateCategory,UpdateCategory}/*Test.php`, `packages/catalog/tests/Support/CatalogSeed.php` | AC-60's three permitted kinds only: (a) is in step 17's row; here (b) whole-row expectations gain the account keys, and (c) any test that updated a soft-deleted product or category now expects the refusal; plus new F-3 regression cases | 18 |
 | `packages/customers/tests/Features/{CreateCustomer,UpdateCustomer}/*Test.php`, `packages/customers/tests/Support/CustomersSeed.php` | the same | 18 |
 | `docs/database.md`, `docs/architecture.md` | step 21 | 21 |
 
@@ -740,8 +783,10 @@ Anything red that is not in this table means stop and report to `architect`.
 - **New row (or a T-032 follow-up after T-029 lands):** `tax_authorities.payable_account_id`/`receivable_account_id`, `discounts.sales_discount_account_id` (F-5).
 - **FP-262:** consume the five columns and the resolver.
 - **FP-264:** `customers.receivable_account_id`.
-- **Roles task:** grant the six finance keys to a finance role, and to the owner if step 0 finds the owner does not get new keys automatically.
-- **FP-269 / the API task:** routes with `RequireTenantPermission` declaring the same six keys, which brings `access_log` rows (F-8).
+- **Roles task:** grant the seven finance keys to a finance role, and to the owner if step 0 finds the owner does not get new keys automatically.
+- **FP-269 / the API task:** routes with `RequireTenantPermission` declaring the same seven keys, which brings `access_log` rows (F-8, D-24).
+- **FP-428:** step 18 closes it for products and categories only. It stays open for the other catalog update handlers (N-2).
+- **`ba`:** add AC-15's `type_change_refused` to AC-25's exception list (N-1).
 - **FP-433:** another copy of the support helpers. Finance's strict `Input` is a candidate for the shared version, because it has the FP-436 fix.
 - **FP-430 class:** catalog's raw 1213 on the account-delete deadlock (risk 3).
 - **Product owner:** review the seed's subtypes and codes (F-10, D-6) before FP-261 ships.
@@ -751,4 +796,4 @@ Anything red that is not in this table means stop and report to `architect`.
 1. **Permission to merge `ai/T-028-customers` (`20ad316`) into `ai/T-032-chart-of-accounts` before any code (F-1).** Without it, no step past step 0 can run.
 2. **Merge order against T-029:** `architect` recommends T-029 first (section 5). `lead` decides.
 
-Everything else is either applied on the safer reading or routed to `ba` as F-2 to F-12.
+F-1 to F-19 are resolved in `e5c99bb` (D-20 to D-29). The open items are N-1 (a one-line AC-25 wording fix for `ba`, not blocking) and N-2 (a FP-428 annotation for `lead`).
