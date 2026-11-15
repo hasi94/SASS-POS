@@ -1,0 +1,39 @@
+{
+  "name": "discount-order-not-applicable-before-below-min",
+  "kind": "discount",
+  "discriminates": "not_applicable (check 5) is reported before below_min_amount (check 6).",
+  "input": {
+    "discount_id": "01DISC10000000000000000000",
+    "discounts": [
+      {
+        "id": "01DISC10000000000000000000",
+        "type": "percentage",
+        "value": "10.0000",
+        "scope": "item",
+        "is_active": true,
+        "starts_at": null,
+        "ends_at": null,
+        "usage_limit": null,
+        "used_count": "0",
+        "min_amount": "200.0000",
+        "max_discount": null,
+        "applies_to": {
+          "products": [
+            "01PRODOTHER000000000000000"
+          ],
+          "categories": [],
+          "brands": []
+        }
+      }
+    ],
+    "at": "2025-06-15T09:30:00.000Z",
+    "product": {
+      "id": "01PRODA0000000000000000000",
+      "category_id": "01CATA00000000000000000000",
+      "brand_id": "01BRANDA000000000000000000",
+      "allow_discount": true
+    },
+    "subtotal": "179.0000"
+  },
+  "refusal": "not_applicable"
+}

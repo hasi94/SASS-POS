@@ -1,0 +1,54 @@
+{
+  "name": "tax-rate-boundary-day-takes-new-row",
+  "kind": "tax",
+  "discriminates": "effective_to is exclusive: on 2025-01-01 the 18% row applies, not the 15% row that ends that day.",
+  "input": {
+    "members": [
+      {
+        "tax_id": "01TAXVAT000000000000000000",
+        "code": "VAT",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "1",
+        "rates": [
+          {
+            "rate": "15.0000",
+            "effective_from": "2020-01-01",
+            "effective_to": "2025-01-01"
+          },
+          {
+            "rate": "18.0000",
+            "effective_from": "2025-01-01",
+            "effective_to": null
+          }
+        ]
+      }
+    ],
+    "amount": "100.0000",
+    "base_quantity": "1.0000",
+    "date": "2025-01-01",
+    "context": "sale",
+    "is_inclusive": false
+  },
+  "expect": {
+    "is_inclusive": false,
+    "net": "100.0000",
+    "lines": [
+      {
+        "tax_id": "01TAXVAT000000000000000000",
+        "code": "VAT",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "rate": "18.0000",
+        "base": "100.0000",
+        "amount": "18.0000"
+      }
+    ],
+    "total": "18.0000"
+  }
+}

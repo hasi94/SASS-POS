@@ -1,0 +1,77 @@
+{
+  "name": "tax-inclusive-fixed-before-compound",
+  "kind": "tax",
+  "discriminates": "A compound member after a fixed one is charged on net + the fixed amount: 112.2000 backs out to net 100.",
+  "input": {
+    "members": [
+      {
+        "tax_id": "01TAXFIX000000000000000000",
+        "code": "FIX",
+        "tax_code": null,
+        "type": "fixed",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "1",
+        "rates": [
+          {
+            "rate": "1.0000",
+            "effective_from": "2020-01-01",
+            "effective_to": null
+          }
+        ]
+      },
+      {
+        "tax_id": "01TAXCMP000000000000000000",
+        "code": "CMP",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": true,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "2",
+        "rates": [
+          {
+            "rate": "10.0000",
+            "effective_from": "2020-01-01",
+            "effective_to": null
+          }
+        ]
+      }
+    ],
+    "amount": "112.2000",
+    "base_quantity": "2.0000",
+    "date": "2025-06-01",
+    "context": "sale",
+    "is_inclusive": true
+  },
+  "expect": {
+    "is_inclusive": true,
+    "net": "100.0000",
+    "lines": [
+      {
+        "tax_id": "01TAXFIX000000000000000000",
+        "code": "FIX",
+        "tax_code": null,
+        "type": "fixed",
+        "is_compound": false,
+        "rate": "1.0000",
+        "base": "100.0000",
+        "amount": "2.0000"
+      },
+      {
+        "tax_id": "01TAXCMP000000000000000000",
+        "code": "CMP",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": true,
+        "rate": "10.0000",
+        "base": "102.0000",
+        "amount": "10.2000"
+      }
+    ],
+    "total": "12.2000"
+  }
+}

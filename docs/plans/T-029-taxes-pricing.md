@@ -420,11 +420,11 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 ### Chunk B: the arithmetic core (safety-critical, pure)
 
-- [ ] **Step 5: contracts.** Ruling 2's 15 files, after Ruling 12's sweep.
+- [x] **Step 5: contracts.** Ruling 2's 15 files, after Ruling 12's sweep.
   - **`PricingShapesTest`:** well-formed instances are accepted. Each of these is refused by name: a hand-built `LineQuote` with a malformed ULID, a 5-dp amount, a `2026-13-01` date, a `Z`-less instant, or a 2-letter currency.
   - **`PricingEnumsTest`:** `PricingRefusal`, `TaxContext` and `TaxGroupState` are each exactly Ruling 2's list.
   - *(Groundwork for AC-22 and AC-26.)*
-- [ ] **Step 6: `Decimal` and `RateResolver`.**
+- [x] **Step 6: `Decimal` and `RateResolver`.**
   - `Decimal`: the parse rows of Ruling 3.1 (float, exponent, 5 dp, blank and negative are refused); HALF_UP at `.00005`; never `-0.0000`; the range edge.
   - `RateResolver`, with rows 2024-01-01 → 2025-01-01 at 15 and 2025-01-01 → open at 18:
     - 2024-12-31 gives 15; **2025-01-01 gives 18** (`effective_to` is exclusive); 2023-12-31 gives `no_effective_rate`;
@@ -434,7 +434,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - **R1:** `effective_to >= date`. The 2025-01-01 row goes red;
     - **R2:** return `0` on no match. The refusal row goes red.
   - *(AC-7.)*
-- [ ] **Step 7: `TaxCalculator`.** Datasets with exact strings.
+- [x] **Step 7: `TaxCalculator`.** Datasets with exact strings.
   - **Exclusive, single 15 %:** 100.0000 gives 15.0000, total 115.
   - **Two non-compound** (5 %, 10 %): base 100 gives 5 + 10.
   - **Compound** (F-9): 5 % then compound 10 % on 100 gives 5 + 10.5. With two compounds, the second's base includes the first compound.
@@ -451,7 +451,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - **T4:** drop the residue step. The sum-to-gross dataset goes red;
     - **T5:** ignore `applies_to`. The filter row goes red.
   - *(AC-9, AC-11.)*
-- [ ] **Step 8: `PriceLadder`.** A single 7.50 per stock unit, case factor 24.
+- [x] **Step 8: `PriceLadder`.** A single 7.50 per stock unit, case factor 24.
   - **Unit-outer (§6.4's table):** a NULL row at `min_qty` 24 against a unit-matched row at `min_qty` 1, for 1 case (base 24), picks the **case row**.
   - **Unit-matched:** case row 179 gives 179.0000 as typed.
   - **Derived:** only a NULL row at 7.50 gives 180.0000 for a case.
@@ -475,7 +475,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - **P5:** promotions ascending. The priority row goes red;
     - **P6:** fall through to the next step when a list has a NULL-row match. The derived row goes red.
   - *(AC-15 to AC-17, AC-16a; D-13, D-16, D-17.)*
-- [ ] **Step 9: `DiscountCalculator`, `LineCalculator`, bill.**
+- [x] **Step 9: `DiscountCalculator`, `LineCalculator`, bill.**
   - **Percentage:** 10 % of 179 gives 17.9000, capped at `max_discount` 15. **Fixed:** 200 on 179 gives 179 (never negative).
   - **AC-20 refusals,** each with the earlier reasons satisfied: unknown, scope mismatch (both directions), inactive, not yet started, expired (at `ends_at` + 1 ms; at exactly `ends_at` it is accepted), usage limit reached (`used_count = usage_limit`), `allow_discount = false`, `not_applicable` (and accepted by category, by brand, and with a null or empty `applies_to`), below `min_amount`, `buy_x_get_y`.
   - **AC-20's order is pinned:** a discount that is both `expired` and `not_applicable` reports `expired`; one that is both `discount_not_allowed` and `below_min_amount` reports `discount_not_allowed`.
@@ -491,7 +491,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
     - **D4:** wall-clock time instead of `at`. The expired row goes red when its `at` is in the past;
     - **D5:** bill base from line totals. The bill row goes red.
   - *(AC-20, AC-22, AC-23; D-12, D-18, D-19.)*
-- [ ] **Step 10: the fixture set and its replay.**
+- [x] **Step 10: the fixture set and its replay.**
   - At least 30 files covering AC-24's list: tax (exclusive and inclusive × compound and non-compound, fixed, empty group, no rate), price (unit-matched, derived, each of the six steps, F-2, F-10, F-11, no price), discount (percentage, fixed, capped, each refusal), line (three composed, including case-of-24 and inclusive), bill.
   - **`FixtureSetTest`:**
     - (a) the **lint**: every file parses, has exactly the allowed top-level keys, has no JSON number anywhere (a recursive walk), and has a unique `name`;

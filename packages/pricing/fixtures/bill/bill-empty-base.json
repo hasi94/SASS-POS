@@ -1,0 +1,35 @@
+{
+  "name": "bill-empty-base",
+  "kind": "bill",
+  "discriminates": "No lines is a zero base and a zero discount, not an error.",
+  "input": {
+    "discount_id": "01BILL10000000000000000000",
+    "discounts": [
+      {
+        "id": "01BILL10000000000000000000",
+        "type": "percentage",
+        "value": "5.0000",
+        "scope": "bill",
+        "is_active": true,
+        "starts_at": null,
+        "ends_at": null,
+        "usage_limit": null,
+        "used_count": "0",
+        "min_amount": null,
+        "max_discount": null,
+        "applies_to": {
+          "products": [],
+          "categories": [],
+          "brands": []
+        }
+      }
+    ],
+    "at": "2025-06-15T09:30:00.000Z",
+    "discounted_subtotals": []
+  },
+  "expect": {
+    "discount_id": "01BILL10000000000000000000",
+    "base": "0.0000",
+    "amount": "0.0000"
+  }
+}

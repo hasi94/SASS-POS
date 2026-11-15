@@ -1,0 +1,49 @@
+{
+  "name": "tax-exclusive-rounds-fraction-up",
+  "kind": "tax",
+  "discriminates": "One exact multiplication, rounded once: 33.3333 x 15% = 4.999995 rounds to 5.0000.",
+  "input": {
+    "members": [
+      {
+        "tax_id": "01TAXVAT000000000000000000",
+        "code": "VAT",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "1",
+        "rates": [
+          {
+            "rate": "15.0000",
+            "effective_from": "2020-01-01",
+            "effective_to": null
+          }
+        ]
+      }
+    ],
+    "amount": "33.3333",
+    "base_quantity": "1.0000",
+    "date": "2025-06-01",
+    "context": "sale",
+    "is_inclusive": false
+  },
+  "expect": {
+    "is_inclusive": false,
+    "net": "33.3333",
+    "lines": [
+      {
+        "tax_id": "01TAXVAT000000000000000000",
+        "code": "VAT",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "rate": "15.0000",
+        "base": "33.3333",
+        "amount": "5.0000"
+      }
+    ],
+    "total": "5.0000"
+  }
+}

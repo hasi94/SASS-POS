@@ -1,0 +1,95 @@
+{
+  "name": "tax-sale-context-skips-purchase-only",
+  "kind": "tax",
+  "discriminates": "In sale context a purchase-only member is skipped (it has a valid rate, so it is skipped, not missing).",
+  "input": {
+    "members": [
+      {
+        "tax_id": "01TAXPUR000000000000000000",
+        "code": "PUR",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "purchase",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "1",
+        "rates": [
+          {
+            "rate": "10.0000",
+            "effective_from": "2020-01-01",
+            "effective_to": null
+          }
+        ]
+      },
+      {
+        "tax_id": "01TAXBOTH00000000000000000",
+        "code": "BOTH",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "2",
+        "rates": [
+          {
+            "rate": "5.0000",
+            "effective_from": "2020-01-01",
+            "effective_to": null
+          }
+        ]
+      },
+      {
+        "tax_id": "01TAXSAL000000000000000000",
+        "code": "SAL",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "sale",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "3",
+        "rates": [
+          {
+            "rate": "2.0000",
+            "effective_from": "2020-01-01",
+            "effective_to": null
+          }
+        ]
+      }
+    ],
+    "amount": "100.0000",
+    "base_quantity": "1.0000",
+    "date": "2025-06-01",
+    "context": "sale",
+    "is_inclusive": false
+  },
+  "expect": {
+    "is_inclusive": false,
+    "net": "100.0000",
+    "lines": [
+      {
+        "tax_id": "01TAXBOTH00000000000000000",
+        "code": "BOTH",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "rate": "5.0000",
+        "base": "100.0000",
+        "amount": "5.0000"
+      },
+      {
+        "tax_id": "01TAXSAL000000000000000000",
+        "code": "SAL",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "rate": "2.0000",
+        "base": "100.0000",
+        "amount": "2.0000"
+      }
+    ],
+    "total": "7.0000"
+  }
+}

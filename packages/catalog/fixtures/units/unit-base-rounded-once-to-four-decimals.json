@@ -1,0 +1,22 @@
+{
+  "name": "unit-base-rounded-once-to-four-decimals",
+  "kind": "unit",
+  "discriminates": "0.3333 x 3.000001 is 0.9999003333 and rounds once to 0.9999.",
+  "input": {
+    "unit_id": "01UNITEACH000000000000000A",
+    "unit_code": "each",
+    "factor": "3.000001",
+    "factor_source": "global_conversion",
+    "line_unit_precision": "4",
+    "stock_unit_precision": "4",
+    "quantity": "0.3333"
+  },
+  "expect": {
+    "unit_id": "01UNITEACH000000000000000A",
+    "unit_code": "each",
+    "source": "global_conversion",
+    "quantity": "0.3333",
+    "unit_factor": "3.000001",
+    "base_quantity": "0.9999"
+  }
+}

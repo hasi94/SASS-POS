@@ -1,0 +1,22 @@
+{
+  "name": "unit-fractional-base-accepted-on-a-fractional-stock-unit",
+  "kind": "unit",
+  "discriminates": "The control for the Q-11 refusal: the same 1.5 base is fine when the stock unit takes decimals.",
+  "input": {
+    "unit_id": "01UNITEACH000000000000000A",
+    "unit_code": "each",
+    "factor": "1.500000",
+    "factor_source": "product_conversion",
+    "line_unit_precision": "4",
+    "stock_unit_precision": "1",
+    "quantity": "1"
+  },
+  "expect": {
+    "unit_id": "01UNITEACH000000000000000A",
+    "unit_code": "each",
+    "source": "product_conversion",
+    "quantity": "1.0000",
+    "unit_factor": "1.500000",
+    "base_quantity": "1.5000"
+  }
+}

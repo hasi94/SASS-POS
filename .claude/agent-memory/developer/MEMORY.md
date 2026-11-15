@@ -80,3 +80,4 @@
 - [T-028 customers chunk A](project_t028_customers_chunk_a.md) - baseline numbers, the IdempotencyKeysSchemaTest hardcoded-top-entry gap the plan missed, and the oneSided() literal-statement gotcha.
 - [T-028 customers chunk B](project_t028_customers_chunk_b.md) - the float/TypeError precedent over the plan's literal wording, a 78% gate-timing jump likely from contention, and a `;`-chained exit-code trap.
 - [T-029 pricing chunk A](project_t029_pricing_chunk_a.md) - 13/31/3353 to 13/31/3387, BranchForeignKeysContractRunTest reddened by a top contract step, and isDestructive's variable-table blindness.
+- [T-029 pricing chunk B](project_t029_pricing_chunk_b.md) - pure engine + 112 fixtures: inclusive affine solve, R1 absorbed, factor-scan exemption pulled into chunk B.

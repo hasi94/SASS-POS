@@ -1,0 +1,22 @@
+{
+  "name": "unit-precision-two-rounds-before-the-base",
+  "kind": "unit",
+  "discriminates": "1.005 at precision 2 is 1.01, so base 3.0300 (a base from the unrounded 1.005 would be 3.0150).",
+  "input": {
+    "unit_id": "01UNITEACH000000000000000A",
+    "unit_code": "each",
+    "factor": "3.000000",
+    "factor_source": "product_conversion",
+    "line_unit_precision": "2",
+    "stock_unit_precision": "4",
+    "quantity": "1.005"
+  },
+  "expect": {
+    "unit_id": "01UNITEACH000000000000000A",
+    "unit_code": "each",
+    "source": "product_conversion",
+    "quantity": "1.0100",
+    "unit_factor": "3.000000",
+    "base_quantity": "3.0300"
+  }
+}

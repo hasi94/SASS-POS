@@ -1,0 +1,49 @@
+{
+  "name": "tax-exclusive-four-decimal-rate",
+  "kind": "tax",
+  "discriminates": "A four-decimal rate is multiplied exactly: 12.3456% of 100 is 12.3456, not 12.3500 from a rounded 0.1235.",
+  "input": {
+    "members": [
+      {
+        "tax_id": "01TAXVAT000000000000000000",
+        "code": "VAT",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "1",
+        "rates": [
+          {
+            "rate": "12.3456",
+            "effective_from": "2020-01-01",
+            "effective_to": null
+          }
+        ]
+      }
+    ],
+    "amount": "100.0000",
+    "base_quantity": "1.0000",
+    "date": "2025-06-01",
+    "context": "sale",
+    "is_inclusive": false
+  },
+  "expect": {
+    "is_inclusive": false,
+    "net": "100.0000",
+    "lines": [
+      {
+        "tax_id": "01TAXVAT000000000000000000",
+        "code": "VAT",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "rate": "12.3456",
+        "base": "100.0000",
+        "amount": "12.3456"
+      }
+    ],
+    "total": "12.3456"
+  }
+}
