@@ -973,3 +973,47 @@ D-70 (R-14, R-39; small) | Input hygiene found by reconciliation. | A quantity o
 refused `validation` before unit resolution (the resolver accepts zero and negatives); every rollup
 that cannot fit `DECIMAL(18,4)` is `out_of_range`; no client date or instant is accepted; a
 malformed id is `validation`, never an unhandled error (AC-51, AC-52).
+
+---
+
+## Decisions D-71 to D-74 — the lead's four rulings, recorded from the T-030 backlog row
+
+The rulings are written in `docs/backlog.md`'s T-030 row ("Lead rulings still to be written into the
+spec by `ba` before chunks C and D"). Each is the lead's decision, not the BA's; recorded here with
+the reason, and written into the spec as a suffix AC so no number moves. Owner questions Q-1 (D-55)
+and Q-2 (D-56) are unchanged: Q-1 (refund after a discount's usage limit is hit or the product is
+deleted) is open, default refuse with the engine's reason (AC-53); Q-2 (a product with no price quotes
+0.00) is open, default allow (accepted, with the risk named).
+
+D-71 (lead ruling 1; AC-12A, extends D-41/AC-12 and AC-30) | A refund tender onto a payment method
+whose `allows_refund` is `false`: which refusal? | **`unsupported_method_type`.** The refund is
+refused and nothing is written. The plan's separate `refund_not_allowed` code is dropped. | One
+refusal code for "this method cannot take this tender", the same code AC-12 already uses for the
+`loyalty` and `voucher` types, so a caller handles one case, not two. Reversible: yes (a distinct
+code is a rename).
+
+D-72 (lead ruling 2; AC-24A, extends D-47/AC-24) | Does an approval's binding include the branch?
+| **Yes.** An approval granted at one branch cannot be consumed by a write at another; the write is
+refused `approval_mismatch` (the code D-47 already uses for any binding mismatch; the ruling named
+no code, so this is the BA's reading) and the approval stays unconsumed. D-47's binding table gains
+the branch as a checked field for every row, goodwill refunds included. | An approver's authority is
+branch-scoped (D-30, D-69: `sales.approvals.decide` is checked at the request's branch), so an
+approval usable at another branch would carry authority past the scope it was granted in.
+Reversible: yes (drop the branch from the check).
+
+D-73 (lead ruling 3; AC-47A, extends D-57/AC-47) | A goodwill refund of a product that is now
+inactive or deleted: is it subject to the sellability check? | **No, exempt.** `product_not_sellable`
+is never raised for a goodwill refund line. Note for the lead: the ruling exempts the Sales
+sellability check only. A soft-deleted product is still refused by the pricing engine
+(`unknown_product`), which is owner question Q-1's territory (D-55, AC-53); until Q-1 is ruled that
+refusal stands, so a goodwill refund of a deleted product is still refused. | A returned item may
+no longer be on sale; refusing the return for that reason would punish the customer for the shop's
+catalogue change. Reversible: yes.
+
+D-74 (lead ruling 4; AC-14A, extends D-49 and the Revision 4 zero-total clause) | A zero-total
+completion (a fully discounted sale): its own path or the ordinary one? | **The ordinary one.** Same
+number allocation (`DocumentNumbers`, `sale`), same discount-usage consumption, same ledger step (no
+posting, since no tender rows exist), same single audit row, same status and timestamps, no stock or
+GL effect (as for every sale, D-1), and no `sale_tenders` rows are required. | One completion path
+means no special case to drift: a free sale is still a numbered, audited document. Reversible: n/a
+(a statement that no special case exists).

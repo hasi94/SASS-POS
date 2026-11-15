@@ -37,7 +37,11 @@ it is naming intent, not a literal signature, and `dev` reconciles against the r
 interface before writing code (see decisions D-4/D-5, and the plan's own step 0 reconciliation
 table).
 
-Backlog: FP-233, `docs/backlog.md`. Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-70).
+Revision 5: the lead's four rulings recorded in the backlog row are written here as AC-12A, AC-14A,
+AC-24A and AC-47A (decisions D-71 to D-74). Numbering is unchanged. Owner questions Q-1 and Q-2 are
+unchanged and still open with their built defaults (see Open questions).
+
+Backlog: FP-233, `docs/backlog.md`. Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-74).
 Design inputs read directly: `docs/architecture.md` v0.5 §1, §3, §8, §11, §12, §15, §21-22;
 `docs/database.md` v0.5 §3, §6.4 to §6.9 (Catalog, Pricing/tax, Inventory's unit-inheritance
 rule, Sales/POS, Payments, Customers, §12.1's credit-sale transaction shape); T-027's decisions/
@@ -519,6 +523,40 @@ New ACs:
   deactivated or past its window between quote and completion, Then completion still consumes it
   (D-65).
 
+Revision 5 — four lead rulings (D-71 to D-74), written as suffix ACs so no number moves:
+
+- AC-12A (extends AC-12 and AC-30; D-71): Given a refund whose tender names a `payment_methods` row
+  with `allows_refund = false`, When the tender is recorded (`RefundSale`), Then it is refused
+  `unsupported_method_type` and nothing is written. Given the same method on an ordinary sale
+  tender, Then `allows_refund` is not consulted (a sale tender is accepted or refused only by
+  AC-12's own rules). Given a refund tender onto a method with `allows_refund = true` and an
+  otherwise acceptable type, Then it is accepted. No separate `refund_not_allowed` code exists.
+- AC-24A (extends AC-24 and D-47; D-72): Given an approval request granted at branch A, When a
+  consuming write (`VoidSale`, `RefundSale`, the price-override or discount-approval check) at
+  branch B (B is not A) names it, Then it is refused `approval_mismatch` and the approval's
+  `consumed_at` stays unset. Given the same write at branch A, Then the approval is consumed
+  normally. The branch is part of the binding in D-47's table alongside `type`, `reference_type`,
+  `reference_id` and (where stated) the payload; a goodwill refund approval (`reference_type =
+  goodwill_refund`, `reference_id = null`) is bound to its branch like any other.
+- AC-47A (extends AC-47; D-73): Given a goodwill refund line (no `refund_of_item_id`) for a product
+  that is now inactive (`is_active = false`) or soft-deleted, When `RefundSale` runs, Then
+  `product_not_sellable` is **not** raised for it (the AC-47 sellability check, which covers
+  `is_active`, `is_sellable` and `variant_parent`, is skipped for goodwill refund lines). The
+  engine's own refusals still apply (AC-53): a soft-deleted product is still refused
+  `unknown_product` until owner question Q-1 is ruled; an inactive product that still exists is
+  quoted normally. The sellability check still applies to every `AddSaleLine`/`UpdateSaleLine`.
+- AC-14A (extends AC-14 and the Revision 4 zero-total clause; D-74): Given a `draft` sale with at
+  least one line and `sales.total = 0.0000` (for example, fully discounted), When `CompleteSale`
+  runs, Then it takes the same completion path as any other sale, in one transaction: it allocates
+  `sales.number` through `DocumentNumbers::next('sale', $branchId)` (same sequence and prefix),
+  consumes `DiscountUsage` once per distinct `discount_id` used, posts any credit-ledger entries the
+  sale's tenders require (none, when there are no tender rows), writes the one `completed` audit
+  row, sets `status = completed`, `completed_at`, `paid_total = 0.0000`, `change_due = 0.0000`, and
+  performs no stock write, no GL posting and leaves `stock_applied = false` (D-1, AC-15, as for
+  every sale). No `sale_tenders` row is required, and the "sum of tenders equals total" rule of
+  AC-14 applies unchanged (an empty sum of `0.0000` equals the total). Given a zero-total draft
+  with no lines, Then it is not completable (AC-14 as amended requires at least one line).
+
 ## Out of scope
 
 - Real-time stock validation and decrement on sale completion (FP-234, its own backlog row — D-1).
@@ -589,7 +627,7 @@ New ACs:
 
 No BLOCKING question for Chunk A. Two **owner-level** questions are OPEN: the lead directed they be
 recorded with their built default and not decided here (D-55, D-56). Every other judgement call is
-resolved and logged in `docs/decisions/T-030-sales.md` (D-1 to D-70).
+resolved and logged in `docs/decisions/T-030-sales.md` (D-1 to D-74).
 
 **Owner questions (OPEN, a default is built until ruled):**
 
