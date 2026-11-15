@@ -220,7 +220,8 @@ Re-derived from the files, not assumed:
   `is_compound` to a value different from the stored one, Then it is refused (validation refusal)
   naming the field, with a message telling the caller to create a new tax instead; nothing is
   written. Re-sending the unchanged value is accepted. Given a tax with no rate rows, changing
-  `type` or `is_compound` is accepted (subject to AC-5's `fixed_cannot_compound`). Other fields
+  `type` or `is_compound` is accepted (subject to AC-5's `fixed_cannot_compound`). On `UpdateTax`
+  this refusal is checked FIRST, before `fixed_cannot_compound` (D-42). Other fields
   (`name`, `code`, `applies_to`, `is_active`, `is_recoverable`, `is_withholding`) stay editable.
   Reason: documents were already resolved against the rates under the old meaning (15.0000 as a
   percentage versus per stock unit), the same principle as the immutability of a rate's `rate` and
@@ -252,7 +253,10 @@ Re-derived from the files, not assumed:
   either qualifies on the document date, the resolution is refused `invalid_amount`, so the result
   never depends on row order (the shape of D-31 for price-list items). Real data cannot hold such a
   pair (unique `(tax_id, effective_from)`), so this guards data arriving another way and keeps the
-  TypeScript twin from copying an iteration order.
+  TypeScript twin from copying an iteration order. **Scope of the check (D-43):** only the rows
+  of members that survive the active/deleted filter are checked, so an inactive or deleted
+  member's duplicate dates are not refused. The TypeScript engine (backlog FP-432) must do the
+  same.
 - **AC-8**: Creating a `tax_groups` row requires `code` (unique, non-blank) and `name`;
   `is_inclusive` defaults to `false`; `is_default` defaults to `false`; `is_active` defaults to
   `true`. At most one `tax_groups` row has `is_default = true` — setting a second row's
@@ -494,6 +498,10 @@ Re-derived from the files, not assumed:
      scope, AC-23) is below `min_amount`;
   7. `unsupported_discount_type` — `type = buy_x_get_y` (AC-19, out of scope).
 
+  A discount whose stored `applies_to` is malformed (AC-30.11) is refused `invalid_amount` when
+  the adapter loads it, before this order applies, whatever else is true of it (inactive,
+  expired and so on) (D-41).
+
   `requires_approval`/`approval_threshold` are never evaluated by this check (D-8 stands
   unchanged — no consumer exists yet to gate).
 - **AC-21**: Soft-deleting a `discounts` row does not retroactively change any total already
@@ -638,8 +646,11 @@ Re-derived from the files, not assumed:
   11. Given the pricing adapter reads a stored `discounts.applies_to` that is not the D-32 shape
       (not a JSON object; a key other than `products`, `categories`, `brands`; a value that is not
       a list; a list entry that is not a string), Then the quote is refused `invalid_amount` and
-      the discount is never applied, never widened to apply to everything. A null or absent
-      value, and a well-formed object, behave as before (D-38).
+      the discount is never applied, never widened to apply to everything. A stored JSON `null`
+      and a stored JSON `[]` are both "not an object" and are refused (D-40). SQL `NULL`, an
+      absent value, and a well-formed object, behave as before (D-38). The refusal is raised at
+      load, ahead of AC-20's order, so a malformed discount that is also inactive or expired is
+      still refused `invalid_amount` (D-41).
 
 ## Out of scope
 

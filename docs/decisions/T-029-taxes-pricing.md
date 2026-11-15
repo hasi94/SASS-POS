@@ -565,3 +565,37 @@ D-39 (code review W-1, W-2; no new business rule) | Two concurrency fixes the de
 from the review: the rate-overlap check and `CloseTaxRate` lock before any plain read; catalog's
 tax-group validation uses a locking read in the same transaction. The spec had no sentence
 implying otherwise; one Non-functional bullet records them. | **Recorded only.** | Reversible: yes.
+
+Rulings on four ambiguities the architect left in revision 4 of the plan; the lead accepted the
+plan default for each.
+
+D-40 (**refines D-38**) | Does a stored JSON `null` or JSON `[]` in `discounts.applies_to` count as
+"nothing set"? | **Both are refused `invalid_amount` as "not an object".** Only SQL `NULL` (and an
+absent value) still means everything. Spec: AC-30.11. | Reason: D-38 forbids widening on a bad
+stored value, and a JSON scalar or empty list is a bad value, not an absence. | Reversible: yes.
+
+D-41 (**refines D-38 against AC-20**) | A discount both malformed and, say, inactive or expired:
+which refusal wins? | **`invalid_amount`**, raised when the adapter loads the discount, before
+AC-20's refusal order applies. Spec: AC-20 (one added sentence), AC-30.11. | Reason: a malformed
+row cannot be read reliably, so no later check on it is trustworthy. | Reversible: yes.
+
+D-42 (**refines D-35 against AC-5**) | On `UpdateTax`, which refusal comes first when both AC-5a
+(`type` or `is_compound` change while rates exist) and AC-5's `fixed_cannot_compound` apply? |
+**AC-5a is checked first.** Spec: AC-5a (one added sentence). | Reason: it is the more fundamental
+refusal (the tax is not editable that way at all); the caller is told to create a new tax.
+| Reversible: yes.
+
+D-43 (**refines D-36**) | Which rate rows does the duplicate `effective_from` check cover? | **Only
+the rows of members that survive the active/deleted filter**; an inactive or deleted member's
+duplicate dates are not refused. **The TypeScript engine (backlog FP-432) must do the same.**
+Spec: AC-7. | Reason: an excluded member's rates never take part in a quote. | Reversible: yes.
+
+Informational only (no AC, no spec change):
+
+D-44 (residual risk, from the plan) | A rare deadlock is possible if a product write names the old
+default tax group at the moment `UpdateTaxGroup` changes the default. Not engineered away; a
+deadlocked transaction is rolled back and can be retried.
+
+D-45 (open owner question, not a defect; relates to D-34) | The tiny-rate edge case: a non-zero
+rate whose amount rounds to 0.0000 can still receive the -0.0001 residue and so go negative.
+D-34 skips only a zero rate. The owner has not ruled on it.
