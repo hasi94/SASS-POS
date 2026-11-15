@@ -189,3 +189,38 @@ None.
 
 ---
 Run 1: PASS (0 defects; 2 coverage gaps closed by QA tests).
+
+---
+
+# Run 2 (review round 1 fix round, commit 5d466d2)
+
+## Verdict: PASS (0 defects, 2 minor notes)
+
+## Per-finding verification (own mutations, each restored and checked with `cmp`/`git diff`)
+
+| Finding | Evidence | Discriminates? |
+|---|---|---|
+| R-1 residue skips a zero-rate member (D-34) | Hand-computed: 15 % + 0 %, gross 9.9900: net 9.99/1.15 = 8.6870, VAT 9.99 - 8.6870 = 1.3030, levy 0.0000. Gross 10.0000: net 8.6957, VAT 1.3043. Reversed order same. All-zero: net 9.9900, total 0. Three members 15/2/0 at 9.9900: net 9.99/1.17 = 8.5385; VAT 1.2808, NBT 0.1708 forward, residue -0.0001 lands on NBT = 0.1707; total 1.4515. All match the fixtures (typed by hand, not read back). QaPricingEngineTest and QaPricingAdapterTest still green. | M1 (type only, the old rule): 7 red. M2 (FIRST non-zero): 6 red. Yes. |
+| W-1 lock order (CloseTaxRate: taxes then tax_rates; assertNoOverlap locking) | Code reads tax_id before the transaction, then locks `taxes`, then `tax_rates` (same order as CreateTaxRate). | Drop `lockForUpdate` in assertNoOverlap: L2 red. Plain read as first statement inside the transaction: L1 red. Plain `Lookup::any` of `taxes`: L1 red + CloseTaxRate test red. Drop the `taxes` lock in UpdateTax: L1 red. Yes. See note N-1. |
+| W-2 directory lock (`bool $lock = false`) | Catalog `TaxGroups::assertUsable` and `resolve` pass `lock: true` for `state()` and `defaultGroupId()`. Only implementers are `DatabaseTaxGroupDirectory` and three anonymous test doubles, all updated; no other caller. `default_marker` is `storedAs('CASE WHEN is_default THEN 1 END')`, so it is set for every default row. | Drop `lock: true` on `state`: L4 + 2 catalog tests red. On `defaultGroupId`: L4 + 1 catalog test red. Yes. See note N-2. |
+| W-3 AC-5a freeze of type / is_compound | UpdateTaxTest: closed/open/future rate, same-value resend accepted, no-rate change allowed, frozen refusal reported before fixed_cannot_compound. | Disable the check: 6+ red. Yes. |
+| W-4 malformed `applies_to` (D-38/40/41) | 11 stored shapes (JSON null, `[]`, nested list, non-string entry, unknown key, bare string/number, string/object value) refused `invalid_amount`; NULL and `{}` still mean everything; bill path covered. | Remove the object check: 5 red. Removing only `array_is_list` survives, an equivalent mutant (an object-decoded value is never an assoc array, `! is_array` already refuses it). |
+| W-5 duplicate effective_from (D-36/43) | RateResolverTest both row orders; new QA test: duplicates on an inactive member and on a deleted member are ignored (group still prices 115 -> 100/15), on an active member refused in either order. | Disable the check: 4 red. Yes. |
+| S-1 BigDecimal 100 comparison | Code reads correctly. | Reverting to `version_compare` survives: equivalent for the normalised 4-decimal shapes `Shape` already enforces (not a defect). |
+| S-2 / AC-6a already-closed rate | CloseTaxRateTest. | Disable the check: 3 red. Yes. |
+| S-4 error text names the tax | Test asserts the new message. | Not mutated separately. |
+| S-7 Uniqueness docblock only | Comment-only change, no behaviour. | n/a |
+
+## Gate (composer check, no APP_KEY, log read from file, `EXITCODE:2` as expected)
+- pint passed, phpstan passed, deptrac 0 violations, engine step held (ENGINE_HOLD).
+- Tests: 13 failed / 41 skipped / 4110 passed (4109 baseline + my 1 new test). Failed set by name equals baseline: QaModuleRegistryContractTest 6, QaModuleNameValidationTest 3, QaHealthProbeResilienceTest 2, ModulesEnvParsingTest 1, QaVocabularyRenameSweepTest 1. 1066.8 s, ratio 7.31.
+- Added test: `QaPricingEngineTest` "ignores duplicate effective_from rows on an inactive or deleted member and refuses them on an active one".
+
+## Notes (not defects)
+- N-1: rule L1 only requires the FIRST statement in the transaction to be a locking read; it does not check WHICH table. Locking `tax_rates` before `taxes` in CloseTaxRate (the deadlock order) survives the whole suite. Only the held engine case can prove order. Suggest L1 pin the first locked table to `taxes`.
+- N-2: making `DatabaseTaxGroupDirectory` ignore `$lock` (`if (false)`) survives the directory unit tests; SQLite compiles `sharedLock` to nothing. Rule L3 is a source scan and was run in that batch but only checks the source text shape, so the guard is the scan plus the held engine proof.
+
+## NOT VERIFIED under ENGINE_HOLD
+Run-time lock proof (PricingSchemaEngineTest E-1 to E-5, row locks invisible on SQLite), MySQL half of D-29, contract migration on a populated table, real shared-lock vs `UpdateTaxGroup` conflict, real `default_marker` unique behaviour.
+
+Run 2: PASS (round 1 PASS -> fix round PASS).

@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Flexipos\Pricing\Tests\Engine;
 
 use Brick\Math\BigDecimal;
+use Flexipos\Contracts\Pricing\PricingRefused;
 use Flexipos\Contracts\Pricing\TaxBreakdown;
 use Flexipos\Contracts\Pricing\TaxContext;
+use Flexipos\Pricing\Engine\TaxApplies;
 use Flexipos\Pricing\Engine\TaxCalculator;
 use Flexipos\Pricing\Engine\TaxMember;
 use Flexipos\Pricing\Engine\TaxType;
@@ -162,4 +164,23 @@ it('AC-30.4: a lower sequence still beats a lower tax id (the id is only the tie
     $breakdown = TaxCalculator::compute([$second, $first], '100.0000', '1.0000', Build::DATE, TaxContext::Sale, false);
 
     expect(array_map(static fn ($line): string => $line->code, $breakdown->lines))->toBe(['Z', 'A']);
+});
+
+/*
+| Round 2 (D-36/D-43): a duplicate effective_from is refused only among members
+| that survive the active/deleted filter; a suspended or deleted member's
+| duplicate rows never reach the resolver, and the group still prices.
+*/
+it('ignores duplicate effective_from rows on an inactive or deleted member and refuses them on an active one', function () {
+    $dup = [Build::rate('5.0000', '2024-01-01'), Build::rate('6.0000', '2024-01-01')];
+
+    foreach ([[false, false], [false, true]] as [$active, $deleted]) {
+        $b = qaTax([Build::member('VAT', '15.0000', 1), Build::member('OLD', '0.0000', 2, false, TaxType::Percentage, TaxApplies::Both, $active, $deleted, $dup)], '115.0000');
+        expect($b->net)->toBe('100.0000')->and($b->total)->toBe('15.0000');
+    }
+
+    expect(fn () => qaTax([Build::member('VAT', '15.0000', 1, false, TaxType::Percentage, TaxApplies::Both, true, false, $dup)], '115.0000'))
+        ->toThrow(PricingRefused::class);
+    expect(fn () => qaTax([Build::member('VAT', '15.0000', 1, false, TaxType::Percentage, TaxApplies::Both, true, false, array_reverse($dup))], '115.0000'))
+        ->toThrow(PricingRefused::class);
 });
