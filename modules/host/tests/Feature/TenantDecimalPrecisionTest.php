@@ -115,6 +115,17 @@ it('matches T-027s own exact column map: quantities/money (18,4), factor columns
         '2026_11_10_002806_create_loyalty_transactions_table.php' => [
             ['points', 18, 4], ['value', 18, 4], ['balance_after', 18, 4],
         ],
+        // T-029 step 4 (AC-28, D-10): the pricing tables' exact column map.
+        // Money and quantities are (18,4), percentages and rates (9,4), and
+        // no fifth pair is introduced - discounts.value holds a percentage
+        // and a money amount in the one (18,4) column.
+        '2026_11_10_002903_create_tax_rates_table.php' => [['rate', 9, 4]],
+        '2026_11_10_002909_create_price_list_items_table.php' => [
+            ['min_qty', 18, 4], ['price', 18, 4], ['discount_percent', 9, 4],
+        ],
+        '2026_11_10_002911_create_discounts_table.php' => [
+            ['value', 18, 4], ['min_amount', 18, 4], ['max_discount', 18, 4], ['approval_threshold', 18, 4],
+        ],
     ];
 
     foreach ($expected as $file => $columns) {
@@ -135,4 +146,16 @@ it('red-first: decimal(x, 18, 2) and the two-argument decimal(x, 18) are each re
 
     expect(decimalCallsIn($bare))->toBe([])
         ->and(SourceRules::inspect($bare, MigrationTree::Tenant))->toContain(['rule' => 'AC-35(a)', 'found' => "->decimal('x', 18)"]);
+});
+
+it('red-first (T-029): a rate declared decimal(rate, 9, 2) is read back as that wrong pair, and the allowed-pair rule would flag it', function () {
+    $wrongRate = "<?php\nclass X { public function up() { \$table->decimal('rate', 9, 2); } }";
+
+    $calls = decimalCallsIn($wrongRate);
+
+    expect($calls)->toBe([['rate', 9, 2]])
+        ->and(in_array([$calls[0][1], $calls[0][2]], [[18, 4], [18, 6], [9, 4], [18, 8]], true))->toBeFalse();
+
+    // And the shipped column is the right pair, so the map above is not vacuous.
+    expect(tenantDecimalCalls()['2026_11_10_002903_create_tax_rates_table.php'])->toBe([['rate', 9, 4]]);
 });

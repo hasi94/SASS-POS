@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "3fe5bf60adfd21dab1975c0bfc9e4036",
+    "content-hash": "87501468ec3fd677bcea1c2461d597dd",
     "packages": [
         {
             "name": "brick/math",
@@ -864,6 +864,33 @@
                 "proprietary"
             ],
             "description": "FlexiPOS plugin SDK: extension gateway, plugin base classes and manifest validation.",
+            "transport-options": {
+                "relative": true
+            }
+        },
+        {
+            "name": "flexipos/pricing",
+            "version": "0.1.0",
+            "dist": {
+                "type": "path",
+                "url": "../../packages/pricing",
+                "reference": "7bada1c19f083cb600fd361b685c944611ccc7e2"
+            },
+            "require": {
+                "brick/math": "^0.14",
+                "flexipos/contracts": "*",
+                "php": "^8.2"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Flexipos\\Pricing\\": "src/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "FlexiPOS pricing and tax: tax authorities, taxes, effective-dated rates and groups, price lists, discounts, and the one calculation engine that prices a line.",
             "transport-options": {
                 "relative": true
             }

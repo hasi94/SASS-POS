@@ -147,19 +147,18 @@ it('creates brands with exactly the documented columns', function () {
     ])->and(catalogNullableColumns('brands'))->toBe(['deleted_at', 'logo_path']);
 });
 
-it('creates products with exactly the documented columns, no custom_fields and no deferred FK columns (AC-27, AC-27a)', function () {
+it('creates products with exactly the documented columns, no custom_fields and no still-deferred FK columns (AC-27, AC-27a, T-029 AC-1, AC-2)', function () {
     catalogApplyTenantTree();
 
     expect(catalogColumns('products'))->toBe([
         'allow_discount', 'allow_price_override', 'brand_id', 'category_id', 'cost_price', 'created_at',
         'created_by', 'deleted_at', 'description', 'dimensions', 'id', 'image_path', 'is_active',
         'is_purchasable', 'is_sellable', 'is_weighable', 'min_selling_price', 'msrp', 'name', 'parent_id',
-        'plu_code', 'price_mode', 'purchase_unit_id', 'sales_unit_id', 'selling_price', 'shelf_life_days',
-        'short_name', 'sku', 'sort_order', 'stock_unit_id', 'track_stock', 'tracking_mode', 'type',
+        'plu_code', 'price_mode', 'purchase_tax_group_id', 'purchase_unit_id', 'sales_unit_id', 'selling_price', 'shelf_life_days',
+        'short_name', 'sku', 'sort_order', 'stock_unit_id', 'tax_group_id', 'track_stock', 'tracking_mode', 'type',
         'updated_at', 'updated_by', 'variant_options', 'variant_values', 'version', 'weight',
     ])->and(catalogColumns('products'))->not->toContain('custom_fields')
-        ->and(catalogColumns('products'))->not->toContain('tax_group_id')
-        ->and(catalogColumns('products'))->not->toContain('purchase_tax_group_id')
+        // T-029 step 3 built the two tax group columns T-027 deferred.
         ->and(catalogColumns('products'))->not->toContain('income_account_id')
         ->and(catalogColumns('products'))->not->toContain('cogs_account_id')
         ->and(catalogColumns('products'))->not->toContain('inventory_account_id')
@@ -417,7 +416,7 @@ it('holds the product_locations, product_branches, product_components and produc
     ]))->toThrow(QueryException::class);
 });
 
-it('holds exactly the 27 documented foreign keys', function () {
+it('holds exactly the 29 documented foreign keys (27 from T-027, 2 from T-029)', function () {
     catalogApplyTenantTree();
 
     $tables = [
@@ -456,9 +455,11 @@ it('holds exactly the 27 documented foreign keys', function () {
         'products.category_id -> categories.id',
         'products.created_by -> employees.id',
         'products.parent_id -> products.id',
+        'products.purchase_tax_group_id -> tax_groups.id',
         'products.purchase_unit_id -> units.id',
         'products.sales_unit_id -> units.id',
         'products.stock_unit_id -> units.id',
+        'products.tax_group_id -> tax_groups.id',
         'products.updated_by -> employees.id',
         'unit_conversions.from_unit_id -> units.id',
         'unit_conversions.product_id -> products.id',

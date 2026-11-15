@@ -96,6 +96,11 @@ it('has no down() and passes SourceRules::inspect()', function () {
 });
 
 it('is the catalogue top entry, phase expand, version 43', function () {
+    // T-029 step 3 republished the catalogue with its own twelve migrations
+    // on top (51 becomes 63), the last of which is a contract step (the two
+    // product tax group keys), so the phase asserted below is no longer
+    // expand either. This test's name is now two tasks stale - stated here
+    // rather than renamed, for the reason the T-028 note below gives.
     // T-028 step 3 republished the catalogue with its own eight migrations
     // on top (43 becomes 51), the way T-027 did the same to this very test
     // when it landed on top of this file's own idempotency_keys migration.
@@ -109,7 +114,7 @@ it('is the catalogue top entry, phase expand, version 43', function () {
 
     $top = end($catalogue);
 
-    expect($top['version'])->toBe(51)
-        ->and($top['migration'])->toBe('2026_11_10_002808_create_customer_communications_table')
-        ->and($top['phase'])->toBe('expand');
+    expect($top['version'])->toBe(63)
+        ->and($top['migration'])->toBe('2026_11_10_002912_add_product_tax_group_foreign_keys')
+        ->and($top['phase'])->toBe('contract');
 });

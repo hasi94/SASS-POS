@@ -372,17 +372,17 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
 
 ### Chunk A: plumbing, schema, static instruments
 
-- [ ] **Step 0: baseline.**
+- [x] **Step 0: baseline.**
   - `composer check`: record passed, failed and skipped, the `test` seconds, and the process list.
   - The spec revision is committed (`85dc7ab`, D-12 to D-24, AC-16a, AC-24a). Build from the revised ACs, not from this plan's paraphrase, and not from the first draft in `0d840cf`.
   - *(No AC.)*
-- [ ] **Step 1: package plumbing.**
+- [x] **Step 1: package plumbing.**
   - `composer.json`, an empty provider, and the section 5 edits. Add `'pricing'` to `QaToolchainRegistryCoverageTest`'s literal.
   - **`PricingProviderTest`:** the provider is loaded and `BigDecimal` autoloads.
   - **Negative control:** a scratch class in `modules/demo/src` importing `Flexipos\Pricing\Engine\PriceLadder` fails deptrac; the same class importing `Flexipos\Contracts\Pricing\PricingEngine` passes. Delete both.
   - **AC-25 baseline:** run step 17's pattern (b) (multiplication next to a `rate`/`percent` token) over the real tree **now**, before any pricing source exists, and record the hit list in the hand-back. A non-empty list is reported to `architect`.
   - *(AC-26 instrument; AC-25's pre-code measurement.)*
-- [ ] **Step 2: the nine table migrations (01–05, 08–11), with `PricingTenantSchemaTest`.**
+- [x] **Step 2: the nine table migrations (01–05, 08–11), with `PricingTenantSchemaTest`.**
   - Each table's sorted column list equals section 4 **exactly**, with nullability. That proves the **absence** of the three account columns (F-17).
   - Every unique key, by raw double insert:
     - **`unit_key`:** two `unit_id = NULL` rows for the same list, product and `min_qty` are refused; a NULL row and a unit row are accepted;
@@ -393,7 +393,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - The FK set equals the 11 keys, and the two cascades delete their children.
   - `SourceRules::inspect()` reports nothing, and no file declares `down`.
   - *(The schema halves of AC-4 to AC-6, AC-8, AC-9, AC-12 to AC-14 and AC-19.)*
-- [ ] **Step 3: the `products` trio (06, 07, 12), with `ProductTaxGroupMigrationsTest`.**
+- [x] **Step 3: the `products` trio (06, 07, 12), with `ProductTaxGroupMigrationsTest`.**
   - Expand: two nullable columns, no key. Existing seeded products survive.
   - Backfill:
     - with zero groups, it creates exactly one `STANDARD` default and sets every product;
@@ -408,7 +408,7 @@ Mutations are run once, reverted, and recorded in `dev`'s hand-back with the red
   - **Mutation S1:** write the tighten as `->change()` in 12, and the destructive assertion goes red. Revert.
   - **Predicted red:** section 9's schema list.
   - *(AC-1, AC-2; D-5, D-6, D-14.)*
-- [ ] **Step 4: AC-28 and AC-29 statics.**
+- [x] **Step 4: AC-28 and AC-29 statics.**
   - Extend `TenantDecimalPrecisionTest`'s column map with section 4's precision map, under a T-029 comment. The allow-list stays at four pairs. **Red-first:** a fixture `decimal('rate', 9, 2)` is reported.
   - AC-29, in `ProductTaxGroupMigrationsTest`:
     - **AC-29.1:** the file that adds the columns (06) contains no FK call and no `change`;

@@ -13,6 +13,7 @@ use Flexipos\Kernel\Tenancy\TenancyServiceProvider;
 use Flexipos\Organization\OrganizationServiceProvider;
 use Flexipos\Platform\PlatformServiceProvider;
 use Flexipos\PluginSdk\PluginSdkServiceProvider;
+use Flexipos\Pricing\PricingServiceProvider;
 use Flexipos\Workflow\WorkflowServiceProvider;
 
 return [
@@ -30,4 +31,5 @@ return [
     WorkflowServiceProvider::class,
     CatalogServiceProvider::class,
     CustomersServiceProvider::class,
+    PricingServiceProvider::class,
 ];

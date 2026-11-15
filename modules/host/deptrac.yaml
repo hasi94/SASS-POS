@@ -72,6 +72,11 @@ deptrac:
     # Package_PluginSdk_Tests layer below matches them.
     - ../../packages/plugin-sdk/src
     - ../../packages/plugin-sdk/tests
+    # T-029 step 1. The pricing package, registered with its test tree, whose
+    # files declare Flexipos\Pricing\Tests\..., so the Package_Pricing_Tests
+    # layer below matches them.
+    - ../../packages/pricing/src
+    - ../../packages/pricing/tests
     - ../../packages/testing/src
     # T-020 step 1. The workflow engine package, registered and collected
     # for the reason stated above: its files declare
@@ -265,6 +270,23 @@ deptrac:
         - type: classLike
           value: ^Flexipos\\PluginSdk\\Tests\\.*
 
+    # T-029 step 1. The pricing package: tax authorities, taxes, rates and
+    # groups, price lists, discounts and the one calculation engine. Two
+    # layers, the same shape as catalog's and customers': the first pattern
+    # excludes `Tests\`, so a class is in exactly one of them. Its source
+    # reaches only the kernel and the published contracts (Ruling 1) - never
+    # Package_Catalog and never Package_Access directly - which is AC-26's
+    # instrument together with Module_Demo's own omission below.
+    - name: Package_Pricing
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Pricing\\(?!Tests\\).*
+
+    - name: Package_Pricing_Tests
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Pricing\\Tests\\.*
+
     - name: Package_Testing
       collectors:
         - type: classLike
@@ -303,6 +325,7 @@ deptrac:
       - Package_Organization
       - Package_Platform
       - Package_PluginSdk
+      - Package_Pricing
       - Package_Testing
       - Package_Workflow
 
@@ -333,6 +356,8 @@ deptrac:
       - Package_Platform_Tests
       - Package_PluginSdk
       - Package_PluginSdk_Tests
+      - Package_Pricing
+      - Package_Pricing_Tests
       - Package_Testing
       - Package_Workflow
       - Package_Workflow_Tests
@@ -372,6 +397,11 @@ deptrac:
     # either, and that omission is AC-38's instrument - a module may reach
     # customer data only through Flexipos\Contracts\Customers, never
     # through the ledger writers' or calculators' internals.
+    #
+    # T-029 step 1: Package_Pricing is deliberately NOT granted here either,
+    # and that omission is AC-26's instrument - a module may reach pricing
+    # only through Flexipos\Contracts\Pricing, never through the engine's
+    # calculators or the ladder.
     Module_Demo:
       - Package_Auth
       - Package_Contracts
@@ -429,6 +459,22 @@ deptrac:
     # tenant this package owns one of.
     Package_Customers_Tests:
       - Package_Customers
+      - Package_Contracts
+      - Package_Kernel
+      - Package_Access
+    # T-029 step 1 (plan Ruling 1). Source reaches the kernel and the
+    # published contracts only - never Package_Access or Package_Catalog
+    # directly. Unit resolution is reached through
+    # Flexipos\Contracts\Catalog\UnitResolver.
+    Package_Pricing:
+      - Package_Kernel
+      - Package_Contracts
+    # This package's tests may additionally reach
+    # Flexipos\Access\Tests\Support\AccessTenantFixture and AccessSeed - the
+    # same customers-tests/catalog-tests precedent - because the fixture
+    # tenant it builds on is access's, not a tenant this package owns one of.
+    Package_Pricing_Tests:
+      - Package_Pricing
       - Package_Contracts
       - Package_Kernel
       - Package_Access
