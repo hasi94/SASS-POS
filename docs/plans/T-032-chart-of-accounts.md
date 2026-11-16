@@ -396,7 +396,7 @@ Rules carried from T-027/T-028 §6, unchanged:
 
 ### Chunk B: the pure core
 
-- [ ] **Step 4: contracts** (Ruling 2's 22 files), after Ruling 13's sweep.
+- [x] **Step 4: contracts** (Ruling 2's 22 files), after Ruling 13's sweep.
   - **`FinanceEnumsTest`:**
     - each enum's exact value list;
     - `AccountType::normalBalance()` for all five types;
@@ -407,7 +407,7 @@ Rules carried from T-027/T-028 §6, unchanged:
     - every refusal enum equals Ruling 2's lists.
   - **`FinanceShapesTest`:** `AccountSnapshot`, `PeriodClearance`, `AccountReferrer` and `PeriodBlocker` accept well-formed values and refuse a malformed ULID or a negative count by name.
   - *(Groundwork for AC-5 to AC-7, AC-16, AC-17, AC-47, AC-51, AC-56, AC-63.)*
-- [ ] **Step 5: `Support\Input`, `Fields::only`, `AccountInput`** (pure datasets).
+- [x] **Step 5: `Support\Input`, `Fields::only`, `AccountInput`** (pure datasets).
   - **AC-2:**
     - `ab1` is stored as `AB1`;
     - each of these is refused: `''`, 21 characters, `'A B'`, `' AB1'`, `'AB1 '`, `"AB1\n"` (the `$` trap), `"AB1\t"`, `"A\0B"`, `'.AB'`, `'-AB'`, `'Ａ1'` (full-width), `'١٢'` (Arabic-Indic digits), and non-strings.
@@ -427,7 +427,7 @@ Rules carried from T-027/T-028 §6, unchanged:
     - **M3:** `strcasecmp` for the enum makes the `Asset` row go red;
     - **M4:** `DateTime::createFromFormat` alone, without `checkdate`, makes `2026-02-30` go red (FP-436 proven closed).
   - *(AC-2, AC-4 to AC-9, AC-32 and AC-48 parsing.)*
-- [ ] **Step 6: `AccountRules`** (pure).
+- [x] **Step 6: `AccountRules`** (pure).
   - **AC-10 order:** each of the six parent failures by itself, and two at once reports the first in Ruling 4's order.
   - **AC-11:** depth and path from a parent at depth 0 and at depth 8; a parent at depth 9 gives `depth_exceeded`.
   - **AC-13:**
@@ -443,7 +443,7 @@ Rules carried from T-027/T-028 §6, unchanged:
     - **M6:** check the depth on the moved node only, which makes the subtree row go red;
     - **M7:** drop `is_postable` from AC-16, which makes a header-control row go red.
   - *(AC-6, AC-7, AC-10, AC-11, AC-13 to AC-19 logic.)*
-- [ ] **Step 7: `FiscalCalendar` and `PeriodTransitions`** (pure).
+- [x] **Step 7: `FiscalCalendar` and `PeriodTransitions`** (pure).
   - **AC-31:**
     - `2026-01-01` gives 12 periods tiling to `2026-12-31`;
     - `2026-03-01` gives `2027-02-28`, and `2027-03-01` gives `2028-02-29` (leap);

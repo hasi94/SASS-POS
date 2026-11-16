@@ -20,8 +20,8 @@ namespace Flexipos\Contracts\Finance;
  * `FinanceTenantSchemaTest` parses the migration and asserts the two are
  * equal, so they cannot drift.
  *
- * The rest of this enum's rules (what type and subtype each control type
- * demands, AC-16) arrive with the pure core, plan step 4.
+ * What type and subtype each control type demands (AC-16) is
+ * {@see self::requires()}.
  */
 enum ControlType: string
 {
@@ -64,6 +64,29 @@ enum ControlType: string
     public function isSingle(): bool
     {
         return in_array($this, self::singles(), true);
+    }
+
+    /**
+     * The type and subtype an account of this control type must have (AC-16),
+     * or null for `none`, which demands nothing.
+     *
+     * @return array{type: AccountType, subtype: AccountSubtype}|null
+     */
+    public function requires(): ?array
+    {
+        return match ($this) {
+            self::None => null,
+            self::Cash => ['type' => AccountType::Asset, 'subtype' => AccountSubtype::Cash],
+            self::Bank => ['type' => AccountType::Asset, 'subtype' => AccountSubtype::Bank],
+            self::Inventory => ['type' => AccountType::Asset, 'subtype' => AccountSubtype::Inventory],
+            self::Ar => ['type' => AccountType::Asset, 'subtype' => AccountSubtype::Receivable],
+            self::Ap => ['type' => AccountType::Liability, 'subtype' => AccountSubtype::Payable],
+            self::TaxPayable => ['type' => AccountType::Liability, 'subtype' => AccountSubtype::Tax],
+            self::TaxReceivable => ['type' => AccountType::Asset, 'subtype' => AccountSubtype::CurrentAsset],
+            self::Grni => ['type' => AccountType::Liability, 'subtype' => AccountSubtype::CurrentLiability],
+            self::PayrollPayable => ['type' => AccountType::Liability, 'subtype' => AccountSubtype::CurrentLiability],
+            self::RetainedEarnings => ['type' => AccountType::Equity, 'subtype' => AccountSubtype::RetainedEarnings],
+        };
     }
 
     /**

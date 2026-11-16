@@ -83,3 +83,4 @@
 - [T-028 customers chunk E (final)](project_t028_customers_chunk_e.md) - the one-writer scan's real exemption list, the two-connection lock-contention engine test shape, and the final gate numbers (T-028 now fully built).
 - [T-028 BUG-1 fix (missing CustomerStatus::Inactive)](project_t028_customers_bug1_fix.md) - the second-hidden-branch pattern, and why this gate's exit code is never "0 means clean" against a known baseline.
 - [T-032 chunk A (base, plumbing, schema)](project_t032_chunk_a_base_and_schema.md) - a pest run poisons the PHPStan result cache (clear it before every gate), the migration clock seam, owner top-up, red-list artifacts.
+- [T-032 chunk B (pure core)](project_t032_chunk_b_pure_core.md) - masked regex-anchor mutation, extra helper classes, move() depth semantics, gate numbers.
