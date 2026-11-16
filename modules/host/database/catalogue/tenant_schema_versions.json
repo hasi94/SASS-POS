@@ -406,5 +406,29 @@
         "checksum": "16bc4a407b18e685faac196d244105cc3358f9ebcf0f63e543a5007e699172e1",
         "is_destructive": false,
         "requires_offline": false
+    },
+    {
+        "version": 52,
+        "migration": "2026_11_15_003201_create_accounts_table",
+        "phase": "expand",
+        "checksum": "9aba49241542f34d6b829a23f4f4c4ee1645ecfe8426d412d4254d6ad4a99000",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 53,
+        "migration": "2026_11_15_003202_create_fiscal_years_table",
+        "phase": "expand",
+        "checksum": "800b743b085d5ebbc8bfce3ae7ac38d2292b3e2c227756aeaf9eb37e69c8876e",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 54,
+        "migration": "2026_11_15_003203_create_fiscal_periods_table",
+        "phase": "expand",
+        "checksum": "6981940b694a7517b6471683be5c202850d181f568ebe060021b898dd4bd1532",
+        "is_destructive": false,
+        "requires_offline": false
     }
 ]

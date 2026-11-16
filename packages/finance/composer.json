@@ -1,0 +1,21 @@
+{
+    "name": "flexipos/finance",
+    "description": "FlexiPOS finance: the chart of accounts, fiscal years and periods, period closing and the period gate.",
+    "type": "library",
+    "version": "0.1.0",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.2",
+        "flexipos/contracts": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "Flexipos\\Finance\\": "src/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}

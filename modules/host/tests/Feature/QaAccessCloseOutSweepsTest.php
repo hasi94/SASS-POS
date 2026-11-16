@@ -130,7 +130,11 @@ function closeOutNewTables(): array
         'customer_notes', 'customers', 'loyalty_programs', 'loyalty_transactions',
     ];
 
-    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017, $t019, $t020, $t021, $t027, $t028));
+    // T-032's three finance tables are excluded the same way: this sweep's
+    // exercise never writes an account, a fiscal year or a fiscal period.
+    $t032 = ['accounts', 'fiscal_periods', 'fiscal_years'];
+
+    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017, $t019, $t020, $t021, $t027, $t028, $t032));
 }
 
 /**

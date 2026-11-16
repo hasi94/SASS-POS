@@ -102,6 +102,7 @@ it('is the catalogue top entry, phase expand, version 43', function () {
     // This test's own name is now one task stale - stated here rather than
     // renamed, so the "whoever ships next updates this" pattern stays
     // visible in the diff instead of being silently absorbed.
+    // T-032 step 2 does it again: its three finance tables put the top at 54.
     $catalogue = json_decode(
         (string) file_get_contents(base_path('database/catalogue/tenant_schema_versions.json')),
         true
@@ -109,7 +110,7 @@ it('is the catalogue top entry, phase expand, version 43', function () {
 
     $top = end($catalogue);
 
-    expect($top['version'])->toBe(51)
-        ->and($top['migration'])->toBe('2026_11_10_002808_create_customer_communications_table')
+    expect($top['version'])->toBe(54)
+        ->and($top['migration'])->toBe('2026_11_15_003203_create_fiscal_periods_table')
         ->and($top['phase'])->toBe('expand');
 });

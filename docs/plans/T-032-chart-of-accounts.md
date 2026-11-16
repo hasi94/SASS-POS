@@ -352,7 +352,7 @@ Rules carried from T-027/T-028 §6, unchanged:
 
 ### Chunk A: base, plumbing, schema, static instruments
 
-- [ ] **Step 0: merge the base, measure it, verify every named symbol. STOP on any difference.**
+- [x] **Step 0: merge the base, measure it, verify every named symbol. STOP on any difference.**
   - **Spec:** build from spec revision 2 and D-20 to D-29 (`e5c99bb`), not from this plan's paraphrase and not from the first draft (`262a2bf`).
   - **Merge:** `lead` obtains the human's permission, then merges `ai/T-028-customers` @ `20ad316` into this branch (F-1, D-20); resolve `docs/backlog.md` only. If any other file conflicts, stop.
   - **Baseline:** `composer check`: record passed, failed and skipped counts, the `test` seconds and the process list. Expected: 13 failed (pre-existing) / about 3483 passed / about 38 skipped. A different failing set means stop.
@@ -368,13 +368,13 @@ Rules carried from T-027/T-028 §6, unchanged:
     - whether the `owner` system role acquires newly declared keys automatically (Ruling 5); record the answer;
     - whether T-029 has already merged into the base (`git log --oneline | grep T-029`). If it has, apply section 5's T-029-first branch now and re-baseline.
   - *(No AC.)*
-- [ ] **Step 1: package plumbing.**
+- [x] **Step 1: package plumbing.**
   - `composer.json`, an empty provider (declares no actions and no keys yet), `config/finance.php`, and the section 5 edits.
   - Add `'finance'` to `QaToolchainRegistryCoverageTest`'s literal.
   - **`FinanceProviderTest`:** the provider is loaded.
   - **Negative control:** a scratch class in `modules/demo/src` importing `Flexipos\Finance\Accounts\AccountRules` fails deptrac, and the same class importing `Flexipos\Contracts\Finance\ChartOfAccounts` passes. Delete both.
   - *(AC-51 instrument.)*
-- [ ] **Step 2: the three table migrations, with `FinanceTenantSchemaTest`** (own SQLite stand-in, the T-028 shape).
+- [x] **Step 2: the three table migrations, with `FinanceTenantSchemaTest`** (own SQLite stand-in, the T-028 shape).
   - Exact sorted column lists with nullability for all three tables (section 4).
   - Unique keys by raw double insert:
     - `code`;
@@ -387,7 +387,7 @@ Rules carried from T-027/T-028 §6, unchanged:
   - Republish the catalogue. Update `tenantTreeTables()`, `MigrationTreeDisciplineTest` (49 → 52), `TenantBaselineBuildsTest`, `QaAccessCloseOutSweepsTest` / `QaAccessSchemaShapeTest` (`$t032` lists) and `.env.example` (51 → 54).
   - **Predicted red:** section 9's step-2 rows only.
   - *(The schema halves of AC-3, AC-17, AC-31, AC-35, AC-66.)*
-- [ ] **Step 3: static precision and widths.**
+- [x] **Step 3: static precision and widths.**
   - `TenantDecimalPrecisionTest` gains `accounts.opening_balance` (18,4) under a T-032 comment.
   - **`FinanceWidthsTest`:** every `VARCHAR` and `CHAR` width in `003201` to `003203` equals its `Support\Limits` constant (code 20, name 150, description 500, year and period name 50, enum 30, currency 3).
   - **Red-first:** a fixture declaring `string('code', 21)` is reported.
@@ -759,6 +759,7 @@ Rules carried from T-027/T-028 §6, unchanged:
 | `tests/Feature/TenantBaselineBuildsTest.php` | +6 keys, then +5 | 2, 17 |
 | `tests/Feature/QaAccessCloseOutSweepsTest.php`, `QaAccessSchemaShapeTest.php` | `$t032` list | 2 |
 | `SchemaCataloguePublishTest` | fixed by the republish | 2, 16, 17 |
+| `tests/Feature/IdempotencyKeysSchemaTest.php` | hard-coded catalogue top entry (version and migration name); **missed by the plan, found by the chunk A gate** (the T-028 chunk A gap again). Steps 16 and 17 edit it again | 2, 16, 17 |
 | `tests/Feature/TenantDecimalPrecisionTest.php` | `accounts.opening_balance` | 3 |
 | `packages/catalog/tests/Schema/CatalogTenantSchemaTest.php`, `packages/customers/tests/Schema/CustomersTenantSchemaTest.php` | absence to presence, column lists +3/+1/+1 (F-2) | 17 |
 | `tests/Engine/CatalogSchemaEngineTest.php`, `CustomersSchemaEngineTest.php` | column lists, if they list them | 17 |

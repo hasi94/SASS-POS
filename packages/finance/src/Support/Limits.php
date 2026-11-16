@@ -1,0 +1,48 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Flexipos\Finance\Support;
+
+/**
+ * The widths every Finance string input is validated against (T-032 plan
+ * Ruling 3, step 3).
+ *
+ * **One number, two homes, and a test between them.** Each constant here is
+ * also the length a migration declares for the column it is validated for:
+ * `FinanceWidthsTest` reads the three finance migrations and asserts every
+ * `string()` and `char()` width equals its constant, so a validator and its
+ * column cannot drift (the T-028 review's W-6 class: a validator that accepts
+ * what the column cannot store is a refusal discovered at the database).
+ *
+ * Lengths are counted in characters, never bytes (AC-4): a 150-character
+ * name made of multi-byte characters passes and a 151-character one does not.
+ */
+final class Limits
+{
+    /** `accounts.code`: upper-case ASCII, `.` and `-` inside (AC-2). */
+    public const CODE = 20;
+
+    /** `accounts.name` (AC-4). */
+    public const ACCOUNT_NAME = 150;
+
+    /** `accounts.description` (AC-4). */
+    public const DESCRIPTION = 500;
+
+    /** `accounts.path`: ids joined by `/`, at most 269 at ten levels (D-12). */
+    public const PATH = 500;
+
+    /** `fiscal_years.name` (AC-34). */
+    public const YEAR_NAME = 50;
+
+    /** `fiscal_periods.name` (AC-34). */
+    public const PERIOD_NAME = 50;
+
+    /** The width of every enum-valued column: type, subtype, status and the rest. */
+    public const ENUM = 30;
+
+    /** `accounts.currency`, an ISO 4217 code. */
+    public const CURRENCY = 3;
+
+    private function __construct() {}
+}

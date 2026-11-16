@@ -573,6 +573,11 @@ function tenantTreeTables(): array
         'loyalty_transactions',
         'customer_notes',
         'customer_communications',
+        // T-032 step 2: the three finance tables (docs/database.md section
+        // 6.10).
+        'accounts',
+        'fiscal_years',
+        'fiscal_periods',
     ]);
 
     sort($tables);

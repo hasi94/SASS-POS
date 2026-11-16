@@ -7,6 +7,7 @@ use Flexipos\Auth\AuthServiceProvider;
 use Flexipos\Catalog\CatalogServiceProvider;
 use Flexipos\Customers\CustomersServiceProvider;
 use Flexipos\Eventbus\EventbusServiceProvider;
+use Flexipos\Finance\FinanceServiceProvider;
 use Flexipos\Kernel\Api\ApiServiceProvider;
 use Flexipos\Kernel\Schema\SchemaServiceProvider;
 use Flexipos\Kernel\Tenancy\TenancyServiceProvider;
@@ -30,4 +31,5 @@ return [
     WorkflowServiceProvider::class,
     CatalogServiceProvider::class,
     CustomersServiceProvider::class,
+    FinanceServiceProvider::class,
 ];

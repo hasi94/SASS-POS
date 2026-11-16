@@ -324,6 +324,9 @@ it('holds exactly the declared foreign keys, and the branch keys of T-014 (AC-3,
     // red.
     expect(tenantTreeForeignKeys())->toBe([
         'access_log.employee_id -> employees.id',
+        'accounts.created_by -> employees.id',
+        'accounts.parent_id -> accounts.id',
+        'accounts.updated_by -> employees.id',
         'branches.created_by -> employees.id',
         'branches.default_location_id -> locations.id',
         'branches.updated_by -> employees.id',
@@ -357,6 +360,11 @@ it('holds exactly the declared foreign keys, and the branch keys of T-014 (AC-3,
         'employee_roles.role_id -> roles.id',
         'employees.created_by -> employees.id',
         'employees.updated_by -> employees.id',
+        // T-032 step 2: the three finance tables' six foreign keys (the
+        // `accounts.*` three are above, sorted).
+        'fiscal_periods.closed_by -> employees.id',
+        'fiscal_periods.fiscal_year_id -> fiscal_years.id',
+        'fiscal_years.closed_by -> employees.id',
         'locations.branch_id -> branches.id',
         'locations.created_by -> employees.id',
         'locations.manager_employee_id -> employees.id',

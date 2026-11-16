@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "3fe5bf60adfd21dab1975c0bfc9e4036",
+    "content-hash": "5046609e6a52a6fcd07527eb67b6fa10",
     "packages": [
         {
             "name": "brick/math",
@@ -737,6 +737,32 @@
                 "proprietary"
             ],
             "description": "FlexiPOS event bus: EventBus interface, Redis Streams adapter, outbox relay and inbox dedupe.",
+            "transport-options": {
+                "relative": true
+            }
+        },
+        {
+            "name": "flexipos/finance",
+            "version": "0.1.0",
+            "dist": {
+                "type": "path",
+                "url": "../../packages/finance",
+                "reference": "bdd65fa3c31c15b83b78038fba0a006be176d622"
+            },
+            "require": {
+                "flexipos/contracts": "*",
+                "php": "^8.2"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Flexipos\\Finance\\": "src/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "FlexiPOS finance: the chart of accounts, fiscal years and periods, period closing and the period gate.",
             "transport-options": {
                 "relative": true
             }

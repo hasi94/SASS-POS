@@ -49,6 +49,11 @@ deptrac:
     # declare Flexipos\Eventbus\Tests\..., so the Package_Eventbus_Tests
     # layer below matches them.
     - ../../packages/eventbus/tests
+    # T-032 step 1. The finance package, registered with its test tree,
+    # whose files declare Flexipos\Finance\Tests\..., so the
+    # Package_Finance_Tests layer below matches them.
+    - ../../packages/finance/src
+    - ../../packages/finance/tests
     # Str::studly('http-client') === 'HttpClient'; the directory stays kebab-case.
     - ../../packages/http-client/src
     - ../../packages/kernel/src
@@ -159,6 +164,23 @@ deptrac:
       collectors:
         - type: classLike
           value: ^Flexipos\\Customers\\Tests\\.*
+
+    # T-032 step 1. The finance package: the chart of accounts, fiscal years
+    # and periods, period closing and the period gate. Two layers, the same
+    # shape as customers': the first pattern excludes `Tests\`, so a class is
+    # in exactly one of them. Its source reaches only the kernel and the
+    # published contracts - and catalog and customers reach it only through
+    # `Flexipos\Contracts\Finance` - which is AC-51's instrument together
+    # with Module_Demo's own omission below.
+    - name: Package_Finance
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Finance\\(?!Tests\\).*
+
+    - name: Package_Finance_Tests
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Finance\\Tests\\.*
 
     # T-018 step 1. Split the same way organization's and platform's layers
     # are: the first pattern excludes `Tests\`, so a class is in exactly one
@@ -297,6 +319,7 @@ deptrac:
       - Package_Contracts
       - Package_Customers
       - Package_Eventbus
+      - Package_Finance
       - Package_HttpClient
       - Package_Kernel
       - Package_Kernel_TenancyStatus
@@ -324,6 +347,8 @@ deptrac:
       - Package_Customers
       - Package_Customers_Tests
       - Package_Eventbus
+      - Package_Finance
+      - Package_Finance_Tests
       - Package_HttpClient
       - Package_Kernel
       - Package_Kernel_TenancyStatus
@@ -372,6 +397,12 @@ deptrac:
     # either, and that omission is AC-38's instrument - a module may reach
     # customer data only through Flexipos\Contracts\Customers, never
     # through the ledger writers' or calculators' internals.
+    #
+    # T-032 step 1: Package_Finance is deliberately NOT granted here either,
+    # and that omission is AC-51's instrument - a module may reach the
+    # chart of accounts and the period gate only through
+    # Flexipos\Contracts\Finance, never through the rule classes or the
+    # database implementations.
     Module_Demo:
       - Package_Auth
       - Package_Contracts
@@ -429,6 +460,19 @@ deptrac:
     # tenant this package owns one of.
     Package_Customers_Tests:
       - Package_Customers
+      - Package_Contracts
+      - Package_Kernel
+      - Package_Access
+    # T-032 step 1 (plan Ruling 1, section 5). Source reaches the kernel and
+    # the published contracts only - never Package_Access directly.
+    Package_Finance:
+      - Package_Kernel
+      - Package_Contracts
+    # This package's tests may additionally reach
+    # Flexipos\Access\Tests\Support\AccessTenantFixture and AccessSeed, for
+    # the reason the customers tests do (the fixture tenant is access's).
+    Package_Finance_Tests:
+      - Package_Finance
       - Package_Contracts
       - Package_Kernel
       - Package_Access

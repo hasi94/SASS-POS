@@ -55,6 +55,9 @@ parameters:
         # T-018, source and tests, for the reason the access package's two
         # lines above are here.
         - ../../packages/eventbus/tests
+        # T-032, source and tests.
+        - ../../packages/finance/src
+        - ../../packages/finance/tests
         # Str::studly('http-client') === 'HttpClient'; the directory stays kebab-case.
         - ../../packages/http-client/src
         - ../../packages/kernel/src
