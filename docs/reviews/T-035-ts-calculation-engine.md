@@ -22,3 +22,21 @@ Rounding half-up away from zero for all four sign combinations; `divideToScale` 
 
 ### NOT VERIFIED
 `npm test` results and the fixture count (QA runs them), the builds and `prettier`, whether the admin bundle drops the engine, whether ng-packagr includes `testing/*.ts` in the library build (`tsconfig.lib.json` includes `src/**/*.ts`), whether `process.getBuiltinModule` is reachable under the unit-test builder's jsdom, any T-036/T-037 code beyond a grep for colliding names, and any hand recomputation of fixture amounts.
+
+## Fix round 1 - W-1, W-2, W-3 (developer `dev56`, commit `0b1c0a5`)
+`npm test` 25 files / 1474 tests passed; `ng build pos`, `admin` and `shared` pass; the widened bundle grep prints nothing. S-3, S-5 and S-7 applied by the developer; the reviewer found S-7's comment change not actually present (see below).
+
+## Round 2 - tip `0b1c0a5` - APPROVE, no Critical
+
+Re-check of W-1, W-2 and W-3 by `reviewer35b`, reading only (no tests or builds run by the reviewer). All three fixed: the barrel exports an explicit allow-list of 9 values and 20 `Pricing`-prefixed types with no `export *`; `locateRepoRoot` anchors on the first ancestor holding `frontend/angular.json`, never walks past it and throws when the fixtures are missing there (the temp-layout test reproduces the original hazard); `MAX` is a literal equal to `99999999999999.9999`. The engine's behaviour is unchanged (no diff in `tax.ts`, `line.ts`, `discount.ts`, `shape.ts`, `byte-order.ts`, `types.ts`).
+
+New Warnings, non-blocking:
+
+| ID | Finding | Disposition |
+|---|---|---|
+| R2-W-1 | README says the bundle grep has one marker per engine module, but markers cover only `decimal.ts`, `refusal.ts`, `tax.ts` | follow-up: add a `rules.ts` marker (e.g. `unit_matched`) or reword to "per module with top-level state" |
+| R2-W-2 | the S-3 `Object.freeze(...)` calls in `rules.ts` and `refusal.ts` run at module load | follow-up: mark `/* @__PURE__ */` |
+
+Suggestions: R2-S-1 add a fourth barrel assertion against inline `export interface|type|const|function|class|enum`; R2-S-2 rename the circular allow-list test; R2-S-3 drop or retarget the circular MAX check; S-7 (`refusal.ts` header still says "three thrown types and no fourth" while `decimal.ts` throws a plain `Error` twice) not applied; empty-string `start` message in `fixture-files.ts` is misleading.
+
+NOT VERIFIED by the reviewer: test and build results, and whether the bundler drops the top-level freeze calls (`sideEffects: false` with path-mapped sources).
