@@ -7,6 +7,7 @@ namespace Flexipos\Pricing;
 use Flexipos\Contracts\Audit\DeclaresAuditActions;
 use Flexipos\Contracts\Pricing\DiscountUsage;
 use Flexipos\Contracts\Pricing\PricingEngine;
+use Flexipos\Contracts\Pricing\PurchaseLinePricing;
 use Flexipos\Contracts\Pricing\TaxGroupDirectory;
 use Flexipos\Pricing\Discounts\DatabaseDiscountUsage;
 use Flexipos\Pricing\Engine\DatabasePricingEngine;
@@ -39,6 +40,10 @@ final class PricingServiceProvider extends ServiceProvider implements DeclaresAu
     {
         $this->app->singleton(TaxGroupDirectory::class, DatabaseTaxGroupDirectory::class);
         $this->app->singleton(PricingEngine::class, DatabasePricingEngine::class);
+
+        // T-034 D-53a. The purchase-line contract resolves to the one engine
+        // instance, so both contracts share a single adapter.
+        $this->app->singleton(PurchaseLinePricing::class, fn ($app) => $app->make(PricingEngine::class));
 
         // T-030 D-37, F-12. The one writer of `discounts.used_count`, taken under a
         // row lock inside the completing sale's transaction. It refuses before it

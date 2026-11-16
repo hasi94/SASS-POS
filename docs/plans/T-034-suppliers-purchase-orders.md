@@ -364,7 +364,7 @@ This document, synced to spec revision 2 and D-1 to D-53, code re-verified at `c
 
 Order is fixed; each step ends with its targeted files green before the next starts.
 
-- [ ] **Step 1: package plumbing.** *(AC-93's boundary half.)*
+- [x] **Step 1: package plumbing.** *(AC-93's boundary half.)*
   1. Create `packages/purchasing/composer.json` (copy `packages/sales/composer.json`, rename).
   2. Create `packages/purchasing/src/PurchasingServiceProvider.php` (empty, implements nothing yet).
   3. Create `modules/host/config/purchasing.php`.
@@ -376,7 +376,7 @@ Order is fixed; each step ends with its targeted files green before the next sta
   9. Create `packages/purchasing/tests/Support/PurchasingProviderTest.php` (namespace `Flexipos\Purchasing\Tests\Support`; provider loaded; `BigDecimal` autoloads), modelled on `packages/pricing/tests/Support/PricingProviderTest.php`.
   10. Negative control: a scratch class in `modules/demo/src` importing `Flexipos\Purchasing\Support\…` (any class; create a one-line `Support/Money.php` stub only if needed and delete it) fails `composer deptrac`; one importing `Flexipos\Contracts\Pricing\TaxContext` passes. Delete both.
   - **Targeted:** `../../packages/purchasing/tests/Support/PurchasingProviderTest.php`, `tests/Feature/QaToolchainRegistryCoverageTest.php`, `tests/Feature/VerticalSliceLayoutTest.php`; `composer lint`, `composer stan`, `composer deptrac`.
-- [ ] **Step 2: `PurchaseLinePricing`.** *(AC-43, AC-44 arithmetic half; D-53a.)*
+- [x] **Step 2: `PurchaseLinePricing`.** *(AC-43, AC-44 arithmetic half; D-53a.)*
   1. `packages/contracts/src/Pricing/PurchaseLineQuote.php`, `PricedPurchaseLine.php`, `PurchaseLinePricing.php`.
   2. `packages/pricing/src/Engine/PurchaseLineCalculator.php` (pure).
   3. `DatabasePricingEngine.php`: `implements PricingEngine, PurchaseLinePricing`, `quotePurchaseLine()`.
@@ -384,15 +384,15 @@ Order is fixed; each step ends with its targeted files green before the next sta
   5. Tests `packages/pricing/tests/Engine/PurchaseLineCalculatorTest.php` (pure) and `PurchaseLinePricingTest.php` (adapter on `PricingSeed`): (a) AC-43 exclusive `39.9996 / 4.0000 / 35.9996 / 3.6000 / 39.5996`; (b) inclusive twin `tax 3.2727`, `lineTotal 35.9996`; (c) discount `0` and `100.00` (line total `0.0000`); (d) zero unit cost gives zeros; (e) a sale-only group taxes zero, no refusal; (f) overflow is `out_of_range`; (g) `discountPercent` `100.0001` and a negative refused by the DTO; (h) an inactive group computes normally; (i) a purchase-only member applies, a sale-only one does not; (j) `app(PurchaseLinePricing::class)` is the same instance as `app(PricingEngine::class)`.
   - **Mutations:** P1 discount rounded half-down (a red); P2 tax on `subtotal` not `taxable` (a red); P3 `lineTotal = taxable + tax` for inclusive (b red).
   - **Targeted:** the two new files, `../../packages/pricing/tests/Engine/DatabasePricingEngineTest.php`, `…/QaPricingAdapterTest.php`, `…/QaPricingEngineTest.php`, `../../packages/pricing/tests/Support/PricingProviderTest.php`, `tests/Feature/QaPricingSourceRulesTest.php`; lint, stan, deptrac.
-- [ ] **Step 3: number prefixes.** *(D-10, D-53b.)* `DEFAULT_PREFIXES` gains the two entries. `DocumentNumbersTest.php`: a new case after line 172: first use gives `PR000001` / `PO000001`, a second `PR000002`, independent rows with prefixes `PR` / `PO`.
+- [x] **Step 3: number prefixes.** *(D-10, D-53b.)* `DEFAULT_PREFIXES` gains the two entries. `DocumentNumbersTest.php`: a new case after line 172: first use gives `PR000001` / `PO000001`, a second `PR000002`, independent rows with prefixes `PR` / `PO`.
   - **Targeted:** `../../packages/organization/tests/Numbering/DocumentNumbersTest.php`; lint, stan.
-- [ ] **Step 4: migrations 01 to 06 and `PurchasingTenantSchemaTest`.** *(AC-68, AC-88, AC-89; schema halves of AC-1, AC-6, AC-19, AC-40.)*
+- [x] **Step 4: migrations 01 to 06 and `PurchasingTenantSchemaTest`.** *(AC-68, AC-88, AC-89; schema halves of AC-1, AC-6, AC-19, AC-40.)*
   1. Write `PurchasingTenantSchemaTest.php` first (namespace `Flexipos\Purchasing\Tests\Schema`, helpers `puSchema*`, modelled on `packages/sales/tests/Schema/SalesTenantSchemaTest.php`): sorted column lists and nullable subsets equal the Data section exactly (proves every D-3 absence); `suppliers.credit_limit` not nullable with default 0; unique keys by raw double insert (`suppliers.code` with a deleted holder, both `number`s, both (`header`, `line_no`)); exactly the 27 keys; both cascades delete lines; deleting a supplier, product, or an order item referenced by an application is refused; migrate twice is a no-op; no `down()`; `SourceRules::inspect()` reports nothing; the six catalogue entries (looked up by name through `MigrationSet::versionOf()`, never by number) are consecutive, `expand`, not destructive, not offline. Run it: red.
   2. Write the six migrations in order 01 → 06.
   3. `php artisan schema:publish --write-fixture` (never without the option). Edit `.env.example` 73 → 79.
   4. Apply the section 0.3 step-4 edits: `Helpers.php`, `MigrationTreeDisciplineTest`, `IdempotencyKeysSchemaTest`, `TenantBaselineBuildsTest` (FK list and branch-key list), `QaAccessCloseOutSweepsTest`, `QaAccessSchemaShapeTest`, `LoyaltySaleIdMigrationsTest`.
   - **Targeted:** `../../packages/purchasing/tests/Schema/PurchasingTenantSchemaTest.php`, `tests/Feature/MigrationTreeDisciplineTest.php`, `tests/Feature/IdempotencyKeysSchemaTest.php`, `tests/Feature/TenantBaselineBuildsTest.php`, `tests/Feature/QaAccessCloseOutSweepsTest.php`, `tests/Feature/QaAccessSchemaShapeTest.php`, `tests/Feature/SchemaCataloguePublishTest.php`, `tests/Feature/UomColumnSetsTest.php`, `tests/Feature/BranchForeignKeysContractRunTest.php`, `../../packages/sales/tests/Schema/LoyaltySaleIdMigrationsTest.php`; lint, stan. `UomColumnSetsTest` and `BranchForeignKeysContractRunTest` must be green with no edit; red is a stop.
-- [ ] **Step 5: statics.** *(AC-89, AC-93 schema half.)* `TenantDecimalPrecisionTest`: the T-034 map, red-first with a fixture string `decimal('total', 18, 2)` read back as the wrong pair (the T-030 red-first case shape); `t034DeferredColumns()` scan, red-first with a scratch fixture source naming `opening_balance`.
+- [x] **Step 5: statics.** *(AC-89, AC-93 schema half.)* `TenantDecimalPrecisionTest`: the T-034 map, red-first with a fixture string `decimal('total', 18, 2)` read back as the wrong pair (the T-030 red-first case shape); `t034DeferredColumns()` scan, red-first with a scratch fixture source naming `opening_balance`.
   - **Targeted:** `tests/Feature/TenantDecimalPrecisionTest.php`, `tests/Feature/MigrationTreeDisciplineTest.php`; lint, stan, deptrac.
   - **Chunk A hand-back:** list of files changed, each targeted run's pass/fail counts, the mutation results; then `lead` schedules `composer check`.
 

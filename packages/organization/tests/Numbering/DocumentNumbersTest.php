@@ -171,6 +171,18 @@ it('keeps sale, refund and cash_shift independent, with prefixes that differ', f
         ->and(dnRowCount())->toBe(3);
 });
 
+it('gives purchase_request and purchase_order their own PR and PO sequences on first use (T-034 D-10, D-53b)', function () {
+    expect(dnNumbers()->next('purchase_request', null))->toBe('PR000001')
+        ->and(dnNumbers()->next('purchase_order', null))->toBe('PO000001')
+        ->and(dnNumbers()->next('purchase_request', null))->toBe('PR000002')
+        ->and(dnNumbers()->next('purchase_order', null))->toBe('PO000002')
+        ->and(dnRowCount())->toBe(2)
+        ->and(dnRow('purchase_request')['prefix'])->toBe('PR')
+        ->and(dnRow('purchase_order')['prefix'])->toBe('PO')
+        ->and((int) dnRow('purchase_request')['next_number'])->toBe(3)
+        ->and((int) dnRow('purchase_order')['next_number'])->toBe(3);
+});
+
 it('refuses a sequence that resets, as unsupported_reset_period, and changes nothing', function (string $period) {
     dnSequence('sale', null, ['reset_period' => $period, 'next_number' => 5]);
     $before = dnRow('sale');

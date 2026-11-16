@@ -77,6 +77,11 @@ deptrac:
     # layer below matches them.
     - ../../packages/pricing/src
     - ../../packages/pricing/tests
+    # T-034 step 1. The purchasing package, registered with its test tree,
+    # whose files declare Flexipos\Purchasing\Tests\..., so the
+    # Package_Purchasing_Tests layer below matches them.
+    - ../../packages/purchasing/src
+    - ../../packages/purchasing/tests
     # T-030 step 1. The sales package, registered with its test tree, whose
     # files declare Flexipos\Sales\Tests\..., so the Package_Sales_Tests
     # layer below matches them.
@@ -310,6 +315,21 @@ deptrac:
         - type: classLike
           value: ^Flexipos\\Sales\\Tests\\.*
 
+    # T-034 step 1. The purchasing package: suppliers, purchase requests,
+    # purchase orders and the received-quantity rollup. Two layers, the same
+    # shape as sales': the first pattern excludes `Tests\`, so a class is in
+    # exactly one of them. Its source reaches only the kernel and the published
+    # contracts (plan Ruling 1).
+    - name: Package_Purchasing
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Purchasing\\(?!Tests\\).*
+
+    - name: Package_Purchasing_Tests
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Purchasing\\Tests\\.*
+
     - name: Package_Testing
       collectors:
         - type: classLike
@@ -349,6 +369,7 @@ deptrac:
       - Package_Platform
       - Package_PluginSdk
       - Package_Pricing
+      - Package_Purchasing
       - Package_Sales
       - Package_Testing
       - Package_Workflow
@@ -382,6 +403,8 @@ deptrac:
       - Package_PluginSdk_Tests
       - Package_Pricing
       - Package_Pricing_Tests
+      - Package_Purchasing
+      - Package_Purchasing_Tests
       - Package_Sales
       - Package_Sales_Tests
       - Package_Testing
@@ -504,6 +527,21 @@ deptrac:
       - Package_Contracts
       - Package_Kernel
       - Package_Access
+    # T-034 step 1 (plan Ruling 1). Source reaches the kernel and the published
+    # contracts only; every unit, pricing, numbering, workflow and permission
+    # question goes through Flexipos\Contracts.
+    Package_Purchasing:
+      - Package_Kernel
+      - Package_Contracts
+    # Tests reach real implementations through the container, by contract. They
+    # need the test-support layers: Package_Access (AccessTenantFixture,
+    # AccessSeed) and Package_Pricing_Tests (PricingSeed).
+    Package_Purchasing_Tests:
+      - Package_Purchasing
+      - Package_Contracts
+      - Package_Kernel
+      - Package_Access
+      - Package_Pricing_Tests
     # T-030 step 1 (plan Ruling 1, R-7). Source reaches the kernel and the
     # published contracts only - never an implementation package. Unit
     # resolution, pricing, the credit ledger, numbering and the PIN check are

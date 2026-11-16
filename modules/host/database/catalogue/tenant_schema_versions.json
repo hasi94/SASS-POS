@@ -582,5 +582,53 @@
         "checksum": "fe2108eed14b2afb6dfdf5dd803767a43f17c3598a8fd8908f68631df70e5c5a",
         "is_destructive": false,
         "requires_offline": false
+    },
+    {
+        "version": 74,
+        "migration": "2026_11_16_003401_create_suppliers_table",
+        "phase": "expand",
+        "checksum": "dfe077f46f67ea8e55afa53ead033d5a6f0eb29b80ca7869ef346fb5c416e1f6",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 75,
+        "migration": "2026_11_16_003402_create_purchase_requests_table",
+        "phase": "expand",
+        "checksum": "685abe7e2b7c5a2e2e44a99504c9fbc07f0a16bc3c241486d35ca7fb5aeb1f33",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 76,
+        "migration": "2026_11_16_003403_create_purchase_orders_table",
+        "phase": "expand",
+        "checksum": "a506645064dee1b3710effe6880cc52a7342a6bdbf1ad4e1695a393c6d8af0aa",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 77,
+        "migration": "2026_11_16_003404_create_purchase_order_items_table",
+        "phase": "expand",
+        "checksum": "02379b5241e9bfc60b3444d28bda18a1b5828da6960710a9c52d74c0c45aa7a9",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 78,
+        "migration": "2026_11_16_003405_create_purchase_request_items_table",
+        "phase": "expand",
+        "checksum": "4c0ba0eb014f3e3b9ce7b7b02504fa467bf454bb9d6f3bda4c45396678a6525c",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 79,
+        "migration": "2026_11_16_003406_create_purchase_order_receipt_applications_table",
+        "phase": "expand",
+        "checksum": "c5e5d4dbf9c9678e10e1a944bb377a51b375d5342bd993d9364099fb9942c86d",
+        "is_destructive": false,
+        "requires_offline": false
     }
 ]

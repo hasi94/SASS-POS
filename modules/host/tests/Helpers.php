@@ -594,6 +594,13 @@ function tenantTreeTables(): array
         'sale_items',
         'sale_tenders',
         'sale_holds',
+        // T-034 step 4: the six Purchasing tables.
+        'suppliers',
+        'purchase_requests',
+        'purchase_orders',
+        'purchase_order_items',
+        'purchase_request_items',
+        'purchase_order_receipt_applications',
     ]);
 
     sort($tables);

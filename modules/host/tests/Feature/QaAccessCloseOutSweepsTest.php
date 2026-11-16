@@ -146,7 +146,11 @@ function closeOutNewTables(): array
         'sale_tenders', 'sales',
     ];
 
-    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017, $t019, $t020, $t021, $t027, $t028, $t029, $t030));
+    // T-034's six Purchasing tables are excluded the same way: this sweep's
+    // exercise never writes a supplier, request, order, line or receipt.
+    $t034 = ['purchase_order_items', 'purchase_order_receipt_applications', 'purchase_orders', 'purchase_request_items', 'purchase_requests', 'suppliers'];
+
+    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017, $t019, $t020, $t021, $t027, $t028, $t029, $t030, $t034));
 }
 
 /**

@@ -148,6 +148,25 @@ it('matches T-027s own exact column map: quantities/money (18,4), factor columns
             ['refunded_quantity', 18, 4],
         ],
         '2026_11_10_003007_create_sale_tenders_table.php' => [['amount', 18, 4], ['tendered', 18, 4], ['change_given', 18, 4]],
+        // T-034 step 5 (AC-89): the Purchasing tables' exact column map. Money and
+        // quantity are (18,4), unit_factor (18,6), discount_percent (9,4) and
+        // exchange_rate (18,8); no fifth pair is introduced.
+        '2026_11_16_003401_create_suppliers_table.php' => [['credit_limit', 18, 4]],
+        '2026_11_16_003403_create_purchase_orders_table.php' => [
+            ['exchange_rate', 18, 8], ['subtotal', 18, 4], ['discount_total', 18, 4], ['tax_total', 18, 4],
+            ['shipping', 18, 4], ['total', 18, 4], ['received_value', 18, 4],
+        ],
+        '2026_11_16_003404_create_purchase_order_items_table.php' => [
+            ['quantity', 18, 4], ['unit_factor', 18, 6], ['base_quantity', 18, 4], ['unit_cost', 18, 4],
+            ['subtotal', 18, 4], ['discount_percent', 9, 4], ['discount_amount', 18, 4], ['tax_amount', 18, 4],
+            ['line_total', 18, 4], ['received_quantity', 18, 4], ['received_base_quantity', 18, 4],
+        ],
+        '2026_11_16_003405_create_purchase_request_items_table.php' => [
+            ['quantity', 18, 4], ['unit_factor', 18, 6], ['base_quantity', 18, 4], ['estimated_cost', 18, 4],
+        ],
+        '2026_11_16_003406_create_purchase_order_receipt_applications_table.php' => [
+            ['received_base_delta', 18, 4], ['received_quantity_delta', 18, 4],
+        ],
     ];
 
     foreach ($expected as $file => $columns) {
@@ -281,6 +300,108 @@ return new class {
 PHP);
 
         expect(t030DeferredColumnOffenders($directory))->toBe(['2026_11_10_003099_scratch_sales_table.php: journal_entry_id']);
+    } finally {
+        foreach (glob($directory.'/*.php') ?: [] as $file) {
+            unlink($file);
+        }
+
+        rmdir($directory);
+    }
+});
+
+it('red-first (T-034): a total declared decimal(total, 18, 2) is read back as that wrong pair, and the shipped Purchasing money columns are at their documented pair', function () {
+    $wrongTotal = "<?php\nclass X { public function up() { \$table->decimal('total', 18, 2); } }";
+
+    $calls = decimalCallsIn($wrongTotal);
+
+    expect($calls)->toBe([['total', 18, 2]])
+        ->and(in_array([$calls[0][1], $calls[0][2]], [[18, 4], [18, 6], [9, 4], [18, 8]], true))->toBeFalse();
+
+    // And the shipped column is the right pair, so the T-034 map above is not vacuous.
+    expect(tenantDecimalCalls()['2026_11_16_003403_create_purchase_orders_table.php'])->toContain(['total', 18, 4])
+        ->and(tenantDecimalCalls()['2026_11_16_003403_create_purchase_orders_table.php'])->toContain(['exchange_rate', 18, 8]);
+});
+
+/*
+|--------------------------------------------------------------------------
+| T-034 AC-89, D-3, D-27: the columns this task does NOT build
+|--------------------------------------------------------------------------
+|
+| The static half of the absence list; PurchasingTenantSchemaTest's exact
+| column equality is the runtime half. The scan reads code only (comments and
+| docblocks removed) and matches the name as a quoted string.
+*/
+
+/**
+ * The columns no T-034 migration may declare.
+ *
+ * @return list<string>
+ */
+function t034DeferredColumns(): array
+{
+    return ['custom_fields', 'opening_balance', 'payable_account_id', 'default_expense_account_id', 'unit_code', 'tax_breakdown', 'tenant_id'];
+}
+
+/**
+ * Every `file: column` offence in the migrations of a directory.
+ *
+ * @return list<string>
+ */
+function t034DeferredColumnOffenders(string $directory, string $glob = '/2026_11_16_0034*.php'): array
+{
+    $offenders = [];
+
+    foreach (glob($directory.$glob) ?: [] as $file) {
+        $code = SourceRules::codeOnly((string) file_get_contents($file));
+
+        foreach (t034DeferredColumns() as $column) {
+            if (preg_match('/[\'"]'.preg_quote($column, '/').'[\'"]/', $code) === 1) {
+                $offenders[] = basename($file).': '.$column;
+            }
+        }
+    }
+
+    return $offenders;
+}
+
+it('T-034 AC-89: no Purchasing migration declares a deferred column or a tenant_id', function () {
+    $directory = base_path((string) config('schema.tenant_migration_path'));
+
+    expect(glob($directory.'/2026_11_16_0034*.php'))->toHaveCount(6)
+        ->and(t034DeferredColumnOffenders($directory))->toBe([]);
+});
+
+it('T-034 AC-89 red-first: a scratch migration declaring opening_balance is reported, and a docblock naming one is not', function () {
+    $directory = sys_get_temp_dir().'/t034_absence_scan_'.bin2hex(random_bytes(6));
+    mkdir($directory);
+
+    try {
+        file_put_contents($directory.'/2026_11_16_003499_scratch_suppliers_table.php', <<<'PHP'
+<?php
+return new class {
+    public function up(): void
+    {
+        Schema::create('suppliers', function ($table) {
+            $table->decimal('opening_balance', 18, 4)->default(0);
+        });
+    }
+};
+PHP);
+        file_put_contents($directory.'/2026_11_16_003498_prose_only_table.php', <<<'PHP'
+<?php
+/*
+ * opening_balance and `custom_fields` are not built (D-3).
+ */
+// payable_account_id is Finance's.
+return new class {
+    public function up(): void
+    {
+        $table->ulid('supplier_ref');
+    }
+};
+PHP);
+
+        expect(t034DeferredColumnOffenders($directory))->toBe(['2026_11_16_003499_scratch_suppliers_table.php: opening_balance']);
     } finally {
         foreach (glob($directory.'/*.php') ?: [] as $file) {
             unlink($file);

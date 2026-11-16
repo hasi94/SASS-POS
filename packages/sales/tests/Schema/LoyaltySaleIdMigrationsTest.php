@@ -423,7 +423,8 @@ it('catalogues the pair as expand and contract, NEITHER destructive, the contrac
         LSM_EXPAND => [MigrationPhase::Expand, false, false],
         LSM_CONTRACT => [MigrationPhase::Contract, false, false],
     ])->and(lsmVersion(LSM_CONTRACT))->toBe(lsmVersion(LSM_EXPAND) + 1)
-        ->and(lsmVersion(LSM_CONTRACT))->toBe(lsmSet()->highestVersion());
+        // T-032's finance files sort after T-030's, so this pair is no longer the top of the tree.
+        ->and(lsmSet()->highestVersion())->toBeGreaterThanOrEqual(lsmVersion(LSM_CONTRACT));
 
     // T-014 D-31: one contract file, holding one key. No other T-030 file is a contract step.
     $contracts = [];

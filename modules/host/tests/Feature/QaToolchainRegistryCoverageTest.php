@@ -443,7 +443,8 @@ it('finds the packages this guard is supposed to protect', function () {
             // T-016's. 'workflow' is T-020's.
             // 'catalog' is T-027's, for the same reason. 'customers' is
             // T-028's. 'pricing' is T-029's. 'sales' is T-030's.
-            'access', 'auth', 'catalog', 'contracts', 'customers', 'eventbus', 'http-client', 'kernel', 'organization', 'platform', 'plugin-sdk', 'pricing', 'sales', 'testing', 'workflow',
+            // 'purchasing' is T-034's.
+            'access', 'auth', 'catalog', 'contracts', 'customers', 'eventbus', 'http-client', 'kernel', 'organization', 'platform', 'plugin-sdk', 'pricing', 'purchasing', 'sales', 'testing', 'workflow',
         ]);
 });
 

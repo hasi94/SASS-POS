@@ -116,9 +116,11 @@ it('is the catalogue top entry, phase expand, version 43', function () {
     // migrations on top (63 becomes 73), the last of which is a contract step
     // (the one loyalty_transactions.sale_id key). Stale by name again, left
     // alone for the reason the notes above give.
+    // T-034 step 4 does it again: its six purchasing tables put the top at 79,
+    // an expand step. This is the one place a T-034 file is pinned as the top.
     $top = end($catalogue);
 
-    expect($top['version'])->toBe(73)
-        ->and($top['migration'])->toBe('2026_11_10_003010_add_loyalty_sale_foreign_key')
-        ->and($top['phase'])->toBe('contract');
+    expect($top['version'])->toBe(79)
+        ->and($top['migration'])->toBe('2026_11_16_003406_create_purchase_order_receipt_applications_table')
+        ->and($top['phase'])->toBe('expand');
 });

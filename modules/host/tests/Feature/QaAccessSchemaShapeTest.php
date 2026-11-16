@@ -229,7 +229,10 @@ it('creates the eight tables and nothing else, and the listing check can tell ot
         'sale_tenders', 'sales',
     ];
 
-    $new = array_values(array_diff(qaT10Tables(), tenantBaselineTables(), ['migrations'], $t014, $t017, $t019, $t020, $t021, $t027, $t028, $t029, $t030));
+    // T-034's six Purchasing tables are excluded the same way.
+    $t034 = ['purchase_order_items', 'purchase_order_receipt_applications', 'purchase_orders', 'purchase_request_items', 'purchase_requests', 'suppliers'];
+
+    $new = array_values(array_diff(qaT10Tables(), tenantBaselineTables(), ['migrations'], $t014, $t017, $t019, $t020, $t021, $t027, $t028, $t029, $t030, $t034));
 
     expect($new)->toBe([
         'access_log', 'employee_branches', 'employee_permissions', 'employee_roles',

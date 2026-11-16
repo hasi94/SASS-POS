@@ -8,8 +8,11 @@ use Flexipos\Contracts\Pricing\BillDiscount;
 use Flexipos\Contracts\Pricing\BillQuote;
 use Flexipos\Contracts\Pricing\LineQuote;
 use Flexipos\Contracts\Pricing\PricedLine;
+use Flexipos\Contracts\Pricing\PricedPurchaseLine;
 use Flexipos\Contracts\Pricing\PricingEngine;
 use Flexipos\Contracts\Pricing\PricingRefused;
+use Flexipos\Contracts\Pricing\PurchaseLinePricing;
+use Flexipos\Contracts\Pricing\PurchaseLineQuote;
 use Flexipos\Contracts\Pricing\TaxBreakdown;
 use Flexipos\Contracts\Pricing\TaxQuote;
 use Flexipos\Pricing\Support\TenantConnection;
@@ -59,8 +62,13 @@ use stdClass;
  *
  * `computeTax` uses the tax group it is given. The purchasing caller chooses
  * between a product's two tax groups before it asks (K-3).
+ *
+ * `quotePurchaseLine` (T-034 D-53a) is the second interface this class
+ * implements: it reads the tax group and its members with the same two keyed
+ * reads, an inactive group computed normally, and hands them to the pure
+ * {@see PurchaseLineCalculator}.
  */
-final class DatabasePricingEngine implements PricingEngine
+final class DatabasePricingEngine implements PricingEngine, PurchaseLinePricing
 {
     public function __construct(private readonly TenantConnection $tenant) {}
 
@@ -120,6 +128,18 @@ final class DatabasePricingEngine implements PricingEngine
             $quote->baseQuantity,
             $quote->documentDate,
             $quote->context,
+            (bool) $group->is_inclusive,
+        );
+    }
+
+    public function quotePurchaseLine(PurchaseLineQuote $quote): PricedPurchaseLine
+    {
+        $db = $this->tenant->get();
+        $group = $this->taxGroup($db, $quote->taxGroupId);
+
+        return PurchaseLineCalculator::compute(
+            $quote,
+            $this->members($db, (string) $group->id),
             (bool) $group->is_inclusive,
         );
     }

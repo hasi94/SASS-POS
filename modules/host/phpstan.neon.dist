@@ -74,6 +74,9 @@ parameters:
         # T-029, source and tests.
         - ../../packages/pricing/src
         - ../../packages/pricing/tests
+        # T-034, source and tests.
+        - ../../packages/purchasing/src
+        - ../../packages/purchasing/tests
         # T-030, source and tests.
         - ../../packages/sales/src
         - ../../packages/sales/tests

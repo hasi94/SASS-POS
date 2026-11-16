@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "1c8ed88fabf1a8bb534afe74c28991d3",
+    "content-hash": "acdf36aed6a496c1e3030a8f3864e97d",
     "packages": [
         {
             "name": "brick/math",
@@ -891,6 +891,33 @@
                 "proprietary"
             ],
             "description": "FlexiPOS pricing and tax: tax authorities, taxes, effective-dated rates and groups, price lists, discounts, and the one calculation engine that prices a line.",
+            "transport-options": {
+                "relative": true
+            }
+        },
+        {
+            "name": "flexipos/purchasing",
+            "version": "0.1.0",
+            "dist": {
+                "type": "path",
+                "url": "../../packages/purchasing",
+                "reference": "b15abcefd43366882a23d38984aa4547330a5f03"
+            },
+            "require": {
+                "brick/math": "^0.14",
+                "flexipos/contracts": "*",
+                "php": "^8.2"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Flexipos\\Purchasing\\": "src/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "FlexiPOS purchasing: suppliers, purchase requests, purchase orders and the received-quantity rollup.",
             "transport-options": {
                 "relative": true
             }

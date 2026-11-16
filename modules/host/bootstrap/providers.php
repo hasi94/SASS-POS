@@ -14,6 +14,7 @@ use Flexipos\Organization\OrganizationServiceProvider;
 use Flexipos\Platform\PlatformServiceProvider;
 use Flexipos\PluginSdk\PluginSdkServiceProvider;
 use Flexipos\Pricing\PricingServiceProvider;
+use Flexipos\Purchasing\PurchasingServiceProvider;
 use Flexipos\Sales\SalesServiceProvider;
 use Flexipos\Workflow\WorkflowServiceProvider;
 
@@ -34,4 +35,5 @@ return [
     CustomersServiceProvider::class,
     PricingServiceProvider::class,
     SalesServiceProvider::class,
+    PurchasingServiceProvider::class,
 ];
