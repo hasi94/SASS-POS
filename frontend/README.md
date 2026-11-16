@@ -140,8 +140,9 @@ engine never guesses at an unknown rule: what the till does about it is FP-236's
 It is proved against `packages/pricing/fixtures/*/*.json`, **read in place** (there is no copy under
 `frontend/`) by `pricing-engine/fixture-set.spec.ts`. The test reaches Node's `fs` at run time
 through `process.getBuiltinModule('node:fs')` (`testing/fixture-files.ts`, Node 22.3 or later), so
-no bundler ever sees a Node import. The fixture directory is found by walking up from the working
-directory (`frontend/` under `npm test`), and the test **fails** if it is missing, holds fewer than
+no bundler ever sees a Node import. The repository root is the first ancestor of the working
+directory (`frontend/` under `npm test`) that holds `frontend/angular.json`; the walk never goes past it, and
+`packages/pricing/fixtures` must be there, or the test **fails**. It also fails if the directory is missing, holds fewer than
 30 files, or lacks a result or a refusal fixture for any of the five kinds. A TS result that
 differs from a fixture means the TS engine is wrong; fixtures are changed on the PHP side only.
 
@@ -149,10 +150,12 @@ Two instruments back the "no float, no clock, no network" claim, each with contr
 can fail: a static scan of the engine's own files (`source-scan.spec.ts`, which logs the files it
 scanned) and a run of every fixture with `fetch`, `XMLHttpRequest` and `Date` replaced by throwing
 stubs (`determinism.spec.ts`). The engine is tree-shakeable and `pos`/`admin` do not import it yet;
-to confirm `admin` ships none of it after changing either side:
+to confirm neither ships any of it after changing either side (one marker per engine
+module and the engine's `Pricing*` class names; every command must print nothing):
 
 ```bash
-npx ng build admin && grep -l "inclusive_amount_too_small" dist/admin/browser/*.js   # must print nothing
+npx ng build admin && npx ng build pos
+grep -lE "inclusive_amount_too_small|not a canonical decimal|99999999999999\.9999|PricingRefused|PricingInputError|UnsupportedRuleError|division by zero" dist/admin/browser/*.js dist/pos/browser/*.js
 ```
 
 ## Not built yet

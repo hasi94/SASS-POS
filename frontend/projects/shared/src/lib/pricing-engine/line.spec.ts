@@ -11,7 +11,7 @@ import {
   priceLine,
   resolvePrice,
 } from '@flexipos/shared';
-import type { LineInput, PricedLine } from '@flexipos/shared';
+import type { PricingLine, PricingLineInput } from '@flexipos/shared';
 import {
   AT,
   discountRule,
@@ -70,11 +70,11 @@ describe('the public API (AC-3, AC-4)', () => {
 });
 
 describe('priceLine', () => {
-  const withDiscount = (over: Partial<LineInput> = {}) =>
+  const withDiscount = (over: Partial<PricingLineInput> = {}) =>
     lineInput({ discount_id: id('01DISC10'), discounts: [discountRule()], ...over });
 
   it('prices an exclusive line: ladder, subtotal, discount, tax, total', () => {
-    const line: PricedLine = priceLine(withDiscount());
+    const line: PricingLine = priceLine(withDiscount());
 
     expect(line).toMatchObject({
       list_price: '100.0000',

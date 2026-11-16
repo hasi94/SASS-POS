@@ -10,14 +10,19 @@
 
 import { UnsupportedRuleError } from './refusal';
 
-export const TAX_TYPES = ['percentage', 'fixed'] as const;
-export const TAX_APPLIES = ['sale', 'purchase', 'both'] as const;
-export const TAX_CONTEXTS = ['sale', 'purchase'] as const;
-export const LIST_TYPES = ['standard', 'customer_group', 'promotion', 'branch'] as const;
-export const SCOPE_TYPES = ['branch', 'customer_group', 'customer'] as const;
-export const DISCOUNT_SCOPES = ['item', 'bill'] as const;
-export const DISCOUNT_TYPES = ['percentage', 'fixed', 'buy_x_get_y'] as const;
-export const PRICE_BASES = ['unit_matched', 'derived', 'product'] as const;
+export const TAX_TYPES = Object.freeze(['percentage', 'fixed'] as const);
+export const TAX_APPLIES = Object.freeze(['sale', 'purchase', 'both'] as const);
+export const TAX_CONTEXTS = Object.freeze(['sale', 'purchase'] as const);
+export const LIST_TYPES = Object.freeze([
+  'standard',
+  'customer_group',
+  'promotion',
+  'branch',
+] as const);
+export const SCOPE_TYPES = Object.freeze(['branch', 'customer_group', 'customer'] as const);
+export const DISCOUNT_SCOPES = Object.freeze(['item', 'bill'] as const);
+export const DISCOUNT_TYPES = Object.freeze(['percentage', 'fixed', 'buy_x_get_y'] as const);
+export const PRICE_BASES = Object.freeze(['unit_matched', 'derived', 'product'] as const);
 
 export type RuleKind = 'tax' | 'price' | 'discount' | 'bill' | 'line';
 

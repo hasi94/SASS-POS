@@ -55,7 +55,8 @@ export function dec(canonical: string): Dec {
 export const ZERO: Dec = { u: ZERO_BIG, s: 0 };
 export const ONE: Dec = { u: 1n, s: 0 };
 export const HUNDRED: Dec = { u: 100n, s: 0 };
-const MAX: Dec = dec(MAX_AMOUNT);
+/** MAX_AMOUNT as a Dec, a literal so that nothing runs when the module loads. */
+const MAX: Dec = { u: 999999999999999999n, s: 4 };
 
 function align(a: Dec, b: Dec): { a: bigint; b: bigint; s: number } {
   if (a.s === b.s) {

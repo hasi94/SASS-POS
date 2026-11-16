@@ -11,7 +11,7 @@
  */
 
 /** The closed refusal vocabulary, in the order of PHP's `PricingRefusal` enum. */
-export const PRICING_REFUSALS = [
+export const PRICING_REFUSALS = Object.freeze([
   'unknown_product',
   'unknown_tax_group',
   'no_effective_rate',
@@ -29,7 +29,7 @@ export const PRICING_REFUSALS = [
   'unsupported_discount_type',
   'invalid_amount',
   'out_of_range',
-] as const;
+] as const);
 
 export type PricingRefusal = (typeof PRICING_REFUSALS)[number];
 

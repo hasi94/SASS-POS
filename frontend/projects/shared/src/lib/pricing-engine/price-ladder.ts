@@ -105,7 +105,10 @@ function buildItem(node: Obj): LadderItem {
       discountPercent === null ? null : checkRate(discountPercent, 'discountPercent'),
   };
 
-  if (item.discountPercent !== null && cmp(rateDec(item.discountPercent, 'x'), HUNDRED) > 0) {
+  if (
+    item.discountPercent !== null &&
+    cmp(rateDec(item.discountPercent, 'discountPercent'), HUNDRED) > 0
+  ) {
     throw new PricingInputError('[discountPercent] must not exceed 100.');
   }
 

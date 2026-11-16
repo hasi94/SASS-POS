@@ -51,39 +51,59 @@ function parentOf(path: string): string {
   return cut <= 0 ? path : path.slice(0, cut);
 }
 
-/** The repository root: the first of the working directory and four parents that holds both trees. */
-export function locateRepoRoot(): string {
+/**
+ * The repository root: the first ancestor of `start` (default the working directory) that holds
+ * `frontend/angular.json`. The fixture tree must then be there; the walk never continues past the
+ * anchor, so a worktree can never replay another checkout's fixtures. A missing tree throws.
+ */
+export function locateRepoRoot(start?: string): string {
   const fs = nodeFs();
-  const cwd = nodeProcess()?.cwd?.();
+  const from = start ?? nodeProcess()?.cwd?.();
 
-  if (typeof cwd !== 'string' || cwd === '') {
+  if (typeof from !== 'string' || from === '') {
     throw new Error(
       'pricing fixtures: process.cwd() is unavailable; cannot locate the repository root',
     );
   }
 
   const tried: string[] = [];
-  let candidate = slashes(cwd);
+  let candidate = slashes(from);
 
-  for (let up = 0; up <= 4; up++) {
+  for (;;) {
     tried.push(candidate);
 
-    if (
-      fs.existsSync(candidate + '/' + FIXTURES_AT) &&
-      fs.existsSync(candidate + '/' + ANGULAR_JSON_AT)
-    ) {
+    if (fs.existsSync(candidate + '/' + ANGULAR_JSON_AT)) {
+      if (!fs.existsSync(candidate + '/' + FIXTURES_AT)) {
+        throw new Error(
+          'pricing fixtures: the repository root ' +
+            candidate +
+            ' (anchored on ' +
+            ANGULAR_JSON_AT +
+            ') has no ' +
+            FIXTURES_AT +
+            ': ' +
+            candidate +
+            '/' +
+            FIXTURES_AT,
+        );
+      }
+
       return candidate;
     }
 
-    candidate = parentOf(candidate);
+    const parent = parentOf(candidate);
+
+    if (parent === candidate) {
+      break;
+    }
+
+    candidate = parent;
   }
 
   throw new Error(
     'pricing fixtures: no repository root found (needs ' +
-      FIXTURES_AT +
-      ' and ' +
       ANGULAR_JSON_AT +
-      '). Tried: ' +
+      ' in an ancestor). Tried: ' +
       tried.join(', '),
   );
 }
