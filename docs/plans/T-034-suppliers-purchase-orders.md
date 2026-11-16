@@ -408,17 +408,17 @@ Order is fixed; each step ends with its targeted files green before the next sta
 
 ### Chunk C: suppliers
 
-- [ ] **Step 9: `CreateSupplier`, `UpdateSupplier`.** *(AC-1 to AC-12, AC-17.)* Server-generated id; a supplied `id` field is `validation`; AC-2/4/5/6 boundaries (`30` vs `31` chars, email 191 vs 192, `-1`/`3651`, `"2500"` → `"2500.0000"`, omitted → `"0.0000"`, explicit null `validation`, JSON float, 5 decimals, 15 integer digits `out_of_range`); AC-3 against active, inactive and deleted holders (case-insensitive via `Uniqueness`; unique key as backstop); AC-9 a second identical create is `duplicate_code` naming the first id, one audit row in total; AC-10 subset update, no-change writes nothing; AC-11; AC-17 redaction rows.
-- [ ] **Step 10: `ActivateSupplier`, `DeactivateSupplier`, `DeleteSupplier`.** *(AC-13, AC-14.)* Idempotent repeats; delete refused per blocking request and order status; retained, code reserved, `get` is `not_found`.
-- [ ] **Step 11: `GetSupplier`, `ListSuppliers`.** *(AC-15, AC-16, AC-18.)* `bank_details` only to `manage`; keyset by `code` with `after_code`; `page_size` 101 clamped; non-positive or malformed cursor `validation`; filters combine; deleted never listed; AC-18 one refusal row per supplier slice, key asked with a null branch, never `BranchRequired`.
+- [x] **Step 9: `CreateSupplier`, `UpdateSupplier`.** *(AC-1 to AC-12, AC-17.)* Server-generated id; a supplied `id` field is `validation`; AC-2/4/5/6 boundaries (`30` vs `31` chars, email 191 vs 192, `-1`/`3651`, `"2500"` → `"2500.0000"`, omitted → `"0.0000"`, explicit null `validation`, JSON float, 5 decimals, 15 integer digits `out_of_range`); AC-3 against active, inactive and deleted holders (case-insensitive via `Uniqueness`; unique key as backstop); AC-9 a second identical create is `duplicate_code` naming the first id, one audit row in total; AC-10 subset update, no-change writes nothing; AC-11; AC-17 redaction rows.
+- [x] **Step 10: `ActivateSupplier`, `DeactivateSupplier`, `DeleteSupplier`.** *(AC-13, AC-14.)* Idempotent repeats; delete refused per blocking request and order status; retained, code reserved, `get` is `not_found`.
+- [x] **Step 11: `GetSupplier`, `ListSuppliers`.** *(AC-15, AC-16, AC-18.)* `bank_details` only to `manage`; keyset by `code` with `after_code`; `page_size` 101 clamped; non-positive or malformed cursor `validation`; filters combine; deleted never listed; AC-18 one refusal row per supplier slice, key asked with a null branch, never `BranchRequired`.
   - **Mutation S1:** drop the deleted-row condition from the AC-3 pre-check (deleted-holder row red). Targeted: the seven slice test folders; lint, stan, deptrac. **Gate: `lead`.**
 
 ### Chunk D: purchase requests
 
-- [ ] **Step 12: create, header edit, lines.** *(AC-19 to AC-25, AC-36, AC-39.)* `transaction(..., 2)`, number last; `requested_by` the actor; no number consumed on any refusal (`number_sequences` compared whole); quad equals `snapshot()`'s; AC-24 ladder edit changes nothing on read; 201st line `too_many_lines`; `locked` outside `draft`; replay; the three `DeadlockingNumbers` rows.
-- [ ] **Step 13: submit, sync, cancel.** *(AC-26 to AC-29, AC-37.)* `FakeWorkflowGate`: exact `WorkflowContext`, `no_lines` never calls the gate, `workflow_failed` fail-closed, second submit calls nothing. Real engine: approve, reject (either `on_reject`) → `rejected`, cancel → `draft`, re-sync no-op, `expired` via raw update. Audit actions per Ruling 12.
+- [x] **Step 12: create, header edit, lines.** *(AC-19 to AC-25, AC-36, AC-39.)* `transaction(..., 2)`, number last; `requested_by` the actor; no number consumed on any refusal (`number_sequences` compared whole); quad equals `snapshot()`'s; AC-24 ladder edit changes nothing on read; 201st line `too_many_lines`; `locked` outside `draft`; replay; the three `DeadlockingNumbers` rows.
+- [x] **Step 13: submit, sync, cancel.** *(AC-26 to AC-29, AC-37.)* `FakeWorkflowGate`: exact `WorkflowContext`, `no_lines` never calls the gate, `workflow_failed` fail-closed, second submit calls nothing. Real engine: approve, reject (either `on_reject`) → `rejected`, cancel → `draft`, re-sync no-op, `expired` via raw update. Audit actions per Ruling 12.
   - **Mutations:** W1 approve on `WorkflowEvaluationFailed`; W2 skip the entity-id match.
-- [ ] **Step 14: `GetPurchaseRequest`, `ListPurchaseRequests`, permission sweep.** *(AC-21, AC-34, AC-35, AC-38.)* Clamp and validation as step 11. **Gate: `lead`.**
+- [x] **Step 14: `GetPurchaseRequest`, `ListPurchaseRequests`, permission sweep.** *(AC-21, AC-34, AC-35, AC-38.)* Clamp and validation as step 11. **Gate: `lead`.**
 
 ### Chunk E: draft orders and conversion
 

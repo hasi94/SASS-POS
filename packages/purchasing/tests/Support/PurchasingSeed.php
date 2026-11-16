@@ -43,6 +43,36 @@ final class PurchasingSeed
     }
 
     /**
+     * One row by id, as an array; the test fails when there is none.
+     *
+     * @return array<string, mixed>
+     */
+    public static function row(string $table, string $id): array
+    {
+        return PricingSeed::row($table, $id);
+    }
+
+    /**
+     * Every audit row, oldest first.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public static function audit(): array
+    {
+        return PricingSeed::audit();
+    }
+
+    /**
+     * The one audit row an operation wrote, whole, with its JSON decoded.
+     *
+     * @return array<string, mixed>
+     */
+    public static function onlyAuditRow(): array
+    {
+        return PricingSeed::onlyAuditRow();
+    }
+
+    /**
      * A location, a purchasable and active store of the branch unless overridden.
      * A `branch_id` override of null is a central warehouse.
      *
@@ -93,6 +123,204 @@ final class PurchasingSeed
         $large = PricingSeed::unit($largeCode, 'count', ['base_unit_id' => $base, 'factor' => $factor]);
 
         return ['base' => $base, 'large' => $large];
+    }
+
+    /**
+     * A supplier row written directly, active and undeleted unless overridden.
+     * The code carries a counter so two seeds never collide.
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    public static function supplier(string $code = 'SUP', array $overrides = []): string
+    {
+        static $counter = 0;
+
+        $counter++;
+
+        $id = (string) Str::ulid();
+
+        self::connection()->table('suppliers')->insert(array_merge([
+            'id' => $id,
+            'created_at' => self::NOW,
+            'updated_at' => self::NOW,
+            'deleted_at' => null,
+            'created_by' => null,
+            'updated_by' => null,
+            'code' => strtoupper($code).$counter,
+            'name' => 'Supplier '.$code,
+            'legal_name' => null,
+            'contact_name' => null,
+            'phone' => null,
+            'email' => null,
+            'address' => null,
+            'tax_no' => null,
+            'currency' => null,
+            'payment_terms_days' => 0,
+            'credit_limit' => '0.0000',
+            'bank_details' => null,
+            'is_active' => true,
+            'notes' => null,
+        ], $overrides));
+
+        return $id;
+    }
+
+    /**
+     * A purchase request header written directly, in `draft` unless overridden.
+     * The number carries a counter so two seeds never collide.
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    public static function request(string $branchId, string $locationId, string $requestedBy, array $overrides = []): string
+    {
+        static $counter = 0;
+
+        $counter++;
+
+        $id = (string) Str::ulid();
+
+        self::connection()->table('purchase_requests')->insert(array_merge([
+            'id' => $id,
+            'created_at' => self::NOW,
+            'updated_at' => self::NOW,
+            'created_by' => $requestedBy,
+            'updated_by' => $requestedBy,
+            'number' => 'PRS'.str_pad((string) $counter, 6, '0', STR_PAD_LEFT),
+            'branch_id' => $branchId,
+            'location_id' => $locationId,
+            'requested_by' => $requestedBy,
+            'required_date' => null,
+            'status' => 'draft',
+            'workflow_instance_id' => null,
+            'notes' => null,
+        ], $overrides));
+
+        return $id;
+    }
+
+    /**
+     * A purchase request line written directly.
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    public static function requestItem(string $requestId, string $productId, string $unitId, int $lineNo = 1, array $overrides = []): string
+    {
+        $id = (string) Str::ulid();
+
+        self::connection()->table('purchase_request_items')->insert(array_merge([
+            'id' => $id,
+            'request_id' => $requestId,
+            'line_no' => $lineNo,
+            'product_id' => $productId,
+            'unit_id' => $unitId,
+            'quantity' => '1.0000',
+            'unit_factor' => '1.000000',
+            'base_quantity' => '1.0000',
+            'estimated_cost' => null,
+            'supplier_id' => null,
+            'purchase_order_item_id' => null,
+        ], $overrides));
+
+        return $id;
+    }
+
+    /**
+     * A purchase order header written directly, in `draft` and at zero unless
+     * overridden. The number carries a counter so two seeds never collide.
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    public static function order(string $supplierId, string $branchId, string $locationId, array $overrides = []): string
+    {
+        static $counter = 0;
+
+        $counter++;
+
+        $id = (string) Str::ulid();
+
+        self::connection()->table('purchase_orders')->insert(array_merge([
+            'id' => $id,
+            'created_at' => self::NOW,
+            'updated_at' => self::NOW,
+            'created_by' => null,
+            'updated_by' => null,
+            'number' => 'POS'.str_pad((string) $counter, 6, '0', STR_PAD_LEFT),
+            'supplier_id' => $supplierId,
+            'supplier_name' => 'Supplier snapshot',
+            'supplier_tax_no' => null,
+            'payment_terms_days' => 0,
+            'branch_id' => $branchId,
+            'location_id' => $locationId,
+            'request_id' => null,
+            'order_date' => self::DATE,
+            'expected_date' => null,
+            'status' => 'draft',
+            'workflow_instance_id' => null,
+            'currency' => 'LKR',
+            'exchange_rate' => '1.00000000',
+            'subtotal' => '0.0000',
+            'discount_total' => '0.0000',
+            'tax_total' => '0.0000',
+            'shipping' => '0.0000',
+            'total' => '0.0000',
+            'received_value' => '0.0000',
+            'terms' => null,
+            'notes' => null,
+        ], $overrides));
+
+        return $id;
+    }
+
+    /**
+     * A one-step workflow definition for a document type, written directly: it
+     * matches an amount of at least `$minAmount`, is approved by any holder of
+     * `$roleId` (never the requester), and on rejection does `$onReject`
+     * (`stop` or `return_to_requester`).
+     *
+     * Direct inserts, because the test tree may not import the workflow package;
+     * the real engine reads these rows exactly as it reads a registered definition.
+     */
+    public static function workflowDefinition(string $entityType, string $minAmount, string $onReject, string $roleId): string
+    {
+        static $counter = 0;
+
+        $counter++;
+
+        $id = (string) Str::ulid();
+
+        self::connection()->table('workflow_definitions')->insert([
+            'id' => $id,
+            'created_at' => self::NOW,
+            'updated_at' => self::NOW,
+            'deleted_at' => null,
+            'key' => 'pu-'.str_replace('_', '-', $entityType).'-'.$counter,
+            'name' => 'Purchasing '.$entityType.' approval',
+            'entity_type' => $entityType,
+            'conditions' => json_encode([['field' => 'amount', 'operator' => '>=', 'value' => $minAmount]], JSON_THROW_ON_ERROR),
+            'branch_ids' => null,
+            'priority' => 10,
+            'on_reject' => $onReject,
+            'escalation_hours' => null,
+            'is_active' => true,
+            'plugin_name' => null,
+            'version' => 1,
+        ]);
+
+        self::connection()->table('workflow_steps')->insert([
+            'id' => (string) Str::ulid(),
+            'definition_id' => $id,
+            'sequence' => 1,
+            'name' => 'Approve',
+            'approver_type' => 'role',
+            'approver_ref' => json_encode(['roles' => [$roleId]], JSON_THROW_ON_ERROR),
+            'quorum' => 'any',
+            'can_edit' => false,
+            'can_skip_if' => null,
+            'sla_hours' => null,
+            'escalate_to' => null,
+        ]);
+
+        return $id;
     }
 
     /**
