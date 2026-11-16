@@ -464,3 +464,24 @@ it('uses an unknown approval id as approval_required', function () {
 
     SalesRefusals::expect(SalesRefusal::ApprovalRequired, fn () => slaAdd($w, ['unit_price' => '7.5', 'approval_id' => (string) Str::ulid()]));
 });
+
+it('keeps each line\'s own approver on a re-price when two managers approved the same payload on two lines (W-4)', function () {
+    $w = slaWorld();
+    $second = SalesSeed::employee('manager2');
+    $payload = slaOverride($w, '7.5000');
+
+    $first = slaAdd($w, ['unit_price' => '7.5', 'approval_id' => slaApproval($w, 'price_override', $payload)]);
+    $other = slaAdd($w, ['unit_price' => '7.5', 'approval_id' => slaApproval($w, 'price_override', $payload, ['decided_by' => $second])]);
+
+    expect(SalesSeed::row('sale_items', $first->lineId)['price_overridden_by'])->toBe($w['manager'])
+        ->and(SalesSeed::row('sale_items', $other->lineId)['price_overridden_by'])->toBe($second);
+
+    // Either order of re-price: each line is still its own manager's, not the first approval row's.
+    slaUpdate($w, $other->lineId, ['quantity' => '4']);
+    slaUpdate($w, $first->lineId, ['quantity' => '3']);
+    slaUpdate($w, $other->lineId, ['quantity' => '5']);
+
+    expect(SalesSeed::row('sale_items', $first->lineId)['price_overridden_by'])->toBe($w['manager'])
+        ->and(SalesSeed::row('sale_items', $other->lineId)['price_overridden_by'])->toBe($second)
+        ->and(SalesSeed::connection()->table('approval_requests')->whereNotNull('consumed_at')->count())->toBe(2);
+});

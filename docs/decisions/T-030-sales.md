@@ -1058,3 +1058,73 @@ because restating the stored price in another unit needs division AC-42 forbids.
 what was charged, the same retail convention that motivated D-38, and reuses an arithmetic path the
 package already owns rather than adding a second. AC-57's promotion/group drift does not apply to
 overridden lines. Reversible: yes (the same-unit reading separately: yes). Reversible flag: yes.
+
+---
+
+## Decisions D-78 to D-81 — lead rulings from code review round 1
+
+The review text was not saved when these were recorded; they are written from the lead's rulings as
+given. Review finding ids (W-n, S-n) are the lead's.
+
+D-78 (lead ruling; AC-27B, review W-1; extends D-38/D-77 and AC-28) | Re-quoting a partial refund at
+the original instant can still sum, across several partial refunds, to more money than the original
+line charged (each quantity lands on its own price step, and rounding differs per call). Is there a
+money ceiling per original line? | **Yes.** The total refunded against one original sale line can
+never exceed that line's original `line_total`. Before writing a referenced refund line, sum
+`line_total` over existing refund lines with `refund_of_item_id` = that line, add the new line, and
+refuse `over_refund` if over the original `line_total`. When the refund takes the last remaining
+quantity, the refund line's `line_total` is the original `line_total` minus what was already refunded
+(a subtraction, so a full set of partial refunds sums exactly to the charge). Applies to re-quoted
+(AC-27) and overridden (AC-27A) lines alike; AC-27's tier/`min_amount` behaviour otherwise stands;
+goodwill refunds are unaffected. | A refund can never pay back more than the customer paid on that
+line, and the sum of refunds is exact. The subtraction is the only new arithmetic and is a plain
+difference, inside AC-42's allowance for sums and differences (in `Support/Money.php`). BA readings,
+not part of the ruling: reuses the existing `over_refund` code (no new code), and the last-quantity
+`line_total` replaces the engine's figure for that line only (its tax and subtotal columns are the
+developer's to keep consistent). Reversible: yes. Reversible flag: yes.
+
+D-79 (lead ruling; AC-13A, review W-3; amends AC-14 and the header-field text of AC-8/AC-14) | The
+spec and build left `sales.paid_total` and `balance_due` untouched until `CompleteSale` (AC-14 lists
+`paid_total` among the columns completion sets; AC-8 covers only the line rollup), so `GetSale` and
+`ListSales` showed a full balance owing on a part-paid `pending_payment` sale. Should the header keep
+up? | **Yes.** While a sale is `pending_payment`, `AddTender` and `RemoveTender` keep `paid_total`
+(exact sum of tender amounts) and `balance_due` (`total − paid_total`) current, under the sale lock;
+reads then show the true amount owing. **Amended, not deleted:** the earlier position that the header
+money fields are written only at completion (AC-14's "sets `status = completed`, `completed_at`,
+`paid_total`, `change_due`") is amended by AC-13A; `CompleteSale` still writes `change_due` and
+finalises the others. | Showing a part-paid sale as wholly unpaid misleads the cashier and any report.
+No decision in this file forbade the update; the gap was in the AC text. BA reading: the rule is
+stated for `pending_payment` only, as the ruling says; a `draft` sale has no tender and a `held`
+sale that is tendered is implicitly recalled first (D-51). Reversible: yes. Reversible flag: yes.
+
+D-80 (lead ruling; AC-55A, review W-4; extends D-59/AC-55) | When an approval is reused for a
+same-line re-price (D-59), which approver does `price_overridden_by` name? | **The approver who
+approved that line.** The approval matching prefers the consumed row whose decider equals the line's
+current `price_overridden_by`. | Without the preference, a sale with two lines carrying the same
+product, unit and price, approved by different supervisors, could re-stamp one line with the other
+line's approver, breaking AC-7's "price_overridden_by is the approving employee" for that line.
+BA reading: if no matching row has that decider (not expected), fall back to another match and name
+its decider. Reversible: yes. Reversible flag: yes.
+
+D-81 (lead ruling; deferred follow-ups from review round 1; no AC, no code now) | Four review items
+are real but are not fixed in T-030. Recorded so none is lost:
+- **W-2, approvals are bearer tokens.** An approved request is bound to type, reference, payload and
+  branch (D-47, D-72) but not to the employee who will consume it, has no expiry, and a goodwill refund
+  approval carries no amount ceiling. The amount ceiling was ruled out of scope by D-47. Deferred
+  because each needs an owner rule (who may consume, for how long, up to what amount) that no document
+  states. Owner/future FP. Risk named: a stolen or stale approval can be spent by anyone at the branch.
+- **W-5, write slices do not check branch scope or permission themselves.** Most write slices (cart,
+  tender, hold, recall, void, refund, shift) take the branch from the terminal and do not call the
+  permission resolver; only the approval decision and shift reconcile do (D-30). Left deliberately to
+  the route layer, FP-236, which must assert the branch scope and permission for every write; that
+  task's tests must prove it. Risk named: a caller that bypasses the routes bypasses the check.
+- **W-6, `CreateSale` locks the customer row exclusively.** Two tills opening sales for the same
+  customer serialise on that row. Consider a shared lock once the database engine's locking behaviour
+  is available to measure; deferred because the exclusive lock is correct, only slower, and the lock
+  order (D-61) is built around it.
+- **S-1, `CompleteSale` retry after a lost response is `invalid_transition`.** A retry of a completion
+  that succeeded returns an error rather than the stored result. Consider returning the stored result
+  (as `CloseCashShift` does, AC-37). Deferred because it is a convenience for offline replay (FP-237)
+  and needs a rule for what "same request" means, since `CompleteSale` has no caller-supplied id.
+| Each is either an owner rule not yet stated, belongs to a later task, or is a performance or
+convenience improvement with no correctness cost today. Reversible: n/a (a deferral list).

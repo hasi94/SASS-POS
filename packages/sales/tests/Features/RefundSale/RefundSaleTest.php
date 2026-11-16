@@ -486,10 +486,12 @@ describe('the price of a refund line (AC-27, AC-57; D-38, D-63, D-64)', function
 
         $result = rfRefund($w, rfFields($w, $original, [[0, 'case', '1']], $approval, [['cash', $tender]]));
 
-        expect(SalesSeed::connection()->table('sale_items')->where('sale_id', $result->refundId)->value('unit_price'))->toEqual($expectedPrice);
+        // W-1: the quote may differ from the charge, the money never exceeds it (the last quantity takes what is left).
+        expect(SalesSeed::connection()->table('sale_items')->where('sale_id', $result->refundId)->value('unit_price'))->toEqual($expectedPrice)
+            ->and(SalesSeed::connection()->table('sale_items')->where('sale_id', $result->refundId)->value('line_total'))->toEqual('220.0000');
     })->with([
         'ended after the sale' => ['ended after the sale', '200.0000', '220'],
-        'started after the sale' => ['started after the sale', '2400.0000', '2640'],
+        'started after the sale' => ['started after the sale', '2400.0000', '220'],
     ]);
 
     it('quotes a goodwill line at the refund\'s own instant (AC-27)', function () {
@@ -514,10 +516,11 @@ describe('the price of a refund line (AC-27, AC-57; D-38, D-63, D-64)', function
         app(CompleteSaleHandler::class)->handle(new CompleteSale(['sale_id' => $sale], $w['till']['cashier']));
         $original = ['sale' => $sale, 'items' => SalesSeed::connection()->table('sale_items')->where('sale_id', $sale)->pluck('id')->all(), 'total' => '220.0000'];
 
-        $result = rfRefund($w, rfFields($w, $original, [[0, 'case', '1']], rfApproval($w, $sale), [['cash', '2640']]));
+        $result = rfRefund($w, rfFields($w, $original, [[0, 'case', '1']], rfApproval($w, $sale), [['cash', '220']]));
 
         expect($charged)->toEqual('200.0000')
-            ->and(SalesSeed::connection()->table('sale_items')->where('sale_id', $result->refundId)->value('unit_price'))->toEqual('2400.0000');
+            ->and(SalesSeed::connection()->table('sale_items')->where('sale_id', $result->refundId)->value('unit_price'))->toEqual('2400.0000')
+            ->and($result->total)->toEqual('220.0000');
     });
 
     it('accepts that a customer moved to another group is refunded at the new group\'s price (Q-10, AC-57)', function () {
@@ -533,10 +536,11 @@ describe('the price of a refund line (AC-27, AC-57; D-38, D-63, D-64)', function
         $original = rfSale($w, [['case', '1']], [['cash', '220']], $customer);
         SalesSeed::connection()->table('customers')->where('id', $customer)->update(['group_id' => $groupB]);
 
-        $result = rfRefund($w, rfFields($w, $original, [[0, 'case', '1']], rfApproval($w, $original['sale']), [['cash', '2640']]));
+        $result = rfRefund($w, rfFields($w, $original, [[0, 'case', '1']], rfApproval($w, $original['sale']), [['cash', '220']]));
 
         expect(SalesSeed::row('sale_items', $original['items'][0])['unit_price'])->toEqual('200.0000')
-            ->and(SalesSeed::connection()->table('sale_items')->where('sale_id', $result->refundId)->value('unit_price'))->toEqual('2400.0000');
+            ->and(SalesSeed::connection()->table('sale_items')->where('sale_id', $result->refundId)->value('unit_price'))->toEqual('2400.0000')
+            ->and($result->total)->toEqual('220.0000');
     });
 });
 
@@ -1379,5 +1383,178 @@ describe('an overridden line (AC-27A; D-77)', function () {
         $refused = SalesRefusals::expect(SalesRefusal::PricingRefused, fn () => rfRefund($w, rfFields($w, $original, [[0, 'unit', '3']], $approval, [['cash', '26.4']])));
 
         expect($refused->cause)->toBe(PricingRefusal::UnknownProduct)->and(rfState())->toBe($before);
+    });
+});
+
+/**
+ * The override world of {@see rfoWorld()} on a tax group of the given rate (0 makes line_total the plain product).
+ *
+ * @return array<string, mixed>
+ */
+function rfmWorld(string $rate = '0.0000', string $price = '10.0000'): array
+{
+    $till = SalesWorld::till();
+    $group = SalesWorld::taxGroup('TXM', $rate);
+    $catalogue = SalesWorld::product('PM', $price, $group, ['allow_price_override' => true]);
+
+    return [
+        'till' => $till,
+        'product' => $catalogue['product'],
+        'unit' => $catalogue['unit'],
+        'group' => $group,
+        'cash' => SalesSeed::paymentMethod('CASH', ['type' => 'cash', 'allows_change' => true]),
+        'manager' => SalesSeed::employee('manager'),
+    ];
+}
+
+/**
+ * Refund `$parts` of one line in turn, each paying out exactly the total the caller names for it.
+ * Returns the refund lines in order.
+ *
+ * @param  array<string, mixed>  $w
+ * @param  array{sale: string, items: list<string>, total: string}  $original
+ * @param  list<array{0: string, 1: string}>  $parts  `[quantity, expected total]`
+ * @return list<array<string, mixed>>
+ */
+function rfmRefundParts(array $w, array $original, array $parts): array
+{
+    $lines = [];
+
+    foreach ($parts as [$quantity, $total]) {
+        $result = rfRefund($w, rfFields($w, $original, [[0, 'unit', $quantity]], rfApproval($w, $original['sale']), [['cash', $total]]));
+
+        $lines[] = (array) SalesSeed::connection()->table('sale_items')->where('sale_id', $result->refundId)->first();
+    }
+
+    return $lines;
+}
+
+/**
+ * A tier of 10 units at 80.0000 on a product of 100.0000 at 10 percent: 10 units are 880.0000 with tax, and 5
+ * re-quote at 100.
+ *
+ * @return array{0: array<string, mixed>, 1: array{sale: string, items: list<string>, total: string}}
+ */
+function rfmTierSale(): array
+{
+    $w = rfWorld();
+    $list = PricingSeed::priceList('TIER10', ['currency' => 'LKR']);
+    PricingSeed::item($list, $w['product'], $w['unit'], '10.0000', '80.0000');
+    PricingSeed::assignment($list, 'branch', $w['till']['branch']);
+
+    return [$w, rfSale($w, [['unit', '10']])];
+}
+
+describe('the money a line can give back (W-1)', function () {
+    it('takes the last quantity as what is left of the charge: 10 units sold at the tier, refunded 5 + 5, come back as 550 + 330, not 550 + 550', function () {
+        [$w, $original] = rfmTierSale();
+
+        expect(Money::of($original['total']))->toBe('880.0000');
+
+        [$first, $second] = rfmRefundParts($w, $original, [['5', '550'], ['5', '330']]);
+
+        $charged = SalesSeed::row('sale_items', $original['items'][0]);
+        $breakdown = json_decode((string) $second['tax_breakdown'], true);
+
+        expect($first['line_total'])->toEqual('550.0000')
+            ->and($second['line_total'])->toEqual('330.0000')
+            ->and($second['subtotal'])->toEqual('300.0000')
+            ->and($second['tax_amount'])->toEqual('30.0000')
+            ->and(Money::add(Money::of($first['line_total']), Money::of($second['line_total'])))->toBe(Money::of($charged['line_total']))
+            ->and(Money::add(Money::of($first['tax_amount']), Money::of($second['tax_amount'])))->toBe(Money::of($charged['tax_amount']))
+            ->and(Money::add(Money::of($first['subtotal']), Money::of($second['subtotal'])))->toBe(Money::of($charged['subtotal']))
+            // net + tax = line_total on the adjusted line, and its breakdown agrees with the columns.
+            ->and(Money::add(Money::of($second['subtotal']), Money::of($second['tax_amount'])))->toBe(Money::of($second['line_total']))
+            ->and($breakdown['total'])->toEqual('30.0000')
+            ->and($breakdown['net'])->toEqual('300.0000')
+            ->and(SalesSeed::row('sales', $original['sale'])['status'])->toBe('refunded');
+    });
+
+    it('refuses over_refund when the quoted money would pass the charge before the quantity is used up, and writes nothing', function () {
+        [$w, $original] = rfmTierSale();
+
+        // 6 re-quote at 100 + tax = 660; 3 more at 330 would make 990 against a charge of 880, with 4 units still left.
+        rfmRefundParts($w, $original, [['6', '660']]);
+        $approval = rfApproval($w, $original['sale']);
+        $before = rfState();
+
+        $refused = SalesRefusals::expect(SalesRefusal::OverRefund, fn () => rfRefund($w, rfFields($w, $original, [[0, 'unit', '3']], $approval, [['cash', '330']])));
+
+        expect($refused->getMessage())->toContain('in money')
+            ->and(rfState())->toBe($before);
+    });
+
+    it('splits a 1.0000 override line at 1.2345 as 0.6173 + 0.6172, never 0.6173 twice (the fractional override case)', function () {
+        $w = rfmWorld();
+        $original = rfoSale($w, [['unit', '1', '1.2345']]);
+
+        [$first, $second] = rfmRefundParts($w, $original, [['0.5', '0.6173'], ['0.5', '0.6172']]);
+
+        expect($first['line_total'])->toEqual('0.6173')
+            ->and($second['line_total'])->toEqual('0.6172')
+            ->and(Money::add(Money::of($first['line_total']), Money::of($second['line_total'])))->toBe(Money::of(SalesSeed::row('sale_items', $original['items'][0])['line_total']));
+    });
+
+    it('lets 0.0001 steps on a 0.5000 line sum to the charge exactly, the last step taking what is left', function () {
+        $w = rfmWorld();
+        $original = rfoSale($w, [['unit', '0.5', '1.2345']]);
+        $charged = Money::of(SalesSeed::row('sale_items', $original['items'][0])['line_total']);
+
+        $steps = [['0.0001', '0.0001'], ['0.0001', '0.0001'], ['0.0001', '0.0001'], ['0.0001', '0.0001'], ['0.0001', '0.0001'], ['0.4995', Money::subtract($charged, '0.0005')]];
+        $lines = rfmRefundParts($w, $original, $steps);
+
+        expect(Money::sum(array_map(static fn (array $l): string => Money::of($l['line_total']), $lines)))->toBe($charged)
+            ->and(SalesSeed::row('sale_items', $original['items'][0])['refunded_quantity'])->toEqual('0.5000')
+            ->and(SalesSeed::row('sales', $original['sale'])['status'])->toBe('refunded');
+    });
+
+    it('keeps the tax split exact under exclusive-tax drift: 3 units at 0.3335 taxed 10 percent are 1.1006, and 1 + 1 + 1 refund as 0.3669 + 0.3669 + 0.3668', function () {
+        $w = rfmWorld('10.0000');
+        $original = rfoSale($w, [['unit', '3', '0.3335']]);
+        $charged = SalesSeed::row('sale_items', $original['items'][0]);
+
+        expect($charged['line_total'])->toEqual('1.1006');
+
+        $lines = rfmRefundParts($w, $original, [['1', '0.3669'], ['1', '0.3669'], ['1', '0.3668']]);
+
+        expect(Money::sum(array_map(static fn (array $l): string => Money::of($l['line_total']), $lines)))->toBe(Money::of($charged['line_total']))
+            ->and(Money::sum(array_map(static fn (array $l): string => Money::of($l['tax_amount']), $lines)))->toBe(Money::of($charged['tax_amount']))
+            ->and(Money::sum(array_map(static fn (array $l): string => Money::of($l['subtotal']), $lines)))->toBe(Money::of($charged['subtotal']));
+
+        foreach ($lines as $line) {
+            expect(Money::add(Money::of($line['subtotal']), Money::of($line['tax_amount'])))->toBe(Money::of($line['line_total']));
+        }
+    });
+
+    it('sums a full set of partial refunds to the charge exactly, over several splits', function (array $split) {
+        $w = rfmWorld();
+        $original = rfoSale($w, [['unit', Money::sum($split), '1.2345']]);
+        $charged = Money::of(SalesSeed::row('sale_items', $original['items'][0])['line_total']);
+        $given = Money::ZERO;
+        $lines = [];
+
+        foreach ($split as $index => $part) {
+            $expected = $index === array_key_last($split) ? Money::subtract($charged, $given) : Money::product('1.2345', $part);
+
+            $lines = array_merge($lines, rfmRefundParts($w, $original, [[$part, $expected]]));
+            $given = Money::add($given, $expected);
+        }
+
+        expect(Money::sum(array_map(static fn (array $l): string => Money::of($l['line_total']), $lines)))->toBe($charged)
+            ->and(SalesSeed::row('sales', $original['sale'])['status'])->toBe('refunded');
+    })->with([
+        'thirds' => [['0.3333', '0.3333', '0.3334']],
+        'a third and two thirds' => [['0.3333', '0.6667']],
+        'tenths ascending' => [['0.1', '0.2', '0.3', '0.4']],
+        'a step and the rest' => [['0.0001', '0.9999']],
+        'quarters' => [['0.25', '0.25', '0.25', '0.25']],
+    ]);
+
+    it('leaves a goodwill refund alone: it names no original line, so no cap applies', function () {
+        $w = rfWorld();
+
+        $result = rfRefund($w, rfGoodwill($w, [[$w['product'], 'unit', '1']], rfApproval($w, null), [['cash', '110']]));
+
+        expect($result->total)->toBe('110.0000');
     });
 });

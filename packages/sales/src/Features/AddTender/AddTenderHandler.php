@@ -154,6 +154,15 @@ final class AddTenderHandler
                 throw SalesRefused::because(SalesRefusal::ReplayConflict, "Tender [{$id}] already exists with a different payload.");
             }
 
+            // W-3: the header carries what has been tendered, exactly, under the sale lock.
+            $newPaid = Money::add($paid, $outcome->amount);
+
+            $connection->table('sales')->where('id', $saleId)->update([
+                'paid_total' => $newPaid,
+                'balance_due' => Money::subtract(Money::of($sale->total), $newPaid),
+                'updated_at' => $now,
+            ]);
+
             $row = $connection->table('sale_tenders')->where('id', $id)->first();
 
             $this->audit->record(SalesAuditActions::MODULE, $actorId, self::ACTION, 'sale_tender', $id, null, $row === null ? null : (array) $row, strtoupper((string) $sale->branch_id));

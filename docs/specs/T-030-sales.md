@@ -46,7 +46,13 @@ moves: AC-47B (a referenced refund line also skips the sellability check), AC-12
 change) and AC-27A (a refund of an overridden line pays back the price actually charged). Decisions D-75
 to D-77; D-38 is amended by D-77, not deleted. Owner questions Q-1 and Q-2 are unchanged.
 
-Backlog: FP-233, `docs/backlog.md`. Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-77).
+Revision 7: lead rulings from code review round 1, written as suffix ACs so no number moves: AC-27B
+(refunds against one original line never exceed its line_total), AC-13A (a pending_payment sale's
+paid_total and balance_due stay current as tenders come and go) and AC-55A (a reused approval keeps
+naming the approver of that line). Decisions D-78 to D-81; D-81 lists the follow-ups deferred from the
+same review. Owner questions Q-1 and Q-2 are unchanged.
+
+Backlog: FP-233, `docs/backlog.md`. Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-81).
 Design inputs read directly: `docs/architecture.md` v0.5 §1, §3, §8, §11, §12, §15, §21-22;
 `docs/database.md` v0.5 §3, §6.4 to §6.9 (Catalog, Pricing/tax, Inventory's unit-inheritance
 rule, Sales/POS, Payments, Customers, §12.1's credit-sale transaction shape); T-027's decisions/
@@ -237,6 +243,9 @@ shape.
   `sales.number` through the new `Contracts\Organization\DocumentNumbers::next('sale', $branchId)`
   contract (D-31/F-6 — never a second numbering scheme); and sets `status = completed`,
   `completed_at`, `paid_total`, `change_due`.
+  **Revision 7 (amended by AC-13A, D-79):** `paid_total` and `balance_due` are no longer written first
+  at completion; they are already current from the tenders (AC-13A). Completion confirms and finalises
+  them (and sets `change_due`), it does not introduce them.
 - AC-15: `CompleteSale` performs no stock check, no stock write, and no GL/journal posting (D-1,
   D-6) — every write it makes is to this task's own tables plus the two named cross-package calls
   in AC-14.
@@ -339,6 +348,7 @@ shape.
 - AC-27: A referenced refund line (one with `refund_of_item_id` set) is re-quoted through
   `PricingEngine::quoteLine()` using the **original sale's own `completed_at` as `at`, the
   original sale's own `business_date` as `documentDate`, and the original line's own `discount_id`**
+  (**Revision 7: the amount this re-quote yields is capped by AC-27B.**)
   (D-38/F-13 — refunds pay back what was actually charged, the standard retail convention, not
   today's price) — never copied verbatim from the original line's stored price, because a partial
   refund's smaller quantity can legitimately land on a different price-list step than the
@@ -609,8 +619,48 @@ Revision 6 — three lead rulings (D-75 to D-77), again as suffix ACs:
   same line refunded in part, Then `unit_price` is still 8.00. Given a line sold without an override,
   Then it is quoted by the engine as in AC-27.
 
+Revision 7 — lead rulings from code review round 1 (D-78 to D-80), again as suffix ACs:
+
+- AC-27B (extends AC-27 and AC-27A; D-78, review W-1): Given a referenced refund line (one with
+  `refund_of_item_id`), When `RefundSale` is about to write it, Then it sums `line_total` over every
+  existing refund line whose `refund_of_item_id` is that same original line, adds the new line's
+  `line_total`, and refuses `over_refund` with nothing written if the sum would exceed the original
+  line's `line_total`. This holds whether the line was re-quoted (AC-27) or built at the stored override
+  price (AC-27A). Given a refund that takes the last remaining quantity of the original line (the
+  original `refunded_quantity` plus this quantity equals its `base_quantity`), Then the refund line's
+  `line_total` is the original `line_total` minus the sum already refunded (a subtraction, not the
+  engine's figure), so a full set of partial refunds always sums exactly to the original charge. Given
+  a last-quantity refund where the original line has nothing left to refund in money (already fully
+  refunded), Then AC-28's `over_refund`/`fully_refunded` applies as before. Given a goodwill refund line
+  (no `refund_of_item_id`), Then this cap does not apply. AC-27's tier and `min_amount` behaviour
+  otherwise stands. The `over_refund` code is shared with AC-28; its message names whether the
+  quantity or the money limit was hit. The cap is checked under the same locks as AC-28's quantity
+  check, so two concurrent refunds cannot together pass it.
+- AC-13A (amends AC-11, AC-13 and AC-14; D-79, review W-3): Given a sale in `pending_payment`, When
+  `AddTender` records a tender, Then in the same transaction and under the sale lock `sales.paid_total`
+  is set to the exact sum of that sale's tender amounts and `sales.balance_due` to `sales.total −
+  paid_total`. Given `RemoveTender` on a `pending_payment` sale, Then the same two columns are recomputed
+  the same way (and removing the last tender still returns the sale to `draft`, AC-13 amended, with
+  `paid_total = 0.0000` and `balance_due = total`). Given a `GetSale` or `ListSales` read of a
+  `pending_payment` sale, Then it shows the true amount owing from those columns. Given an `AddTender`
+  that a refusal rejects, Then neither column changes. `change_due` is still written only at completion.
+  A refund sale's tenders are negative-signed (AC-30); its `paid_total`/`balance_due` are not defined by
+  this AC and stay as built.
+- AC-55A (extends AC-55 and AC-7; D-80, review W-4): Given an approval reused for a same-line re-price
+  (AC-55), When `UpdateSaleLine` re-prices the line, Then `price_overridden_by` still names the approver
+  who approved that line's override, never the requester and never an approver of another line's request.
+  Given more than one consumed approval on the sale that matches the line's `{product_id, unit_id,
+  unit_price}`, Then the matching prefers the row whose decider equals the line's current
+  `price_overridden_by`; only if none does may it fall back to another matching row, and then the line's
+  `price_overridden_by` becomes that row's decider. Given a re-price that needs a new approval (a
+  different price), Then AC-7 applies as before.
+
 ## Out of scope
 
+- Approval hardening named in review W-2 (requester binding, expiry, a goodwill refund amount ceiling),
+  branch-scope and permission checks inside each write slice (W-5), a shared customer lock in
+  `CreateSale` (W-6) and returning the stored result on a `CompleteSale` retry (S-1): deferred, see
+  D-81 for each reason.
 - Real-time stock validation and decrement on sale completion (FP-234, its own backlog row — D-1).
 - Costing/COGS (`unit_cost`, `line_cost`, `cost_total`) and any GL/journal posting (Finance,
   FP-260/FP-263 — D-2, D-6).

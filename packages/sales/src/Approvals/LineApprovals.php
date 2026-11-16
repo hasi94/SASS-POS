@@ -46,7 +46,7 @@ final class LineApprovals
             && strtoupper((string) $line->unit_id) === strtoupper($payload['unit_id'])
             && Money::equals(Money::of($line->unit_price), Money::of($payload['unit_price']));
 
-        return $this->cover(ApprovalType::PriceOverride, $sale, $payload, $approvalId, $carried);
+        return $this->cover(ApprovalType::PriceOverride, $sale, $payload, $approvalId, $carried, $carried ? strtoupper((string) $line->price_overridden_by) : null);
     }
 
     /**
@@ -64,13 +64,13 @@ final class LineApprovals
     /**
      * @param  array<string, string>  $payload
      */
-    private function cover(ApprovalType $type, object $sale, array $payload, ?string $approvalId, bool $lineCarriesIt): ConsumedApproval
+    private function cover(ApprovalType $type, object $sale, array $payload, ?string $approvalId, bool $lineCarriesIt, ?string $preferredDecider = null): ConsumedApproval
     {
         $saleId = strtoupper((string) $sale->id);
         $branchId = strtoupper((string) $sale->branch_id);
 
         if ($approvalId === null && $lineCarriesIt) {
-            $prior = $this->priorConsumed($type, $saleId, $branchId, $payload);
+            $prior = $this->priorConsumed($type, $saleId, $branchId, $payload, $preferredDecider);
 
             if ($prior !== null) {
                 return $prior;
@@ -85,9 +85,13 @@ final class LineApprovals
      * by the sale's id and compared in PHP, never through a `WHERE` on a payload
      * or on a column a case-insensitive collation could fold (R-38).
      *
+     * **Which one, when two match (W-4):** two lines can carry the same payload yet be
+     * approved by two managers. The approval whose decider is the line's own
+     * `price_overridden_by` wins; failing that, the lowest id, never an unordered first row.
+     *
      * @param  array<string, string>  $payload
      */
-    private function priorConsumed(ApprovalType $type, string $saleId, string $branchId, array $payload): ?ConsumedApproval
+    private function priorConsumed(ApprovalType $type, string $saleId, string $branchId, array $payload, ?string $preferredDecider = null): ?ConsumedApproval
     {
         $rows = $this->tenant->get()->table('approval_requests')
             ->where('reference_type', ApprovalBinding::SALE)
@@ -95,16 +99,25 @@ final class LineApprovals
             ->where('type', $type->value)
             ->where('status', ApprovalStatus::Approved->value)
             ->whereNotNull('consumed_at')
+            ->orderBy('id')
             ->get();
+
+        $found = null;
 
         foreach ($rows as $row) {
             $stored = $row->payload === null ? null : json_decode((string) $row->payload, true);
 
             if (strtoupper((string) $row->branch_id) === $branchId && ApprovalBinding::payloadMatches(is_array($stored) ? $stored : null, $payload)) {
-                return new ConsumedApproval(strtoupper((string) $row->id), strtoupper((string) $row->decided_by), strtoupper((string) $row->requested_by));
+                $candidate = new ConsumedApproval(strtoupper((string) $row->id), strtoupper((string) $row->decided_by), strtoupper((string) $row->requested_by));
+
+                if ($preferredDecider === null || $candidate->decidedBy === $preferredDecider) {
+                    return $candidate;
+                }
+
+                $found ??= $candidate;
             }
         }
 
-        return null;
+        return $found;
     }
 }

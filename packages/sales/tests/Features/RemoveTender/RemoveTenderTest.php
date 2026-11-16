@@ -135,3 +135,15 @@ it('takes the sale FOR UPDATE as the first statement inside the transaction', fu
 
     expect($inside[0])->toContain('"sales"')->and($inside[0])->toContain(LockMarkingGrammar::FOR_UPDATE);
 });
+
+it('moves paid_total and balance_due with every removal, back to nothing paid when the last goes (W-3)', function () {
+    $w = rtWorld();
+
+    rtRemove(['sale_id' => $w['sale'], 'tender_id' => $w['cashTender']], $w['till']['cashier']);
+
+    expect(SalesSeed::row('sales', $w['sale']))->toMatchArray(['paid_total' => '25.0000', 'balance_due' => '20.0000']);
+
+    rtRemove(['sale_id' => $w['sale'], 'tender_id' => $w['creditTender']], $w['till']['cashier']);
+
+    expect(SalesSeed::row('sales', $w['sale']))->toMatchArray(['status' => 'draft', 'paid_total' => '0.0000', 'balance_due' => '45.0000']);
+});

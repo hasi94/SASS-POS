@@ -9,6 +9,8 @@ use Flexipos\Sales\Exceptions\SalesRefusal;
 use Flexipos\Sales\Features\AddTender\AddTender;
 use Flexipos\Sales\Features\AddTender\AddTenderHandler;
 use Flexipos\Sales\Features\AddTender\AddTenderResult;
+use Flexipos\Sales\Features\GetSale\GetSale;
+use Flexipos\Sales\Features\GetSale\GetSaleHandler;
 use Flexipos\Sales\Features\RemoveTender\RemoveTender;
 use Flexipos\Sales\Features\RemoveTender\RemoveTenderHandler;
 use Flexipos\Sales\Support\Money;
@@ -502,3 +504,34 @@ final class WorldOtherBranch
         return SalesSeed::terminal(SalesSeed::branch(), 'TX')['id'];
     }
 }
+
+it('keeps the header\'s paid_total the exact sum of the tenders and balance_due the total less it, and GetSale shows both (W-3)', function () {
+    $w = atWorld();
+
+    atAdd(atInput($w, 'cash', '20'), $w['till']['cashier']);
+
+    expect(SalesSeed::row('sales', $w['sale']))->toMatchArray(['paid_total' => '20.0000', 'balance_due' => '25.0000']);
+
+    // Cash over the balance settles the balance, never the offer: 30 offered against 25 left adds 25.
+    atAdd(atInput($w, 'cash', '30'), $w['till']['cashier']);
+
+    $header = SalesSeed::row('sales', $w['sale']);
+
+    expect($header)->toMatchArray(['paid_total' => '45.0000', 'balance_due' => '0.0000']);
+
+    /** @var GetSaleHandler $get */
+    $get = app(GetSaleHandler::class);
+    $shown = $get->handle(new GetSale($w['sale']));
+
+    expect($shown->sale)->toMatchArray(['paid_total' => '45.0000', 'balance_due' => '0.0000']);
+});
+
+it('leaves the header\'s paid_total alone when a tender is refused (W-3)', function () {
+    $w = atWorld();
+
+    atAdd(atInput($w, 'cash', '10'), $w['till']['cashier']);
+
+    SalesRefusals::expect(SalesRefusal::ExceedsBalance, fn () => atAdd(atInput($w, 'card', '99', ['reference' => 'A']), $w['till']['cashier']));
+
+    expect(SalesSeed::row('sales', $w['sale']))->toMatchArray(['paid_total' => '10.0000', 'balance_due' => '35.0000']);
+});

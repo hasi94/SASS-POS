@@ -14,6 +14,7 @@ use Flexipos\Sales\Sales\SaleLocks;
 use Flexipos\Sales\Sales\SaleStatus;
 use Flexipos\Sales\Support\Fields;
 use Flexipos\Sales\Support\Identifier;
+use Flexipos\Sales\Support\Money;
 use Flexipos\Sales\Support\TenantConnection;
 
 /**
@@ -79,8 +80,17 @@ final class RemoveTenderHandler
 
             if (! $connection->table('sale_tenders')->where('sale_id', $saleId)->exists()) {
                 $status = SaleStatus::Draft->value;
-                $connection->table('sales')->where('id', $saleId)->update(['status' => $status, 'updated_at' => $this->clock->timestamp()]);
             }
+
+            // W-3: the header carries what is still tendered, exactly, under the sale lock.
+            $paid = Money::sum($connection->table('sale_tenders')->where('sale_id', $saleId)->pluck('amount')->all());
+
+            $connection->table('sales')->where('id', $saleId)->update([
+                'status' => $status,
+                'paid_total' => $paid,
+                'balance_due' => Money::subtract(Money::of($sale->total), $paid),
+                'updated_at' => $this->clock->timestamp(),
+            ]);
 
             $this->audit->record(SalesAuditActions::MODULE, $actorId, self::ACTION, 'sale_tender', $tenderId, (array) $tender, null, strtoupper((string) $sale->branch_id));
 

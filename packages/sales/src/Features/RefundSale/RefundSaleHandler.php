@@ -231,6 +231,14 @@ final class RefundSaleHandler
 
             if ($referenceId !== null) {
                 $this->assertWithinRefundable($items, $pending);
+
+                // W-1: the money a line can give back is what it charged, whatever a re-quote says.
+                $pending = $this->capToPaid($connection, $items, $pending);
+                $total = Money::sum(array_map(static fn (array $p): string => (string) $p['line']->columns['line_total'], $pending));
+
+                if (! Money::fits($total)) {
+                    throw SalesRefused::outOfRange('The refund total would not fit DECIMAL(18,4).');
+                }
             }
 
             $refundCustomerId = $originalRow === null ? $customerId : ($originalRow->customer_id === null ? null : strtoupper((string) $originalRow->customer_id));
@@ -400,6 +408,116 @@ final class RefundSaleHandler
                 throw SalesRefused::because(SalesRefusal::OverRefund, "Line [{$item->id}] has {$remaining} left to refund, and {$p['base']} was asked for.");
             }
         }
+    }
+
+    /**
+     * Hold each refund line to the money its original line charged (W-1).
+     *
+     * A re-quote at a smaller quantity can price higher than the original did (a
+     * quantity tier lost, a fractional override rounded up twice), so the quantity
+     * cap alone does not bound the money. For each line, under the sale lock:
+     *
+     * - taking **the last remaining quantity**, the line is the original less what
+     *   earlier refunds of it took, column by column (`subtotal`, `discount_amount`,
+     *   `tax_amount`, `line_total`, and the tax breakdown's net, total and per-tax
+     *   base and amount), so a full set of partial refunds sums to the charge exactly
+     *   and `net + tax = line_total` still holds;
+     * - otherwise the quoted line total, added to what earlier refunds took, may not
+     *   exceed the original line total (`over_refund`).
+     *
+     * Only sums, comparisons and subtractions (AC-42). A goodwill refund names no
+     * original line and never comes here.
+     *
+     * @param  array<string, object>  $items  the original's lines, read under its lock
+     * @param  list<array{line: PendingLine, product: object, item: ?string, base: string}>  $pending
+     * @return list<array{line: PendingLine, product: object, item: ?string, base: string}>
+     *
+     * @throws SalesRefused over_refund, out_of_range
+     */
+    private function capToPaid(Connection $connection, array $items, array $pending): array
+    {
+        $capped = [];
+
+        foreach ($pending as $p) {
+            $item = $items[(string) $p['item']];
+            $prior = $connection->table('sale_items')->where('refund_of_item_id', strtoupper((string) $item->id))->get();
+
+            $sum = static fn (string $column): string => Money::sum($prior->map(static fn (object $row): string => Money::of($row->{$column}))->all());
+
+            $columns = $p['line']->columns;
+            $originalTotal = Money::of($item->line_total);
+            $refundedTotal = $sum('line_total');
+            $remainingQuantity = Money::subtract(Money::of($item->base_quantity), Money::of($item->refunded_quantity));
+
+            if (Money::compare($p['base'], $remainingQuantity) === 0) {
+                foreach (['subtotal', 'discount_amount', 'tax_amount', 'line_total'] as $column) {
+                    $columns[$column] = Money::subtract(Money::of($item->{$column}), $sum($column));
+                }
+
+                $columns['tax_breakdown'] = self::remainingBreakdown($item->tax_breakdown, $prior->all(), (string) $columns['tax_breakdown']);
+            } elseif (Money::compare(Money::add($refundedTotal, Money::of($columns['line_total'])), $originalTotal) > 0) {
+                $left = Money::subtract($originalTotal, $refundedTotal);
+
+                throw SalesRefused::because(SalesRefusal::OverRefund, "Line [{$item->id}] has {$left} left to refund in money, and {$columns['line_total']} was asked for.");
+            }
+
+            if (! Money::fits((string) $columns['line_total'])) {
+                throw SalesRefused::outOfRange('The refund line total would not fit DECIMAL(18,4).');
+            }
+
+            $capped[] = array_merge($p, ['line' => new PendingLine($columns, $p['line']->discountId, $p['line']->overridePayload)]);
+        }
+
+        return $capped;
+    }
+
+    /**
+     * The original line's tax breakdown less the breakdowns of the refund lines that
+     * already took part of it: net, total, and each tax's base and amount.
+     *
+     * @param  list<object>  $prior
+     */
+    private static function remainingBreakdown(mixed $original, array $prior, string $fallback): string
+    {
+        $remaining = is_string($original) ? json_decode($original, true) : null;
+
+        if (! is_array($remaining)) {
+            return $fallback;
+        }
+
+        $taken = [];
+
+        foreach ($prior as $row) {
+            $decoded = is_string($row->tax_breakdown) ? json_decode($row->tax_breakdown, true) : null;
+
+            if (is_array($decoded)) {
+                $taken[] = $decoded;
+            }
+        }
+
+        foreach (['net', 'total'] as $key) {
+            if (isset($remaining[$key])) {
+                $remaining[$key] = Money::subtract(Money::of($remaining[$key]), Money::sum(array_map(static fn (array $b): string => Money::of($b[$key] ?? '0'), $taken)));
+            }
+        }
+
+        foreach ($remaining['lines'] ?? [] as $index => $line) {
+            foreach (['base', 'amount'] as $key) {
+                $spent = [];
+
+                foreach ($taken as $breakdown) {
+                    foreach ($breakdown['lines'] ?? [] as $takenLine) {
+                        if (($takenLine['tax_id'] ?? null) === ($line['tax_id'] ?? false)) {
+                            $spent[] = Money::of($takenLine[$key] ?? '0');
+                        }
+                    }
+                }
+
+                $remaining['lines'][$index][$key] = Money::subtract(Money::of($line[$key] ?? '0'), Money::sum($spent));
+            }
+        }
+
+        return json_encode($remaining, JSON_THROW_ON_ERROR);
     }
 
     /**
