@@ -108,13 +108,21 @@ D-50 | (C-15) Scope of "a full run of this task's tests" in AC-2, AC-59, AC-101.
 
 D-51 | (C-19) File name with no or unknown extension. | `file_type_not_allowed`. Extension map: `pdf`; `jpg`, `jpeg`; `png`. | The extension must agree with the detected type; an undefined case defaults to refusal. | Reversible: yes (loosening is additive).
 
-D-52 | (C-13) Default for the published read contract. | `Contracts\Hr` ships `NoOrgChart` answering "none" to every question, with a test; production binds HR's implementation. "A deployment without HR" does not arise (HR is a registered package). Corrects AC-84's T-032 citation. | Finance's defaults live in the finance package and are bound by its own provider; HR follows. | Reversible: yes.
+D-52 | (C-13) Default for the published read contract. | `Contracts\Hr` ships `NoOrgChart` answering "none" to every question, with a test; production binds HR's implementation. "A deployment without HR" does not arise (HR is a registered package). Corrects AC-84's T-032 citation. | The `NoOrgChart` default sits beside the interface in `Contracts\Hr` so consumers' test setups need not import HR; the usage-port default is the empty sweep (finance's "none" defaults live in the finance package, but HR's read contract differs). Reworded in rev 2.1, D-59. | Reversible: yes.
 
 D-53 | (C-5) Audit action names. | The eighteen unprefixed names stand. D-36's reason is restated: unprefixed like T-032 (`account_created`); uniqueness is per (module, action) in the catalogue, so no collision is possible. | Matches the code; no change needed. | Reversible: yes.
 
 D-54 | Owner-visible: deleting an employee who heads a department or manages others (restates D-35 as architect-confirmed). | Refused (`has_dependents`) until reassigned; status changes are not blocked. | Dangling heads and managers are worse than a refusal. Owner can choose silent clearing instead. | Reversible: yes.
 
 D-55 | Owner-visible: what happens to uploaded files if a shop is abandoned? | Kept forever; no purge, no cleanup. Retention and erasure stay an owner decision (D-31); this is a stated consequence of keeping everything, not an escalation. | Deleting personal data cannot be undone; keeping is safe. Cost: storage growth and possible data-protection exposure for abandoned shops. | Reversible: yes (a purge can be added; deleted files cannot be restored).
+
+D-57 | (Q-1) AC-89 omitted the null rule of AC-60/D-42. | AC-89 now reads "`"[redacted]"`, or `null` where the value was null on that side (AC-60)". | Removes a contradiction between two ACs; behaviour unchanged. | Reversible: yes.
+
+D-58 | (Q-2) AC-85 could be read as editing `DeleteEmployeeTest`, not in D-40's closed list. | Reworded: proved by a new test file; T-010's existing delete tests are not edited (diff). | Keeps D-40's closed list true. | Reversible: yes.
+
+D-59 | (Q-3) Reason for D-52 restated. | The `NoOrgChart` default sits beside the interface in `Contracts\Hr` so consumers' test setups need not import HR; the usage-port default is the empty sweep. Finance's "none" defaults live in the finance package, but HR's read contract differs. Decision itself unchanged. | The earlier reason claimed finance parity that does not hold. | Reversible: yes.
+
+D-60 | (Q-4) AC-67 "staged file's reported size". | Now "the size of the staged file as reported by the filesystem, obtained without reading its contents"; a client-declared size belongs to the route follow-up. | Makes the check testable and keeps it operation-level. | Reversible: yes.
 
 D-56 | Follow-up for the route layer. | Proposed backlog row (lead assigns the number): "HR route layer" carrying the intent of retired AC-92 to AC-97, depending on T-038, required before or with FP-273. Text is in the spec's Out of scope. `ba` cannot edit `docs/backlog.md`. | FP-273's screens need an API. | Reversible: yes.
 
