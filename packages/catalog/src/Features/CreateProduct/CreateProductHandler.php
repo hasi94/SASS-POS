@@ -10,6 +10,7 @@ use Flexipos\Catalog\Products\ProductRules;
 use Flexipos\Catalog\Products\ProductType;
 use Flexipos\Catalog\Products\TrackingMode;
 use Flexipos\Catalog\Registry\CatalogAuditActions;
+use Flexipos\Catalog\Support\AccountFields;
 use Flexipos\Catalog\Support\Fields;
 use Flexipos\Catalog\Support\Identifier;
 use Flexipos\Catalog\Support\Lookup;
@@ -17,6 +18,7 @@ use Flexipos\Catalog\Support\Money;
 use Flexipos\Catalog\Support\TaxGroups;
 use Flexipos\Catalog\Support\TenantConnection;
 use Flexipos\Contracts\Audit\AuditTrail;
+use Flexipos\Contracts\Finance\ChartOfAccounts;
 use Flexipos\Contracts\Pricing\TaxGroupDirectory;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Database\Connection;
@@ -42,6 +44,7 @@ final class CreateProductHandler
         'plu_code', 'shelf_life_days', 'is_sellable', 'is_purchasable', 'is_active', 'allow_price_override',
         'allow_discount', 'weight', 'dimensions', 'variant_options', 'variant_values', 'image_path', 'sort_order',
         'tax_group_id', 'purchase_tax_group_id',
+        'income_account_id', 'cogs_account_id', 'inventory_account_id',
     ];
 
     public function __construct(
@@ -49,6 +52,7 @@ final class CreateProductHandler
         private readonly RunnerClock $clock,
         private readonly AuditTrail $audit,
         private readonly TaxGroupDirectory $taxGroups,
+        private readonly ChartOfAccounts $chart,
     ) {}
 
     public function handle(CreateProduct $command): CreateProductResult
@@ -100,6 +104,9 @@ final class CreateProductHandler
         $taxGroupId = Fields::has($fields, 'tax_group_id') ? Identifier::fold($fields['tax_group_id'], 'tax_group_id') : null;
         $purchaseTaxGroupId = Identifier::foldNullable(Fields::has($fields, 'purchase_tax_group_id') ? $fields['purchase_tax_group_id'] : null, 'purchase_tax_group_id');
 
+        // T-032 AC-55: a malformed id is refused here, before any lock is taken.
+        $accounts = AccountFields::fold($fields, AccountFields::PRODUCT);
+
         ProductRules::checkParentage($type, $parentId);
 
         $connection = $this->tenant->get();
@@ -109,7 +116,7 @@ final class CreateProductHandler
             $stockUnitId, $purchaseUnitId, $salesUnitId, $costPrice, $sellingPrice, $minSellingPrice, $msrp,
             $trackStock, $trackingMode, $isWeighable, $priceMode, $pluCode, $shelfLifeDays, $isSellable,
             $isPurchasable, $isActive, $allowPriceOverride, $allowDiscount, $weight, $dimensions, $variantOptions,
-            $variantValues, $imagePath, $sortOrder, $taxGroupId, $purchaseTaxGroupId,
+            $variantValues, $imagePath, $sortOrder, $taxGroupId, $purchaseTaxGroupId, $accounts,
         ): CreateProductResult {
             if ($connection->table('products')->whereRaw('lower(sku) = ?', [strtolower($sku)])->exists()) {
                 throw CatalogRefused::duplicate("The sku [{$sku}] is already in use.");
@@ -148,6 +155,10 @@ final class CreateProductHandler
             if ($purchaseTaxGroupId !== null) {
                 TaxGroups::assertUsable($this->taxGroups, $purchaseTaxGroupId, 'purchase_tax_group_id');
             }
+
+            // T-032 AC-55 to AC-57: Finance judges each named account under a
+            // shared lock, inside this transaction.
+            AccountFields::assertAssignable($this->chart, $accounts);
 
             $productId = (string) Str::ulid();
             $now = $this->clock->timestamp();
@@ -194,6 +205,9 @@ final class CreateProductHandler
                     'sort_order' => $sortOrder,
                     'tax_group_id' => $resolvedTaxGroupId,
                     'purchase_tax_group_id' => $purchaseTaxGroupId,
+                    'income_account_id' => $accounts['income_account_id'] ?? null,
+                    'cogs_account_id' => $accounts['cogs_account_id'] ?? null,
+                    'inventory_account_id' => $accounts['inventory_account_id'] ?? null,
                     'version' => 1,
                 ]);
             } catch (UniqueConstraintViolationException) {

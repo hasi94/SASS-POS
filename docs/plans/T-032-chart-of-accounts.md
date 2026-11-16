@@ -595,7 +595,7 @@ Rules carried from T-027/T-028 §6, unchanged:
 
 ### Chunk E: the owed account columns (section I)
 
-- [ ] **Step 17: the three expand files and the contract file, with `OwedAccountColumnsMigrationsTest`.**
+- [x] **Step 17: the three expand files and the contract file, with `OwedAccountColumnsMigrationsTest`.**
   - **Pre-check:** T-027 and T-028 tables exist (guaranteed by step 0, re-asserted). If T-029 landed since step 0, apply section 5's T-029-first branch first.
   - **AC-52:**
     - the five columns are `CHAR(26)` through `IdentifierColumn::nullable`, nullable, with no default and no key in the expand files;
@@ -613,7 +613,7 @@ Rules carried from T-027/T-028 §6, unchanged:
     - `TenantBaselineBuildsTest` +5 keys; catalogue republished; `.env.example` 55 → 59.
   - **Mutation S1:** write the contract as `->change()`, and the AC-54 assertion goes red.
   - *(AC-52 to AC-54, AC-66.)*
-- [ ] **Step 18: assignment and referrers in catalog and customers.**
+- [x] **Step 18: assignment and referrers in catalog and customers.**
   - **`DatabaseChartOfAccounts::assignable`.**
   - The field and validation edits (section 3). The account is read only when the value changes to a non-null id; null clears it; omitted leaves it unchanged.
   - **F-3:** add `whereNull('deleted_at')` to `UpdateProductHandler` and `UpdateCategoryHandler`.

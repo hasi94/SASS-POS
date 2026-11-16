@@ -137,10 +137,9 @@ it('creates customers with exactly the documented columns, no custom_fields and 
         'currency', 'deleted_at', 'device_id', 'dob', 'email', 'first_sale_at', 'gender', 'group_id', 'id',
         'last_sale_at', 'lifetime_value', 'loyalty_points', 'loyalty_tier', 'merged_into_id', 'name',
         'notes', 'opening_balance', 'origin', 'payment_terms_days', 'phone', 'possible_duplicate_of',
-        'status', 'sync_status', 'synced_at', 'tax_no', 'terminal_id', 'updated_at', 'updated_by',
-        'version',
-    ])->and(customersColumns('customers'))->not->toContain('custom_fields')
-        ->and(customersColumns('customers'))->not->toContain('receivable_account_id');
+        'receivable_account_id', 'status', 'sync_status', 'synced_at', 'tax_no', 'terminal_id', 'updated_at',
+        'updated_by', 'version',
+    ])->and(customersColumns('customers'))->not->toContain('custom_fields');
 });
 
 it('creates customer_addresses with exactly the documented columns, no [SOFT] (AC-18, D-16)', function () {
@@ -355,6 +354,8 @@ it('holds exactly the 18 documented foreign keys (17 from T-028, 1 from T-030)',
         'customers.group_id -> customer_groups.id',
         'customers.merged_into_id -> customers.id',
         'customers.possible_duplicate_of -> customers.id',
+        // T-032 step 17: the owed receivable account key.
+        'customers.receivable_account_id -> accounts.id',
         'customers.updated_by -> employees.id',
         'loyalty_transactions.customer_id -> customers.id',
         'loyalty_transactions.employee_id -> employees.id',

@@ -614,5 +614,37 @@
         "checksum": "dd987ee0fb1a8bde6602b2be52cdce5f37a3d856040f5c6a4a800cd370c7e571",
         "is_destructive": false,
         "requires_offline": false
+    },
+    {
+        "version": 78,
+        "migration": "2026_11_15_003205_add_account_columns_to_products_table",
+        "phase": "expand",
+        "checksum": "61ac065ba899354578c3a67d58fe1c8e3f5bc8dd91c4f4799af515f110a85f88",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 79,
+        "migration": "2026_11_15_003206_add_income_account_column_to_categories_table",
+        "phase": "expand",
+        "checksum": "c9a0b2f323385513915dc1540e8361cf6c5d7f33368b8f4d23722c545c00503a",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 80,
+        "migration": "2026_11_15_003207_add_receivable_account_column_to_customers_table",
+        "phase": "expand",
+        "checksum": "265be768737407ad4eb76f002200566ce301f892f1a34f0135af4f6f8fb51551",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 81,
+        "migration": "2026_11_15_003208_add_owed_account_foreign_keys",
+        "phase": "contract",
+        "checksum": "6159c186186838582d0f6ae17b4fc435d63d8a8f8ebb952bd5a8d049c51ee9bd",
+        "is_destructive": false,
+        "requires_offline": false
     }
 ]

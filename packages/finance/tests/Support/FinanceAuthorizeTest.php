@@ -150,13 +150,15 @@ it('binds the three usage ports to their defaults, which report nothing', functi
         ->and(app(PeriodCloseBlockers::class)->blockersFor($id, '2026-01-01', '2026-01-31'))->toBe([]);
 });
 
-it('sums nothing when no package declares a referrer, and everything a bound fake reports', function () {
+it('sums nothing when no record names the account, and everything a bound fake reports on top of the real referrers', function () {
     $id = (string) Str::ulid();
 
     /** @var ReferrerCensus $census */
     $census = app(ReferrerCensus::class);
 
-    expect($census->of($id))->toBe([])
+    // Catalog and customers declare real referrers now (T-032 step 18): they report zero, not nothing.
+    expect($census->of($id))->not->toBe([])
+        ->and($census->kinds($id))->toBe([])
         ->and($census->total($id))->toBe(0);
 
     FakeUsagePorts::bind();
@@ -167,7 +169,7 @@ it('sums nothing when no package declares a referrer, and everything a bound fak
 
     $found = app(ReferrerCensus::class)->of($id);
 
-    expect($found)->toHaveCount(2)
+    expect(array_values(array_filter($found, static fn (AccountReferrer $r): bool => $r->total() > 0)))->toHaveCount(2)
         ->and(app(ReferrerCensus::class)->total($id))->toBe(6)
         ->and(app(ReferrerCensus::class)->live($id))->toBe(2);
 });

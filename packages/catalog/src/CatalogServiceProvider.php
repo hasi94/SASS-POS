@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Flexipos\Catalog;
 
+use Flexipos\Catalog\Finance\CatalogAccountReferrers;
 use Flexipos\Catalog\Registry\CatalogAuditActions;
 use Flexipos\Catalog\Units\DatabaseUnitResolver;
 use Flexipos\Contracts\Audit\DeclaresAuditActions;
 use Flexipos\Contracts\Catalog\UnitResolver;
+use Flexipos\Contracts\Finance\AccountReferrers;
+use Flexipos\Contracts\Finance\DeclaresAccountReferrers;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -28,11 +31,23 @@ use Illuminate\Support\ServiceProvider;
  * stub: a contract with no implementation resolves to a binding error,
  * which is a refusal to answer and never a permissive one.
  */
-final class CatalogServiceProvider extends ServiceProvider implements DeclaresAuditActions
+final class CatalogServiceProvider extends ServiceProvider implements DeclaresAccountReferrers, DeclaresAuditActions
 {
     public function register(): void
     {
         $this->app->singleton(UnitResolver::class, DatabaseUnitResolver::class);
+    }
+
+    /**
+     * The account referrers this package provides (T-032 AC-23, AC-24). Finance
+     * sweeps the loaded providers for this declaration, so it never names
+     * catalog.
+     *
+     * @return list<class-string<AccountReferrers>>
+     */
+    public function accountReferrers(): array
+    {
+        return [CatalogAccountReferrers::class];
     }
 
     /**
