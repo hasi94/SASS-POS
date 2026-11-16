@@ -67,4 +67,56 @@ D-28 | Is a zero unit cost allowed? | Yes, `0.0000` is accepted (free-of-charge 
 
 D-29 | Product eligibility on a line. | The product must exist, be active, not soft-deleted, and be one the catalogue says can be bought; a service or non-stock product, if the catalogue distinguishes them, is `product_not_purchasable`. The architect verifies which product fields express this. Non-stock lines (freight, services) are a supplier-invoice matter (FP-255), not order lines. | `docs/database.md` section 3 allows `product_id` NULL only on a supplier-invoice line. | yes
 
-D-30 | ENGINE_HOLD. | Following the standing instruction for this stream: every engine-touching test (migrations, tenant database, models, concurrency, the cross-tenant suite) is **written but not run**; pure-logic tests (state machine, arithmetic, validation) are written and may be run only when the single gate is free. The spec states this as a delivery rule (AC-98) and does not claim a green gate. | The lead's instruction; `ba` cannot run anything. | yes
+D-30 | ENGINE_HOLD. | Following the standing instruction for this stream: every engine-touching test (migrations, tenant database, models, concurrency, the cross-tenant suite) is **written but not run**; pure-logic tests (state machine, arithmetic, validation) are written and may be run only when the single gate is free. The spec states this as a delivery rule (AC-98) and does not claim a green gate. | The lead's instruction; `ba` cannot run anything. | yes (amended by D-46)
+
+## Revision 2 (resolves the architect's plan findings C-1 to C-12, F-1 to F-19 and lead questions L-1, L-2; lead rulings applied)
+
+Where a row below conflicts with D-1 to D-30, the row below wins: D-10 (refusal spelling), D-14 (refusal names), D-16 (discount and tax computed by the new pricing contract), D-18 (receipt rules), D-20 (currency fallback, rate precision), D-21 (supplier ids), D-23 and the spec preamble (audit action names), D-24 (event payloads, `purchase.approved`), D-29 (purchasable defined), D-30 (hold wording).
+
+D-n | Question | Decision | Reason | Reversible
+
+D-31 | C-1: audit action names. | Snake case with module prefix, as T-030 and T-028 (full list in the spec preamble, e.g. `purchasing_order_approved`, `purchasing_supplier_created`). Outbox event types stay dotted (the outbox requires dots). | House style wins. | yes
+
+D-32 | C-4, C-5, C-6, F-12: supplier column drift. | Code column VARCHAR(50), validation cap stays 30, folded upper case, immutable. Email column and cap 191. `credit_limit` NOT NULL DEFAULT 0 as T-028 (omitted stores `0.0000`, explicit null is `validation`, "no limit" not representable). | Lead: house style wins. Null refused rather than coerced because silently turning null into a limit of zero is a guess. | yes
+
+D-33 | C-7, F-8: exchange rate. | `DECIMAL(18,8)`, default `1.00000000`, up to 8 decimals on input. | Lead ruling; same as `sales.exchange_rate`. | yes
+
+D-34 | C-2, F-11: list paging. | Keyset as T-028 `Pager`: documents newest first by id with `before_id`; suppliers by `code` with `after_code`; default 25; an oversize `page_size` is clamped to 100, never refused. Bad or non-positive size or malformed cursor stays `validation`. Branch scoping on lists: one decision at the filtered branch, else one per branch row (including inactive and deleted). | Lead ruling. | yes
+
+D-35 | C-10: who generates ids. | Suppliers: server-generated ids as T-028 customers, so there is no id replay on supplier create (a retry is `duplicate_code`, AC-9). Documents (requests, orders, lines, receipt applications): caller-supplied ids, because replay depends on them (D-21). | Lead ruling. | yes
+
+D-36 | C-3: permission on read slices. | Every read slice checks its own key (AC-18, AC-34, AC-81, AC-84). This differs from T-030, whose read slices check nothing (FP-452), on purpose: stricter rule kept. | Lead ruling. | yes
+
+D-37 | C-8: refusal names. | The spec keeps its own names except where T-030 already names the identical cause: `unit_unresolvable` (replaces the draft `unit_refused` for a failed snapshot), `inherited_unit_mismatch`, `numbering_refused`, `pricing_refused`, `not_authorised`, `replay_conflict`, `out_of_range`, `unknown_product`, `unknown_tax_group`, `unknown_branch`. `code()` reports the purchasing reason; the foreign refusal is the cause. | Lead ruling. | yes
+
+D-38 | F-1: AC-93 wording. | The static test forbids a list of tables (writes to any foreign table; reads of `unit_conversions`, `units.factor`, `units.base_unit_id`, tax tables, `number_sequences`, `workflow_*`, customer ledgers, stock tables). Direct read-only lookups of `products`, `locations`, `branches` are allowed per the T-030 Lookup precedent. | No contract exposes those facts; lead ruling. Follow-up: facts contracts. | yes
+
+D-39 | F-2: what "purchasable" means (settles D-29). | Eligible iff not soft-deleted, `is_active`, `is_purchasable`, `track_stock`, and type `simple`, `variant` or `composite`. Variant parent, bundle and the non-stock type are `product_not_purchasable`. Unknown, inactive or deleted is `unknown_product`. | Architect's definition adopted by lead. `ba` logs that composite is accepted because it is stocked. | yes
+
+D-40 | F-3: location rule. | A location is eligible iff it exists, not soft-deleted, `is_active`, `is_purchasable_to`, and its `branch_id` equals the document branch. A branch-less central warehouse is refused `unknown_location`. | Lead ruling. Reversible: delivering a branch order to a central warehouse can be allowed later by a rule change, no schema change. | yes
+
+D-41 | F-4: currency fallback. | Explicit currency, else the supplier's, else the branch's currency; `currency_required` only when the branch has none. | Lead ruling; every branch carries a currency. | yes
+
+D-42 | F-5, F-6: tax group refusals. | Tax group resolution chain unchanged (AC-44). The group's state is checked first: `unknown_tax_group`, `inactive_tax_group`. A group whose members apply only to sales taxes zero and is not refused (the engine's own definition). | Lead ruling; the engine never refuses these. | yes
+
+D-43 | C-9, F-7: workflow causes. | Workflow refusals carry plain strings, not enums. The purchasing refusal (`workflow_failed`) carries the exception as previous and the string as `detail`. The enum-cause rule holds for unit, pricing, numbering and access only (AC-52). | Lead ruling. | yes
+
+D-44 | F-9: receipts on a received order. | AC-75 governs receipts: `approved`, `partially_received`, `received` accept; `draft`, `pending_approval`, `closed`, `cancelled` are `order_not_open`. AC-66 governs edits, line changes, submit and reopen only. | Lead ruling. | yes
+
+D-45 | F-10: reopen after a reversed receipt. | Reopen and cancel are refused `already_received` if any receipt-application row exists for the order, even one reversed to zero. | Keeps the receipt trail intact; lead ruling. | yes
+
+D-46 | C-11, C-12, F-13, F-14: test wording. | Real-engine tests (`tests/Engine/*`) are written and skipped under the hold; stand-in schema, model, state-machine and cross-tenant tests are written and run at each chunk gate when the gate is free. The six new tables join the shared tenant-table list read by T-022's sweeps, plus one tenant-B-reads-tenant-A `not_found` check per root entity. | Lead ruling. | yes
+
+D-47 | F-15: zero display delta. | `received_base_delta` must be non-zero; `received_quantity_delta` may be zero when the base delta is non-zero; the two may not have opposite signs. | Lead ruling. | yes
+
+D-48 | F-16: removing a converted line. | Removing an order line made by conversion clears the request line's `purchase_order_item_id` in the same transaction, recorded in the audit row. The request stays `converted`. | Lead ruling (architect's reading). | yes
+
+D-49 | F-17: event payloads. | The four transition events (`approved`, `reopened`, `cancelled`, `closed`) carry the same per-line list. | Lets a consumer subtract without reading purchasing tables. | yes
+
+D-50 | F-18: key for sync slices. | The document's `.view` key at its branch. A sync only applies a decision the engine already made and confers nothing. | Lead ruling. | yes
+
+D-51 | F-19: `purchase.approved`. | It is `purchase_order.approved`; a notification rule maps the event key to it later. No second event. | Lead ruling. | yes
+
+D-52 | L-1: sync trigger. | None is built in this task. The two sync slices are pull-only; whoever calls the workflow's decide operation must call them. The gap (a decided approval does not move the document until sync is called) is recorded as an owner-visible follow-up. | The engine has no callback; adding one is another task. Lead ruling. | yes
+
+D-53 | L-2: cross-package edits. | (a) New contract `Contracts\Pricing\PurchaseLinePricing`: purchasing never computes a discount or tax itself (D-16 updated). (b) Default number prefixes `PR` for `purchase_request` and `PO` for `purchase_order`. (c) `BusinessClock` is copied into purchasing (order and request date are the branch-local business date); moving it to the kernel is a follow-up once a third user exists. | Lead ruling; the pricing scan forbids percent arithmetic outside the engine. | yes
