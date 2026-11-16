@@ -33,6 +33,7 @@
 | ID | Title | Covers | Branch | Status |
 |---|---|---|---|---|
 | T-032 | Chart of accounts and fiscal periods, with period closing | FP-260 | `ai/T-032-chart-of-accounts` (from main) | SPEC — started spec-ahead while T-029/T-030 are blocked. Spec/plan only until the branch is rebased onto the T-028 tip: `products`, `categories` and `customers` do not exist on this branch, so the owed account-id column pairs (AC-52 to AC-60) need that rebase first. This worktree's `docs/backlog.md` is forked from a stale main tip (T-013); the divergence is reconciled at merge time like the other worktree forks |
+| T-033 | Journal entries and lines, posted through one service | FP-261 | `ai/T-033-journal-entries` (from the T-032 branch at 4c969fc) | SPEC — started spec-ahead as a second stream while T-032 (chart of accounts) is still in code. Documents only: no code and no gate run until T-032 is DONE and its tip is merged in. Depends on FP-260 (accounts, fiscal periods, the period gate) |
 | T-001 | Monorepo, backend toolchain and module host skeleton | old FP-003 to FP-005 | `ai/T-001-monorepo-service-host` | **DONE** — QA 32/32, review APPROVE, commit `741307c` |
 | T-002 | Host hardening from the T-001 review | old FP-146 to FP-153 | `ai/T-002-service-host-hardening` | **DONE** — QA 19/19, review APPROVE, commit `ad7fb27` |
 | T-003 | Convert the skeleton to master plus tenant connections | FP-201 | `ai/T-003-tenant-connections` (from T-002) | **DONE** — QA PASS 25/25, review APPROVE |
