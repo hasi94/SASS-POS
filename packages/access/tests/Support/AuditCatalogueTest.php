@@ -46,7 +46,7 @@ function auditCatalogue(): AuditCatalogue
 }
 
 it('knows exactly the modules access, catalog, customers and organization declare today', function () {
-    expect(auditCatalogue()->modules())->toBe(['access', 'catalog', 'customers', 'organization']);
+    expect(auditCatalogue()->modules())->toBe(['access', 'catalog', 'customers', 'finance', 'organization']);
 });
 
 it('holds access s sixteen actions and organization s sixteen, printed', function () {
@@ -89,7 +89,7 @@ it('sees a fixture provider declaring a fourth module, with no memo', function (
 
     FixtureAuditActionProvider::declaring(app(), 'fixture', ['fixture.did_a_thing']);
 
-    expect(auditCatalogue()->modules())->toBe(['access', 'catalog', 'customers', 'fixture', 'organization'])
+    expect(auditCatalogue()->modules())->toBe(['access', 'catalog', 'customers', 'finance', 'fixture', 'organization'])
         ->and(auditCatalogue()->knows('fixture', 'fixture.did_a_thing'))->toBeTrue()
         ->and(auditCatalogue()->actions())->toContain('fixture.did_a_thing');
 });

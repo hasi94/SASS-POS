@@ -465,7 +465,7 @@ Rules carried from T-027/T-028 §6, unchanged:
 
 ### Chunk C: accounts on the database
 
-- [ ] **Step 8: permissions, authorization, ports.**
+- [x] **Step 8: permissions, authorization, ports.**
   - `FinancePermissions`, which the provider declares.
   - `Authorize`; `ReferrerCensus`; the three `No*` defaults bound.
   - `FinanceSeed` gives one employee per key (seven), plus one with none.
@@ -478,7 +478,7 @@ Rules carried from T-027/T-028 §6, unchanged:
   - The registry sweep finds the seven keys through the booted provider.
   - **Mutation M11:** move `Authorize` inside the transaction after the target read, which makes the "no statement ran" assertion go red.
   - *(AC-64; AC-25 wiring.)*
-- [ ] **Step 9: `CreateAccount`.**
+- [x] **Step 9: `CreateAccount`.**
   - **AC-1:** every default, and the row appears in list and tree (after step 12; the assertion is added there).
   - **AC-3 on the stand-in:**
     - `ab1` against an existing `AB1`, live and soft-deleted, gives `code_in_use` naming the id;
@@ -489,7 +489,7 @@ Rules carried from T-027/T-028 §6, unchanged:
   - **AC-65:** one audit row, compared whole.
   - **Mutation M12:** remove the `control_account_exists` pre-check; the generated-marker backstop still refuses and the test stays green on the reason. That proves the backstop. Then remove the catch's mapping, and the reason goes red.
   - *(AC-1 to AC-12, AC-16, AC-17, AC-65.)*
-- [ ] **Step 10: `UpdateAccount`.**
+- [x] **Step 10: `UpdateAccount`.**
   - **AC-20:** unknown or soft-deleted gives `account_not_live`, nothing written.
   - **AC-21:** unsupplied fields are unchanged.
   - **AC-14:** a header with a live child changed to postable gives `has_children`. A postable leaf changed to header: accepted with no usage; refused with a bound `AccountUsage` fake (`has_postings`) or a fake referrer (`in_use`).
@@ -498,7 +498,7 @@ Rules carried from T-027/T-028 §6, unchanged:
   - **AC-19 and AC-22:** with fakes. The reasons are `control_type_locked` and `code_locked` (AC-25, D-25).
   - **F-12:** `parent_id` and `is_active` give `not_updatable_here`.
   - *(AC-14, AC-15, AC-18 to AC-22, AC-25 in part.)*
-- [ ] **Step 11: `ReparentAccount`, `DeactivateAccount`, `ReactivateAccount`, `DeleteAccount`.**
+- [x] **Step 11: `ReparentAccount`, `DeactivateAccount`, `ReactivateAccount`, `DeleteAccount`.**
   - **AC-13:** a three-level subtree moved; every descendant's `path` and `depth` are rewritten in one transaction (assert all rows); cycle; depth.
   - **AC-18:** a system account cannot be re-parented, deactivated or deleted.
   - **AC-23:**
@@ -516,7 +516,7 @@ Rules carried from T-027/T-028 §6, unchanged:
     - **M13:** skip the descendant rewrite, which makes the AC-13 assertion go red;
     - **M14:** count only live referrers on delete, which makes the deleted-referrer row go red.
   - *(AC-13, AC-18, AC-20, AC-23 to AC-25.)*
-- [ ] **Step 12: reads and the `ChartOfAccounts` implementation.**
+- [x] **Step 12: reads and the `ChartOfAccounts` implementation.**
   - **AC-61:**
     - page size 0, 201 and `"50"` give `page_size_invalid`; the default is 50;
     - 3 rows at size 2 page through `(after_code, after_id)`; a half cursor is refused;

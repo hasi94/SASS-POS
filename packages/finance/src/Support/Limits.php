@@ -44,5 +44,8 @@ final class Limits
     /** `accounts.currency`, an ISO 4217 code. */
     public const CURRENCY = 3;
 
+    /** The longest `q` search term an account list accepts (AC-61). Not a column width. */
+    public const SEARCH = 100;
+
     private function __construct() {}
 }
