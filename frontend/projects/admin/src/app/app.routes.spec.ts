@@ -5,7 +5,18 @@ import { Router, provideRouter, withComponentInputBinding } from '@angular/route
 import { RouterTestingHarness } from '@angular/router/testing';
 import { CATALOG_PERMISSIONS } from '@flexipos/shared';
 import { routes } from './app.routes';
-import { seedSession } from './crud/testing/crud-testing';
+import { pageEnvelope, seedSession } from './crud/testing/crud-testing';
+
+/**
+ * Answers every request a real page sent on arrival with an empty list, so the
+ * `afterEach` verify holds whichever area has become real. Forbidden cases must
+ * not call this: they keep `expectNone`.
+ */
+function drainRequests(http: HttpTestingController): void {
+  for (const req of http.match(() => true)) {
+    req.flush(pageEnvelope([]));
+  }
+}
 
 describe('admin routing (T-036 AC-6, AC-9, AC-56)', () => {
   let http: HttpTestingController;
@@ -54,12 +65,13 @@ describe('admin routing (T-036 AC-6, AC-9, AC-56)', () => {
     const harness = await open('/catalog/products', [CATALOG_PERMISSIONS.products.view]);
     expect(router.url).toBe('/catalog/products');
     expect((harness.routeNativeElement as HTMLElement).textContent).toContain('Products');
-    http.expectNone(() => true);
+    drainRequests(http);
   });
 
   it('sends /catalog to the first permitted area', async () => {
     await open('/catalog', [CATALOG_PERMISSIONS.units.view]);
     expect(router.url).toBe('/catalog/units');
+    drainRequests(http);
   });
 
   it('sends /catalog to /forbidden when no area is permitted', async () => {

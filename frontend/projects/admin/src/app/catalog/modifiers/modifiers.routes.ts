@@ -1,11 +1,45 @@
 import { Routes } from '@angular/router';
+import { CATALOG_PERMISSIONS, requirePermissions } from '@flexipos/shared';
 
-/** Stub from chunk 1 (T-036): chunk 2 replaces it with the real modifiers screens. */
+/** The form routes need both keys: `view` is the gate to the area, `manage` to change it (AC-7). */
+const mayManage = requirePermissions([
+  CATALOG_PERMISSIONS.modifiers.view,
+  CATALOG_PERMISSIONS.modifiers.manage,
+]);
+
+/**
+ * `new` is listed before `:groupId` so it is never read as a group id. Parameter names differ
+ * on purpose: the group form reads `id`, the detail and modifier pages read `groupId`.
+ */
 export const modifiersRoutes: Routes = [
   {
     path: '',
-    loadComponent: () => import('../../shell/placeholder-page').then((m) => m.PlaceholderPage),
-    data: { title: 'Modifiers', arrivesWith: 'the T-036 modifiers screens (chunk 2)' },
+    loadComponent: () => import('./modifier-groups-page').then((m) => m.ModifierGroupsPage),
+  },
+  {
+    path: 'new',
+    canActivate: [mayManage],
+    loadComponent: () => import('./modifier-group-form-page').then((m) => m.ModifierGroupFormPage),
+  },
+  {
+    path: ':groupId/modifiers/new',
+    canActivate: [mayManage],
+    loadComponent: () => import('./modifier-form-page').then((m) => m.ModifierFormPage),
+  },
+  {
+    path: ':groupId/modifiers/:id/edit',
+    canActivate: [mayManage],
+    loadComponent: () => import('./modifier-form-page').then((m) => m.ModifierFormPage),
+  },
+  {
+    path: ':id/edit',
+    canActivate: [mayManage],
+    loadComponent: () => import('./modifier-group-form-page').then((m) => m.ModifierGroupFormPage),
+  },
+  {
+    path: ':groupId',
+    loadComponent: () =>
+      import('./modifier-group-detail-page').then((m) => m.ModifierGroupDetailPage),
   },
 ];
 
