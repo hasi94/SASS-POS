@@ -2,6 +2,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, InjectionToken, inject } from '@angular/core';
 import { Observable, catchError, map, throwError } from 'rxjs';
 import { ApiEnvelope, ApiError, isEnvelope } from './envelope';
+import { ApiMeta, ApiResult } from './api-list';
 import { isLegacyRefusal, legacyRefusalToApiError } from './legacy-refusal';
 
 /** Base of the versioned REST API. Apps provide it; the default is same-origin. */
@@ -21,6 +22,29 @@ export class ApiClient {
 
   get<T>(path: string, params?: Record<string, string | number | boolean>): Observable<T> {
     return this.unwrap(this.http.get<ApiEnvelope<T>>(this.url(path), { params }));
+  }
+
+  /**
+   * Like {@link get} but returns the envelope's `meta` with `data` (T-036 AC-13), so a list
+   * can read `meta.pagination`. Undefined params are dropped. Errors map exactly as `get` does.
+   */
+  getWithMeta<T>(
+    path: string,
+    params?: Record<string, string | number | boolean | undefined>,
+  ): Observable<ApiResult<T>> {
+    const defined: Record<string, string | number | boolean> = {};
+    for (const [key, value] of Object.entries(params ?? {})) {
+      if (value !== undefined) {
+        defined[key] = value;
+      }
+    }
+    return this.http.get<ApiEnvelope<T>>(this.url(path), { params: defined }).pipe(
+      map((body) => {
+        const checked = this.checkEnvelope(body);
+        return { data: checked.data as T, meta: checked.meta as ApiMeta };
+      }),
+      catchError((err: unknown) => throwError(() => toApiError(err))),
+    );
   }
 
   post<T>(path: string, body?: unknown): Observable<T> {
@@ -54,17 +78,20 @@ export class ApiClient {
 
   private unwrap<T>(source: Observable<ApiEnvelope<T>>): Observable<T> {
     return source.pipe(
-      map((body) => {
-        if (!isEnvelope(body)) {
-          throw new ApiError(200, 'The server sent a reply that is not an API envelope.');
-        }
-        if (!body.success) {
-          throw new ApiError(200, body.message, body.errors, body.meta.request_id);
-        }
-        return body.data as T;
-      }),
+      map((body) => this.checkEnvelope(body).data as T),
       catchError((err: unknown) => throwError(() => toApiError(err))),
     );
+  }
+
+  /** Throws an {@link ApiError} unless the body is a successful envelope; shared by every read. */
+  private checkEnvelope<T>(body: unknown): ApiEnvelope<T> {
+    if (!isEnvelope(body)) {
+      throw new ApiError(200, 'The server sent a reply that is not an API envelope.');
+    }
+    if (!body.success) {
+      throw new ApiError(200, body.message, body.errors, body.meta.request_id);
+    }
+    return body as ApiEnvelope<T>;
   }
 }
 

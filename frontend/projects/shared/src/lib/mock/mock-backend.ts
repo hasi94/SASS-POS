@@ -2,6 +2,10 @@ import { HttpErrorResponse, HttpInterceptorFn, HttpResponse } from '@angular/com
 import { Observable, delay, of, throwError, timer } from 'rxjs';
 import { mergeMap } from 'rxjs/operators';
 import { LoginResult, LoginTenant, LogoutResult, SelectTenantResult } from '../auth/auth.models';
+import {
+  ALL_CATALOG_PERMISSIONS,
+  CATALOG_PERMISSIONS,
+} from '../contracts/catalog/catalog-permissions';
 
 /**
  * Stand-in for the backend until a real master database and signing key exist. It
@@ -13,7 +17,10 @@ import { LoginResult, LoginTenant, LogoutResult, SelectTenantResult } from '../a
  *
  * Mock-only extras on otherwise real-shaped bodies (named once, here and in README.md):
  * - `tenants[].branches` (D-5: no real endpoint supplies a branch list);
- * - the top-level `user` on a login success (D-6: `LoginResult` carries no user object).
+ * - the top-level `user` on a login success (D-6: `LoginResult` carries no user object);
+ * - `permissions` on an `auth/tenant` success (T-036 D-5: no real endpoint supplies the
+ *   signed-in person's permission keys). The demo user holds every catalog key; the limited
+ *   user holds only the products view key.
  */
 export const MOCK_TENANTS: LoginTenant[] = [
   {
@@ -49,10 +56,33 @@ export const MOCK_TENANTS: LoginTenant[] = [
 ];
 
 export const MOCK_USER = { id: 'USR001', name: 'Demo Owner', email: 'demo@flexipos.test' };
+/** T-036 AC-26: a second demo user with a restricted permission set. Same password. */
+export const MOCK_LIMITED_USER = {
+  id: 'USR002',
+  name: 'Limited Clerk',
+  email: 'limited@flexipos.test',
+};
 export const MOCK_PASSWORD = 'demo1234';
 
 const PLATFORM_ACCESS_TOKEN = 'mock-platform-access';
 const PLATFORM_REFRESH_TOKEN = 'mock-platform-refresh';
+const LIMITED_PLATFORM_ACCESS_TOKEN = 'mock-platform-access-limited';
+const LIMITED_PLATFORM_REFRESH_TOKEN = 'mock-platform-refresh-limited';
+const TENANT_ACCESS_PREFIX = 'mock-tenant-access-';
+const LIMITED_SUFFIX = '-limited';
+
+const LIMITED_PERMISSIONS: readonly string[] = [CATALOG_PERMISSIONS.products.view];
+
+/**
+ * The permission keys the mock grants to the person behind an `Authorization` header, or
+ * null when the header is not a mock tenant token. Used by the catalog mock to answer 403.
+ */
+export function mockPermissionsForBearer(header: string | null): readonly string[] | null {
+  if (!header?.startsWith(`Bearer ${TENANT_ACCESS_PREFIX}`)) {
+    return null;
+  }
+  return header.endsWith(LIMITED_SUFFIX) ? LIMITED_PERMISSIONS : ALL_CATALOG_PERMISSIONS;
+}
 
 const LATENCY_MS = 150;
 
@@ -91,6 +121,17 @@ export const mockBackendInterceptor: HttpInterceptorFn = (req, next) => {
         reason: 'email and password are required',
       });
     }
+    if (body['email'] === MOCK_LIMITED_USER.email && body['password'] === MOCK_PASSWORD) {
+      const data: LoginResult = {
+        access_token: LIMITED_PLATFORM_ACCESS_TOKEN,
+        refresh_token: LIMITED_PLATFORM_REFRESH_TOKEN,
+        tenants: MOCK_TENANTS,
+        default_tenant_id: MOCK_TENANTS.find((t) => t.is_default)?.id ?? null,
+        must_change_password: false,
+        user: MOCK_LIMITED_USER,
+      };
+      return ok(req.url, data);
+    }
     if (body['email'] === MOCK_USER.email && body['password'] === MOCK_PASSWORD) {
       const data: LoginResult = {
         access_token: PLATFORM_ACCESS_TOKEN,
@@ -107,8 +148,9 @@ export const mockBackendInterceptor: HttpInterceptorFn = (req, next) => {
 
   if (req.method === 'POST' && path === 'auth/tenant') {
     const bearer = req.headers.get('Authorization');
-    if (!bearer || bearer !== `Bearer ${PLATFORM_ACCESS_TOKEN}`) {
-      if (bearer?.startsWith('Bearer mock-tenant-access-')) {
+    const limited = bearer === `Bearer ${LIMITED_PLATFORM_ACCESS_TOKEN}`;
+    if (!bearer || (bearer !== `Bearer ${PLATFORM_ACCESS_TOKEN}` && !limited)) {
+      if (bearer?.startsWith(`Bearer ${TENANT_ACCESS_PREFIX}`)) {
         return refuse(req.url, 403, { error: 'wrong_token_type' });
       }
       return refuse(req.url, 401, { error: 'invalid_credentials' });
@@ -124,10 +166,11 @@ export const mockBackendInterceptor: HttpInterceptorFn = (req, next) => {
       return refuse(req.url, 403, { error: 'tenant_not_servable', status: tenant.status });
     }
     const data: SelectTenantResult = {
-      access_token: `mock-tenant-access-${tenant.id}`,
-      refresh_token: `mock-tenant-refresh-${tenant.id}`,
+      access_token: `${TENANT_ACCESS_PREFIX}${tenant.id}${limited ? LIMITED_SUFFIX : ''}`,
+      refresh_token: `mock-tenant-refresh-${tenant.id}${limited ? LIMITED_SUFFIX : ''}`,
       tenant_id: tenant.id,
       tenant_code: tenant.code,
+      permissions: [...(limited ? LIMITED_PERMISSIONS : ALL_CATALOG_PERMISSIONS)],
     };
     return ok(req.url, data);
   }

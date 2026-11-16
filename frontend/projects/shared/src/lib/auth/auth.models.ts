@@ -58,6 +58,11 @@ export interface SelectTenantResult {
   refresh_token: string;
   tenant_id: string;
   tenant_code: string;
+  /**
+   * Mock-only (T-036 D-5): no real endpoint supplies the signed-in person's permission keys
+   * (B-1 proposes one). The real backend sends nothing, so the client set is empty and denies.
+   */
+  permissions?: string[];
 }
 
 /** Real, shipped reply to `POST auth/logout`: always `{status:"signed_out"}`. */
@@ -80,4 +85,9 @@ export interface Session {
   branchId: string | null;
   /** Mock-only (D-6): never sourced from a real response field. */
   user?: AuthUser;
+  /**
+   * Permission keys of the signed-in person for the chosen company (T-036 D-5). Absent or
+   * empty means deny (D-6). Mock-only source today; see {@link SelectTenantResult.permissions}.
+   */
+  permissions?: string[];
 }

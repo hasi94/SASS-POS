@@ -1,0 +1,155 @@
+// Shared styles of the admin CRUD building blocks (T-036). Global on purpose: keeping them
+// here keeps every component style far below the 4 kB per-component budget.
+
+.adm-search {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 320px;
+  margin-bottom: 12px;
+  font-size: 0.875rem;
+
+  input {
+    font: inherit;
+    padding: 8px 10px;
+    border: 1px solid var(--fp-border);
+    border-radius: var(--fp-radius);
+    background: var(--fp-surface);
+    color: var(--fp-text);
+  }
+}
+
+.adm-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--fp-surface);
+  border: 1px solid var(--fp-border);
+
+  caption {
+    text-align: left;
+    font-weight: 600;
+    padding: 8px 0;
+  }
+
+  th,
+  td {
+    text-align: left;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--fp-border);
+  }
+
+  th {
+    font-size: 0.8125rem;
+    color: var(--fp-muted);
+  }
+
+  .adm-actions {
+    display: flex;
+    gap: 8px;
+  }
+}
+
+.adm-empty {
+  padding: 16px 0;
+}
+
+.adm-pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+}
+
+.adm-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--fp-border);
+  font-size: 0.75rem;
+  color: var(--fp-muted);
+}
+
+.adm-error-panel {
+  border: 1px solid var(--fp-danger);
+  border-radius: var(--fp-radius);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+
+  .adm-error-message {
+    margin: 0;
+    color: var(--fp-danger);
+  }
+}
+
+.adm-form-grid {
+  display: grid;
+  gap: 12px;
+  max-width: 520px;
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.875rem;
+  }
+
+  input,
+  select,
+  textarea {
+    font: inherit;
+    padding: 8px 10px;
+    border: 1px solid var(--fp-border);
+    border-radius: var(--fp-radius);
+    background: var(--fp-surface);
+    color: var(--fp-text);
+  }
+
+  [aria-invalid='true'] {
+    border-color: var(--fp-danger);
+  }
+}
+
+.adm-form-summary {
+  margin: 0 0 12px;
+  padding-left: 20px;
+}
+
+.adm-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.adm-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 40%);
+  z-index: 10;
+}
+
+.adm-dialog {
+  background: var(--fp-surface);
+  border: 1px solid var(--fp-border);
+  border-radius: var(--fp-radius);
+  padding: 20px;
+  width: min(100% - 32px, 420px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  h2 {
+    margin: 0;
+    font-size: 1.1rem;
+  }
+}
+
+.adm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

@@ -67,6 +67,7 @@ export class AuthService {
           tenantId: null,
           branchId: null,
           user: r.user,
+          permissions: [],
         }),
       ),
     );
@@ -83,6 +84,7 @@ export class AuthService {
             tenantTokens: { accessToken: r.access_token, refreshToken: r.refresh_token },
             tenantId: r.tenant_id,
             branchId: null,
+            permissions: r.permissions ?? [],
           });
         }
       }),
@@ -101,7 +103,7 @@ export class AuthService {
   clearContext(): void {
     const s = this.state();
     if (s) {
-      this.commit({ ...s, tenantTokens: null, tenantId: null, branchId: null });
+      this.commit({ ...s, tenantTokens: null, tenantId: null, branchId: null, permissions: [] });
     }
   }
 
