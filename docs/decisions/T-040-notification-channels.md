@@ -20,7 +20,7 @@ D-8 | How to exercise encrypted credentials with no real secret. | The `log` dri
 
 D-9 | New channel config default. | `is_active = false`: inert until an admin activates it. | Safest: a half-configured channel cannot send. | Reversible: yes.
 
-D-10 | Is a config row needed for `in_app`? | No. In-app is always available; a config row for it is allowed but optional. | It is a database write, not a provider; requiring configuration would add a way for alerts to silently disappear. | Reversible: yes.
+D-10 | Is a config row needed for `in_app`? | No. In-app is always available. **Revision 2 (D-48): a config row for it is not "allowed but optional", it is refused `channel_not_configurable`.** | It is a database write, not a provider; requiring configuration would add a way for alerts to silently disappear. | Reversible: yes.
 
 D-11 | Active configs per channel. | At most one active per channel, one row per (channel, provider). | Avoids routing ambiguity; failover between providers is a later feature. | Reversible: yes.
 
@@ -46,11 +46,11 @@ D-21 | Daily limit. | `sent_today` counts accepted sends in the current UTC day;
 
 D-22 | Who sees message content. | `notifications.deliveries.view` sees metadata and a masked recipient; `notifications.deliveries.view_content` sees subject, body and full recipient. | Bodies hold personal data; least privilege. Owner question 7. | Reversible: yes.
 
-D-23 | Auto-log to `customer_communications`. | Not done. The link column and its validation are built; writing a row on send is a follow-up. | It needs a published customers write contract that this task cannot verify exists on this stale base, and it is a product choice (owner question 6). | Reversible: yes.
+D-23 | Auto-log to `customer_communications`. | Not done. The link column and its validation are built (in T-040b); writing a row on send is a follow-up. | It is a product choice (owner question 6). **Revision 2 (D-36): the original reason, a customers contract unverifiable on a stale base, was wrong; the write is the customers slice `LogCustomerCommunication`, which has no published contract.** | Reversible: yes.
 
 D-24 | Is there an HTTP "send" endpoint? | No. Sending is only through the in-process published contract, as a system actor. Admin handlers cover channels, templates, consents, delivery reads, retry and the employee inbox. | An endpoint that sends arbitrary messages is an abuse and spam vector with no authorisation model to bound it. | Reversible: yes.
 
-D-25 | Schema amendments to the schema authority. | `deliveries` gains `recipient_type`, `recipient_id`, `category`, `locale`, `subject`, `body`, `idempotency_key` (unique, binary collation), `payload_hash`, `next_attempt_at`, `last_attempt_at`, `delivered_at`, `error_code`, `updated_at`; status enum gains `suppressed`; `channel_configs` gains `sent_today_date`; `notifications` gains `delivery_id` (unique, FK `ON DELETE SET NULL`); new `notification_consents`. `ba` cannot edit `docs/database.md`; `architect` applies it (AC-109). | The documented `deliveries` has no way to hold a recipient reference, an idempotency key, a retry time or the snapshot; without them AC-56, AC-75 and AC-47 cannot be met. Every addition is additive. | Reversible: yes.
+D-25 | Schema amendments to the schema authority. | `deliveries` gains `recipient_type`, `recipient_id`, `category`, `locale`, `subject`, `body`, `idempotency_key` (not indexed; **revision 2, D-39: uniqueness is on `idempotency_key_hash`, not a binary collation**), `ref`, `in_app`, `dispatched_at`, `payload_hash`, `next_attempt_at`, `last_attempt_at`, `delivered_at`, `error_code`, `updated_at`; status enum gains `suppressed`; `channel_configs` gains `sent_today_date`; `notifications` gains `delivery_id` (unique, FK `ON DELETE SET NULL`); new `notification_consents`. `ba` cannot edit `docs/database.md`; `architect` applies it (AC-109). | The documented `deliveries` has no way to hold a recipient reference, an idempotency key, a retry time or the snapshot; without them AC-56, AC-75 and AC-47 cannot be met. Every addition is additive. | Reversible: yes.
 
 D-26 | `deliveries.id` type. | `BIGINT UNSIGNED AUTO_INCREMENT`, as §6.16 and T-028 F-2 require. | The foreign key from `customer_communications.delivery_id` must match exactly. | Reversible: no once data exists (changing a primary key type); chosen deliberately.
 
@@ -69,3 +69,55 @@ D-32 | Known duplicate-send window. | Documented, not eliminated: a crash after 
 D-33 | Customer merge. | A communication's `delivery_id` is kept when T-028 reassigns it; the customer match rule applies at create only. | Merge is a bookkeeping move, not a new link. | Reversible: yes.
 
 D-34 | Control and bidi characters in plain-text values. | Stripped (not escaped) for email subjects, SMS, WhatsApp, push and in-app text. | Prevents header injection, line-spoofing and bidi-spoofing; escaping would corrupt the plain text. | Reversible: yes.
+
+## Revision 2 (after the architect's check against the code, plan section 0.2)
+
+The lead accepted the architect's split. The architect's resolution was adopted for each correction unless stated. "Corr n" is the plan's correction number.
+
+D-35 | Split of the task (corr 24). | T-040 keeps AC-1 to 86, 89, 91 to 93, the permission, audit (twelve actions), schema and gate criteria, and new AC-112 to AC-119 (106 criteria). T-040b (`docs/specs/T-040b-notification-inbox-retention-routes.md`, own decisions file) takes the inbox reads (old 87, 88, 90 as B1 to B3), the purge (94, 95 as B4, B5), the owed column (96 to 102 as B6 to B12), the routes (106 as B13) and new B14 to B17. T-040 keeps its AC numbers (gaps are listed in its table); T-040b is numbered B1 to B17. Customers and consent stay in T-040 because without customers the log and null drivers have no reachable recipient and a customer send without the consent check is not safe to merge. | The lead decided it; the routes force six route sweeps and the owed column edits customers tests. | Reversible: yes.
+
+D-36 | The customers package exists on this base (corr 1). | Assumption 1, "Current behaviour" and Dependencies are corrected; Groups G and the owed column are not blocked. D-23's reason is corrected: the write is the customers slice `LogCustomerCommunication`, which has no published contract. The decision itself (no automatic logging) stands. | Measured by the architect: `packages/customers`, `create_customer_communications_table`. | Reversible: yes.
+
+D-37 | Audit action names (corr 2). | Snake_case, module-prefixed, one token per handler, module `notifications` passed separately: `notifications_channel_created`, `_updated`, `_credentials_changed`, `_activated`, `_deactivated`, `_deleted`, `notifications_template_created`, `_updated`, `_activated`, `_deactivated`, `notifications_consent_recorded`, `notifications_delivery_retried`, and `notifications_deliveries_purged` (declared by T-040b). The writer refuses undeclared actions. | The built convention (`sales_sale_voided`, `pricing_tax_created`); the dotted names of revision 1 would be refused. | Reversible: yes (names are catalogue data), cheap before first release.
+
+D-38 | Outbox aggregate id (corr 3). | `deliveries` gains `ref CHAR(26)`, a unique server ULID. The event is `notification.delivery_requested`, `aggregate_type = delivery`, `aggregate_id = ref`, `payload = {"delivery_id": <int>}`. | The outbox writer refuses a non-ULID aggregate id; the bigint id stays the key the other tables reference. | Reversible: yes.
+
+D-39 | Idempotency uniqueness without a collation (corr 4). | Unique index on `idempotency_key_hash CHAR(64)`, the lower-case hex SHA-256 of the raw key; the raw key sits in `idempotency_key VARCHAR(100)` without an index. | Migration source rules forbid naming a collation; a digest of the bytes keeps `a` and `A` distinct on any collation. | Reversible: yes.
+
+D-40 | Which employees receive in-app alerts (corr 5). | Those live and in the platform's acting set (`active` or `probation`) per `RoleHolders::actingAmong`, never a copied list. Not live: `recipient_not_found`. Live but not acting (on leave, suspended, resigned, terminated): `recipient_inactive`. **On-leave staff therefore do not receive in-app alerts.** | One authority for "who is working"; an alert to someone away is noise, and the caller can re-send. Owner question 13 asks if alerts should queue instead. | Reversible: yes.
+
+D-41 | Employees on non-in-app channels (corr 6). | An employee recipient is in-app only; any other channel is refused `channel_not_supported_for_recipient` until T-038 publishes employee contact data (follow-up row 13). | `employees` has no email or phone, so there is no address to send to. | Reversible: yes.
+
+D-42 | Customer contact lookup (corr 7). | A new published contract `CustomerContacts` (by customer id: id, liveness, merged-into id, status, email, phone; a merged or deleted customer is still answered with liveness false), implemented and bound in the customers package. A customers-package change is in scope in T-040. | None exists, and the Notification package may not read customers tables. | Reversible: yes.
+
+D-43 | Request fields and payload hash (corr 9). | The request adds `channel`, and the in-app-only `priority`, `data`, `action_url` (refused `field_not_supported_for_channel` on other channels). The payload hash covers every request field except `idempotency_key` and `source_event_id`, in canonical form. `deliveries.in_app JSON NULL` carries the in-app fields from request to attempt. | They were missing from AC-49; without storing them the attempt cannot write the in-app row. | Reversible: yes.
+
+D-44 | Further schema additions (corr 10 and the others). | `channel_configs.credentials_updated_at` (AC-20 exposes it), the stored active-channel marker (uniqueness backstop for AC-17), `deliveries.dispatched_at`, `deliveries.ref`, `deliveries.in_app`, `deliveries.idempotency_key_hash`. D-25 and AC-109 list them for the architect's `docs/database.md` edit. | Needed by AC-17, AC-20, AC-54, AC-56, AC-116. | Reversible: yes.
+
+D-45 | Retry wake-up and lost-event recovery (corr 11). | `deliveries.dispatched_at` plus `redispatch_after_seconds` (default 300, 1 to 86,400). A due `queued` row is re-emitted only if never dispatched, or `dispatched_at < next_attempt_at`, or `dispatched_at` older than `redispatch_after_seconds`, re-tested under the row lock. The command is also what wakes transient retries and daily-limit deferrals. **FP-319: no scheduler runs in production**, stated as an assumption: until one exists these do not fire by themselves. | Without it every run re-emitted every in-flight row; the consumer acknowledges not-yet-due rows, so nothing else re-delivers them. | Reversible: yes.
+
+D-46 | Credential encryption key (corr 12). | Laravel's encrypter (authenticated AES) keyed by the existing `APP_KEY`, with `APP_PREVIOUS_KEYS` honoured, confined to one class so the key choice is a one-file change. No new secret is needed, so no escalation. A credentials write with no key configured is refused `encryption_unavailable`. "Undecryptable" means it matches neither the current nor a previous key. A separate key (as `docs/database.md` §4.4 uses for tenant database credentials) is an owner-visible option and would be a new secret. Owner-visible risk: losing `APP_KEY` makes stored credentials unreadable (owner question 10). Tests generate a key; nothing reads `.env`. | Precedent `plugin_settings`; lowest cost and fully reversible while no real credential exists. | Reversible: yes (re-encrypt on key change).
+
+D-47 | One door per rule (corr 13). | `is_active` of configs and templates changes only through activate and deactivate operations; an update naming it is refused `not_updatable_here`; repeating a state is `already_active` / `already_inactive`. Create may carry `is_active`: config default `false` (D-9), template default `true`. | T-032 F-12 precedent; revision 1 gave no template default, and a template that is inert on creation is surprising. | Reversible: yes.
+
+D-48 | `in_app` config rows (corr 14). | Creating a config for `in_app` is refused `channel_not_configurable`; `in_app` is not a provider value in AC-3. | "Allowed but optional" left undefined what an inactive or rate-limited in-app row does; in-app must always be on (D-10 corrected). | Reversible: yes.
+
+D-49 | Proof of "nothing real is sent" (corr 16). | AC-2 becomes AC-1's source scan plus one end-to-end pipeline test with outbound HTTP blocked and mail faked; a whole-suite offline run is NOT VERIFIED unless the lead runs one. Template delete is stated as "there is no delete operation" (corr 15, AC-38). | A property of the environment cannot be an automated test; a slice that only refuses is dead code. | Reversible: yes.
+
+D-50 | `ON DELETE SET NULL` is a first (corr 17). | The decision of D-27 stands for `notifications.delivery_id` (T-040, AC-117) and `customer_communications.delivery_id` (T-040b). `docs/database.md` §3.3 needs a third clause; the architect writes it (AC-109). | Shipped keys are RESTRICT or CASCADE; the purge needs neither to block nor to delete the referencing row. | Reversible: yes.
+
+D-51 | Consumer idempotency (corr 18). | By the delivery's own status and `next_attempt_at` read under a row lock, not by a processed-event store. | None exists and none is needed. | Reversible: yes.
+
+D-52 | Request-time check order (corr 19). | Adopted verbatim from Ruling 7 as AC-114: shape; replay; recipient compatibility; recipient existence and eligibility; template; variables and rendering; channel config; consent (suppressed row); address (failed row); queued row plus outbox row. Replay precedes business checks. | Several rules can fail at once and the outcome kind (exception, suppressed, failed) must be deterministic. | Reversible: yes.
+
+D-53 | `delivery_expired` (corr 20). | A `failed` delivery with `error_code = expired` (written by T-040b's purge) is refused on manual retry. | AC-79 was underspecified. | Reversible: yes.
+
+D-54 | `recipient` for in-app (corr 21). | `deliveries.recipient` is nullable: null for `in_app` and for `recipient_address_missing`; masked reads keep null. | In-app has no address. | Reversible: yes.
+
+D-55 | Nested CSS in email templates (corr 22). | Not changed: a stray `}}` is refused (AC-33), so nested CSS like `@media{a{b:c}}` cannot be stored. Owner-visible (question 11). | The smallest safe template language (D-12) outweighs the rare case; a workaround exists (spaces, flat CSS). | Reversible: yes.
+
+D-56 | Customer merge and consents (corr 23). | Merging does not move consents (AC-119); a merged-away source is refused `recipient_merged`, so the target's own consents govern and marketing fails closed until it opts in. Owner-visible (question 12). | Fail-closed is the safe default; copying an opt-in across identities is a legal question. | Reversible: yes.
+
+D-57 | Owner-visible items recorded. | (a) No scheduler in production (FP-319), D-45. (b) Losing `APP_KEY` makes credentials unreadable, D-46. (c) Before a real driver ships, the send call must move out of the row-locking transaction (follow-up row 14; AC-78). (d) Nested CSS refused, D-55. (e) Merging customers does not move consents, D-56. (f) A separate credential key is an option, D-46. | The lead asked these to be visible to the owner; they are in the spec's Owner-visible questions 8 to 13. | Reversible: n/a.
+
+D-58 | The `log` and `null` driver set and the `in_app` credentials rule. | The null driver declares no credentials; in-app has no driver at all (it is a writer called inside the attempt). AC-18 no longer mentions an in-app driver. | Follows from D-48 and the plan's Ruling 3. | Reversible: yes.
