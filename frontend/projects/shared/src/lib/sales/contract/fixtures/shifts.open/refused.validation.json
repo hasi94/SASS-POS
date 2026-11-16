@@ -1,0 +1,30 @@
+{
+  "call": "shifts.open",
+  "case": "refused.validation",
+  "given": [],
+  "request": {
+    "method": "POST",
+    "path": "shifts",
+    "body": {
+      "opening_cash": "abc"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "The given data was invalid.",
+      "errors": [
+        {
+          "code": "kernel.validation_failed",
+          "field": "opening_cash",
+          "detail": "The opening_cash must be a decimal string with at most four decimal places, zero or more."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

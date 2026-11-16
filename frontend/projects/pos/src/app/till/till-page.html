@@ -1,21 +1,85 @@
 <header class="bar">
-  <strong>{{ auth.tenant()?.name }}</strong>
-  <span class="fp-muted">{{ auth.branch()?.name }}</span>
+  <strong data-testid="tenant">{{ context.tenantName() }}</strong>
+  <span class="fp-muted" data-testid="branch">{{ context.branchName() }}</span>
+  <span class="fp-muted" data-testid="shift">
+    @if (shift.current(); as current) {
+      Shift {{ current.number }}
+    } @else if (shift.loaded()) {
+      No open shift
+    }
+  </span>
   <span class="spacer"></span>
-  @if (auth.user(); as u) {
-    <span class="fp-muted">{{ u.name }}</span>
-  }
+  <span class="fp-muted" data-testid="employee">{{ context.employeeName() }}</span>
   <button type="button" (click)="switchBranch()">Switch</button>
   <button type="button" (click)="signOut()">Sign out</button>
 </header>
 
+<pos-network-banner />
+
 <main class="sale">
-  <section class="grid" aria-label="Products">
-    <p class="fp-muted">Product grid and scanning arrive with the catalog API (FP-230, FP-236).</p>
-  </section>
-  <aside class="cart" aria-label="Cart">
-    <h2>Cart</h2>
-    <p class="fp-muted">No items yet.</p>
-    <button type="button" class="fp-primary" disabled>Pay</button>
+  <div class="work">
+    <pos-scan-field />
+    @if (shift.loaded() && !shift.shiftOpen()) {
+      <pos-shift-open-prompt />
+    }
+    <pos-product-search />
+    <pos-product-grid />
+  </div>
+  <aside class="side">
+    <pos-cart />
+    <pos-completion-panel />
   </aside>
 </main>
+
+<pos-message-bar />
+
+<div class="dialogs">
+  @for (dialog of dialogs.dialogs(); track dialog.id; let top = $last) {
+    <div class="layer" [attr.inert]="top ? null : ''" [attr.aria-hidden]="top ? null : 'true'">
+      @switch (dialog.kind) {
+        @case ('weight-prompt') {
+          <pos-weight-prompt-dialog [data]="dialog.data" />
+        }
+        @case ('line-edit') {
+          <pos-line-edit-dialog [data]="dialog.data" />
+        }
+        @case ('price-override') {
+          <pos-price-override-dialog [data]="dialog.data" />
+        }
+        @case ('discount-picker') {
+          <pos-discount-picker-dialog [data]="dialog.data" />
+        }
+        @case ('customer') {
+          <pos-customer-dialog [data]="dialog.data" />
+        }
+        @case ('payment') {
+          <pos-payment-dialog [data]="dialog.data" />
+        }
+        @case ('recall') {
+          <pos-recall-dialog [data]="dialog.data" />
+        }
+        @case ('confirm') {
+          <pos-confirm-dialog [data]="dialog.data" />
+        }
+        @case ('shift-menu') {
+          <pos-shift-menu-dialog [data]="dialog.data" />
+        }
+        @case ('supervisor') {
+          <pos-supervisor-dialog [data]="dialog.data" />
+        }
+        @case ('void') {
+          <pos-void-dialog [data]="dialog.data" />
+        }
+        @case ('find-sale') {
+          <pos-find-sale-dialog [data]="dialog.data" />
+        }
+        @case ('refund') {
+          <pos-refund-dialog [data]="dialog.data" />
+        }
+        @case ('help') {
+          <pos-help-dialog [data]="dialog.data" />
+        }
+      }
+    </div>
+  }
+</div>

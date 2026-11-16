@@ -1,0 +1,30 @@
+{
+  "call": "shifts.open",
+  "case": "refused.shift_already_open",
+  "given": ["shift_open"],
+  "request": {
+    "method": "POST",
+    "path": "shifts",
+    "body": {
+      "opening_cash": "5000.0000"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "This terminal already has an open shift.",
+      "errors": [
+        {
+          "code": "sales.shift_already_open",
+          "field": null,
+          "detail": "This terminal already has an open shift."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

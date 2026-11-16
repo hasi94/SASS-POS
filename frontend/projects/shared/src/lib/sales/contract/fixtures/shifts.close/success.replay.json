@@ -1,0 +1,43 @@
+{
+  "call": "shifts.close",
+  "case": "success.replay",
+  "given": ["shift_closed"],
+  "request": {
+    "method": "POST",
+    "path": "shifts/01JMCKH0000000000000000001/close",
+    "body": {
+      "counted_cash": "5000.0000"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "id": "01JMCKH0000000000000000001",
+        "number": "SH-000001",
+        "status": "closed",
+        "terminal_id": "TRM-BR001",
+        "employee_name": "Demo Owner",
+        "opened_at": "2026-01-15T09:00:01.000Z",
+        "closed_at": "2026-01-15T09:00:02.000Z",
+        "opening_cash": "5000.0000",
+        "counted_cash": "5000.0000",
+        "expected_cash": "5000.0000",
+        "variance": "0.0000",
+        "sales_count": 0,
+        "refunds_count": 0,
+        "gross": "0.0000",
+        "discounts": "0.0000",
+        "tax": "0.0000",
+        "net": "0.0000",
+        "totals_by_method": {}
+      },
+      "message": "",
+      "errors": [],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

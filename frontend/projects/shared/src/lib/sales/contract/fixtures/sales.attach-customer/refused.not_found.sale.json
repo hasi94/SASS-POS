@@ -1,0 +1,30 @@
+{
+  "call": "sales.attach-customer",
+  "case": "refused.not_found.sale",
+  "given": ["shift_open"],
+  "request": {
+    "method": "PUT",
+    "path": "sales/01JMCKZ0000000000000000099/customer",
+    "body": {
+      "customer_id": "01JMCKK0000000000000000001"
+    }
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "Sale not found.",
+      "errors": [
+        {
+          "code": "kernel.not_found",
+          "field": null,
+          "detail": "Sale not found."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

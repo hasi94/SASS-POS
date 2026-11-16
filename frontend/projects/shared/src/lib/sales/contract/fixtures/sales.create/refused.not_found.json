@@ -1,0 +1,30 @@
+{
+  "call": "sales.create",
+  "case": "refused.not_found",
+  "given": ["shift_open"],
+  "request": {
+    "method": "POST",
+    "path": "sales",
+    "body": {
+      "customer_id": "01JMCKK0000000000000000099"
+    }
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "Customer not found.",
+      "errors": [
+        {
+          "code": "kernel.not_found",
+          "field": "customer_id",
+          "detail": "01JMCKK0000000000000000099"
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

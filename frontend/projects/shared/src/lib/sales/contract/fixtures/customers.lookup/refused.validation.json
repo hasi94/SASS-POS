@@ -1,0 +1,30 @@
+{
+  "call": "customers.lookup",
+  "case": "refused.validation",
+  "given": [],
+  "request": {
+    "method": "GET",
+    "path": "customers/lookup",
+    "query": {
+      "q": ""
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "The given data was invalid.",
+      "errors": [
+        {
+          "code": "kernel.validation_failed",
+          "field": "q",
+          "detail": "The search text is required."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

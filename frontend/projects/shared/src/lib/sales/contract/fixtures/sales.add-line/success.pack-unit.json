@@ -1,0 +1,78 @@
+{
+  "call": "sales.add-line",
+  "case": "success.pack-unit",
+  "given": ["shift_open", "draft_sale_empty"],
+  "request": {
+    "method": "POST",
+    "path": "sales/01JMCKS0000000000000000001/lines",
+    "body": {
+      "product_id": "01JMCKP0000000000000000002",
+      "unit_id": "01JMCKN0000000000000000003",
+      "quantity": "1.0000"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "id": "01JMCKS0000000000000000001",
+        "type": "sale",
+        "number": null,
+        "reference": "S-0001",
+        "status": "draft",
+        "held_from_status": null,
+        "currency": "LKR",
+        "customer": null,
+        "shift_id": "01JMCKH0000000000000000001",
+        "business_date": "2026-01-15",
+        "subtotal": "450.0000",
+        "discount_total": "0.0000",
+        "tax_total": "36.0000",
+        "total": "486.0000",
+        "paid_total": "0.0000",
+        "balance_due": "486.0000",
+        "change_due": "0.0000",
+        "lines": [
+          {
+            "id": "01JMCKQ0000000000000000001",
+            "line_no": 1,
+            "product_id": "01JMCKP0000000000000000002",
+            "product_name": "Mineral Water 500ml",
+            "sku": "WATER-500",
+            "unit_id": "01JMCKN0000000000000000003",
+            "unit_code": "box",
+            "quantity": "1.0000",
+            "unit_factor": "6.000000",
+            "base_quantity": "6.0000",
+            "base_unit_code": "ea",
+            "list_price": "450.0000",
+            "unit_price": "450.0000",
+            "subtotal": "450.0000",
+            "discount_id": null,
+            "discount_amount": "0.0000",
+            "tax_amount": "36.0000",
+            "line_total": "486.0000",
+            "price_overridden": false,
+            "refund_of_item_id": null,
+            "refunded_quantity": "0.0000",
+            "refundable_quantity": "1.0000"
+          }
+        ],
+        "tenders": [],
+        "reference_sale_id": null,
+        "held_at": null,
+        "held_by_name": null,
+        "completed_at": null,
+        "voided_at": null,
+        "void_reason": null,
+        "employee_name": "Demo Owner"
+      },
+      "message": "",
+      "errors": [],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

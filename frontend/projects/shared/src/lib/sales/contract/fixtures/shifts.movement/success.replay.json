@@ -1,0 +1,35 @@
+{
+  "call": "shifts.movement",
+  "case": "success.replay",
+  "given": ["shift_open", "cash_movement_recorded"],
+  "request": {
+    "method": "POST",
+    "path": "shifts/01JMCKH0000000000000000001/movements",
+    "body": {
+      "id": "01JMCKX0000000000000000001",
+      "type": "cash_in",
+      "amount": "500.0000",
+      "reason": "Float top-up"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "id": "01JMCKX0000000000000000001",
+        "shift_id": "01JMCKH0000000000000000001",
+        "type": "cash_in",
+        "amount": "500.0000",
+        "reason": "Float top-up",
+        "employee_name": "Demo Owner",
+        "created_at": "2026-01-15T09:00:02.000Z"
+      },
+      "message": "",
+      "errors": [],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

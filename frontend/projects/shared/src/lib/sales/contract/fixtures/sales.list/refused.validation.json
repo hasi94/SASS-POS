@@ -1,0 +1,30 @@
+{
+  "call": "sales.list",
+  "case": "refused.validation",
+  "given": ["shift_open"],
+  "request": {
+    "method": "GET",
+    "path": "sales",
+    "query": {
+      "status": "bogus"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "The given data was invalid.",
+      "errors": [
+        {
+          "code": "kernel.validation_failed",
+          "field": "status",
+          "detail": "\"bogus\" is not a sale status."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

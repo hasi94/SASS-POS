@@ -1,0 +1,31 @@
+{
+  "call": "sales.update-line",
+  "case": "refused.discount_with_override",
+  "given": ["shift_open", "draft_sale_with_poster_line"],
+  "request": {
+    "method": "PUT",
+    "path": "sales/01JMCKS0000000000000000001/lines/01JMCKQ0000000000000000001",
+    "body": {
+      "unit_price": "1200.0000",
+      "discount_id": "01JMCKD0000000000000000001"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "A line with a price override cannot take a discount.",
+      "errors": [
+        {
+          "code": "sales.discount_with_override",
+          "field": null,
+          "detail": "A line with a price override cannot take a discount."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

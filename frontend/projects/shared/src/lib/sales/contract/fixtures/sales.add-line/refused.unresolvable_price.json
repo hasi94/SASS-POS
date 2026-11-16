@@ -1,0 +1,32 @@
+{
+  "call": "sales.add-line",
+  "case": "refused.unresolvable_price",
+  "given": ["shift_open", "draft_sale_empty"],
+  "request": {
+    "method": "POST",
+    "path": "sales/01JMCKS0000000000000000001/lines",
+    "body": {
+      "product_id": "01JMCKP0000000000000000012",
+      "unit_id": "01JMCKN0000000000000000004",
+      "quantity": "1.0000"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "No price for this product.",
+      "errors": [
+        {
+          "code": "sales.unresolvable_price",
+          "field": null,
+          "detail": "No price for this product."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

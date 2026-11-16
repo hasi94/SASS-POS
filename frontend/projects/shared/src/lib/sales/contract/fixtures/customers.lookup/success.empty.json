@@ -1,0 +1,24 @@
+{
+  "call": "customers.lookup",
+  "case": "success.empty",
+  "given": [],
+  "request": {
+    "method": "GET",
+    "path": "customers/lookup",
+    "query": {
+      "q": "zzz"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": [],
+      "message": "",
+      "errors": [],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

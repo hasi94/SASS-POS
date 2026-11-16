@@ -1,0 +1,51 @@
+{
+  "call": "till.scan",
+  "case": "success.embedded-price",
+  "given": [],
+  "request": {
+    "method": "POST",
+    "path": "till/scan",
+    "body": {
+      "code": "2200201012504"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "kind": "embedded_price",
+        "product": {
+          "id": "01JMCKP0000000000000000003",
+          "name": "Loose Tomatoes",
+          "sku": "TOMATO-KG",
+          "plu": "201",
+          "category_id": "01JMCKC0000000000000000001",
+          "list_price": "320.0000",
+          "currency": "LKR",
+          "is_weighable": true,
+          "unit_id": "01JMCKN0000000000000000002",
+          "unit_code": "kg",
+          "weigh_unit_id": "01JMCKN0000000000000000002",
+          "weigh_unit_code": "kg",
+          "units": [
+            {
+              "unit_id": "01JMCKN0000000000000000002",
+              "unit_code": "kg"
+            }
+          ],
+          "allow_price_override": false
+        },
+        "unit_id": "01JMCKN0000000000000000002",
+        "unit_code": "kg",
+        "quantity": null,
+        "source": "rule"
+      },
+      "message": "",
+      "errors": [],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

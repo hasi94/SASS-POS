@@ -1,0 +1,34 @@
+{
+  "call": "till.categories",
+  "case": "success",
+  "given": [],
+  "request": {
+    "method": "GET",
+    "path": "till/categories"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": [
+        {
+          "id": "01JMCKC0000000000000000001",
+          "name": "Grocery"
+        },
+        {
+          "id": "01JMCKC0000000000000000002",
+          "name": "Drinks"
+        },
+        {
+          "id": "01JMCKC0000000000000000003",
+          "name": "Household"
+        }
+      ],
+      "message": "",
+      "errors": [],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

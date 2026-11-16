@@ -1,0 +1,32 @@
+{
+  "call": "sales.add-line",
+  "case": "refused.sale_not_editable",
+  "given": ["shift_open", "pending_payment_sale"],
+  "request": {
+    "method": "POST",
+    "path": "sales/01JMCKS0000000000000000001/lines",
+    "body": {
+      "product_id": "01JMCKP0000000000000000001",
+      "unit_id": "01JMCKN0000000000000000001",
+      "quantity": "1.0000"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "Payment has started: remove the tenders to edit lines.",
+      "errors": [
+        {
+          "code": "sales.sale_not_editable",
+          "field": null,
+          "detail": "Payment has started: remove the tenders to edit lines."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

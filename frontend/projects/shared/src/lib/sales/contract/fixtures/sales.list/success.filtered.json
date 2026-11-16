@@ -1,0 +1,46 @@
+{
+  "call": "sales.list",
+  "case": "success.filtered",
+  "given": ["shift_open", "draft_sale_with_line", "held_sale_other_terminal"],
+  "request": {
+    "method": "GET",
+    "path": "sales",
+    "query": {
+      "status": "held",
+      "scope": "branch",
+      "limit": "50"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "items": [
+          {
+            "id": "01JMCKS0000000000000000002",
+            "type": "sale",
+            "number": null,
+            "reference": "S-0002",
+            "status": "held",
+            "held_from_status": "draft",
+            "currency": "LKR",
+            "total": "500.0000",
+            "customer_name": null,
+            "line_count": 1,
+            "held_at": "2026-01-15T09:00:06.000Z",
+            "held_by_name": "Demo Owner",
+            "completed_at": null,
+            "employee_name": "Cashier Perera"
+          }
+        ],
+        "next_cursor": null
+      },
+      "message": "",
+      "errors": [],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

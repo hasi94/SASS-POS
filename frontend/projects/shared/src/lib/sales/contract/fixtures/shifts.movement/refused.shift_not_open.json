@@ -1,0 +1,33 @@
+{
+  "call": "shifts.movement",
+  "case": "refused.shift_not_open",
+  "given": ["shift_closed"],
+  "request": {
+    "method": "POST",
+    "path": "shifts/01JMCKH0000000000000000001/movements",
+    "body": {
+      "id": "01JMCKX0000000000000000001",
+      "type": "cash_in",
+      "amount": "500.0000",
+      "reason": "Float top-up"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "The shift is not open.",
+      "errors": [
+        {
+          "code": "sales.shift_not_open",
+          "field": null,
+          "detail": "The shift is not open."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "call": "customers.lookup",
+  "case": "success",
+  "given": [],
+  "request": {
+    "method": "GET",
+    "path": "customers/lookup",
+    "query": {
+      "q": "nimal"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": [
+        {
+          "id": "01JMCKK0000000000000000001",
+          "code": "CUS-0001",
+          "name": "Nimal Perera",
+          "phone": "0771234567",
+          "credit_balance": "2500.0000"
+        }
+      ],
+      "message": "",
+      "errors": [],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

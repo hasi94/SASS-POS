@@ -1,0 +1,28 @@
+{
+  "call": "sales.create",
+  "case": "refused.no_open_shift",
+  "given": [],
+  "request": {
+    "method": "POST",
+    "path": "sales",
+    "body": {}
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "This terminal has no open shift.",
+      "errors": [
+        {
+          "code": "sales.no_open_shift",
+          "field": null,
+          "detail": "This terminal has no open shift."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

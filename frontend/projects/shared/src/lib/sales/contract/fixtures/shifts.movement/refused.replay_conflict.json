@@ -1,0 +1,33 @@
+{
+  "call": "shifts.movement",
+  "case": "refused.replay_conflict",
+  "given": ["shift_open", "cash_movement_recorded"],
+  "request": {
+    "method": "POST",
+    "path": "shifts/01JMCKH0000000000000000001/movements",
+    "body": {
+      "id": "01JMCKX0000000000000000001",
+      "type": "cash_in",
+      "amount": "900.0000",
+      "reason": "Float top-up"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "That id was already used for a different movement.",
+      "errors": [
+        {
+          "code": "sales.replay_conflict",
+          "field": null,
+          "detail": "That id was already used for a different movement."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

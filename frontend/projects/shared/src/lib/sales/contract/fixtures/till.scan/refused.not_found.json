@@ -1,0 +1,30 @@
+{
+  "call": "till.scan",
+  "case": "refused.not_found",
+  "given": [],
+  "request": {
+    "method": "POST",
+    "path": "till/scan",
+    "body": {
+      "code": "0000000000000"
+    }
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "Code not found.",
+      "errors": [
+        {
+          "code": "catalog.not_found",
+          "field": null,
+          "detail": "Code not found."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

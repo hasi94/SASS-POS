@@ -1,0 +1,30 @@
+{
+  "call": "shifts.current",
+  "case": "success",
+  "given": ["shift_open"],
+  "request": {
+    "method": "GET",
+    "path": "shifts/current"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "id": "01JMCKH0000000000000000001",
+        "number": "SH-000001",
+        "status": "open",
+        "terminal_id": "TRM-BR001",
+        "employee_name": "Demo Owner",
+        "opened_at": "2026-01-15T09:00:01.000Z",
+        "closed_at": null,
+        "opening_cash": "5000.0000"
+      },
+      "message": "",
+      "errors": [],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

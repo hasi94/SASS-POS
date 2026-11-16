@@ -1,0 +1,30 @@
+{
+  "call": "shifts.close",
+  "case": "refused.replay_conflict",
+  "given": ["shift_closed"],
+  "request": {
+    "method": "POST",
+    "path": "shifts/01JMCKH0000000000000000001/close",
+    "body": {
+      "counted_cash": "4000.0000"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "That shift was already closed with a different count.",
+      "errors": [
+        {
+          "code": "sales.replay_conflict",
+          "field": null,
+          "detail": "That shift was already closed with a different count."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

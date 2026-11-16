@@ -1,0 +1,33 @@
+{
+  "call": "sales.add-line",
+  "case": "refused.discount_not_allowed",
+  "given": ["shift_open", "draft_sale_empty"],
+  "request": {
+    "method": "POST",
+    "path": "sales/01JMCKS0000000000000000001/lines",
+    "body": {
+      "product_id": "01JMCKP0000000000000000004",
+      "unit_id": "01JMCKN0000000000000000001",
+      "quantity": "1.0000",
+      "discount_id": "01JMCKD0000000000000000001"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "Discounts are not allowed on this product.",
+      "errors": [
+        {
+          "code": "pricing.discount_not_allowed",
+          "field": null,
+          "detail": "Discounts are not allowed on this product."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

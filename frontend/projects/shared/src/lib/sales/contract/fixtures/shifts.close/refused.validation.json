@@ -1,0 +1,30 @@
+{
+  "call": "shifts.close",
+  "case": "refused.validation",
+  "given": ["shift_open"],
+  "request": {
+    "method": "POST",
+    "path": "shifts/01JMCKH0000000000000000001/close",
+    "body": {
+      "counted_cash": "-1"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "The given data was invalid.",
+      "errors": [
+        {
+          "code": "kernel.validation_failed",
+          "field": "counted_cash",
+          "detail": "The counted_cash must be a decimal string with at most four decimal places, zero or more."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

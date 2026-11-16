@@ -1,0 +1,57 @@
+{
+  "call": "sales.create",
+  "case": "success.with-customer",
+  "given": ["shift_open"],
+  "request": {
+    "method": "POST",
+    "path": "sales",
+    "body": {
+      "customer_id": "01JMCKK0000000000000000001"
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "success": true,
+      "data": {
+        "id": "01JMCKS0000000000000000001",
+        "type": "sale",
+        "number": null,
+        "reference": "S-0001",
+        "status": "draft",
+        "held_from_status": null,
+        "currency": "LKR",
+        "customer": {
+          "id": "01JMCKK0000000000000000001",
+          "code": "CUS-0001",
+          "name": "Nimal Perera",
+          "phone": "0771234567",
+          "credit_balance": "2500.0000"
+        },
+        "shift_id": "01JMCKH0000000000000000001",
+        "business_date": "2026-01-15",
+        "subtotal": "0.0000",
+        "discount_total": "0.0000",
+        "tax_total": "0.0000",
+        "total": "0.0000",
+        "paid_total": "0.0000",
+        "balance_due": "0.0000",
+        "change_due": "0.0000",
+        "lines": [],
+        "tenders": [],
+        "reference_sale_id": null,
+        "held_at": null,
+        "held_by_name": null,
+        "completed_at": null,
+        "voided_at": null,
+        "void_reason": null,
+        "employee_name": "Demo Owner"
+      },
+      "message": "",
+      "errors": [],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

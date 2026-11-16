@@ -1,0 +1,27 @@
+{
+  "call": "sales.remove-line",
+  "case": "refused.not_found",
+  "given": ["shift_open", "draft_sale_with_line"],
+  "request": {
+    "method": "DELETE",
+    "path": "sales/01JMCKS0000000000000000001/lines/01JMCKZ0000000000000000099"
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "Line not found.",
+      "errors": [
+        {
+          "code": "kernel.not_found",
+          "field": "line_id",
+          "detail": "01JMCKZ0000000000000000099"
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "call": "sales.update-line",
+  "case": "refused.price_override_not_allowed",
+  "given": ["shift_open", "draft_sale_with_line"],
+  "request": {
+    "method": "PUT",
+    "path": "sales/01JMCKS0000000000000000001/lines/01JMCKQ0000000000000000001",
+    "body": {
+      "unit_price": "200.0000",
+      "approval_id": "01JMCKA0000000000000000001"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "Price override is not allowed for this product.",
+      "errors": [
+        {
+          "code": "sales.price_override_not_allowed",
+          "field": null,
+          "detail": "Price override is not allowed for this product."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

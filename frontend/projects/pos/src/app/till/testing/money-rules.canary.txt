@@ -1,0 +1,18 @@
+const a = parseFloat(price);
+const b = parseInt (quantity, 10);
+const c = Number(line.total);
+const d = amount.toFixed(2);
+const e = Math.round(unit_price);
+const f = Math.floor(unit_price);
+const g = Math.ceil(unit_price);
+const h = total.toLocaleString();
+const i = new Intl.NumberFormat('en');
+const j = flag ? +price : 0;
+const k = balance_due + 1;
+const l = 1 + line_total;
+const m = unit_price + tax_amount;
+import { ServerLinePricer } from '@flexipos/shared';
+import { ServerBarcodeResolver } from '@flexipos/shared';
+import { mulRound } from '../sales-mock/mock-decimal';
+import { mul } from './mock-pricing';
+import { salesMockInterceptor } from '@flexipos/shared';

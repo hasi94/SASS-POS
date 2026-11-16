@@ -1,0 +1,27 @@
+{
+  "call": "till.products",
+  "case": "refused.validation",
+  "given": [],
+  "request": {
+    "method": "GET",
+    "path": "till/products"
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "The given data was invalid.",
+      "errors": [
+        {
+          "code": "kernel.validation_failed",
+          "field": "limit",
+          "detail": "The limit is required and must be a whole number from 1 to 50."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

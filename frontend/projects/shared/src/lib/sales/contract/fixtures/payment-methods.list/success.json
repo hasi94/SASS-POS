@@ -1,0 +1,77 @@
+{
+  "call": "payment-methods.list",
+  "case": "success",
+  "given": [],
+  "request": {
+    "method": "GET",
+    "path": "payment-methods"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": [
+        {
+          "id": "01JMCKM0000000000000000001",
+          "code": "CASH",
+          "name": "Cash",
+          "type": "cash",
+          "opens_drawer": true,
+          "requires_reference": false,
+          "allows_change": true,
+          "allows_refund": true,
+          "allows_partial": true
+        },
+        {
+          "id": "01JMCKM0000000000000000002",
+          "code": "CARD",
+          "name": "Card",
+          "type": "card",
+          "opens_drawer": false,
+          "requires_reference": true,
+          "allows_change": false,
+          "allows_refund": true,
+          "allows_partial": true
+        },
+        {
+          "id": "01JMCKM0000000000000000003",
+          "code": "CREDIT",
+          "name": "Store credit",
+          "type": "credit",
+          "opens_drawer": false,
+          "requires_reference": false,
+          "allows_change": false,
+          "allows_refund": true,
+          "allows_partial": true
+        },
+        {
+          "id": "01JMCKM0000000000000000004",
+          "code": "LOYALTY",
+          "name": "Loyalty points",
+          "type": "loyalty",
+          "opens_drawer": false,
+          "requires_reference": false,
+          "allows_change": false,
+          "allows_refund": false,
+          "allows_partial": true
+        },
+        {
+          "id": "01JMCKM0000000000000000005",
+          "code": "VOUCHER",
+          "name": "Voucher",
+          "type": "voucher",
+          "opens_drawer": false,
+          "requires_reference": true,
+          "allows_change": false,
+          "allows_refund": false,
+          "allows_partial": false
+        }
+      ],
+      "message": "",
+      "errors": [],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

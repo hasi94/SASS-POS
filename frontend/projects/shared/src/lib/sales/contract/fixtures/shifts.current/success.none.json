@@ -1,0 +1,21 @@
+{
+  "call": "shifts.current",
+  "case": "success.none",
+  "given": [],
+  "request": {
+    "method": "GET",
+    "path": "shifts/current"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": null,
+      "message": "",
+      "errors": [],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

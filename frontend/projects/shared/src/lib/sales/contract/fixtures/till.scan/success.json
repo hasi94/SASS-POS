@@ -1,0 +1,51 @@
+{
+  "call": "till.scan",
+  "case": "success",
+  "given": [],
+  "request": {
+    "method": "POST",
+    "path": "till/scan",
+    "body": {
+      "code": "4790000000011"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "kind": "product",
+        "product": {
+          "id": "01JMCKP0000000000000000001",
+          "name": "Rice 1kg",
+          "sku": "RICE-1KG",
+          "plu": "101",
+          "category_id": "01JMCKC0000000000000000001",
+          "list_price": "250.0000",
+          "currency": "LKR",
+          "is_weighable": false,
+          "unit_id": "01JMCKN0000000000000000001",
+          "unit_code": "ea",
+          "weigh_unit_id": null,
+          "weigh_unit_code": null,
+          "units": [
+            {
+              "unit_id": "01JMCKN0000000000000000001",
+              "unit_code": "ea"
+            }
+          ],
+          "allow_price_override": false
+        },
+        "unit_id": "01JMCKN0000000000000000001",
+        "unit_code": "ea",
+        "quantity": null,
+        "source": "barcode"
+      },
+      "message": "",
+      "errors": [],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

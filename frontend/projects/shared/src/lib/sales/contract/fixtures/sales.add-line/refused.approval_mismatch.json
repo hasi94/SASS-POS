@@ -1,0 +1,34 @@
+{
+  "call": "sales.add-line",
+  "case": "refused.approval_mismatch",
+  "given": ["shift_open", "draft_sale_empty"],
+  "request": {
+    "method": "POST",
+    "path": "sales/01JMCKS0000000000000000001/lines",
+    "body": {
+      "product_id": "01JMCKP0000000000000000005",
+      "unit_id": "01JMCKN0000000000000000001",
+      "quantity": "1.0000",
+      "unit_price": "1200.0000",
+      "approval_id": "01JMCKA0000000000000000099"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "That approval does not belong to this action.",
+      "errors": [
+        {
+          "code": "sales.approval_mismatch",
+          "field": null,
+          "detail": "That approval does not belong to this action."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

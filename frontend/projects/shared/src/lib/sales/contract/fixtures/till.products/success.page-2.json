@@ -1,0 +1,71 @@
+{
+  "call": "till.products",
+  "case": "success.page-2",
+  "given": [],
+  "request": {
+    "method": "GET",
+    "path": "till/products",
+    "query": {
+      "limit": "2",
+      "cursor": "c2"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "items": [
+          {
+            "id": "01JMCKP0000000000000000003",
+            "name": "Loose Tomatoes",
+            "sku": "TOMATO-KG",
+            "plu": "201",
+            "category_id": "01JMCKC0000000000000000001",
+            "list_price": "320.0000",
+            "currency": "LKR",
+            "is_weighable": true,
+            "unit_id": "01JMCKN0000000000000000002",
+            "unit_code": "kg",
+            "weigh_unit_id": "01JMCKN0000000000000000002",
+            "weigh_unit_code": "kg",
+            "units": [
+              {
+                "unit_id": "01JMCKN0000000000000000002",
+                "unit_code": "kg"
+              }
+            ],
+            "allow_price_override": false
+          },
+          {
+            "id": "01JMCKP0000000000000000004",
+            "name": "Sample Sachet",
+            "sku": "SAMPLE-1",
+            "plu": "301",
+            "category_id": "01JMCKC0000000000000000003",
+            "list_price": "0.0000",
+            "currency": "LKR",
+            "is_weighable": false,
+            "unit_id": "01JMCKN0000000000000000001",
+            "unit_code": "ea",
+            "weigh_unit_id": null,
+            "weigh_unit_code": null,
+            "units": [
+              {
+                "unit_id": "01JMCKN0000000000000000001",
+                "unit_code": "ea"
+              }
+            ],
+            "allow_price_override": false
+          }
+        ],
+        "next_cursor": "c4"
+      },
+      "message": "",
+      "errors": [],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "call": "sales.add-line",
+  "case": "refused.product_not_sellable.inactive",
+  "given": ["shift_open", "draft_sale_empty"],
+  "request": {
+    "method": "POST",
+    "path": "sales/01JMCKS0000000000000000001/lines",
+    "body": {
+      "product_id": "01JMCKP0000000000000000010",
+      "unit_id": "01JMCKN0000000000000000001",
+      "quantity": "1.0000"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "This product cannot be sold.",
+      "errors": [
+        {
+          "code": "sales.product_not_sellable",
+          "field": "failed_fact",
+          "detail": "is_active"
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}
