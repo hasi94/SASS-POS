@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace Flexipos\Purchasing;
 
+use Flexipos\Contracts\Access\DeclaresPermissions;
+use Flexipos\Contracts\Access\PermissionDeclaration;
+use Flexipos\Contracts\Audit\DeclaresAuditActions;
+use Flexipos\Purchasing\Registry\PurchasingAuditActions;
+use Flexipos\Purchasing\Registry\PurchasingPermissions;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -14,19 +19,30 @@ use Illuminate\Support\ServiceProvider;
  * Ruling 1) and reaches the rest of the system only through
  * `Flexipos\Contracts`.
  *
- * Empty on purpose at this step: the audit actions and permission keys arrive
- * with the registries that hold them, so a provider never advertises what
- * nothing writes.
+ * Nothing is bound: every slice and service autowires from the container. It
+ * declares the audit actions and the permission keys through the two registry
+ * contracts (T-017 Ruling 3, AC-95), so the audit catalogue and the permission
+ * registry sync pick them up like every other package's.
  */
-final class PurchasingServiceProvider extends ServiceProvider
+final class PurchasingServiceProvider extends ServiceProvider implements DeclaresAuditActions, DeclaresPermissions
 {
-    public function register(): void
+    /**
+     * This package's declared audit actions.
+     *
+     * @return array<string, list<string>>
+     */
+    public function auditActions(): array
     {
-        // Nothing is bound: every slice and service autowires from the container.
+        return [PurchasingAuditActions::MODULE => PurchasingAuditActions::ALL];
     }
 
-    public function boot(): void
+    /**
+     * This package's permission keys, for the registry sync.
+     *
+     * @return list<PermissionDeclaration>
+     */
+    public function permissionDeclarations(): array
     {
-        // Nothing to boot yet.
+        return PurchasingPermissions::declarations();
     }
 }
