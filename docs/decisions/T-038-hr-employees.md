@@ -76,6 +76,48 @@ D-36 | Audit actions. | Eighteen snake_case actions in module `hr`: `department_
 
 D-37 | Transport. | Thin JSON routes, one per operation, each declaring its permission key, in the existing API conventions; no screens. Operations are the deliverable; routes carry no logic. | FP-273 cannot build screens without an API, and T-010 and T-014 shipped routes for the same reason. The brief's "no HTTP screens" is read as "no front end". If `architect` or the lead prefers operations only, section J drops without touching sections A to I. | Reversible: yes.
 
+## Revision 2 rulings (architect corrections C-1 to C-22, plan section 0.2)
+
+All adopted as the architect recommended; no business reason found against any. Trivial corrections applied without a decision: C-1 (header range now D-1 to D-56), C-2 (assumption rewritten), C-3 (access declares sixteen audit actions), C-9 (AC-20 control reworded to match AC-85), C-10 (AC-24 now cites AC-44), C-18 (AC-66 now says "an unknown or soft-deleted employee is `not_found`").
+
+D-38 | (C-12) Does this task ship HTTP routes? | **No. Operations only.** AC-92 to AC-97 are removed from this task (ids retired, not reused). AC-59 sinks amended: (4) is every value returned by list, directory-detail and filter operations and every refusal message; (5) is "HR adds no token claim"; (6) URL and query-string moves to the route task, keeping only the in-process refusal of a sensitive value used as a filter. AC-94's size refusal becomes an operation-level `file_too_large` decided from the staged file's size before any byte is read (AC-67); the HTTP 413-before-buffering half and the response headers move to the route task. Supersedes D-37. | D-37 named this fallback itself; T-032 built no routes and no package since T-014 has; the architect's plan follows T-032. | Reversible: yes (routes are additive on top of the operations).
+
+D-39 | (C-17) `employee_documents` has `created_by` only although metadata is editable. | Add `updated_by` NULL FK `employees`, as on `employee_profiles`. AC-3, AC-6, AC-9, AC-65, AC-74 amended. | `docs/database.md` 6.12 gives the row `[BY]` (both); metadata edits (AC-74) need an editor on record; the profile precedent exists. Cost: one column and one key in plan step 2. | Reversible: yes (a column drop is a contract change, but nothing reads it yet).
+
+D-40 | (C-8) Which pre-existing tests may this task edit? | The closed, named list in AC-9: `AuditCatalogueTest`, `QaToolchainRegistryCoverageTest`, `MigrationTreeDisciplineTest`, `IdempotencyKeysSchemaTest`, `TenantBaselineBuildsTest` (tables, whole foreign-key inventory, branch-key list), `QaAccessCloseOutSweepsTest`, `QaAccessSchemaShapeTest`, any other test pinning the exact foreign-key inventory onto `employees`, and `RefusalReasonTest`. Each widened to include the new items and no more, liveness control intact; no other pre-existing test edited. | A new package with migrations unavoidably changes hard-coded literals; naming them keeps "no other test edited" checkable. | Reversible: yes.
+
+D-41 | (C-4) Code format for departments and designations. | Adopt T-032's rule: after upper-casing it matches `^[0-9A-Z][0-9A-Z.-]{0,19}$` (first character a letter or digit). Added controls: `.AB`, `-AB`, tab, NUL byte, non-ASCII letter each refused. Amends D-7. | D-7 claimed the T-032 shape; the real rule starts with a letter or digit, and a leading `.` or `-` is a trap in reports and filenames. | Reversible: yes (loosening is additive).
+
+D-42 | (C-6) Where does audit redaction happen, and how are nulls shown? | **In the audit writer.** HR passes real `before` and `after`; the writer derives `changed_fields` from the real values first, then masks sensitive and document-notes fields: null stays null, any non-null value becomes `"[redacted]"`. The change is additive (an opt-in redacting contract; existing callers' rows unchanged). AC-60 amended; AC-89 stands. Amends D-36. | Caller-side masking makes both sides equal and drops the changed field from `changed_fields`, so the audit trail would not record that a field changed. Keeping null as null avoids a create falsely claiming a passport number exists. | Reversible: yes.
+
+D-43 | (C-7) `has_dependents` in access's closed refusal vocabulary. | Add `has_dependents` to `Contracts\Access\RefusalReason` (17 to 18) with its test (`RefusalReasonTest`, named in AC-9). The kind of dependent (`department_head`, `direct_reports`) travels only on the in-process `AccessRefused` detail; access's HTTP body stays `{"error": "has_dependents"}`. AC-85 reworded. | Access's body is `{"error": reason}` and nothing else; widening the wire format is an access decision not needed now. | Reversible: yes.
+
+D-44 | (C-14) May HR page reads use a bulk identity lookup? | Yes. AC-101 now allows queries issued by access's own implementations of its published contracts (`EmployeeDirectory`, `EmployeeIdentities`), attributed by the innermost `Flexipos\` frame of the query backtrace. | D-17 already allows the bulk read a 200-row page needs; the old wording forbade it. | Reversible: yes.
+
+D-45 | (C-11) Classification of `created_by`, `updated_by`, `created_at`, `updated_at` on `employee_profiles`. | Third closed class **internal**: never returned by any HR read. Every profile column is in exactly one of sensitive, directory, internal (AC-56, Closed value sets). | Otherwise the "every column classified" sweep is red on day one; exposing editor identity in a directory is unwanted. | Reversible: yes (moving a field out of internal is the loosening direction).
+
+D-46 | (C-16) What is a "live profile" for delete guards and counts? | A profile whose employee is live (not soft-deleted). Applies to AC-25, AC-37 and the live profile count of AC-26. | A retained profile of a deleted employee is unwritable (AC-49); counting it would make its department or designation permanently undeletable. | Reversible: yes.
+
+D-47 | (C-20) Key-only controls for document update and delete. | For those two operations the "holds only that key" control asserts "not `not_permitted`" (the answer is `not_found`, because the document tier needs `hr.documents.view`), not success. | Consistent with the authorization matrix and D-13; avoids weakening the tier. | Reversible: yes.
+
+D-48 | (C-22) Concurrency proofs needing an engine. | Two concurrent reports-to changes closing a loop (AC-45) and a head assignment racing the head's soft delete (AC-85) are guarded by row locks and marked **[ENGINE]** (stated, not provable on the stand-in). | The stand-in cannot interleave transactions; saying so is honest. | Reversible: yes.
+
+D-49 | (C-21) Detail read and sensitive audit. | The detail read takes `include_sensitive` (boolean, default false). Sensitive values are returned and `employee_profile_sensitive_viewed` is written only when it is true **and** both keys are held. Without the second key a true flag yields the directory shape (no refusal, no audit row). | Audit only reads that actually disclose sensitive values; avoids an audit row on every both-key read. | Reversible: yes.
+
+D-50 | (C-15) Scope of "a full run of this task's tests" in AC-2, AC-59, AC-101. | Replaced by "a scripted scenario that runs every operation, enumerated from the operations directory, with success and refusal paths". | A listener cannot practically wrap every test file; the scenario is checkable and sweeps the domain. | Reversible: yes.
+
+D-51 | (C-19) File name with no or unknown extension. | `file_type_not_allowed`. Extension map: `pdf`; `jpg`, `jpeg`; `png`. | The extension must agree with the detected type; an undefined case defaults to refusal. | Reversible: yes (loosening is additive).
+
+D-52 | (C-13) Default for the published read contract. | `Contracts\Hr` ships `NoOrgChart` answering "none" to every question, with a test; production binds HR's implementation. "A deployment without HR" does not arise (HR is a registered package). Corrects AC-84's T-032 citation. | Finance's defaults live in the finance package and are bound by its own provider; HR follows. | Reversible: yes.
+
+D-53 | (C-5) Audit action names. | The eighteen unprefixed names stand. D-36's reason is restated: unprefixed like T-032 (`account_created`); uniqueness is per (module, action) in the catalogue, so no collision is possible. | Matches the code; no change needed. | Reversible: yes.
+
+D-54 | Owner-visible: deleting an employee who heads a department or manages others (restates D-35 as architect-confirmed). | Refused (`has_dependents`) until reassigned; status changes are not blocked. | Dangling heads and managers are worse than a refusal. Owner can choose silent clearing instead. | Reversible: yes.
+
+D-55 | Owner-visible: what happens to uploaded files if a shop is abandoned? | Kept forever; no purge, no cleanup. Retention and erasure stay an owner decision (D-31); this is a stated consequence of keeping everything, not an escalation. | Deleting personal data cannot be undone; keeping is safe. Cost: storage growth and possible data-protection exposure for abandoned shops. | Reversible: yes (a purge can be added; deleted files cannot be restored).
+
+D-56 | Follow-up for the route layer. | Proposed backlog row (lead assigns the number): "HR route layer" carrying the intent of retired AC-92 to AC-97, depending on T-038, required before or with FP-273. Text is in the spec's Out of scope. `ba` cannot edit `docs/backlog.md`. | FP-273's screens need an API. | Reversible: yes.
+
 ## Owner-visible questions and built-in defaults
 
 1. Profile as a separate row or extra columns on `employees`? Default: separate row (D-1).
@@ -88,3 +130,5 @@ D-37 | Transport. | Thin JSON routes, one per operation, each declaring its perm
 8. NIC uniqueness and format? Default: none (D-30).
 9. Deleting a department head or a manager of others? Default: refused until reassigned (D-35).
 10. Payroll-flavoured fields (salary, bank, statutory numbers, history) arrive with FP-280 and neighbours, not here (D-5).
+11. No HTTP routes in this task; route layer is a proposed follow-up (D-38, D-56).
+12. Uploaded files are kept forever, even if a shop is abandoned (D-55).
