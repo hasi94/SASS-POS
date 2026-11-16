@@ -6,6 +6,7 @@ namespace Flexipos\Finance\Tests\Support;
 
 use Flexipos\Access\Tests\Support\AccessSeed;
 use Flexipos\Access\Tests\Support\AccessTenantFixture;
+use Flexipos\Finance\Periods\FiscalCalendar;
 use Flexipos\Finance\Registry\FinancePermissions;
 use Illuminate\Database\Connection;
 use Illuminate\Support\Facades\DB;
@@ -21,11 +22,9 @@ use PHPUnit\Framework\Assert;
  * questions at once. Foreign keys are enforced on the fixture connection
  * ({@see AccessTenantFixture::enter()}).
  *
- * **The fixture tenant holds no seeded chart yet.** The shipped seed
- * migration arrives in chunk D, and the fixture's template is built from the
- * shipped tree, so from that step the tables are not empty at the start of a
- * test. Every helper here therefore works from codes a four-digit seed code
- * cannot collide with.
+ * **The fixture template carries the shipped seed** (step 16), and
+ * `financeEnterTenant()` empties the chart and the calendar by default
+ * ({@see self::clearSeed()}), so a test starts from empty tables.
  */
 final class FinanceSeed
 {
@@ -81,6 +80,106 @@ final class FinanceSeed
     public static function nobody(string $code = 'finance-nobody'): string
     {
         return self::actor($code);
+    }
+
+    /**
+     * Empty the chart and the calendar the shipped seed migration put in the
+     * fixture template (T-032 step 16), so a test starts from the same empty
+     * tables chunks A to C were written against. `SeedChartTest` is the one
+     * file that wants the seed and runs the migration itself afterwards.
+     */
+    public static function clearSeed(): void
+    {
+        $connection = self::connection();
+
+        $connection->table('fiscal_periods')->delete();
+        $connection->table('fiscal_years')->delete();
+        $connection->table('accounts')->update(['parent_id' => null]);
+        $connection->table('accounts')->delete();
+    }
+
+    /**
+     * One fiscal year with its twelve monthly periods, written directly.
+     * `$statuses` maps a sequence to a status for that period; `$year`
+     * overrides year columns.
+     *
+     * @param  array<string, mixed>  $year
+     * @param  array<int, string>  $statuses
+     * @return array{id: string, periods: array<int, string>}
+     */
+    public static function fiscalYear(string $start, ?string $name = null, array $year = [], array $statuses = []): array
+    {
+        $id = (string) ($year['id'] ?? Str::ulid());
+
+        self::connection()->table('fiscal_years')->insert(array_merge([
+            'id' => $id,
+            'created_at' => self::NOW,
+            'updated_at' => self::NOW,
+            'name' => $name ?? 'FY'.substr($start, 0, 4),
+            'start_date' => $start,
+            'end_date' => FiscalCalendar::yearEnd($start),
+            'status' => 'open',
+            'closed_at' => null,
+            'closed_by' => null,
+            'retained_earnings_entry_id' => null,
+        ], $year));
+
+        $periods = [];
+
+        foreach (FiscalCalendar::periodsFor($start) as $period) {
+            $periodId = (string) Str::ulid();
+            $status = $statuses[$period['sequence']] ?? 'open';
+
+            self::connection()->table('fiscal_periods')->insert([
+                'id' => $periodId,
+                'fiscal_year_id' => $id,
+                'sequence' => $period['sequence'],
+                'name' => substr($start, 0, 4).' '.$period['name'],
+                'start_date' => $period['start'],
+                'end_date' => $period['end'],
+                'status' => $status,
+                'closed_at' => $status === 'open' ? null : self::NOW,
+                'closed_by' => null,
+            ]);
+
+            $periods[$period['sequence']] = $periodId;
+        }
+
+        return ['id' => $id, 'periods' => $periods];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public static function periodRow(string $id): ?array
+    {
+        $row = self::connection()->table('fiscal_periods')->where('id', $id)->first();
+
+        return $row === null ? null : (array) $row;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public static function yearRow(string $id): ?array
+    {
+        $row = self::connection()->table('fiscal_years')->where('id', $id)->first();
+
+        return $row === null ? null : (array) $row;
+    }
+
+    /**
+     * Every year and period row, for before-and-after comparisons.
+     *
+     * @return array{years: list<array<string, mixed>>, periods: list<array<string, mixed>>, audit: int}
+     */
+    public static function calendarSnapshot(): array
+    {
+        return [
+            'years' => self::connection()->table('fiscal_years')->orderBy('start_date')->get()->map(static fn (object $r): array => (array) $r)->all(),
+            'periods' => self::connection()->table('fiscal_periods')->orderBy('start_date')->get()->map(static fn (object $r): array => (array) $r)->all(),
+            'audit' => self::connection()->table('audit_logs')->count(),
+        ];
     }
 
     /**

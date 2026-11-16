@@ -535,7 +535,7 @@ Rules carried from T-027/T-028 §6, unchanged:
 
 ### Chunk D: fiscal years, transitions, the gate, the seed
 
-- [ ] **Step 13: years and periods CRUD** (`CreateFiscalYear`, `RenameFiscalYear`, `RenameFiscalPeriod`, `DeleteFiscalYear`, the three reads).
+- [x] **Step 13: years and periods CRUD** (`CreateFiscalYear`, `RenameFiscalYear`, `RenameFiscalPeriod`, `DeleteFiscalYear`, the three reads).
   - **AC-31:** one year plus 12 periods. Atomicity: a fault injected at period 7 (test seam) leaves **no** year.
   - **AC-33:** contiguity through the handler.
   - **AC-34:** `fy26` against `FY26`, and `'FY26 '` against `FY26`, give `name_in_use`.
@@ -551,7 +551,7 @@ Rules carried from T-027/T-028 §6, unchanged:
   - **AC-62:** list order and paging; lookup by date, and `no_fiscal_period`.
   - **Mutation M15:** drop the post-insert verification, which makes the gapped-year seam test go red.
   - *(AC-31 to AC-37, AC-62.)*
-- [ ] **Step 14: `TransitionFiscalPeriod`, `CloseFiscalYear`, `ReopenFiscalYear`.**
+- [x] **Step 14: `TransitionFiscalPeriod`, `CloseFiscalYear`, `ReopenFiscalYear`.**
   - **AC-38 to AC-43** end to end.
   - **AC-39:** a replayed close with the old `expected_status` gives `status_changed`, nothing written, and no second audit row.
   - **AC-40:** across a year boundary (P12 of 2026 against P01 of 2027).
@@ -569,7 +569,7 @@ Rules carried from T-027/T-028 §6, unchanged:
     - **M16:** skip `expected_status`, which makes the replay row go red;
     - **M17:** skip the year check, which makes the AC-46 row go red.
   - *(AC-38 to AC-46 except the `[ENGINE]` clauses.)*
-- [ ] **Step 15: `DatabasePeriodGate`.**
+- [x] **Step 15: `DatabasePeriodGate`.**
   - **AC-47:** a dataset of {open, soft_closed, closed} × {plain actor, `post_adjustment` actor, null actor}.
   - **AC-48:** every invalid date; a tenant with no year gives `no_fiscal_period` for today, so it never defaults.
   - **AC-49:** the first day, the last day and the day after.
@@ -579,7 +579,7 @@ Rules carried from T-027/T-028 §6, unchanged:
     - **M18:** let finance actors through `closed`, which makes that row go red;
     - **M19:** return "allowed" on a parse failure, which makes AC-48 go red.
   - *(AC-47 to AC-51 except the `[ENGINE]` clause.)*
-- [ ] **Step 16: the seed migration, with `SeedChartTest`.**
+- [x] **Step 16: the seed migration, with `SeedChartTest`.**
   - **AC-26 and AC-27:** the exact 20 rows (section 4); the headers; `is_system` iff control; exactly one live holder each for ar, ap, grni, payroll_payable and retained_earnings.
   - **AC-28:**
     - run twice gives no duplicates;

@@ -113,13 +113,14 @@ it('is the catalogue top entry, phase expand, version 43', function () {
         true
     );
 
+    // T-032 step 16 puts the seed backfill on top (76 becomes 77).
     // T-030 steps 6 and 7 republished the catalogue with its own ten
     // migrations on top (63 becomes 73), the last of which is a contract step
     // (the one loyalty_transactions.sale_id key). Stale by name again, left
     // alone for the reason the notes above give.
     $top = end($catalogue);
 
-    expect($top['version'])->toBe(76)
-        ->and($top['migration'])->toBe('2026_11_15_003203_create_fiscal_periods_table')
-        ->and($top['phase'])->toBe('expand');
+    expect($top['version'])->toBe(77)
+        ->and($top['migration'])->toBe('2026_11_15_003204_seed_chart_of_accounts_and_first_fiscal_year')
+        ->and($top['phase'])->toBe('backfill');
 });

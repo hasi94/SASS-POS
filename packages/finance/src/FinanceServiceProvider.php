@@ -11,8 +11,10 @@ use Flexipos\Contracts\Finance\AccountUsage;
 use Flexipos\Contracts\Finance\ChartOfAccounts;
 use Flexipos\Contracts\Finance\FiscalYearUsage;
 use Flexipos\Contracts\Finance\PeriodCloseBlockers;
+use Flexipos\Contracts\Finance\PeriodGate;
 use Flexipos\Finance\Accounts\DatabaseChartOfAccounts;
 use Flexipos\Finance\Accounts\NoAccountUsage;
+use Flexipos\Finance\Periods\DatabasePeriodGate;
 use Flexipos\Finance\Periods\NoFiscalYearUsage;
 use Flexipos\Finance\Periods\NoPeriodCloseBlockers;
 use Flexipos\Finance\Registry\FinanceAuditActions;
@@ -42,6 +44,7 @@ final class FinanceServiceProvider extends ServiceProvider implements DeclaresAu
     public function register(): void
     {
         $this->app->bind(ChartOfAccounts::class, DatabaseChartOfAccounts::class);
+        $this->app->bind(PeriodGate::class, DatabasePeriodGate::class);
         $this->app->bind(AccountUsage::class, NoAccountUsage::class);
         $this->app->bind(FiscalYearUsage::class, NoFiscalYearUsage::class);
         $this->app->bind(PeriodCloseBlockers::class, NoPeriodCloseBlockers::class);

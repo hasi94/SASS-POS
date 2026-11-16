@@ -88,6 +88,7 @@ enum FinanceRefusal: string
     case LaterYearNotOpen = 'later_year_not_open';
     case NotLatestYear = 'not_latest_year';
     case PeriodNotFound = 'period_not_found';
+    case NoFiscalPeriod = 'no_fiscal_period';
     case InvalidTransition = 'invalid_transition';
     case StatusChanged = 'status_changed';
     case PeriodOrderViolation = 'period_order_violation';

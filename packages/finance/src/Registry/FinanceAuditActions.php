@@ -4,11 +4,18 @@ declare(strict_types=1);
 
 namespace Flexipos\Finance\Registry;
 
+use Flexipos\Finance\Features\CloseFiscalYear\CloseFiscalYearHandler;
 use Flexipos\Finance\Features\CreateAccount\CreateAccountHandler;
+use Flexipos\Finance\Features\CreateFiscalYear\CreateFiscalYearHandler;
 use Flexipos\Finance\Features\DeactivateAccount\DeactivateAccountHandler;
 use Flexipos\Finance\Features\DeleteAccount\DeleteAccountHandler;
+use Flexipos\Finance\Features\DeleteFiscalYear\DeleteFiscalYearHandler;
 use Flexipos\Finance\Features\ReactivateAccount\ReactivateAccountHandler;
+use Flexipos\Finance\Features\RenameFiscalPeriod\RenameFiscalPeriodHandler;
+use Flexipos\Finance\Features\RenameFiscalYear\RenameFiscalYearHandler;
+use Flexipos\Finance\Features\ReopenFiscalYear\ReopenFiscalYearHandler;
 use Flexipos\Finance\Features\ReparentAccount\ReparentAccountHandler;
+use Flexipos\Finance\Features\TransitionFiscalPeriod\TransitionFiscalPeriodHandler;
 use Flexipos\Finance\Features\UpdateAccount\UpdateAccountHandler;
 
 /**
@@ -17,8 +24,8 @@ use Flexipos\Finance\Features\UpdateAccount\UpdateAccountHandler;
  *
  * **Built from each handler's own `ACTION` constant, so no literal is
  * copied** (the organization, catalog and customers precedent): this list
- * cannot drift from what the handlers actually pass. It grows with each
- * slice; the plan's full set of fifteen is complete when chunk D lands.
+ * cannot drift from what the handlers actually pass. The plan's fifteen
+ * actions are all here as of chunk D.
  */
 final class FinanceAuditActions
 {
@@ -37,6 +44,15 @@ final class FinanceAuditActions
         DeactivateAccountHandler::ACTION,
         ReactivateAccountHandler::ACTION,
         DeleteAccountHandler::ACTION,
+        CreateFiscalYearHandler::ACTION,
+        RenameFiscalYearHandler::ACTION,
+        DeleteFiscalYearHandler::ACTION,
+        RenameFiscalPeriodHandler::ACTION,
+        TransitionFiscalPeriodHandler::ACTION_SOFT_CLOSED,
+        TransitionFiscalPeriodHandler::ACTION_CLOSED,
+        TransitionFiscalPeriodHandler::ACTION_REOPENED,
+        CloseFiscalYearHandler::ACTION,
+        ReopenFiscalYearHandler::ACTION,
     ];
 
     private function __construct() {}

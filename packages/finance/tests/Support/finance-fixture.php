@@ -1,6 +1,7 @@
 <?php
 
 use Flexipos\Access\Tests\Support\AccessTenantFixture;
+use Flexipos\Finance\Tests\Support\FinanceSeed;
 
 /*
 |--------------------------------------------------------------------------
@@ -16,7 +17,11 @@ use Flexipos\Access\Tests\Support\AccessTenantFixture;
  * call, and only `enter()` happens here, so the per-test cost stays visible
  * to a reader scanning the test file.
  */
-function financeEnterTenant(string $tenant = 'tenant-a'): void
+function financeEnterTenant(string $tenant = 'tenant-a', bool $clearSeed = true): void
 {
     AccessTenantFixture::enter($tenant);
+
+    if ($clearSeed) {
+        FinanceSeed::clearSeed();
+    }
 }

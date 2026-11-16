@@ -606,5 +606,13 @@
         "checksum": "6981940b694a7517b6471683be5c202850d181f568ebe060021b898dd4bd1532",
         "is_destructive": false,
         "requires_offline": false
+    },
+    {
+        "version": 77,
+        "migration": "2026_11_15_003204_seed_chart_of_accounts_and_first_fiscal_year",
+        "phase": "backfill",
+        "checksum": "dd987ee0fb1a8bde6602b2be52cdce5f37a3d856040f5c6a4a800cd370c7e571",
+        "is_destructive": false,
+        "requires_offline": false
     }
 ]

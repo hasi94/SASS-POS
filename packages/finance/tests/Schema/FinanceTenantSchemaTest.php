@@ -48,6 +48,14 @@ function financeApplyTenantTree(): void
         '--path' => (string) config('schema.tenant_migration_path'),
         '--force' => true,
     ]))->toBe(0);
+
+    // The tree now ends in the seed migration (step 16): these tests are about
+    // the tables' constraints, so they start from empty tables.
+    $connection = DB::connection(financeSchemaConnection());
+    $connection->table('fiscal_periods')->delete();
+    $connection->table('fiscal_years')->delete();
+    $connection->table('accounts')->update(['parent_id' => null]);
+    $connection->table('accounts')->delete();
 }
 
 /**
