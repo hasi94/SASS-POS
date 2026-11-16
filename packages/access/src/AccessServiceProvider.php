@@ -8,6 +8,7 @@ use Flexipos\Access\Features\ArchiveAuditLogs\ArchiveAuditLogsCommand;
 use Flexipos\Access\Features\BootstrapOwner\BootstrapOwnerHandler;
 use Flexipos\Access\Features\BuildEmployeeClaims\BuildEmployeeClaimsHandler;
 use Flexipos\Access\Features\SearchAuditLog\SearchAuditLogCommand;
+use Flexipos\Access\Pins\HandlerPinVerifier;
 use Flexipos\Access\Registry\AccessPermissions;
 use Flexipos\Access\Registry\AuditPermissions;
 use Flexipos\Access\Registry\PermissionRegistry;
@@ -28,6 +29,7 @@ use Flexipos\Contracts\Access\EmployeeDirectory;
 use Flexipos\Contracts\Access\EmployeeStalenessCheck;
 use Flexipos\Contracts\Access\PermissionDeclaration;
 use Flexipos\Contracts\Access\PermissionResolver;
+use Flexipos\Contracts\Access\PinVerifier;
 use Flexipos\Contracts\Access\RoleHolders;
 use Flexipos\Contracts\Access\TenantAccessBootstrap;
 use Flexipos\Contracts\Access\TerminalLoginLog;
@@ -135,6 +137,13 @@ final class AccessServiceProvider extends ServiceProvider implements DeclaresAud
         // the published contract, rather than querying employee_roles
         // itself.
         $this->app->singleton(RoleHolders::class, DatabaseRoleHolders::class);
+
+        // T-030 D-30, F-5. The one question a supervisor override asks of
+        // access: who typed this PIN. Bound with bind(), not singleton(),
+        // because the handler it delegates to is container-built per
+        // resolution and a singleton would freeze its hasher. Callers verify
+        // OUTSIDE any transaction (the contract says why).
+        $this->app->bind(PinVerifier::class, HandlerPinVerifier::class);
 
         // T-026 D-23, D-24. The one door packages/platform's create_owner
         // step is allowed to reach into this package through, for the

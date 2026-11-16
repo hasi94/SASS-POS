@@ -1,0 +1,15 @@
+{
+  "name": "unit-malformed-quantity-refused",
+  "kind": "unit",
+  "discriminates": "An exponent is not a quantity.",
+  "input": {
+    "unit_id": "01UNITEACH000000000000000A",
+    "unit_code": "each",
+    "factor": "1.000000",
+    "factor_source": "stock_unit",
+    "line_unit_precision": "0",
+    "stock_unit_precision": "4",
+    "quantity": "1e3"
+  },
+  "refusal": "invalid_quantity"
+}

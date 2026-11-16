@@ -6,6 +6,7 @@
 - [Assert the contract, not the symptom](feedback_assert-contract-not-symptom.md) — also covers symptom-as-precondition, and correcting a disproved belief everywhere it is stated.
 - [Gate split and shared state](project_gate-split-and-shared-state.md) — fast/full counts, proving coverage by name from git, the clone-vs-worktree line-ending proof, and the four files that fake a red.
 - [T-007 measurement and test traps](project_t007-measurement-and-test-traps.md) — mutation via prepended autoloader, old-tip runs, stan covers tests, toBe message trap, build() wedge.
+- [SubagentHandback is terminal](feedback_subagenthandback_is_terminal.md) — never use it for an interim "still waiting" ping; every later call is refused once spent.
 - [T-008 built but not wired](project_t008-built-but-not-wired.md) — classes unit-tested with no caller, status-vocabulary mismatch, PHPUnit env/$_SERVER hold trap, how to report a held [E] matrix.
 - [T-009 cross-cutting proofs](project_t009-auth-cross-cutting-proofs.md) — mutating prod via a phpunit bootstrap autoloader, sink-harness through real writers, Pest/router/logger traps, AC-22 reading.
 - [T-009 round 2 blind spots](project_t009-round2-ingress-and-pin-blind-spots.md) — ingress is not a sink, select-star evades column-keyed pins, QA files must pass Stan/Pint.
@@ -31,3 +32,6 @@
 - [T-027 catalog close-out](project_t027_catalog_closeout.md) — clean PASS on a 33-slice task; FP-316 now at 12, plus a 13th stable `QaVocabularyRenameSweepTest` baseline signature; PowerShell-vs-bash process-list technique; verifying mutation claims via the shipped test's own discriminating row instead of re-running on production code.
 - [T-027 round 2 review-fix verification](project_t027_round2_review_fix_verification.md) — all 6 items PASS; diagnosing slow-not-hung via CPU-time growth; tail truncation still proves earlier gate steps passed; planting a factor-mult mutation inside an exempted file to prove zero exemption.
 - [T-028 customers close-out](project_t028_customers_closeout.md) — a spec-named enum value missing from the shipped PHP enum (`inactive` status unreachable), undetected by any "bad status" test using an arbitrary string; CPU-time-growth hang check reused on a 1299s gate run; the `$_.CommandLine` bash/PowerShell collision fix.
+- [T-029 pricing close-out](project_t029-pricing-closeout.md) — PASS; ACs with an unpinned clause (net, tax-id tie, inactive group), equivalent mutants, mutation-driver traps.
+- [T-030 Sales close-out](project_t030-sales-closeout.md) — FAIL on an approval bypass (one approval covers unlimited new lines); seeded-approval blind spot, one-field-per-row binding tests, mutation-driver rc 255 artefact.
+- [T-030 round 2](project_t030-round2-review-fix.md) — PASS; cap/remainder mutation survivors, python CRLF trap breaking Pint, two-tax and multi-line fixtures needed.

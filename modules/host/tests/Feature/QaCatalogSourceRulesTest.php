@@ -95,6 +95,22 @@ const QA_CATALOG_BASE_UNIT_ID_TOKEN_EXEMPT = [
 ];
 
 /**
+ * The factor-multiplication rule's one sanctioned exception (T-029 plan
+ * Ruling 10, AC-25, D-20): `PriceLadder` derives a price from the unit factor
+ * the caller's `UnitSnapshot` already carries (`round(stock price x factor,
+ * 4)`, `docs/database.md` section 6.4, D-13). That is the sanctioned price
+ * derivation from a snapshot factor, never from a column, and it is named
+ * here rather than worked around by renaming a variable. Matched by full
+ * path, like the two lists above, and scoped to the factor rule only: it buys
+ * no pass from either token scan.
+ *
+ * @var list<string>
+ */
+const QA_CATALOG_FACTOR_MULTIPLICATION_EXEMPT = [
+    'packages/pricing/src/Engine/PriceLadder.php',
+];
+
+/**
  * Resolve each of the given repo-relative paths to its real, absolute path,
  * asserting every one exists - a rename or move of one of these files must
  * fail this assertion loudly, rather than silently widening the scan by
@@ -237,6 +253,7 @@ it('every scanned directory actually exists, so an absent one cannot silently em
     // just makes sure that is never mistaken for "still exempt").
     qaCatalogResolveExemptPaths(QA_CATALOG_UNIT_CONVERSIONS_TOKEN_EXEMPT);
     qaCatalogResolveExemptPaths(QA_CATALOG_BASE_UNIT_ID_TOKEN_EXEMPT);
+    qaCatalogResolveExemptPaths(QA_CATALOG_FACTOR_MULTIPLICATION_EXEMPT);
 
     // Anti-vacuity: the ladder-scan file set itself is non-empty (it holds
     // every other package's and module's source) and excludes every file
@@ -331,7 +348,9 @@ it('AC-17 control: a docblock mentioning unit_conversions in prose is not report
 });
 
 it('AC-17: no file outside packages/catalog/src/Units multiplies a quantity by a factor column', function () {
-    expect(qaCatalogFactorMultiplicationOffenders())->toBe([]);
+    $exempt = qaCatalogResolveExemptPaths(QA_CATALOG_FACTOR_MULTIPLICATION_EXEMPT);
+
+    expect(qaCatalogFactorMultiplicationOffenders(qaCatalogLadderScanFiles($exempt)))->toBe([]);
 
     $directory = qaCatalogFreshTempDirectory();
     File::put($directory.'/Planted.php', "<?php\n\$base = \$quantity * \$row->factor;\n");
@@ -354,6 +373,35 @@ it('AC-17: no file outside packages/catalog/src/Units multiplies a quantity by a
     } finally {
         File::deleteDirectory($directory2);
     }
+});
+
+it('T-029 Ruling 10: the factor exemption is exactly PriceLadder, is the only reason the scan is green, and buys nothing else', function () {
+    $exempt = qaCatalogResolveExemptPaths(QA_CATALOG_FACTOR_MULTIPLICATION_EXEMPT);
+
+    // Without the exemption, exactly the exempt file is reported: it is the
+    // exemption, and no broader rule, that keeps the suite green.
+    expect(qaCatalogFactorMultiplicationOffenders(qaCatalogLadderScanFiles()))->toEqualCanonicalizing($exempt);
+
+    // A factor multiplication anywhere else is still reported, scanned
+    // alongside the real tree with the exemption in force.
+    $directory = qaCatalogFreshTempDirectory();
+    File::put($directory.'/Planted.php', "<?php\n\$price = \$stockPrice * \$unitFactor;\n");
+
+    try {
+        $files = qaCatalogLadderScanFiles($exempt) + qaCatalogSourceFiles($directory);
+
+        expect(qaCatalogFactorMultiplicationOffenders($files))->toBe([(string) realpath($directory.'/Planted.php')]);
+    } finally {
+        File::deleteDirectory($directory);
+    }
+
+    // The exemption is for the factor rule only: the exempt file names neither
+    // table nor column the two token scans guard.
+    $exemptFiles = array_intersect_key(qaCatalogLadderScanFiles(), array_flip($exempt));
+
+    expect($exemptFiles)->toHaveCount(1)
+        ->and(qaCatalogLadderTokenOffenders('unit_conversions', $exemptFiles))->toBe([])
+        ->and(qaCatalogLadderTokenOffenders('base_unit_id', $exemptFiles))->toBe([]);
 });
 
 /*

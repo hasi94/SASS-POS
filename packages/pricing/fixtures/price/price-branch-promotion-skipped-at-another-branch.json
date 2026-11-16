@@ -1,0 +1,55 @@
+{
+  "name": "price-branch-promotion-skipped-at-another-branch",
+  "kind": "price",
+  "discriminates": "A promotion assigned to branch B2 does not apply at branch B1, so the branch selling price is used.",
+  "input": {
+    "unit_id": "01UNITEACH0000000000000000",
+    "unit_factor": "1.000000",
+    "base_quantity": "1.0000",
+    "at": "2025-06-15T09:30:00.000Z",
+    "currency": "USD",
+    "customer_id": null,
+    "customer_group_id": null,
+    "branch_id": "01BRANCHA00000000000000000",
+    "lists": [
+      {
+        "list_id": "01LISTPB200000000000000000",
+        "code": "PB2",
+        "type": "promotion",
+        "currency": "USD",
+        "priority": "0",
+        "starts_at": null,
+        "ends_at": null,
+        "is_active": true,
+        "is_deleted": false,
+        "assignments": [
+          {
+            "scope_type": "branch",
+            "scope_id": "01BRANCHB00000000000000000",
+            "priority": "0"
+          }
+        ],
+        "items": [
+          {
+            "unit_id": null,
+            "min_qty": "1.0000",
+            "price": "3.0000",
+            "discount_percent": null
+          }
+        ]
+      }
+    ],
+    "branch_selling_price": "6.0000",
+    "selling_price": null
+  },
+  "expect": {
+    "list_price": "6.0000",
+    "discount_percent": null,
+    "unit_price": "6.0000",
+    "source": {
+      "step": "5",
+      "price_list_id": null,
+      "basis": "product"
+    }
+  }
+}

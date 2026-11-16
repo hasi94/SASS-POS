@@ -66,10 +66,11 @@ A modular monolith, not microservices. Modules are Composer path packages under 
 | **Platform** | Master database: tenants, plans, subscriptions, licensing, feature flags, tenant-user access, the database mapping, platform admin and audit |
 | **Identity** | Login against the master; tenant-local employees, roles, permissions, cashier PINs |
 | **Organization** | Branches, warehouses, terminals, devices, settings hierarchy, number sequences |
-| **Catalog** | Products, variants, barcodes, categories, brands, modifiers, price lists, taxes, discounts — and the **unit model**: one base (stock) unit per product, purchase and sales units as line defaults, the conversion factors, the single resolver every other module calls, and the barcode rules that parse a scale label |
+| **Catalog** | Products, variants, barcodes, categories, brands, modifiers — and the **unit model**: one base (stock) unit per product, purchase and sales units as line defaults, the conversion factors, the single resolver every other module calls, and the barcode rules that parse a scale label |
+| **Pricing** | Tax authorities, taxes, effective-dated rates and groups, price lists, discounts, and the one calculation engine that prices a line. A path package, `packages/pricing`, reached only through `Contracts\Pricing` (`PricingEngine`, `TaxGroupDirectory`); it reaches units only through the catalog's `UnitResolver` snapshot |
 | **Inventory** | Stock levels, the stock ledger, batches and serials, adjustments, transfers, reorder alerts |
 | **Purchasing** | Suppliers, purchase requests, purchase orders, goods receipts, supplier invoices, returns, supplier payments |
-| **Sales** | The till: sales, items, tenders, hold and recall, refunds, voids, cash shifts, approvals |
+| **Sales** | The till: sales, items, tenders, hold and recall, refunds, voids, cash shifts, approvals. A path package, `packages/sales`, with 26 slices and no HTTP route yet. It does no tax, price, unit, ledger or number arithmetic of its own: it asks the pricing engine and the catalog's `UnitResolver`, posts credit through `CustomerCreditLedger`, and numbers documents through `DocumentNumbers`; it applies no stock and posts no journal |
 | **Restaurant** | Tables, orders, kitchen and bar tickets, split and merge |
 | **Customers** | Customers, groups, credit ledger, loyalty |
 | **Finance** | Chart of accounts, journals, fiscal periods, cash and bank, receivables, payables, reconciliation, tax |

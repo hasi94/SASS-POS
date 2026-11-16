@@ -1,0 +1,39 @@
+{
+  "name": "bill-percentage-on-summed-subtotals",
+  "kind": "bill",
+  "discriminates": "The base is the sum of the lines discounted (pre-tax) subtotals: 5% of 175 is 8.75.",
+  "input": {
+    "discount_id": "01BILL10000000000000000000",
+    "discounts": [
+      {
+        "id": "01BILL10000000000000000000",
+        "type": "percentage",
+        "value": "5.0000",
+        "scope": "bill",
+        "is_active": true,
+        "starts_at": null,
+        "ends_at": null,
+        "usage_limit": null,
+        "used_count": "0",
+        "min_amount": null,
+        "max_discount": null,
+        "applies_to": {
+          "products": [],
+          "categories": [],
+          "brands": []
+        }
+      }
+    ],
+    "at": "2025-06-15T09:30:00.000Z",
+    "discounted_subtotals": [
+      "100.0000",
+      "50.0000",
+      "25.0000"
+    ]
+  },
+  "expect": {
+    "discount_id": "01BILL10000000000000000000",
+    "base": "175.0000",
+    "amount": "8.7500"
+  }
+}

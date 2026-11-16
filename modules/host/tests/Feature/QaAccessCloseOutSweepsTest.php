@@ -130,11 +130,27 @@ function closeOutNewTables(): array
         'customer_notes', 'customers', 'loyalty_programs', 'loyalty_transactions',
     ];
 
+    // T-029's nine pricing and tax tables are excluded the same way: this
+    // sweep's exercise never writes a tax, rate, group, price list or
+    // discount.
+    $t029 = [
+        'discounts', 'price_list_assignments', 'price_list_items', 'price_lists', 'tax_authorities',
+        'tax_group_taxes', 'tax_groups', 'tax_rates', 'taxes',
+    ];
+
+    // T-030's eight Sales tables are excluded the same way: this sweep's
+    // exercise never writes a payment method, shift, movement, approval, sale,
+    // sale line, tender or hold.
+    $t030 = [
+        'approval_requests', 'cash_movements', 'cash_shifts', 'payment_methods', 'sale_holds', 'sale_items',
+        'sale_tenders', 'sales',
+    ];
+
     // T-032's three finance tables are excluded the same way: this sweep's
     // exercise never writes an account, a fiscal year or a fiscal period.
     $t032 = ['accounts', 'fiscal_periods', 'fiscal_years'];
 
-    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017, $t019, $t020, $t021, $t027, $t028, $t032));
+    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017, $t019, $t020, $t021, $t027, $t028, $t029, $t030, $t032));
 }
 
 /**

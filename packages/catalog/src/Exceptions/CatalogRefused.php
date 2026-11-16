@@ -65,4 +65,19 @@ final class CatalogRefused extends RuntimeException
     {
         return new self(CatalogRefusal::DimensionMismatch, $message);
     }
+
+    public static function unknownTaxGroup(string $message): self
+    {
+        return new self(CatalogRefusal::UnknownTaxGroup, $message);
+    }
+
+    public static function inactiveTaxGroup(string $message): self
+    {
+        return new self(CatalogRefusal::InactiveTaxGroup, $message);
+    }
+
+    public static function noDefaultTaxGroup(string $message): self
+    {
+        return new self(CatalogRefusal::NoDefaultTaxGroup, $message);
+    }
 }

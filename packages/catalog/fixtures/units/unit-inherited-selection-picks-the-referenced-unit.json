@@ -1,0 +1,24 @@
+{
+  "name": "unit-inherited-selection-picks-the-referenced-unit",
+  "kind": "inherited",
+  "discriminates": "T-030 D-32: asked for the referenced line's own unit, the selection returns that line's factor with source inherited.",
+  "input": {
+    "product_id": "01PRODUCT0000000000000000A",
+    "stock_unit_id": "01UNITEACH000000000000000A",
+    "referenced_unit_id": "01UNITCASE000000000000000A",
+    "referenced_unit_factor": "24.000000",
+    "unit_id": "01UNITCASE000000000000000A",
+    "unit_code": "case",
+    "line_unit_precision": "0",
+    "stock_unit_precision": "0",
+    "quantity": "3"
+  },
+  "expect": {
+    "unit_id": "01UNITCASE000000000000000A",
+    "unit_code": "case",
+    "source": "inherited",
+    "quantity": "3.0000",
+    "unit_factor": "24.000000",
+    "base_quantity": "72.0000"
+  }
+}

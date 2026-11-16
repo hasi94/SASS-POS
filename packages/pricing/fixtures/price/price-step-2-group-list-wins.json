@@ -1,0 +1,127 @@
+{
+  "name": "price-step-2-group-list-wins",
+  "kind": "price",
+  "discriminates": "With no matching customer list, the group list beats the promotion, the branch list and both product prices.",
+  "input": {
+    "unit_id": "01UNITEACH0000000000000000",
+    "unit_factor": "1.000000",
+    "base_quantity": "1.0000",
+    "at": "2025-06-15T09:30:00.000Z",
+    "currency": "USD",
+    "customer_id": "01CUSTB0000000000000000000",
+    "customer_group_id": "01GROUPA000000000000000000",
+    "branch_id": "01BRANCHA00000000000000000",
+    "lists": [
+      {
+        "list_id": "01LISTLA000000000000000000",
+        "code": "LA",
+        "type": "standard",
+        "currency": "USD",
+        "priority": "0",
+        "starts_at": null,
+        "ends_at": null,
+        "is_active": true,
+        "is_deleted": false,
+        "assignments": [
+          {
+            "scope_type": "customer",
+            "scope_id": "01CUSTA0000000000000000000",
+            "priority": "0"
+          }
+        ],
+        "items": [
+          {
+            "unit_id": null,
+            "min_qty": "1.0000",
+            "price": "10.0000",
+            "discount_percent": null
+          }
+        ]
+      },
+      {
+        "list_id": "01LISTLB000000000000000000",
+        "code": "LB",
+        "type": "customer_group",
+        "currency": "USD",
+        "priority": "0",
+        "starts_at": null,
+        "ends_at": null,
+        "is_active": true,
+        "is_deleted": false,
+        "assignments": [
+          {
+            "scope_type": "customer_group",
+            "scope_id": "01GROUPA000000000000000000",
+            "priority": "0"
+          }
+        ],
+        "items": [
+          {
+            "unit_id": null,
+            "min_qty": "1.0000",
+            "price": "9.0000",
+            "discount_percent": null
+          }
+        ]
+      },
+      {
+        "list_id": "01LISTLP000000000000000000",
+        "code": "LP",
+        "type": "promotion",
+        "currency": "USD",
+        "priority": "0",
+        "starts_at": null,
+        "ends_at": null,
+        "is_active": true,
+        "is_deleted": false,
+        "assignments": [],
+        "items": [
+          {
+            "unit_id": null,
+            "min_qty": "1.0000",
+            "price": "8.0000",
+            "discount_percent": null
+          }
+        ]
+      },
+      {
+        "list_id": "01LISTLD000000000000000000",
+        "code": "LD",
+        "type": "branch",
+        "currency": "USD",
+        "priority": "0",
+        "starts_at": null,
+        "ends_at": null,
+        "is_active": true,
+        "is_deleted": false,
+        "assignments": [
+          {
+            "scope_type": "branch",
+            "scope_id": "01BRANCHA00000000000000000",
+            "priority": "0"
+          }
+        ],
+        "items": [
+          {
+            "unit_id": null,
+            "min_qty": "1.0000",
+            "price": "7.0000",
+            "discount_percent": null
+          }
+        ]
+      }
+    ],
+    "branch_selling_price": "6.0000",
+    "selling_price": "5.0000"
+  },
+  "expect": {
+    "list_price": "9.0000",
+    "discount_percent": null,
+    "unit_price": "9.0000",
+    "source": {
+      "step": "2",
+      "price_list_id": "01LISTLB000000000000000000",
+      "basis": "derived"
+    }
+  }
+}

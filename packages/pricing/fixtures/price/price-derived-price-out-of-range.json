@@ -1,0 +1,19 @@
+{
+  "name": "price-derived-price-out-of-range",
+  "kind": "price",
+  "discriminates": "A derived price that no longer fits DECIMAL(18,4) is out_of_range, not a wrapped number.",
+  "input": {
+    "unit_id": "01UNITCASE0000000000000000",
+    "unit_factor": "24.000000",
+    "base_quantity": "24.0000",
+    "at": "2025-06-15T09:30:00.000Z",
+    "currency": "USD",
+    "customer_id": null,
+    "customer_group_id": null,
+    "branch_id": null,
+    "lists": [],
+    "branch_selling_price": "99999999999999.9999",
+    "selling_price": null
+  },
+  "refusal": "out_of_range"
+}

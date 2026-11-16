@@ -1,0 +1,133 @@
+{
+  "name": "line-case-of-24-with-discount-exclusive",
+  "kind": "line",
+  "discriminates": "One case at 179 is subtotal 179 (not 179 x 24), then 10% off, then 15% tax on the discounted 161.1.",
+  "input": {
+    "ladder": {
+      "unit_id": "01UNITCASE0000000000000000",
+      "unit_factor": "24.000000",
+      "base_quantity": "24.0000",
+      "at": "2025-06-15T09:30:00.000Z",
+      "currency": "USD",
+      "customer_id": "01CUSTA0000000000000000000",
+      "customer_group_id": null,
+      "branch_id": null,
+      "lists": [
+        {
+          "list_id": "01LISTLC000000000000000000",
+          "code": "LC",
+          "type": "standard",
+          "currency": "USD",
+          "priority": "0",
+          "starts_at": null,
+          "ends_at": null,
+          "is_active": true,
+          "is_deleted": false,
+          "assignments": [
+            {
+              "scope_type": "customer",
+              "scope_id": "01CUSTA0000000000000000000",
+              "priority": "0"
+            }
+          ],
+          "items": [
+            {
+              "unit_id": "01UNITCASE0000000000000000",
+              "min_qty": "1.0000",
+              "price": "179.0000",
+              "discount_percent": null
+            }
+          ]
+        }
+      ],
+      "branch_selling_price": null,
+      "selling_price": null
+    },
+    "quantity": "1.0000",
+    "product": {
+      "id": "01PRODA0000000000000000000",
+      "category_id": "01CATA00000000000000000000",
+      "brand_id": "01BRANDA000000000000000000",
+      "allow_discount": true
+    },
+    "tax_group": {
+      "id": "01TAXGROUPA000000000000000",
+      "is_inclusive": false,
+      "members": [
+        {
+          "tax_id": "01TAXVAT000000000000000000",
+          "code": "VAT",
+          "tax_code": null,
+          "type": "percentage",
+          "is_compound": false,
+          "applies_to": "both",
+          "is_active": true,
+          "is_deleted": false,
+          "sequence": "1",
+          "rates": [
+            {
+              "rate": "15.0000",
+              "effective_from": "2020-01-01",
+              "effective_to": null
+            }
+          ]
+        }
+      ]
+    },
+    "document_date": "2025-06-01",
+    "discount_id": "01DISC10000000000000000000",
+    "discounts": [
+      {
+        "id": "01DISC10000000000000000000",
+        "type": "percentage",
+        "value": "10.0000",
+        "scope": "item",
+        "is_active": true,
+        "starts_at": null,
+        "ends_at": null,
+        "usage_limit": null,
+        "used_count": "0",
+        "min_amount": null,
+        "max_discount": null,
+        "applies_to": {
+          "products": [],
+          "categories": [],
+          "brands": []
+        }
+      }
+    ]
+  },
+  "expect": {
+    "list_price": "179.0000",
+    "list_discount_percent": null,
+    "unit_price": "179.0000",
+    "source": {
+      "step": "1",
+      "price_list_id": "01LISTLC000000000000000000",
+      "basis": "unit_matched"
+    },
+    "subtotal": "179.0000",
+    "discount_amount": "17.9000",
+    "discount_id": "01DISC10000000000000000000",
+    "discounted_subtotal": "161.1000",
+    "tax_group_id": "01TAXGROUPA000000000000000",
+    "tax": {
+      "is_inclusive": false,
+      "net": "161.1000",
+      "lines": [
+        {
+          "tax_id": "01TAXVAT000000000000000000",
+          "code": "VAT",
+          "tax_code": null,
+          "type": "percentage",
+          "is_compound": false,
+          "rate": "15.0000",
+          "base": "161.1000",
+          "amount": "24.1650"
+        }
+      ],
+      "total": "24.1650"
+    },
+    "line_total": "185.2650"
+  }
+}

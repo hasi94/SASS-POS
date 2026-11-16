@@ -1,0 +1,19 @@
+{
+  "name": "tax-inclusive-empty-group-is-exempt",
+  "kind": "tax",
+  "discriminates": "An empty inclusive group leaves the gross untouched.",
+  "input": {
+    "members": [],
+    "amount": "50.0000",
+    "base_quantity": "1.0000",
+    "date": "2025-06-01",
+    "context": "sale",
+    "is_inclusive": true
+  },
+  "expect": {
+    "is_inclusive": true,
+    "net": "50.0000",
+    "lines": [],
+    "total": "0.0000"
+  }
+}

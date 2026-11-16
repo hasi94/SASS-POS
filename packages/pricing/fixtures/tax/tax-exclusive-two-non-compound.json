@@ -1,0 +1,77 @@
+{
+  "name": "tax-exclusive-two-non-compound",
+  "kind": "tax",
+  "discriminates": "Two non-compound taxes each take the plain line base, not each other.",
+  "input": {
+    "members": [
+      {
+        "tax_id": "01TAXA00000000000000000000",
+        "code": "A",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "1",
+        "rates": [
+          {
+            "rate": "5.0000",
+            "effective_from": "2020-01-01",
+            "effective_to": null
+          }
+        ]
+      },
+      {
+        "tax_id": "01TAXB00000000000000000000",
+        "code": "B",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "2",
+        "rates": [
+          {
+            "rate": "10.0000",
+            "effective_from": "2020-01-01",
+            "effective_to": null
+          }
+        ]
+      }
+    ],
+    "amount": "100.0000",
+    "base_quantity": "1.0000",
+    "date": "2025-06-01",
+    "context": "sale",
+    "is_inclusive": false
+  },
+  "expect": {
+    "is_inclusive": false,
+    "net": "100.0000",
+    "lines": [
+      {
+        "tax_id": "01TAXA00000000000000000000",
+        "code": "A",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "rate": "5.0000",
+        "base": "100.0000",
+        "amount": "5.0000"
+      },
+      {
+        "tax_id": "01TAXB00000000000000000000",
+        "code": "B",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "rate": "10.0000",
+        "base": "100.0000",
+        "amount": "10.0000"
+      }
+    ],
+    "total": "15.0000"
+  }
+}

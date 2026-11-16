@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "5046609e6a52a6fcd07527eb67b6fa10",
+    "content-hash": "ba4342610c2a233cae2e54bb0c0cc310",
     "packages": [
         {
             "name": "brick/math",
@@ -890,6 +890,60 @@
                 "proprietary"
             ],
             "description": "FlexiPOS plugin SDK: extension gateway, plugin base classes and manifest validation.",
+            "transport-options": {
+                "relative": true
+            }
+        },
+        {
+            "name": "flexipos/pricing",
+            "version": "0.1.0",
+            "dist": {
+                "type": "path",
+                "url": "../../packages/pricing",
+                "reference": "7bada1c19f083cb600fd361b685c944611ccc7e2"
+            },
+            "require": {
+                "brick/math": "^0.14",
+                "flexipos/contracts": "*",
+                "php": "^8.2"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Flexipos\\Pricing\\": "src/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "FlexiPOS pricing and tax: tax authorities, taxes, effective-dated rates and groups, price lists, discounts, and the one calculation engine that prices a line.",
+            "transport-options": {
+                "relative": true
+            }
+        },
+        {
+            "name": "flexipos/sales",
+            "version": "0.1.0",
+            "dist": {
+                "type": "path",
+                "url": "../../packages/sales",
+                "reference": "76686e4e4c3a8c1f86593ff9530731bbe80737b1"
+            },
+            "require": {
+                "brick/math": "^0.14",
+                "flexipos/contracts": "*",
+                "php": "^8.2"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Flexipos\\Sales\\": "src/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "FlexiPOS sales: carts, tenders, hold and recall, voids and refunds, cash shifts and PIN-gated approvals.",
             "transport-options": {
                 "relative": true
             }

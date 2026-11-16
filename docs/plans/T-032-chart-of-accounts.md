@@ -798,3 +798,13 @@ Anything red that is not in this table means stop and report to `architect`.
 2. **Merge order against T-029:** `architect` recommends T-029 first (section 5). `lead` decides.
 
 F-1 to F-19 are resolved in `e5c99bb` (D-20 to D-29). The open items are N-1 (a one-line AC-25 wording fix for `ba`, not blocking) and N-2 (a FP-428 annotation for `lead`).
+
+## As merged (T-030 absorbed)
+
+The T-030 tip (`c354a0e`, which holds T-029 pricing and T-030 sales) was merged into this branch after chunk C. Section 5's T-029-first branch applies from here on.
+
+- **Schema numbers.** The base now tops out at version 73 (`2026_11_10_003010_add_loyalty_sale_foreign_key`, contract). Finance's three migrations are versions **74** (`accounts`), **75** (`fiscal_years`) and **76** (`fiscal_periods`). Every "51 to 54 to 55 to 59" in this plan is base-relative: read it as 73 + the same offsets, so chunk F's contract file will be 77 and its expand additions 78 onward (record the exact numbers at step 16/17). `.env.example` `APP_REQUIRED_SCHEMA_VERSION` is 76 today. The catalogue was republished, not merged: the diff against the T-030 side is three pure additions, `is_destructive` false.
+- **Tenant tables.** `tenantTreeTables()` holds 69 names (49 base, +9 pricing, +8 sales, +3 finance); `MigrationTreeDisciplineTest` says 69.
+- **Foreign keys.** `TenantBaselineBuildsTest` keeps all three sets of keys, finance's six sorted in among the rest. Finance adds no table to the branch-key list.
+- **Chunks D-F.** Step 17 (the contract file and the `products`/`customers` column additions) must follow T-029's contract file, version 73, and re-baseline the count literals above. `CreateProduct`/`UpdateProduct` (step 18) now also carry T-029's tax-group fields in `FIELDS`: add finance's keys beside them. T-029's `ProductTaxGroupMigrationsTest` AC-29.3 is to be narrowed to T-029's own files at step 17 (F-4). `CatalogTenantSchemaTest`'s `products` list is +2 (T-029) plus +3 (finance).
+- **Instruments.** `deptrac.yaml` grants `Package_Finance` / `Package_Finance_Tests` beside `Package_Pricing*` and `Package_Sales*`; `Module_Demo` is granted none of the three. `AuditCatalogueTest` lists access, catalog, customers, finance, organization, pricing, sales (and `fixture` in its fixture variant). `QaToolchainRegistryCoverageTest` lists `finance`, `pricing` and `sales`.

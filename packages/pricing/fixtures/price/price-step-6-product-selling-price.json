@@ -1,0 +1,28 @@
+{
+  "name": "price-step-6-product-selling-price",
+  "kind": "price",
+  "discriminates": "With nothing before it, the product selling price prices the line.",
+  "input": {
+    "unit_id": "01UNITEACH0000000000000000",
+    "unit_factor": "1.000000",
+    "base_quantity": "1.0000",
+    "at": "2025-06-15T09:30:00.000Z",
+    "currency": "USD",
+    "customer_id": null,
+    "customer_group_id": null,
+    "branch_id": "01BRANCHA00000000000000000",
+    "lists": [],
+    "branch_selling_price": null,
+    "selling_price": "5.0000"
+  },
+  "expect": {
+    "list_price": "5.0000",
+    "discount_percent": null,
+    "unit_price": "5.0000",
+    "source": {
+      "step": "6",
+      "price_list_id": null,
+      "basis": "product"
+    }
+  }
+}

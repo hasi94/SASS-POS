@@ -25,4 +25,11 @@ enum FactorSource: string
 
     /** Step 4: `fromUnit` is the product's own stock unit, factor `1`. */
     case StockUnit = 'stock_unit';
+
+    /**
+     * Not a ladder step: a referencing line (a refund line) took the factor of
+     * the line it refers to, in the same unit, and never re-walked the ladder
+     * (T-030 D-32, `UnitResolver::snapshotInherited()`).
+     */
+    case Inherited = 'inherited';
 }

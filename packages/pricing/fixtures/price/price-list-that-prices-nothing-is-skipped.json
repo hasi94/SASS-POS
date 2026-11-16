@@ -1,0 +1,100 @@
+{
+  "name": "price-list-that-prices-nothing-is-skipped",
+  "kind": "price",
+  "discriminates": "A list with no item, or only an item above the base quantity, is skipped in favour of the next list in the step.",
+  "input": {
+    "unit_id": "01UNITEACH0000000000000000",
+    "unit_factor": "1.000000",
+    "base_quantity": "5.0000",
+    "at": "2025-06-15T09:30:00.000Z",
+    "currency": "USD",
+    "customer_id": "01CUSTA0000000000000000000",
+    "customer_group_id": null,
+    "branch_id": null,
+    "lists": [
+      {
+        "list_id": "01LISTLEMPTY00000000000000",
+        "code": "LEMPTY",
+        "type": "standard",
+        "currency": "USD",
+        "priority": "20",
+        "starts_at": null,
+        "ends_at": null,
+        "is_active": true,
+        "is_deleted": false,
+        "assignments": [
+          {
+            "scope_type": "customer",
+            "scope_id": "01CUSTA0000000000000000000",
+            "priority": "0"
+          }
+        ],
+        "items": []
+      },
+      {
+        "list_id": "01LISTLHIGHMIN000000000000",
+        "code": "LHIGHMIN",
+        "type": "standard",
+        "currency": "USD",
+        "priority": "10",
+        "starts_at": null,
+        "ends_at": null,
+        "is_active": true,
+        "is_deleted": false,
+        "assignments": [
+          {
+            "scope_type": "customer",
+            "scope_id": "01CUSTA0000000000000000000",
+            "priority": "0"
+          }
+        ],
+        "items": [
+          {
+            "unit_id": null,
+            "min_qty": "100.0000",
+            "price": "1.0000",
+            "discount_percent": null
+          }
+        ]
+      },
+      {
+        "list_id": "01LISTLNEXT000000000000000",
+        "code": "LNEXT",
+        "type": "standard",
+        "currency": "USD",
+        "priority": "0",
+        "starts_at": null,
+        "ends_at": null,
+        "is_active": true,
+        "is_deleted": false,
+        "assignments": [
+          {
+            "scope_type": "customer",
+            "scope_id": "01CUSTA0000000000000000000",
+            "priority": "0"
+          }
+        ],
+        "items": [
+          {
+            "unit_id": null,
+            "min_qty": "1.0000",
+            "price": "9.0000",
+            "discount_percent": null
+          }
+        ]
+      }
+    ],
+    "branch_selling_price": null,
+    "selling_price": null
+  },
+  "expect": {
+    "list_price": "9.0000",
+    "discount_percent": null,
+    "unit_price": "9.0000",
+    "source": {
+      "step": "1",
+      "price_list_id": "01LISTLNEXT000000000000000",
+      "basis": "derived"
+    }
+  }
+}

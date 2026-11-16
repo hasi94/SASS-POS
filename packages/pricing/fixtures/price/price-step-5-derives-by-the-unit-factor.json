@@ -1,0 +1,28 @@
+{
+  "name": "price-step-5-derives-by-the-unit-factor",
+  "kind": "price",
+  "discriminates": "The branch selling price is per stock unit, so a case line is 7.5 x 24 = 180, never the single price 7.5.",
+  "input": {
+    "unit_id": "01UNITCASE0000000000000000",
+    "unit_factor": "24.000000",
+    "base_quantity": "24.0000",
+    "at": "2025-06-15T09:30:00.000Z",
+    "currency": "USD",
+    "customer_id": null,
+    "customer_group_id": null,
+    "branch_id": "01BRANCHA00000000000000000",
+    "lists": [],
+    "branch_selling_price": "7.5000",
+    "selling_price": "7.0000"
+  },
+  "expect": {
+    "list_price": "180.0000",
+    "discount_percent": null,
+    "unit_price": "180.0000",
+    "source": {
+      "step": "5",
+      "price_list_id": null,
+      "basis": "product"
+    }
+  }
+}

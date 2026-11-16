@@ -1,0 +1,105 @@
+{
+  "name": "tax-inclusive-residue-goes-to-the-last-non-zero-member",
+  "kind": "tax",
+  "discriminates": "The residue goes to the LAST non-zero percentage member (NBT, sequence 2), not the first (VAT) and not the 0 % member after them.",
+  "input": {
+    "members": [
+      {
+        "tax_id": "01TAXVAT000000000000000000",
+        "code": "VAT",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "1",
+        "rates": [
+          {
+            "rate": "15.0000",
+            "effective_from": "2020-01-01",
+            "effective_to": null
+          }
+        ]
+      },
+      {
+        "tax_id": "01TAXNBT000000000000000000",
+        "code": "NBT",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "2",
+        "rates": [
+          {
+            "rate": "2.0000",
+            "effective_from": "2020-01-01",
+            "effective_to": null
+          }
+        ]
+      },
+      {
+        "tax_id": "01TAXLEVY00000000000000000",
+        "code": "LEVY",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "3",
+        "rates": [
+          {
+            "rate": "0.0000",
+            "effective_from": "2020-01-01",
+            "effective_to": null
+          }
+        ]
+      }
+    ],
+    "amount": "9.9900",
+    "base_quantity": "1.0000",
+    "date": "2025-06-01",
+    "context": "sale",
+    "is_inclusive": true
+  },
+  "expect": {
+    "is_inclusive": true,
+    "net": "8.5385",
+    "lines": [
+      {
+        "tax_id": "01TAXVAT000000000000000000",
+        "code": "VAT",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "rate": "15.0000",
+        "base": "8.5385",
+        "amount": "1.2808"
+      },
+      {
+        "tax_id": "01TAXNBT000000000000000000",
+        "code": "NBT",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "rate": "2.0000",
+        "base": "8.5385",
+        "amount": "0.1707"
+      },
+      {
+        "tax_id": "01TAXLEVY00000000000000000",
+        "code": "LEVY",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "rate": "0.0000",
+        "base": "8.5385",
+        "amount": "0.0000"
+      }
+    ],
+    "total": "1.4515"
+  }
+}
