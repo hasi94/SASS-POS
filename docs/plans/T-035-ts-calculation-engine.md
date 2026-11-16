@@ -215,7 +215,7 @@ The developer chunks are A (primitives), B (operations), C (fixture harness) and
 
 ### Chunk A: primitives (no operation yet)
 
-- [ ] **Step 0: Baseline and fixture-access spike.**
+- [x] **Step 0: Baseline and fixture-access spike.**
   - After the lead's `npm ci`, record the baseline results of:
     - `npm test`;
     - `npx ng build pos`;
@@ -225,7 +225,7 @@ The developer chunks are A (primitives), B (operations), C (fixture harness) and
   - Create `testing/fixture-files.ts` (section 3) and a temporary assertion in `fixture-set.spec.ts` that `loadFixtureSet()` returns at least 1 file.
   - Run `npm test`. If it fails because `getBuiltinModule` cannot be reached, apply the section-3 fallback and tell the lead.
   - Covers AC-1 and AC-32 (mechanism). Tests: the spike assertion. It is replaced in step 10.
-- [ ] **Step 1: `refusal.ts` and `refusal.spec.ts`.**
+- [x] **Step 1: `refusal.ts` and `refusal.spec.ts`.**
   - Write the 17-value tuple and the three error classes.
   - Tests:
     - the tuple equals the literal list in AC-26, in order, with exactly 17 entries;
@@ -233,7 +233,7 @@ The developer chunks are A (primitives), B (operations), C (fixture harness) and
     - each error has `.name` set;
     - tests read `.reason` only and never `.message`.
   - Covers AC-26, AC-27 and the "distinct" part of AC-28.
-- [ ] **Step 2: `decimal.ts` and `decimal.spec.ts`.**
+- [x] **Step 2: `decimal.ts` and `decimal.spec.ts`.**
   - Write the section-2 primitives.
   - Tests (TS-only, D-9):
     - `divideHalfUp` on `5n/10n` gives `1n`, `-5n/10n` gives `-1n`, `5n/-10n` gives `-1n`, `-5n/-10n` gives `1n`, `4n/10n` gives `0n`, `-4n/10n` gives `0n` (no `-0`), `15n/10n` gives `2n`, and `-15n/10n` gives `-2n`.
@@ -244,7 +244,7 @@ The developer chunks are A (primitives), B (operations), C (fixture harness) and
     - Range (AC-10): the max is accepted by `roundStep`, `percentOf` and `text`, while max + `0.0001` is refused `out_of_range` by each.
     - `text`: a negative is refused `out_of_range`; `sub(1.0000, 1.0000)` gives `0.0000`; a scale-5 non-tie value is refused `invalid_amount`; `7.5` and `7.5000` give the same text (AC-8, AC-11).
   - Covers AC-8 to AC-11, AC-13 (primitive), AC-14 and AC-15.
-- [ ] **Step 3: `shape.ts` and `shape.spec.ts`.**
+- [x] **Step 3: `shape.ts` and `shape.spec.ts`.**
   - Write the Shape twins and the field guards (R-5, R-6).
   - Tests:
     - **Money:** `1.0000` is accepted, and `007.5` canonicalises to `7.5000`. Each of these is refused `invalid_amount`: `''`, `' 1'`, `'1 '`, `'1.0000\n'`, `'-1.0000'`, `'+1'`, `'1e3'`, `'1.00001'`, `'.5'`, `'5.'`, `'1,5'`, 15 integer digits, the number `1`, the bigint `1n`, `null`, `NaN` and `undefined` (AC-5, AC-6).
@@ -253,19 +253,19 @@ The developer chunks are A (primitives), B (operations), C (fixture harness) and
     - **Errors (`PricingInputError`):** an id of 25 or 27 characters, or one with a dash; `2025-02-29`; `0000-01-01` (PHP `checkdate` rejects year 0); `2025-13-01`; an instant with a 24 hour, a 60 minute or a 60 second; one missing `Z` or milliseconds, or with a non-calendar date; `usd` as a currency; integers `'1.0'`, `'1e3'`, `''`, `2^63` and `-2^63-1`. Both 64-bit bounds are accepted (AC-28, AC-41).
     - `ulid` upper-cases its result.
   - Covers AC-5 to AC-8, AC-28 and AC-41.
-- [ ] **Step 4: `byte-order.ts` and `byte-order.spec.ts`.**
+- [x] **Step 4: `byte-order.ts` and `byte-order.spec.ts`.**
   - Tests:
     - sorting `['a', '9', 'B', '10', '\u{1F600}', '～']` gives `['10', '9', 'B', 'a', '～', '\u{1F600}']`, and the test also shows that JS default `<` orders the last two the other way (AC-40);
     - `compareInt` sorts `'10'` after `'9'` and handles `-1` and int64 extremes (AC-41).
   - Covers AC-40 and AC-41.
-- [ ] **Step 5: `rules.ts` and `rules.spec.ts`.**
+- [x] **Step 5: `rules.ts` and `rules.spec.ts`.**
   - Write the vocabularies and `assertKnownRules` (R-3).
   - Tests: one per field, giving `UnsupportedRuleError` with the right `.field` and `.value` (for example a `members[].type` of `'surcharge'`, a `context` of `'transfer'`, a `discounts[].type` of `'loyalty'`). An unknown value inside a **deleted** member still throws. `buy_x_get_y` does **not** throw. A non-string enum value is left for the build phase.
   - Covers AC-29 (vocabulary).
 
 ### Chunk B: operations (port of `packages/pricing/src/Engine`, section-5 order)
 
-- [ ] **Step 6: `types.ts`, `tax.ts` and `tax.spec.ts`.**
+- [x] **Step 6: `types.ts`, `tax.ts` and `tax.spec.ts`.**
   - Write `resolveRate` and `calculateTax`. Port `applicable`, `forward`, `inclusiveNet` (slope and constant exactly as the PHP), `sum`, `lastPercentage` and `breakdown`.
   - Tests (TS-only vectors, beyond the fixtures):
     - members supplied in reverse sequence give the same output;
@@ -276,7 +276,7 @@ The developer chunks are A (primitives), B (operations), C (fixture harness) and
     - lower-case `tax_id` input is upper-cased in the output;
     - a negative rounded intermediate (an inclusive residue of `-0.0001` on the last non-zero member) is serialised correctly, or refused `out_of_range` where PHP would refuse it (D-17).
   - Covers AC-16, AC-17, AC-18 and AC-13 (tax steps).
-- [ ] **Step 7: `price-ladder.ts` and `price-ladder.spec.ts`.**
+- [x] **Step 7: `price-ladder.ts` and `price-ladder.spec.ts`.**
   - Write `resolvePrice`: `qualifies`, `assigned` (assignment priority descending, list priority descending, `compareBytes(code)`), `promotions`, `fromList`, `greatestQualifying` (the duplicate `min_qty` check over all items of the inspected unit before qualification), `derive` and `outcome`.
   - Tests:
     - a duplicate `min_qty` is refused whatever the row order (both orders tested), and duplicates in another unit are ignored (AC-20);
@@ -285,7 +285,7 @@ The developer chunks are A (primitives), B (operations), C (fixture harness) and
     - a `discount_percent` of `100.0001` is a `PricingInputError`, not a refusal;
     - a window instant exactly at `starts_at` and exactly at `ends_at` is accepted.
   - Covers AC-19, AC-20, AC-21 and AC-13 (derived and list-percent steps).
-- [ ] **Step 8: `discount.ts` and `discount.spec.ts`.**
+- [x] **Step 8: `discount.ts` and `discount.spec.ts`.**
   - Write `calculateItemDiscount` and `calculateBillDiscount`, porting `available`, `targets`, `amount` and `capped`.
   - Tests:
     - an input that fails every check at once gives `unknown_discount`; removing the first failing condition each time walks down the full AC-22 order;
@@ -295,7 +295,7 @@ The developer chunks are A (primitives), B (operations), C (fixture harness) and
     - a percentage `value` of `100.0001` is refused `invalid_amount` even when another rule is selected (R-2);
     - the bill with `[]` gives base `0.0000`.
   - Covers AC-22, AC-23 and AC-30.
-- [ ] **Step 9: `line.ts`, `line.spec.ts`, `index.ts` and the `public-api.ts` line.**
+- [x] **Step 9: `line.ts`, `line.spec.ts`, `index.ts` and the `public-api.ts` line.**
   - Write `priceLine`.
   - Tests:
     - the subtotal uses `quantity`, not `base_quantity` (one case of 24);
@@ -306,7 +306,7 @@ The developer chunks are A (primitives), B (operations), C (fixture harness) and
 
 ### Chunk C: the shared-fixture harness
 
-- [ ] **Step 10: `fixture-lint.ts`, `fixture-replay.ts` and `fixture-set.spec.ts`.**
+- [x] **Step 10: `fixture-lint.ts`, `fixture-replay.ts` and `fixture-set.spec.ts`.**
   - `lintFixture` is a line-for-line copy of `FixtureReplay::lint`. That covers the required keys; exactly one of `expect` and `refusal`; no other top-level key; `kind` in the five kinds and equal to its directory; `name` equal to the basename; `refusal` matching `^[a-z_]+$`; and the walk that rejects any JSON number and any `^\d+\.\d+$` string not ending in 4 or 6 decimals.
   - Two TS-only additions: the `refusal` must be in `PRICING_REFUSALS`, and `discriminates` must be a string.
   - `assertFixtureSet` checks AC-34: the directory exists; there are at least 30 files (D-15, never a larger hard-coded count); all five kinds are present; every kind has at least one expect fixture and at least one refusal fixture; `name` is unique.
@@ -327,10 +327,10 @@ The developer chunks are A (primitives), B (operations), C (fixture harness) and
 
 ### Chunk D: proof instruments and close
 
-- [ ] **Step 11: `testing/source-scan.ts` and `source-scan.spec.ts`.**
+- [x] **Step 11: `testing/source-scan.ts` and `source-scan.spec.ts`.**
   - Write the section-4 scan over `readEngineSources()`. Each engine file is one `it`, asserting `scanSource(...)` returns `[]`. Add the anti-vacuity assertions and the controls of section 4.
   - Covers AC-2, AC-12, AC-25 and AC-42.
-- [ ] **Step 12: `determinism.spec.ts`.**
+- [x] **Step 12: `determinism.spec.ts`.**
   - AC-39: for every fixture, for every array found anywhere in its `input` (found by walking, so new lists are covered), the reversed version and the rotated-by-one version each give the same `replay` result as the original. A legitimately order-dependent fixture would be named in an explicit exclusion list with a reason; none is expected. A non-empty exclusion list must be reported to the lead.
   - AC-43:
     1. Pre-load all cases.
@@ -341,7 +341,7 @@ The developer chunks are A (primitives), B (operations), C (fixture harness) and
   - AC-44: deep-freeze each fixture input, call its operation twice, and expect equal results. A `JSON.stringify` of the input is unchanged afterwards, and no "Cannot assign to read only" error is thrown. Module state is covered by the scan rule in step 11.
   - AC-45: for each operation the result is a plain object (`Object.getPrototypeOf(r) === Object.prototype`) with no `then` property, and every nested object passes the same check.
   - Covers AC-39 and AC-43 to AC-45.
-- [ ] **Step 13: Docs and the full gate.**
+- [x] **Step 13: Docs and the full gate.**
   - Update `frontend/README.md` and the `public-api.ts` header comment.
   - Run the full gate (Test strategy).
   - Check that admin ships no engine: after `npx ng build admin`, `grep -l "inclusive_amount_too_small" dist/admin/browser/*.js` must print nothing, with the same rc handling as the CI mock-backend check. Record the result in the hand-off. This is not a CI step, because `pos` does not import the engine yet either.

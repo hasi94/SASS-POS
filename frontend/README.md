@@ -123,6 +123,40 @@ so it is never active in a `ng serve`/development build.
 `admin` receives no PWA treatment in this task (D-9): it is a back-office app, used at a desk on
 a stable connection, with no offline-data story yet. Revisit if/when one is identified.
 
+## Pricing engine
+
+`projects/shared/src/lib/pricing-engine/` is the TypeScript twin of the PHP pricing engine
+(`packages/pricing/src/Engine`), exported from `@flexipos/shared` as five pure, synchronous
+operations: `calculateTax`, `resolvePrice`, `calculateItemDiscount`, `calculateBillDiscount` and
+`priceLine`. Each takes exactly the `input` object of the fixture of its kind (snake_case, every
+decimal and integer a string, `null` for absent) and returns exactly the PHP `toArray()` shape. The
+arithmetic is `BigInt` throughout, rounding half away from zero like PHP's Brick `HalfUp`; the
+engine imports nothing outside its own directory and has no `fs`, `process`, network, clock or
+random source. A refusal is a thrown `PricingRefused` carrying `.reason` (one of the 17
+`PRICING_REFUSALS`); a malformed id, date, instant, currency or integer is a `PricingInputError`; a
+rule value this build does not know is an `UnsupportedRuleError` with `.field` and `.value`. The
+engine never guesses at an unknown rule: what the till does about it is FP-236's decision.
+
+It is proved against `packages/pricing/fixtures/*/*.json`, **read in place** (there is no copy under
+`frontend/`) by `pricing-engine/fixture-set.spec.ts`. The test reaches Node's `fs` at run time
+through `process.getBuiltinModule('node:fs')` (`testing/fixture-files.ts`, Node 22.3 or later), so
+no bundler ever sees a Node import. The fixture directory is found by walking up from the working
+directory (`frontend/` under `npm test`), and the test **fails** if it is missing, holds fewer than
+30 files, or lacks a result or a refusal fixture for any of the five kinds. A TS result that
+differs from a fixture means the TS engine is wrong; fixtures are changed on the PHP side only.
+
+Two instruments back the "no float, no clock, no network" claim, each with controls that prove it
+can fail: a static scan of the engine's own files (`source-scan.spec.ts`, which logs the files it
+scanned) and a run of every fixture with `fetch`, `XMLHttpRequest` and `Date` replaced by throwing
+stubs (`determinism.spec.ts`). The engine is tree-shakeable and `pos`/`admin` do not import it yet;
+to confirm `admin` ships none of it after changing either side:
+
+```bash
+npx ng build admin && grep -l "inclusive_amount_too_small" dist/admin/browser/*.js   # must print nothing
+```
+
 ## Not built yet
 
-Offline database and sync (FP-237), the shared tax and discount engine (FP-231), translations.
+Offline database and sync (FP-237), the till and offline wiring of the pricing engine (FP-236),
+the TypeScript twin of the unit-resolution engine, translations. The pricing engine itself is
+built (next section).
