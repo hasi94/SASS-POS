@@ -1128,3 +1128,45 @@ are real but are not fixed in T-030. Recorded so none is lost:
   and needs a rule for what "same request" means, since `CompleteSale` has no caller-supplied id.
 | Each is either an owner rule not yet stated, belongs to a later task, or is a performance or
 convenience improvement with no correctness cost today. Reversible: n/a (a deferral list).
+
+---
+
+## Decisions D-82 to D-85 — lead rulings from review round 2 and QA round 2 (W-7 to W-10)
+
+All four are owner-visible: they change what a cashier, a receipt or a report can show. Each is
+recorded as the lead ruled it; the owner may overturn any of them.
+
+D-82 (lead ruling; AC-27B, review W-9; owner-visible) | A last-quantity refund whose remainder money is
+exactly 0.0000, because earlier partial refunds already took the whole charge: refuse or accept? |
+**Accept.** It writes a refund line with `line_total` 0.0000, a refund document with a zero total and
+no tender, and the original line becomes refunded. AC-27B's earlier wording read as a refusal and is
+amended so spec equals code. | Otherwise the line could never reach fully refunded. Cost: a
+zero-money refund document exists. Reversible: yes. Reversible flag: yes.
+
+D-83 (lead ruling; AC-27B, review W-7; owner-visible) | On a fixed-amount line discount, the
+last-quantity remainder is the original `line_total` minus earlier refunds, so the derived discount
+can go negative. Clamp? | **Accept, do not clamp.** The remainder line may store a negative
+`discount_amount` (and in tiered cases a negative `subtotal`); `line_total` stays correct and every
+sum is exact. The refund header `discount_total` may be negative. Documented as a consequence of the
+linear remainder rule; a clamp would break net plus tax equals `line_total`. | A report summing
+`discount_total` on refunds can show a negative figure. Reversible: yes, with an owner ruling (a
+different allocation rule would be needed). Reversible flag: yes.
+
+D-84 (lead ruling; AC-27B, AC-42, review W-8; owner-visible) | What do `unit_price` and `list_price`
+mean on a last-quantity refund line? | **Informational:** they hold the re-quote. Receipts and totals
+use `line_total`. Deriving a price from the remainder would need division, which AC-42 does not
+allow. | `unit_price` times quantity may not equal `line_total` on that line; anything that
+recomputes from price will disagree. Reversible: yes. Reversible flag: yes.
+
+D-85 (lead ruling; AC-27B, AC-57, review W-10; owner-visible) | When the re-quote has drifted above the
+remaining charge (a list that started after the sale, a customer moved to a dearer group), what
+happens to a partial refund? | **It can be refused `over_refund`;** only the whole remaining line (or a
+goodwill refund) goes through. This is AC-27B working as designed. AC-57 gets this carve-out. Example
+from QA: 2 units sold at 11.0000 each (22.0000), re-quote of one unit 110.0000; refunding 1 is refused,
+refunding both pays 22.0000. | A cashier cannot refund part of such a line though money is owed.
+Reversible: yes. Reversible flag: yes.
+
+Follow-up for the developer, not a BA or spec edit: in
+`packages/sales/tests/Features/RefundSale/RefundSaleTest.php` the two titles reading "makes the refund
+differ from the charge" (about L507 and L526) no longer match their asserts under AC-27B and need
+renaming.

@@ -34,3 +34,4 @@
 - [T-028 customers close-out](project_t028_customers_closeout.md) — a spec-named enum value missing from the shipped PHP enum (`inactive` status unreachable), undetected by any "bad status" test using an arbitrary string; CPU-time-growth hang check reused on a 1299s gate run; the `$_.CommandLine` bash/PowerShell collision fix.
 - [T-029 pricing close-out](project_t029-pricing-closeout.md) — PASS; ACs with an unpinned clause (net, tax-id tie, inactive group), equivalent mutants, mutation-driver traps.
 - [T-030 Sales close-out](project_t030-sales-closeout.md) — FAIL on an approval bypass (one approval covers unlimited new lines); seeded-approval blind spot, one-field-per-row binding tests, mutation-driver rc 255 artefact.
+- [T-030 round 2](project_t030-round2-review-fix.md) — PASS; cap/remainder mutation survivors, python CRLF trap breaking Pint, two-tax and multi-line fixtures needed.

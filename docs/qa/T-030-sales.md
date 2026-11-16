@@ -311,6 +311,61 @@ Each row: a production edit, the targeted test subtree run, the number of tests 
 | LW4 | override priced from the list price | KILLED | 21 |
 | LW5 | prior-consumed approval path deleted | KILLED | 2 |
 
+## Round 2 (tip `5970d5b`: BUG-1 fix `a2984c0` plus the review fix round; spec rev 7)
+
+### Verdict: PASS
+
+0 defects. Five observations are recorded below (none is a defect against the written ACs; two want a lead ruling).
+
+### Gate (run once, `composer check` from `modules/host`, log-redirected, no APP_KEY)
+
+- **`EXITCODE: 2`**, from the 13 baseline failures only. Pint passed, PHPStan `[OK] No errors`, Deptrac Violations 0 / Errors 0.
+- Test step: **13 failed, 55 skipped, 5177 passed (33332 assertions), 1362 s.** The 13 failed are exactly the baseline by name: `QaModuleRegistryContractTest`, `QaModuleNameValidationTest`, `QaHealthProbeResilienceTest`, `ModulesEnvParsingTest`, `QaVocabularyRenameSweepTest` (no other file failed). Against the dev's 13 / 55 / 5161: passed +16, the 16 QA round 2 tests that existed when the gate started. Two more (W-7, W-10 pins) were added after it; run alone with the other QA files: `packages/sales/tests/Qa` **29 passed (393 assertions)**, Pint `--test` and PHPStan clean afterwards. Expect 13 / 55 / 5179 on the next gate.
+- BUG-1 closed: the two round 1 tests (`QaSalesEndToEndTest` second override line, second gated discount line) are green; all 11 QA round 1 tests pass.
+
+### Hand-computed cases (all matched on the first run; derivations in the comments of `packages/sales/tests/Qa/QaSalesReviewFixTest.php`)
+
+| Case | Hand result |
+|---|---|
+| Tier 5 + 5 (list 100, tier 80 from 10, 10 % exclusive) | sold 10: 800 + 80 = 880. Refund 5 re-quoted at 100: 550. Last 5 = 880 - 550 = 330 (subtotal 300, tax 30), not 550. The sum is 880. A 6 then 3 (990 > 880) is `over_refund` "in money", nothing written, approval left unconsumed, and the last 4 then take 880 - 660 = 220 |
+| Same, inclusive tax | gross 800, net 727.2727, tax 72.7273; refund 5: 500, tax 45.4545; last 5: 300, tax 27.2728, breakdown net 272.7272 |
+| 1.0000 override at 1.2345 refunded 0.5 + 0.5 | zero rate: 0.5 x 1.2345 = 0.61725 -> 0.6173, last 1.2345 - 0.6173 = 0.6172 (not 0.6173 twice). Inclusive 10 %: tax 0.1122, parts 0.0561 + 0.0561, sum equals the charge |
+| Discount remainder | 3 x 0.3335 with 10 %: discount 0.1001; refunds 0.0334, 0.0334, last 0.0333 (not 0.0334); line totals 0.3001, 0.3001, 0.3002 |
+| Two taxes (10 % and 5 %) tier 5 + 5 | 920 charge; 575 then 345; last breakdown A 30 / B 15 on base 300 each, net 300, tax 45 |
+| Partial-tender balance (inclusive 24.0000 x 3 = 72) | card 30 -> paid 30 / balance 42; cash offered 50 -> paid 72 / 0; remove card -> 42 / 30 (pending); remove cash -> draft 0 / 72; add a unit -> total 96 / balance 96; card 30, cash 20, remove cash, cash 66 -> 96 / 0; complete -> paid 96, balance 0, change 0; shift close expects 100... counted 166 -> variance 0, CARD 30 / CASH 66, gross 96 (no double count of the removed tender) |
+
+### Acceptance criteria (round 2)
+
+| AC | Tests | Result |
+|---|---|---|
+| AC-27B | QA tier 5+5, 6-then-3 refusal, inclusive tier, fractional override (2 rows), discount remainder, two-tax breakdown, other-line isolation, equality boundary, after-list-change and goodwill row, shipped `RefundSaleTest` "the money a line can give back" (7 rows) | PASS, mutation-verified (below) |
+| AC-13A | QA add/remove/complete/shift-close walk, replayed tender (same id) does not move the header, hold then implicit recall, refused tender leaves the header; shipped `AddTenderTest`, `RemoveTenderTest` rows | PASS, mutation-verified |
+| AC-55A | QA two managers, same payload, five re-prices in mixed order, through the real approval chain; the fallback row (see below); shipped W-4 row | PASS, mutation-verified |
+
+### The three Q-9 / Q-10 expected-tender changes (2640 -> 220)
+
+All three are the "re-quote dearer than the charge" rows (a list that started after the sale; a customer moved to a dearer group). The line is one case (the last quantity) charged 220.0000, so AC-27B says the refund line is the charge minus earlier refunds = 220.0000, not the engine's 2640. Each row now also asserts `line_total` 220.0000 and keeps the re-quoted `unit_price`. Justified.
+
+### Mutation results (restored with a byte comparison after each run, all `identical`; `git status` shows only the new QA file)
+
+33 mutants over `RefundSaleHandler::capToPaid()` / `remainingBreakdown()`, `AddTenderHandler`, `RemoveTenderHandler` and `LineApprovals`: strict-vs-nonstrict cap, cap never refuses, last-quantity branch off / always on, each of the four remainder columns dropped, remainder ignoring prior refunds, prior-refund sum zero or taken over every line, breakdown net/total and per-tax base/amount untouched, tax-id match dropped, capped result discarded, total not re-summed, remaining quantity ignoring refunded; tender header stale, balance stale, adds `tendered`, no write, balance = total, and the same five on removal plus the status lost; approver preference ignored / inverted / not passed, ordering dropped, fallback dropped / last.
+
+- Killed by the shipped suite plus my first tests: 25 of 33.
+- **Survived the shipped suite and my first tests (8), then closed by new QA tests that go red under the mutant:** the cap's strictness (`>=`), the discount column of the remainder, the prior-refund sum taken over every line of the sale, the breakdown's per-tax base/amount untouched, the tax-id match dropped, the approval ordering dropped, no fallback when no decider matches, fallback taking the last row. After the new tests all 8 are killed (1 failing test each).
+
+### Exploratory findings (recorded, not changed; each pinned by a green characterisation test)
+
+1. **W-9, a zero-money last-quantity refund is written (`QaSalesReviewFixTest` "writes the last units of a fully-paid-back line as a zero-total refund line").** 10 tier units; refund 8 at 880.0000 (exactly the whole charge, allowed); then the last 2 are accepted as a 0.0000 refund document with no tender, and the original becomes `refunded`. AC-27B says "nothing left to refund in money ... AC-28's over_refund/fully_refunded applies as before"; AC-28 knows only quantity, so the code follows one reading and no money moves. **Lead ruling wanted**; if refusal is meant the line stays refundable forever and the original can never reach `refunded`.
+2. **W-7, negative discount column (`... fixed-discount line`).** Fixed 5.0000 discount on 3 x 10.0000: refunds 1 + 1 re-quote at subtotal 10 / discount 5 / total 5; the last unit stores subtotal 10.0000, discount_amount **-5.0000**, line_total 15.0000. Money sums to the 25.0000 charged exactly; only the discount column is negative, and it affects any report that sums `discount_amount` over refund lines (the shift close nets by `line_total`, so it is unaffected).
+3. **W-10, one unit of two is refused (`... two-unit line as over_refund`).** 2 units sold at a list price of 10 (22.0000); the list is moved to start after the sale, the re-quote of 1 unit falls back to 110.0000, above the whole charge: refunding 1 unit is `over_refund` ("in money") although 11.0000 is owed; refunding both pays 22.0000. This is the cap doing what AC-27B says; the cost is that a partial refund can be impossible while the whole is possible. Not a defect against the AC.
+4. **Fallback in AC-55A is unreachable by normal flow.** A line's own approver always has an approval row in the payload set, so the "another matching row" path only runs on a drifted record; I forced it by editing `price_overridden_by` and rewriting approval ids so id order is the reverse of insertion order. With that the lowest id wins and the line names its decider, as the spec says.
+5. **Legitimate-refund hunt, nothing wrongly refused.** Refund after a later higher price list, tax-inclusive lines, discounted lines, multi-line sales (another line's refunds do not count), a unit other than the sale unit, and a goodwill refund (uncapped) all went through; a voided or refunded sale is still `not_refundable` / `fully_refunded` before the cap is reached. A client must now send tenders for the **capped** total, so a till that tendered the re-quoted figure gets a tender mismatch (consequence the dev notes).
+
+### NOT VERIFIED
+
+Everything that needs a real engine (ENGINE_HOLD): the cap and the header update are proven under the sale lock only as SQL text on the stand-in, so two concurrent refunds against one line, and a concurrent `AddTender` / `RemoveTender`, were not exercised on MySQL.
+
 ## History
 
 Run 1: FAIL (BUG-1).
+Run 2: FAIL -> PASS (BUG-1 closed; AC-27B, AC-13A, AC-55A verified; 0 defects; gate 13 failed baseline / 55 skipped / 5177 passed).

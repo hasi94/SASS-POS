@@ -31,3 +31,20 @@ Everything that needs the engine (ENGINE_HOLD): real lock waits and gap locks, t
 
 ## Fix round - W-1, W-3, W-4 (developer `dev40`)
 Gate after the fix: 13 failed (baseline set by name) / 55 skipped / 5161 passed, 1281 s. Re-check by the reviewer is owed (changed items only).
+
+## Round 2 - tip `5970d5b` - APPROVE, no Critical
+
+Re-check of W-1, W-3 and W-4 by `reviewer5`, reading only. All three are correct. The refund cap only sums, compares and subtracts; on the last quantity every column is the original minus the earlier refunds, so net plus tax equals the line total and the parts sum to the charge exactly. No new lock; the reads sit after the sale lock. The tender header update and the approver preference behave as specified; the three changed refund test rows (tender 2640 to 220) follow the cap.
+
+New Warnings, all non-blocking, none pays out more than was charged (decisions D-82 onward):
+
+| ID | Finding | Disposition |
+|---|---|---|
+| W-7 | last-quantity refund of a fixed-discount line can store a negative discount amount or subtotal; money correct | accepted, documented; follow-up |
+| W-8 | last-quantity refund keeps the re-quote's unit price, so a row reads "1 case x 2400 = 220" | informational, receipts print line total; follow-up |
+| W-9 | a last refund with zero money remaining writes a zero-total document, AC-27B read as a refusal | ACCEPTED, spec amended to match |
+| W-10 | a single case is refused over_refund when the re-quote drifted above the remaining charge | AC-27B as designed; owner-visible |
+
+Suggestions S-8 to S-10 (one query per refund line, extra test cases, a LogicException instead of a silent fallback) are follow-ups.
+
+QA round 2: PASS, 0 defects, 13 failed (baseline set by name) / 55 skipped / 5177 passed (5179 expected after two late QA tests); see `docs/qa/T-030-sales.md`.

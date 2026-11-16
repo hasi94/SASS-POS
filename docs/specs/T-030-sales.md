@@ -52,7 +52,12 @@ paid_total and balance_due stay current as tenders come and go) and AC-55A (a re
 naming the approver of that line). Decisions D-78 to D-81; D-81 lists the follow-ups deferred from the
 same review. Owner questions Q-1 and Q-2 are unchanged.
 
-Backlog: FP-233, `docs/backlog.md`. Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-81).
+Revision 8: lead rulings from review round 2 and QA round 2, no AC number moves. AC-27B is reworded
+(a last-quantity refund with a 0.0000 remainder is accepted, not refused) and gains the accepted
+consequences of its remainder rule; AC-57 gets a carve-out. Decisions D-82 to D-85 (review W-9, W-7,
+W-8, W-10).
+
+Backlog: FP-233, `docs/backlog.md`. Decisions: `docs/decisions/T-030-sales.md` (D-1 to D-85).
 Design inputs read directly: `docs/architecture.md` v0.5 §1, §3, §8, §11, §12, §15, §21-22;
 `docs/database.md` v0.5 §3, §6.4 to §6.9 (Catalog, Pricing/tax, Inventory's unit-inheritance
 rule, Sales/POS, Payments, Customers, §12.1's credit-sale transaction shape); T-027's decisions/
@@ -537,7 +542,10 @@ New ACs:
   overridden line is refunded at the stored price and carries no such drift) and with the
   customer's current group (D-63, D-64). Given a promotion that ended, or a customer who changed
   group, between the sale and the refund, the refund can differ from what was charged; this is
-  accepted and named.
+  accepted and named. Carve-out (Revision 8, D-85): the refund of one original line can never exceed
+  that line's charge (AC-27B), so where the re-quote has drifted above the remaining charge the
+  refund is capped or, for a partial quantity, refused `over_refund`; the "differs from the charge"
+  outcome therefore only holds when the re-quote is lower.
 - AC-58: `DiscountUsage::consume()` checks existence and the usage limit only. Given a discount
   deactivated or past its window between quote and completion, Then completion still consumes it
   (D-65).
@@ -630,8 +638,20 @@ Revision 7 — lead rulings from code review round 1 (D-78 to D-80), again as su
   original `refunded_quantity` plus this quantity equals its `base_quantity`), Then the refund line's
   `line_total` is the original `line_total` minus the sum already refunded (a subtraction, not the
   engine's figure), so a full set of partial refunds always sums exactly to the original charge. Given
-  a last-quantity refund where the original line has nothing left to refund in money (already fully
-  refunded), Then AC-28's `over_refund`/`fully_refunded` applies as before. Given a goodwill refund line
+  a last-quantity refund where the original line has nothing left to refund in money (earlier partial
+  refunds already took the whole charge, so the remainder is exactly 0.0000), Then the refund is
+  ACCEPTED (D-82, review W-9): it writes a refund line with `line_total` 0.0000, a refund document
+  with a zero total and no tender, and the original line becomes fully refunded (`refunded_quantity`
+  reaches `base_quantity`); it is not refused, because otherwise that line could never be fully
+  refunded. AC-28's `over_refund`/`fully_refunded` still applies when the original line's quantity is
+  already fully refunded. Consequences of the linear remainder rule, accepted (D-83, D-84): on a
+  last-quantity refund line `unit_price` and `list_price` are informational (the re-quote) and
+  receipts and totals use `line_total`; on a fixed-amount line discount the remainder may store a
+  negative `discount_amount` (and in tiered cases a negative `subtotal`) while `line_total` stays
+  correct, net plus tax equals `line_total`, and every sum is exact; the refund header
+  `discount_total` may therefore be negative. Given a re-quote that has drifted above the remaining
+  charge, Then a partial refund can be refused `over_refund` while only the whole remaining line (or a
+  goodwill refund) goes through (D-85, W-10); this is this AC working as designed. Given a goodwill refund line
   (no `refund_of_item_id`), Then this cap does not apply. AC-27's tier and `min_amount` behaviour
   otherwise stands. The `over_refund` code is shared with AC-28; its message names whether the
   quantity or the money limit was hit. The cap is checked under the same locks as AC-28's quantity
