@@ -1,0 +1,32 @@
+{
+  "call": "sales.add-tender",
+  "case": "refused.not_found.sale",
+  "given": ["shift_open"],
+  "request": {
+    "method": "POST",
+    "path": "sales/01JMCKS0000000000000000009/tenders",
+    "body": {
+      "id": "01JMCKY0000000000000000001",
+      "payment_method_id": "01JMCKM0000000000000000001",
+      "tendered": "250.0000"
+    }
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "Sale not found.",
+      "errors": [
+        {
+          "code": "kernel.not_found",
+          "field": null,
+          "detail": "Sale not found."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

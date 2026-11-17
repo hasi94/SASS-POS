@@ -1,0 +1,27 @@
+{
+  "call": "sales.remove-tender",
+  "case": "refused.invalid_transition",
+  "given": ["shift_open", "completed_sale_open_shift"],
+  "request": {
+    "method": "DELETE",
+    "path": "sales/01JMCKS0000000000000000001/tenders/01JMCKT0000000000000000001"
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "A completed sale cannot be changed in payment.",
+      "errors": [
+        {
+          "code": "sales.invalid_transition",
+          "field": "status",
+          "detail": "completed"
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "call": "approvals.decide",
+  "case": "refused.not_authorised",
+  "given": ["shift_open", "completed_sale_open_shift", "pending_void_approval"],
+  "request": {
+    "method": "POST",
+    "path": "approvals/01JMCKA0000000000000000001/decide",
+    "body": {
+      "decision": "approve",
+      "method": "pin_local",
+      "employee_code": "C200",
+      "pin": "1357"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "That person may not decide approvals at this branch.",
+      "errors": [
+        {
+          "code": "sales.not_authorised",
+          "field": null,
+          "detail": "That person may not decide approvals at this branch."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

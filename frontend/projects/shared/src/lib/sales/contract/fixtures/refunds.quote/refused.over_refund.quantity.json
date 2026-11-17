@@ -1,0 +1,36 @@
+{
+  "call": "refunds.quote",
+  "case": "refused.over_refund.quantity",
+  "given": ["shift_open", "completed_sale_open_shift"],
+  "request": {
+    "method": "POST",
+    "path": "refunds/quote",
+    "body": {
+      "reference_sale_id": "01JMCKS0000000000000000001",
+      "lines": [
+        {
+          "refund_of_item_id": "01JMCKQ0000000000000000001",
+          "quantity": "3.0000"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "More than is left to refund on this line.",
+      "errors": [
+        {
+          "code": "sales.over_refund",
+          "field": "refundable_quantity",
+          "detail": "2.0000"
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "call": "sales.complete",
+  "case": "refused.usage_limit_reached",
+  "given": ["shift_open", "used_up_discount_sale"],
+  "request": {
+    "method": "POST",
+    "path": "sales/01JMCKS0000000000000000001/complete",
+    "body": {}
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "That discount has been used up.",
+      "errors": [
+        {
+          "code": "sales.usage_limit_reached",
+          "field": null,
+          "detail": "That discount has been used up."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

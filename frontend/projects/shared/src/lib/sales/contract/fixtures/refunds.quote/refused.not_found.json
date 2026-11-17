@@ -1,0 +1,36 @@
+{
+  "call": "refunds.quote",
+  "case": "refused.not_found",
+  "given": ["shift_open"],
+  "request": {
+    "method": "POST",
+    "path": "refunds/quote",
+    "body": {
+      "reference_sale_id": "01JMCKS0000000000000000009",
+      "lines": [
+        {
+          "refund_of_item_id": "01JMCKQ0000000000000000001",
+          "quantity": "1.0000"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "Sale not found.",
+      "errors": [
+        {
+          "code": "kernel.not_found",
+          "field": "reference_sale_id",
+          "detail": "01JMCKS0000000000000000009"
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

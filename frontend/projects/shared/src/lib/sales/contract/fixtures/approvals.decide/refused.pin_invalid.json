@@ -1,0 +1,33 @@
+{
+  "call": "approvals.decide",
+  "case": "refused.pin_invalid",
+  "given": ["shift_open", "completed_sale_open_shift", "pending_void_approval"],
+  "request": {
+    "method": "POST",
+    "path": "approvals/01JMCKA0000000000000000001/decide",
+    "body": {
+      "decision": "approve",
+      "method": "pin_local",
+      "employee_code": "S100",
+      "pin": "0000"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "Code or PIN not recognised.",
+      "errors": [
+        {
+          "code": "sales.pin_invalid",
+          "field": null,
+          "detail": "Code or PIN not recognised."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "call": "refunds.quote",
+  "case": "success.goodwill",
+  "given": ["shift_open"],
+  "request": {
+    "method": "POST",
+    "path": "refunds/quote",
+    "body": {
+      "reference_sale_id": null,
+      "lines": [
+        {
+          "product_id": "01JMCKP0000000000000000001",
+          "unit_id": "01JMCKN0000000000000000001",
+          "quantity": "1.0000"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "currency": "LKR",
+        "lines": [
+          {
+            "refund_of_item_id": null,
+            "product_id": "01JMCKP0000000000000000001",
+            "product_name": "Rice 1kg",
+            "unit_code": "ea",
+            "quantity": "1.0000",
+            "line_total": "250.0000"
+          }
+        ],
+        "subtotal": "250.0000",
+        "discount_total": "0.0000",
+        "tax_total": "0.0000",
+        "total": "250.0000"
+      },
+      "message": "",
+      "errors": [],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

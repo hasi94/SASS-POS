@@ -1,0 +1,45 @@
+{
+  "call": "refunds.create",
+  "case": "refused.replay_conflict",
+  "given": ["shift_open", "partially_refunded_sale"],
+  "request": {
+    "method": "POST",
+    "path": "refunds",
+    "body": {
+      "id": "01JMCKZ0000000000000000001",
+      "reference_sale_id": "01JMCKS0000000000000000001",
+      "approval_id": "01JMCKA0000000000000000001",
+      "lines": [
+        {
+          "refund_of_item_id": "01JMCKQ0000000000000000001",
+          "quantity": "2.0000"
+        }
+      ],
+      "tenders": [
+        {
+          "id": "01JMCKY0000000000000000001",
+          "payment_method_id": "01JMCKM0000000000000000001",
+          "amount": "500.0000"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "That id was already used for a different refund.",
+      "errors": [
+        {
+          "code": "sales.replay_conflict",
+          "field": null,
+          "detail": "That id was already used for a different refund."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

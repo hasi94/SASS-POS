@@ -126,3 +126,126 @@ a stable connection, with no offline-data story yet. Revisit if/when one is iden
 ## Not built yet
 
 Offline database and sync (FP-237), the shared tax and discount engine (FP-231), translations.
+
+## Till (T-037)
+
+`pos` at `/till` is the sale screen: shift, product grid and search, scanning, cart, customer,
+payment, hold and recall, void, refund and supervisor approvals, all from the keyboard. **The
+till is online-only and is not connected to a real backend.** In development it talks to an
+in-memory mock of the Sales API; there is no Sales route layer yet, so a production build of the
+till cannot sell anything (a follow-up row wires the real routes). When the network is lost it
+shows a banner, pauses every write and queues nothing.
+
+### Architecture seams
+
+- **Ports and adapters (D-5, P-10).** The till needs exactly two things it does not own: pricing
+  a line and resolving a scanned code. They are the injection tokens `LINE_PRICER` (`LinePricer`)
+  and `BARCODE_RESOLVER` (`BarcodeResolver`) in `projects/shared/src/lib/sales/ports.ts`. Their
+  default factories return the server-backed adapters (`ServerLinePricer`,
+  `ServerBarcodeResolver`), which delegate to `SalesApi`. No component or store names an adapter,
+  the mock or the mock's arithmetic; `money-rules.spec.ts` fails the build if one does. To swap
+  one, provide another implementation: `{ provide: LINE_PRICER, useValue: myPricer }` (a spec, or
+  the future pricing engine and barcode parser, with no component change).
+- **Money is a string (D-6).** Every money and quantity value is a branded decimal string
+  (`Money`, `Quantity`) exactly as the server sent it. The till does no arithmetic on them: the
+  only helper is `projects/shared/src/lib/sales/decimal-string.ts` (validate, compare, format).
+  `money-rules.spec.ts` scans the till and the sales library for float parsing, `Number(`,
+  `toFixed`, `Math.round`, locale formatters and `+` next to a money field, and a canary file
+  proves the scan can fail.
+- **The mock is development only.** `salesMockInterceptor` is installed by
+  `projects/pos/src/environments/environment.development.ts` in front of the auth mock; `admin`
+  never gets it. It keeps its state in memory per tenant and branch, enforces the Sales rules the
+  till depends on, does its arithmetic in exact integers (`sales-mock/mock-decimal.ts`), and
+  derives the terminal from the branch (`TRM-<branchId>`), so the wire carries no branch,
+  terminal or business date.
+
+### The contract and its fixtures
+
+- Types, the route table (`calls.ts`), the closed refusal union and its HTTP statuses
+  (`refusals.ts`): `projects/shared/src/lib/sales/contract/`. `calls.ts` also holds the coverage
+  table: the case names each call must have a fixture for.
+- Fixtures: `projects/shared/src/lib/sales/contract/fixtures/<call-id>/<case>.json`, with case
+  names `success`, `success.<variant>` and `refused.<code>[.<variant>]`. A fixture is
+  `{ call, case, given, request: {method, path, body}, response: {status, body} }`; `given` is a
+  list of named mock steps (`sales-mock/scenarios.ts`, for example `shift_open`,
+  `draft_sale_with_line`) applied to a fresh mock before the request is sent.
+- `contract-fixtures.spec.ts` replays every fixture through the real `HttpClient` stack and
+  requires the answer to equal the fixture: the same status and the same JSON text (key order and
+  every character of every value count, file whitespace does not), and each success body to parse
+  against the TypeScript types. The same files are the conformance suite the real route layer is
+  run against later (it will normalise `meta.request_id`, server-generated ids and timestamps).
+- **Proposed calls (P-7).** These have no T-030 slice yet and are marked `proposed` in
+  `calls.ts`: attach a customer to a draft (`PUT sales/{id}/customer`), the read-only refund quote
+  (`POST refunds/quote`), a client `id` on `POST refunds` as its idempotency key, the
+  server-derived `refundable_quantity` on a sale line, and the short `reference` of an unnumbered
+  sale.
+- **The tender rule (P-1).** The till sends `{ id, payment_method_id, tendered, reference? }` and
+  never an `amount` or `change_given` (the request type has no such key). The server applies
+  `tendered` up to `balance_due` and, on a method that allows change, hands the rest back as
+  `change_given`; without `allows_change` an over-tender is refused `exceeds_balance`. The
+  fixtures `sales.add-tender/success.cash-over-tender.json` and
+  `sales.add-tender/refused.exceeds_balance.card-over-tender.json` pin the rule for whoever builds
+  the real route.
+
+### Keyboard
+
+One file, `projects/pos/src/app/till/keyboard/keymap.ts`; `?` or `F1` shows the list in the till.
+`F5`, `F11` and `F12` are left to the browser.
+
+| Key | Action |
+|---|---|
+| `F2` | Pay |
+| `F3` | Hold the sale |
+| `F4` | Recall a held sale |
+| `F6` | Customer |
+| `F7` | Refund |
+| `F8` | Void a sale |
+| `F9` | Shift menu |
+| `/` (empty scan field) or `Ctrl+K` | Search products |
+| `Up` / `Down` | Select the previous / next cart line |
+| `Delete` | Remove the selected line |
+| `Enter` | Confirm the primary action |
+| `Esc` | Cancel and return to the scan field |
+| `?` or `F1` | Show the shortcut list |
+| `N*` then a code (for example `3*`) | Scan that many (1 to 999) |
+
+### Demonstration data of the sales mock
+
+Everything is fictional; the employee codes and PINs are made up for the mock.
+
+- **Cashier:** the existing demo sign-in (`demo@flexipos.test` / `demo1234`, Demo Owner), whose
+  employee code is `D001`, PIN `1111`. Entering it in the supervisor dialog is the
+  self-approval case.
+- **Supervisor:** code `S100`, PIN `2468` (Supervisor Silva). **Not an approver:** `C200`, PIN
+  `1357`. Any other code or PIN is "Code or PIN not recognised".
+- **Products** (`sales-mock/mock-seed.ts`): Rice 1kg (barcode `4790000000011`, PLU `101`), Mineral
+  Water (barcode `4790000000028`; a box of six with its own barcode `4790000000035`, which carries
+  the unit and quantity), Loose Tomatoes (weighable, PLU `201`; the scale label `2100201012504`
+  carries 1.250 kg, and the price-embedded label `2200201012504` is refused as unsupported),
+  Sample Sachet (zero priced, PLU `301`), Custom Poster (price override allowed, PLU `401`),
+  Laundry Soap, a Tee Shirt with size variants, products that are inactive or not sellable, and 60
+  bulk items so the grid has a second page.
+- **Customers:** `CUS-0001` Nimal Perera with store credit, `CUS-0002` Kamala Silva without.
+- **Payment methods:** cash (gives change), card (needs a reference), store credit (needs a
+  customer), loyalty points and voucher (listed, refused `unsupported_method_type` by the server).
+- **Discounts:** `SAVE10` (10%), `MGR20` (needs a supervisor), `HOME5` (household only), `USED0`
+  (already used up: completing a sale that carries it is refused `usage_limit_reached`), `OLD10`
+  (inactive).
+- **Sales:** the mock starts with none. A shift is opened at the till, and sales, a held sale and
+  completed sales on the open shift appear as you make them. A held sale from another terminal, a
+  completed sale on an earlier, closed shift and the like exist only as named steps for specs
+  (`held_sale_other_terminal`, `completed_sale_closed_shift`, ...).
+
+### Keeping the mock out of production
+
+The sales mock carries its own sentinel next to the auth mock's. Every answer it gives has
+`meta.request_id` starting `flexipos-sales-mock-`, in code the interceptor always runs, so the
+string is in a bundle exactly when the mock is. The two sentinels are `demo@flexipos.test` (auth
+mock) and `flexipos-sales-mock` (sales mock). After a production build both must be absent:
+
+```bash
+npx ng build pos && npx ng build admin
+grep -l -e "demo@flexipos.test" -e "flexipos-sales-mock" dist/pos/browser/*.js dist/admin/browser/*.js   # must print nothing
+```
+
+The CI step "Mock backend absent from both production bundles" runs the same check.

@@ -1,0 +1,31 @@
+{
+  "call": "sales.void",
+  "case": "refused.shift_closed",
+  "given": ["shift_open", "completed_sale_closed_shift", "approved_void_approval"],
+  "request": {
+    "method": "POST",
+    "path": "sales/01JMCKS0000000000000000001/void",
+    "body": {
+      "reason": "Customer changed their mind",
+      "approval_id": "01JMCKA0000000000000000001"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "The sale's shift is closed: refund it instead.",
+      "errors": [
+        {
+          "code": "sales.shift_closed",
+          "field": null,
+          "detail": "The sale's shift is closed: refund it instead."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

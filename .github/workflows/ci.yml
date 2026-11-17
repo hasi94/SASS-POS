@@ -307,7 +307,7 @@ jobs:
           for app in pos admin; do
             compgen -G "dist/${app}/browser/*.js" > /dev/null || { echo "no ${app} bundles to check" >&2; exit 1; }
             set +e
-            grep -l "demo@flexipos.test" dist/"${app}"/browser/*.js
+            grep -l -e "demo@flexipos.test" -e "flexipos-sales-mock" dist/"${app}"/browser/*.js
             rc=$?
             set -e
             case "$rc" in

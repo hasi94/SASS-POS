@@ -1,0 +1,33 @@
+{
+  "call": "sales.add-tender",
+  "case": "refused.validation",
+  "given": ["shift_open", "draft_sale_with_line"],
+  "request": {
+    "method": "POST",
+    "path": "sales/01JMCKS0000000000000000001/tenders",
+    "body": {
+      "id": "01JMCKY0000000000000000001",
+      "payment_method_id": "01JMCKM0000000000000000001",
+      "tendered": "250.0000",
+      "amount": "250.0000"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "The given data was invalid.",
+      "errors": [
+        {
+          "code": "kernel.validation_failed",
+          "field": "amount",
+          "detail": "This field is not accepted."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

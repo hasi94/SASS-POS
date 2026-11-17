@@ -1,0 +1,32 @@
+{
+  "call": "sales.add-tender",
+  "case": "refused.replay_conflict",
+  "given": ["shift_open", "pending_payment_sale"],
+  "request": {
+    "method": "POST",
+    "path": "sales/01JMCKS0000000000000000001/tenders",
+    "body": {
+      "id": "01JMCKT0000000000000000001",
+      "payment_method_id": "01JMCKM0000000000000000001",
+      "tendered": "120.0000"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "That id was already used for a different tender.",
+      "errors": [
+        {
+          "code": "sales.replay_conflict",
+          "field": null,
+          "detail": "That id was already used for a different tender."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

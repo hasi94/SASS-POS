@@ -1,0 +1,32 @@
+{
+  "call": "sales.add-tender",
+  "case": "refused.invalid_transition.held-from-draft",
+  "given": ["shift_open", "held_from_draft"],
+  "request": {
+    "method": "POST",
+    "path": "sales/01JMCKS0000000000000000001/tenders",
+    "body": {
+      "id": "01JMCKY0000000000000000001",
+      "payment_method_id": "01JMCKM0000000000000000001",
+      "tendered": "250.0000"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "A held sale cannot be paid.",
+      "errors": [
+        {
+          "code": "sales.invalid_transition",
+          "field": "status",
+          "detail": "held"
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

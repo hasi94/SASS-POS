@@ -1,0 +1,32 @@
+{
+  "call": "sales.add-tender",
+  "case": "refused.unsupported_method_type",
+  "given": ["shift_open", "draft_sale_with_line"],
+  "request": {
+    "method": "POST",
+    "path": "sales/01JMCKS0000000000000000001/tenders",
+    "body": {
+      "id": "01JMCKY0000000000000000001",
+      "payment_method_id": "01JMCKM0000000000000000004",
+      "tendered": "250.0000"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "That payment method cannot be used for a sale.",
+      "errors": [
+        {
+          "code": "sales.unsupported_method_type",
+          "field": null,
+          "detail": "That payment method cannot be used for a sale."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

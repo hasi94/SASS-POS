@@ -1,0 +1,31 @@
+{
+  "call": "sales.void",
+  "case": "refused.approval_mismatch",
+  "given": ["shift_open", "completed_sale_open_shift", "approved_refund_approval"],
+  "request": {
+    "method": "POST",
+    "path": "sales/01JMCKS0000000000000000001/void",
+    "body": {
+      "reason": "Customer changed their mind",
+      "approval_id": "01JMCKA0000000000000000001"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "That approval does not belong to this action.",
+      "errors": [
+        {
+          "code": "sales.approval_mismatch",
+          "field": null,
+          "detail": "That approval does not belong to this action."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

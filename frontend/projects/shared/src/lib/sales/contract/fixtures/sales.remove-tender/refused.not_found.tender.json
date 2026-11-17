@@ -1,0 +1,27 @@
+{
+  "call": "sales.remove-tender",
+  "case": "refused.not_found.tender",
+  "given": ["shift_open", "pending_payment_sale"],
+  "request": {
+    "method": "DELETE",
+    "path": "sales/01JMCKS0000000000000000001/tenders/01JMCKT0000000000000000009"
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "Tender not found.",
+      "errors": [
+        {
+          "code": "kernel.not_found",
+          "field": "tender_id",
+          "detail": "01JMCKT0000000000000000009"
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}
