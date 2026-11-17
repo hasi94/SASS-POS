@@ -20,11 +20,20 @@ use Illuminate\Database\Connection;
 final class OrderReceipts
 {
     /**
+     * Whether any receipt-application row exists for the order, even one reversed
+     * to zero (D-45): the one fact that lets an `approved` order be closed.
+     */
+    public static function hasApplications(Connection $connection, string $orderId): bool
+    {
+        return $connection->table('purchase_order_receipt_applications')->where('order_id', $orderId)->exists();
+    }
+
+    /**
      * @throws PurchasingRefused already_received
      */
     public static function assertNone(Connection $connection, string $orderId, string $number, string $instead): void
     {
-        $applied = $connection->table('purchase_order_receipt_applications')->where('order_id', $orderId)->exists();
+        $applied = self::hasApplications($connection, $orderId);
 
         $received = false;
 

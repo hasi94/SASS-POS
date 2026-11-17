@@ -30,7 +30,10 @@ use Flexipos\Purchasing\Support\TenantConnection;
  * **Nothing calls this slice.** The engine does not notify the module that owns the
  * document, so whoever calls the workflow's `decide()` must call this too, or a
  * decided approval does not move the request. That gap is the owner-visible
- * follow-up of D-52 and is not built here.
+ * follow-up of D-52 and is not built here. **It must run after `decide()` has
+ * committed**: the instance is read under the header lock, so a call made inside
+ * the deciding transaction, or before it commits, sees `pending` and changes
+ * nothing.
  *
  * It acts only on a `pending_approval` request; anything else is returned
  * unchanged (`changed = false`, no audit row), which is also what makes a second

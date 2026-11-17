@@ -422,6 +422,17 @@ it('AC-96: no permission is checked: a null actor and an employee holding no pur
         ->and(PurchasingSeed::row('purchase_order_receipt_applications', $anonymous->applicationId)['created_by'])->toBeNull();
 });
 
+it('R-4: an actor id that names no employee is validation Unknown actor, nothing is written, and a null actor still applies', function () {
+    $w = puApplyWorld();
+    $before = PurchasingRefusals::state();
+
+    $refused = PurchasingRefusals::expect(PurchasingRefusal::Validation, fn () => puApply(puReceipt($w['big'], '10.0000', '0.4000'), (string) Str::ulid()));
+
+    expect($refused->getMessage())->toBe('Unknown actor.')
+        ->and(PurchasingRefusals::state())->toBe($before)
+        ->and(puApply(puReceipt($w['big'], '10.0000', '0.4000'), null)->replayed)->toBeFalse();
+});
+
 it('AC-79: only the order, its lines, the applications, the audit trail and the outbox are touched', function () {
     $w = puApplySingle();
     $others = ['stock_levels', 'stock_movements', 'customer_ledger'];

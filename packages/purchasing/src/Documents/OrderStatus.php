@@ -12,15 +12,17 @@ use Flexipos\Purchasing\Exceptions\PurchasingRefused;
  *
  * The allowed moves, exactly AC-67: `draft -> pending_approval | approved |
  * cancelled`; `pending_approval -> approved | draft | cancelled`; `approved ->
- * draft (reopen) | partially_received | received | cancelled`;
+ * draft (reopen) | partially_received | received | cancelled | closed`;
  * `partially_received -> received | closed | approved` (a reversal to all-zero);
- * `received -> partially_received (a reversal) | closed`. `sent` is in the stored
+ * `received -> partially_received | approved (a reversal) | closed`. `sent` is in the stored
  * enum and **nothing enters or leaves it** (D-2). `closed` and `cancelled` are
  * terminal.
  *
  * Whether `approved -> draft` and `approved -> cancelled` are allowed for a given
- * order also depends on there being no receipt-application row (D-45), which is
- * the slice's question to the table; this enum answers only the status half.
+ * order also depends on there being no receipt-application row (D-45), and
+ * `approved -> closed` on there being one (an order fully reversed to zero is
+ * `approved` again but has received once); that is the slice's question to the
+ * table, and this enum answers only the status half.
  */
 enum OrderStatus: string
 {
@@ -43,9 +45,9 @@ enum OrderStatus: string
         return match ($this) {
             self::Draft => [self::PendingApproval, self::Approved, self::Cancelled],
             self::PendingApproval => [self::Approved, self::Draft, self::Cancelled],
-            self::Approved => [self::Draft, self::PartiallyReceived, self::Received, self::Cancelled],
+            self::Approved => [self::Draft, self::PartiallyReceived, self::Received, self::Cancelled, self::Closed],
             self::PartiallyReceived => [self::Received, self::Closed, self::Approved],
-            self::Received => [self::PartiallyReceived, self::Closed],
+            self::Received => [self::PartiallyReceived, self::Approved, self::Closed],
             self::Sent, self::Closed, self::Cancelled => [],
         };
     }

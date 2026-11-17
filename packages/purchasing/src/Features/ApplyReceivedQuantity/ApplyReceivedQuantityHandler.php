@@ -34,7 +34,8 @@ use Illuminate\Database\Connection;
  * one, a transaction of its own when called alone), never retries, and takes the
  * **order header lock first**, before any line (Ruling 7); the line is found by a
  * plain read only to learn which order to lock, then read again under the lock.
- * `actorId` is recorded on the application and the audit row and may be null.
+ * `actorId` is recorded on the application and the audit row and may be null; a
+ * non-null id that names no employee is `validation` ("Unknown actor.").
  *
  * **The deltas.** `received_base_delta` and `received_quantity_delta` are a
  * `DECIMAL(18,4)` string or an int, never a float. The base delta is never zero and
@@ -89,6 +90,13 @@ final class ApplyReceivedQuantityHandler
 
         $connection = $this->tenant->get();
 
+        // The application row's `created_by` is a foreign key to employees, so an id
+        // that names no employee is refused here as validation, not left to surface
+        // as a QueryException. A null actor is allowed and skips the check.
+        if ($actorId !== null && ! $connection->table('employees')->where('id', $actorId)->exists()) {
+            throw PurchasingRefused::validation('Unknown actor.');
+        }
+
         // A plain read, to learn which order to lock. Nothing is decided from it.
         $orderId = strtoupper((string) Lookup::any($connection, 'purchase_order_items', $lineId, 'purchase order line')->order_id);
 
@@ -138,6 +146,8 @@ final class ApplyReceivedQuantityHandler
             );
 
             if ($rolled !== $status) {
+                $status->assertCanMoveTo($rolled);
+
                 $connection->table('purchase_orders')->where('id', $orderId)->update([
                     'status' => $rolled->value,
                     'updated_at' => $now,

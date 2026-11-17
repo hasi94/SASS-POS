@@ -171,6 +171,23 @@ it('AC-65 and AC-67: every other status is invalid_transition naming it, and not
     'cancelled' => ['cancelled'],
 ]);
 
+it('R-1: an approved order that has a receipt-application row (even one reversed to zero) can be closed; without one it is invalid_transition', function () {
+    $w = puCloseWorld('approved');
+    $refused = PurchasingRefusals::expect(PurchasingRefusal::InvalidTransition, fn () => puCloseOrder(['order_id' => $w['order'], 'reason' => 'x'], $w['closer']));
+
+    expect($refused->getMessage())->toContain('approved');
+
+    PurchasingSeed::receiptApplication($w['order'], $w['first'], '4.0000', '4.0000');
+    PurchasingSeed::receiptApplication($w['order'], $w['first'], '-4.0000', '-4.0000');
+    PurchasingSeed::connection()->table('purchase_order_items')->where('id', $w['first'])->update(['received_base_quantity' => '0.0000', 'received_quantity' => '0.0000']);
+
+    $result = puCloseOrder(['order_id' => $w['order'], 'reason' => 'Supplier withdrew'], $w['closer']);
+
+    expect($result->changed)->toBeTrue()
+        ->and($result->order['status'])->toBe('closed')
+        ->and(PurchasingSeed::row('purchase_orders', $w['order'])['status'])->toBe('closed');
+});
+
 it('AC-65: a missing, blank, non-string or over-long reason is validation, and 500 characters is accepted', function (mixed $reason, bool $accepted) {
     $w = puCloseWorld();
     $fields = ['order_id' => $w['order']];

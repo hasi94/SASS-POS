@@ -113,6 +113,41 @@ const QA_PURCHASING_FOREIGN_TOKENS = [
 ];
 
 /**
+ * S-2: every table a literal `->table('...')` names in Purchasing source: the package's own tables and the
+ * read-only lookups of other modules' tables (products, locations, branches, and employees for the actor check).
+ *
+ * @var list<string>
+ */
+const QA_PURCHASING_ALLOWED_TABLES = [
+    'suppliers', 'purchase_requests', 'purchase_request_items', 'purchase_orders', 'purchase_order_items',
+    'purchase_order_receipt_applications', 'products', 'locations', 'branches', 'employees',
+];
+
+/**
+ * @param  list<string>  $allowed
+ * @param  array<string, string>  $files
+ * @return list<string> `path: table` for every literal `->table('name')` whose name is not allowed
+ */
+function qaPurchasingTableOffenders(array $allowed, array $files): array
+{
+    $found = [];
+
+    foreach ($files as $path => $code) {
+        if (preg_match_all('/->table\(\s*[\'"]([A-Za-z0-9_]+)[\'"]\s*\)/', $code, $matches) < 1) {
+            continue;
+        }
+
+        foreach ($matches[1] as $table) {
+            if (! in_array($table, $allowed, true)) {
+                $found[] = "{$path}: {$table}";
+            }
+        }
+    }
+
+    return $found;
+}
+
+/**
  * The one file that does arithmetic, and the one caller of its product.
  */
 const QA_PURCHASING_MONEY_FILE = 'Support/Money.php';
@@ -277,6 +312,27 @@ it('AC-93, AC-79 (a) control: a planted file naming each token is reported, a pr
         expect($offenders)->toHaveCount(count(QA_PURCHASING_FOREIGN_TOKENS))
             ->and($offenders)->not->toContain('Prose.php')
             ->and($offenders)->not->toContain('Longer.php');
+    } finally {
+        qaPurchasingDeleteDirectory($directory);
+    }
+});
+
+it('S-2: every literal table call in Purchasing source names an allowed table', function () {
+    $files = qaPurchasingPackageFiles();
+
+    expect(count($files))->toBeGreaterThan(100)
+        ->and(qaPurchasingTableOffenders(QA_PURCHASING_ALLOWED_TABLES, $files))->toBe([]);
+});
+
+it('S-2 control: a planted table call outside the list is reported, an allowed table and a prose mention are not', function () {
+    $directory = qaPurchasingFreshTempDirectory();
+
+    try {
+        file_put_contents($directory.'/Planted.php', "<?php\n\$x->table('stock_items')->get();\n\$y->table(\"receipts\")->get();\n");
+        file_put_contents($directory.'/Fine.php', "<?php\n\$x->table('suppliers')->get();\n// ->table('tax_rates')\n");
+
+        expect(qaPurchasingTableOffenders(QA_PURCHASING_ALLOWED_TABLES, qaPurchasingSourceFiles($directory)))
+            ->toBe(['Planted.php: stock_items', 'Planted.php: receipts']);
     } finally {
         qaPurchasingDeleteDirectory($directory);
     }

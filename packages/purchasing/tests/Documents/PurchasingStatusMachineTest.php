@@ -45,9 +45,9 @@ const PU_REQUEST_MOVES = [
 const PU_ORDER_MOVES = [
     ['draft', 'pending_approval'], ['draft', 'approved'], ['draft', 'cancelled'],
     ['pending_approval', 'approved'], ['pending_approval', 'draft'], ['pending_approval', 'cancelled'],
-    ['approved', 'draft'], ['approved', 'partially_received'], ['approved', 'received'], ['approved', 'cancelled'],
+    ['approved', 'draft'], ['approved', 'partially_received'], ['approved', 'received'], ['approved', 'cancelled'], ['approved', 'closed'],
     ['partially_received', 'received'], ['partially_received', 'closed'], ['partially_received', 'approved'],
-    ['received', 'partially_received'], ['received', 'closed'],
+    ['received', 'partially_received'], ['received', 'approved'], ['received', 'closed'],
 ];
 
 it('allows exactly the request transitions of AC-37 and no other, over every pair', function (string $from, string $to, bool $allowed) {

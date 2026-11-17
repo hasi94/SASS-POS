@@ -10,8 +10,10 @@ use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Flexipos\Purchasing\Documents\DocumentLocks;
 use Flexipos\Purchasing\Documents\OrderEvents;
 use Flexipos\Purchasing\Documents\OrderImage;
+use Flexipos\Purchasing\Documents\OrderReceipts;
 use Flexipos\Purchasing\Documents\OrderStatus;
 use Flexipos\Purchasing\Documents\ReasonInput;
+use Flexipos\Purchasing\Exceptions\PurchasingRefusal;
 use Flexipos\Purchasing\Exceptions\PurchasingRefused;
 use Flexipos\Purchasing\Registry\PurchasingAuditActions;
 use Flexipos\Purchasing\Registry\PurchasingPermissions;
@@ -26,9 +28,11 @@ use Flexipos\Purchasing\Support\TenantConnection;
  * 4, 11).
  *
  * Needs `purchasing.orders.close` at the order's stored branch and a `reason` of 1
- * to 500 characters (checked even for a repeat). Only `partially_received` and
- * `received` move to `closed`; every other status but `closed` is
- * `invalid_transition` naming it. The abandoned quantity on open lines is **left as
+ * to 500 characters (checked even for a repeat). `partially_received` and
+ * `received` move to `closed`, and so does an `approved` order **that has a
+ * receipt-application row** (one reversed to all-zero is `approved` again but has
+ * received once, D-45); an `approved` order with none, and every other status but
+ * `closed`, is `invalid_transition` naming it. The abandoned quantity on open lines is **left as
  * stored**: no line, no received column and no total is touched. One audit row and
  * the `purchase_order.closed` event, same transaction.
  *
@@ -73,6 +77,13 @@ final class ClosePurchaseOrderHandler
             }
 
             $status->assertCanMoveTo(OrderStatus::Closed);
+
+            if ($status === OrderStatus::Approved && ! OrderReceipts::hasApplications($connection, $orderId)) {
+                throw PurchasingRefused::because(
+                    PurchasingRefusal::InvalidTransition,
+                    "A purchase order that is [{$status->value}] and has had nothing received cannot become [closed].",
+                );
+            }
 
             $connection->table('purchase_orders')->where('id', $orderId)->update([
                 'status' => OrderStatus::Closed->value,
