@@ -58,6 +58,9 @@ parameters:
         # T-032, source and tests.
         - ../../packages/finance/src
         - ../../packages/finance/tests
+        # T-038, source and tests.
+        - ../../packages/hr/src
+        - ../../packages/hr/tests
         # Str::studly('http-client') === 'HttpClient'; the directory stays kebab-case.
         - ../../packages/http-client/src
         - ../../packages/kernel/src

@@ -54,6 +54,11 @@ deptrac:
     # Package_Finance_Tests layer below matches them.
     - ../../packages/finance/src
     - ../../packages/finance/tests
+    # T-038 step 1. The HR package, registered with its test tree, whose files
+    # declare Flexipos\Hr\Tests\..., so the Package_Hr_Tests layer below
+    # matches them.
+    - ../../packages/hr/src
+    - ../../packages/hr/tests
     # Str::studly('http-client') === 'HttpClient'; the directory stays kebab-case.
     - ../../packages/http-client/src
     - ../../packages/kernel/src
@@ -191,6 +196,21 @@ deptrac:
       collectors:
         - type: classLike
           value: ^Flexipos\\Finance\\Tests\\.*
+
+    # T-038 step 1. The HR package: employee profiles, departments,
+    # designations and documents. Two layers, the finance shape. Its source
+    # reaches only the kernel and the published contracts, and no module
+    # reaches it except through `Flexipos\Contracts\Hr` (AC-8's instrument,
+    # together with Module_Demo's omission below).
+    - name: Package_Hr
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Hr\\(?!Tests\\).*
+
+    - name: Package_Hr_Tests
+      collectors:
+        - type: classLike
+          value: ^Flexipos\\Hr\\Tests\\.*
 
     # T-018 step 1. Split the same way organization's and platform's layers
     # are: the first pattern excludes `Tests\`, so a class is in exactly one
@@ -365,6 +385,7 @@ deptrac:
       - Package_Customers
       - Package_Eventbus
       - Package_Finance
+      - Package_Hr
       - Package_HttpClient
       - Package_Kernel
       - Package_Kernel_TenancyStatus
@@ -396,6 +417,8 @@ deptrac:
       - Package_Eventbus
       - Package_Finance
       - Package_Finance_Tests
+      - Package_Hr
+      - Package_Hr_Tests
       - Package_HttpClient
       - Package_Kernel
       - Package_Kernel_TenancyStatus
@@ -528,6 +551,18 @@ deptrac:
     # the reason the customers tests do (the fixture tenant is access's).
     Package_Finance_Tests:
       - Package_Finance
+      - Package_Contracts
+      - Package_Kernel
+      - Package_Access
+    # T-038 step 1 (plan Ruling 1, section 5). Source reaches the kernel and
+    # the published contracts only. Module_Demo is deliberately NOT granted
+    # Package_Hr: that omission is AC-8's instrument.
+    Package_Hr:
+      - Package_Kernel
+      - Package_Contracts
+    # Tests may additionally reach access's tenant fixture.
+    Package_Hr_Tests:
+      - Package_Hr
       - Package_Contracts
       - Package_Kernel
       - Package_Access

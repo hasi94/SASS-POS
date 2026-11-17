@@ -342,7 +342,7 @@ Rules carried from T-032 §6:
 
 ### Chunk A: package, schema, instruments
 
-- [ ] **Step 0: verify the base. STOP on any difference.** Record:
+- [x] **Step 0: verify the base. STOP on any difference.** Record:
   - the tree top (76, `003203`) and `.env.example` (76);
   - the literals of every section 9 row;
   - `EmployeeDirectory`, `BranchDirectory`, `PermissionResolver::decide`, `AuditTrail::record`, `DeclaresAuditActions` and `AccessRefusals::of` as in 0.1;
@@ -350,11 +350,11 @@ Rules carried from T-032 §6:
   - whether finance chunks D to F or T-040 landed on the base since `c4b7006` (if so, start from the regenerated literals).
 
   *(No AC.)*
-- [ ] **Step 1: package plumbing.** `composer.json`, an empty `HrServiceProvider`, `config/hr.php`, the section 5 edits, and `'hr'` in `QaToolchainRegistryCoverageTest`.
+- [x] **Step 1: package plumbing.** `composer.json`, an empty `HrServiceProvider`, `config/hr.php`, the section 5 edits, and `'hr'` in `QaToolchainRegistryCoverageTest`.
   - `HrProviderTest`: the provider is loaded.
   - **Deptrac negative control:** a scratch class in `modules/demo/src` importing `Flexipos\Hr\Profiles\ProfileFields` fails, and the same class importing `Flexipos\Contracts\Hr\OrgChart` passes. Delete both.
   - *(AC-8 instrument, AC-9 `QaToolchainRegistryCoverageTest`.)*
-- [ ] **Step 2: the four migrations, with `HrTenantSchemaTest`** (the finance stand-in shape).
+- [x] **Step 2: the four migrations, with `HrTenantSchemaTest`** (the finance stand-in shape).
   - Exact sorted column lists per table (AC-3), `employee_documents.updated_by` included (D-39), and the absent payroll columns by name.
   - `employees` is byte-identical before and after migrating, its column list unchanged (AC-3, AC-103).
   - The **14** keys exist. Each bites with a raw insert naming a missing target, and accepts the same row with a real target, one per key including `employee_documents.updated_by` (AC-6). Deleting a referenced `employees`, `departments`, `designations` or `branches` row directly is refused.
@@ -364,7 +364,7 @@ Rules carried from T-032 §6:
   - **Sync and republish:** republish the catalogue (`php artisan schema:publish --write-fixture`); `.env.example` 76 → 80; then section 9's step-2 rows (`tenantTreeTables`, `MigrationTreeDisciplineTest`, `IdempotencyKeysSchemaTest`, `TenantBaselineBuildsTest` with **all 14 keys** in the whole foreign-key inventory, `QaAccessCloseOutSweepsTest`, `QaAccessSchemaShapeTest`). Each keeps its liveness control (AC-9).
   - `HrMigrationCatalogueTest`: four expand rows, `is_destructive` false, increasing versions, the fixture equals the table, and earlier checksums unchanged (AC-5).
   - *(AC-1 stand-in, AC-2 source, AC-3 to AC-7, AC-9 schema rows, AC-28, AC-102, AC-103.)*
-- [ ] **Step 3: widths.** `HrWidthsTest` asserts every `VARCHAR`/`CHAR` width in `003801` to `003804` equals its `Support\Limits` constant. **Red-first:** a fixture `string('code', 21)` is reported. *(AC-4 width half, AC-16, AC-32, AC-47 lengths.)*
+- [x] **Step 3: widths.** `HrWidthsTest` asserts every `VARCHAR`/`CHAR` width in `003801` to `003804` equals its `Support\Limits` constant. **Red-first:** a fixture `string('code', 21)` is reported. *(AC-4 width half, AC-16, AC-32, AC-47 lengths.)*
 
 ### Chunk B: contracts and the pure core
 

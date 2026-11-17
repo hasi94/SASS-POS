@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "ba4342610c2a233cae2e54bb0c0cc310",
+    "content-hash": "a36a459dad1c8e5c36f9ef18d3a1ab4c",
     "packages": [
         {
             "name": "brick/math",
@@ -763,6 +763,33 @@
                 "proprietary"
             ],
             "description": "FlexiPOS finance: the chart of accounts, fiscal years and periods, period closing and the period gate.",
+            "transport-options": {
+                "relative": true
+            }
+        },
+        {
+            "name": "flexipos/hr",
+            "version": "0.1.0",
+            "dist": {
+                "type": "path",
+                "url": "../../packages/hr",
+                "reference": "f53cb145e57bcd9f3fede4e2da0d1294fa5f4e98"
+            },
+            "require": {
+                "flexipos/contracts": "*",
+                "flexipos/kernel": "*",
+                "php": "^8.2"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Flexipos\\Hr\\": "src/"
+                }
+            },
+            "license": [
+                "proprietary"
+            ],
+            "description": "FlexiPOS HR master data: employee profiles, departments, designations and employee documents.",
             "transport-options": {
                 "relative": true
             }

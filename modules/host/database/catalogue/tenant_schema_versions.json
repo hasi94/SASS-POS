@@ -606,5 +606,37 @@
         "checksum": "6981940b694a7517b6471683be5c202850d181f568ebe060021b898dd4bd1532",
         "is_destructive": false,
         "requires_offline": false
+    },
+    {
+        "version": 77,
+        "migration": "2026_11_16_003801_create_departments_table",
+        "phase": "expand",
+        "checksum": "f59d71c4f4567adf1f245829b399b00da72e36c1758c38e00ad9b9450c379503",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 78,
+        "migration": "2026_11_16_003802_create_designations_table",
+        "phase": "expand",
+        "checksum": "fe69e692843db6aba5ed737b1a71a0d51c8a1f1876c46206d9036a6914c923ab",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 79,
+        "migration": "2026_11_16_003803_create_employee_profiles_table",
+        "phase": "expand",
+        "checksum": "d8adedba7908af1caef2a20324a66ec04c6f9ca5536652b8ab525f4d45ff21b9",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 80,
+        "migration": "2026_11_16_003804_create_employee_documents_table",
+        "phase": "expand",
+        "checksum": "136837b38fd23c738f4751f3506607c3cad2442dc6247d6f35b70afe372b1f5a",
+        "is_destructive": false,
+        "requires_offline": false
     }
 ]

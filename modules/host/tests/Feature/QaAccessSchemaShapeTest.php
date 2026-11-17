@@ -232,7 +232,10 @@ it('creates the eight tables and nothing else, and the listing check can tell ot
     // T-032's three finance tables are excluded the same way.
     $t032 = ['accounts', 'fiscal_periods', 'fiscal_years'];
 
-    $new = array_values(array_diff(qaT10Tables(), tenantBaselineTables(), ['migrations'], $t014, $t017, $t019, $t020, $t021, $t027, $t028, $t029, $t030, $t032));
+    // T-038's four HR tables are excluded the same way.
+    $t038 = ['departments', 'designations', 'employee_documents', 'employee_profiles'];
+
+    $new = array_values(array_diff(qaT10Tables(), tenantBaselineTables(), ['migrations'], $t014, $t017, $t019, $t020, $t021, $t027, $t028, $t029, $t030, $t032, $t038));
 
     expect($new)->toBe([
         'access_log', 'employee_branches', 'employee_permissions', 'employee_roles',

@@ -8,6 +8,7 @@ use Flexipos\Catalog\CatalogServiceProvider;
 use Flexipos\Customers\CustomersServiceProvider;
 use Flexipos\Eventbus\EventbusServiceProvider;
 use Flexipos\Finance\FinanceServiceProvider;
+use Flexipos\Hr\HrServiceProvider;
 use Flexipos\Kernel\Api\ApiServiceProvider;
 use Flexipos\Kernel\Schema\SchemaServiceProvider;
 use Flexipos\Kernel\Tenancy\TenancyServiceProvider;
@@ -34,6 +35,7 @@ return [
     CatalogServiceProvider::class,
     CustomersServiceProvider::class,
     FinanceServiceProvider::class,
+    HrServiceProvider::class,
     PricingServiceProvider::class,
     SalesServiceProvider::class,
 ];

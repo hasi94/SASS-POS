@@ -119,7 +119,7 @@ it('is the catalogue top entry, phase expand, version 43', function () {
     // alone for the reason the notes above give.
     $top = end($catalogue);
 
-    expect($top['version'])->toBe(76)
-        ->and($top['migration'])->toBe('2026_11_15_003203_create_fiscal_periods_table')
+    expect($top['version'])->toBe(80)
+        ->and($top['migration'])->toBe('2026_11_16_003804_create_employee_documents_table')
         ->and($top['phase'])->toBe('expand');
 });

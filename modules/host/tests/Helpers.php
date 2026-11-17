@@ -599,6 +599,11 @@ function tenantTreeTables(): array
         'accounts',
         'fiscal_years',
         'fiscal_periods',
+        // T-038 step 2: the four HR tables (docs/database.md section 6.12).
+        'departments',
+        'designations',
+        'employee_profiles',
+        'employee_documents',
     ]);
 
     sort($tables);

@@ -150,7 +150,11 @@ function closeOutNewTables(): array
     // exercise never writes an account, a fiscal year or a fiscal period.
     $t032 = ['accounts', 'fiscal_periods', 'fiscal_years'];
 
-    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017, $t019, $t020, $t021, $t027, $t028, $t029, $t030, $t032));
+    // T-038's four HR tables are excluded the same way: this sweep's exercise
+    // never writes a department, a designation, a profile or a document.
+    $t038 = ['departments', 'designations', 'employee_documents', 'employee_profiles'];
+
+    return array_values(array_diff(tenantTreeTables(), tenantBaselineTables(), $t014, $t017, $t019, $t020, $t021, $t027, $t028, $t029, $t030, $t032, $t038));
 }
 
 /**

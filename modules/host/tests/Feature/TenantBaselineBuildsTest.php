@@ -362,6 +362,13 @@ it('holds exactly the declared foreign keys, and the branch keys of T-014 (AC-3,
         'customers.merged_into_id -> customers.id',
         'customers.possible_duplicate_of -> customers.id',
         'customers.updated_by -> employees.id',
+        // T-038 step 2: the four HR tables' 14 foreign keys (sorted in among
+        // the rest): eight onto employees, two onto branches, two onto
+        // departments, one onto designations, and the departments self key.
+        'departments.branch_id -> branches.id',
+        'departments.manager_employee_id -> employees.id',
+        'departments.parent_id -> departments.id',
+        'designations.department_id -> departments.id',
         'devices.revoked_by -> employees.id',
         'devices.terminal_id -> terminals.id',
         // T-029 step 2: the nine pricing and tax tables' 11 foreign keys, plus the
@@ -371,9 +378,19 @@ it('holds exactly the declared foreign keys, and the branch keys of T-014 (AC-3,
         'discounts.workflow_definition_id -> workflow_definitions.id',
         'employee_branches.branch_id -> branches.id',
         'employee_branches.employee_id -> employees.id',
+        'employee_documents.created_by -> employees.id',
+        'employee_documents.employee_id -> employees.id',
+        'employee_documents.updated_by -> employees.id',
         'employee_permissions.branch_id -> branches.id',
         'employee_permissions.employee_id -> employees.id',
         'employee_permissions.permission_key -> permissions.key',
+        'employee_profiles.branch_id -> branches.id',
+        'employee_profiles.created_by -> employees.id',
+        'employee_profiles.department_id -> departments.id',
+        'employee_profiles.designation_id -> designations.id',
+        'employee_profiles.employee_id -> employees.id',
+        'employee_profiles.reports_to_employee_id -> employees.id',
+        'employee_profiles.updated_by -> employees.id',
         'employee_roles.branch_id -> branches.id',
         'employee_roles.employee_id -> employees.id',
         'employee_roles.granted_by -> employees.id',
@@ -501,7 +518,9 @@ it('holds exactly the declared foreign keys, and the branch keys of T-014 (AC-3,
         // T-028 step 3: customer_ledger.branch_id joins the list of tables
         // with a key to branches.
         'customer_ledger',
-        'employee_branches', 'employee_permissions', 'employee_roles', 'locations', 'number_sequences',
+        // T-038 step 2: departments.branch_id and employee_profiles.branch_id.
+        'departments',
+        'employee_branches', 'employee_permissions', 'employee_profiles', 'employee_roles', 'locations', 'number_sequences',
         // T-027 step 3: product_branches.branch_id joins the list of tables
         // with a key to branches.
         'product_branches',
