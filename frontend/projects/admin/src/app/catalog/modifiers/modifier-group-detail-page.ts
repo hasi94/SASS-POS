@@ -56,12 +56,7 @@ import { CatalogApi } from '../catalog-api';
     }
     <p><a routerLink="/catalog/modifiers">Back to modifier groups</a></p>
     @if (flow.error(); as failure) {
-      <div class="adm-error-panel" role="alert">
-        <p class="adm-error-message">{{ failure.message }}</p>
-        @if (failure.requestId; as id) {
-          <p class="fp-muted">Request id: {{ id }}</p>
-        }
-      </div>
+      <adm-api-error-panel [error]="failure" [retryable]="false" />
     }
     <adm-list-view
       [controller]="list"

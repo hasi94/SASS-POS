@@ -1,6 +1,6 @@
 import { CATALOG_PERMISSIONS } from '@flexipos/shared';
 import { envelope, pageEnvelope, refusal } from '../../crud/testing/crud-testing';
-import { API, Screen, TEE, TEE_S, WATER } from './products-testing';
+import { API, BARCODE_1, Screen, TEE, TEE_S, WATER } from './products-testing';
 
 const P = CATALOG_PERMISSIONS.products;
 const B = CATALOG_PERMISSIONS.barcodes;
@@ -216,6 +216,41 @@ describe('products list, detail and variants (T-036 AC-7, AC-20, AC-38, AC-41, A
       expect(s.field('.adm-badge')?.textContent).toContain('Deleted');
       expect(s.text()).not.toContain('Edit product');
       expect(s.text()).not.toContain('Add barcode');
+    });
+
+    it('reloads when the id changes: a variant opened from its parent shows the variant (review R-1)', async () => {
+      await openDetail('PRO2', [P.view, P.manage, B.view, B.manage]);
+      s.one('GET', 'products/PRO2').flush(envelope(TEE));
+      await s.settle();
+      s.http.expectOne((r) => r.params.get('parent_id') === 'PRO2').flush(pageEnvelope([TEE_S]));
+      s.one('GET', 'products/PRO2/barcodes').flush(pageEnvelope([BARCODE_1]));
+      await s.settle();
+      expect(s.text()).toContain('TEE-S');
+      expect(s.text()).toContain(BARCODE_1.barcode);
+
+      const details = s
+        .el()
+        .querySelector<HTMLAnchorElement>('a[aria-label="Details of T-shirt S"]');
+      details?.click();
+      await s.settle();
+      s.one('GET', 'products/PRO3').flush(envelope(TEE_S));
+      await s.settle();
+      s.one('GET', 'products/PRO3/barcodes').flush(pageEnvelope([]));
+      await s.settle();
+
+      expect(s.router.url).toBe('/catalog/products/PRO3');
+      expect(s.field('h1').textContent).toContain('T-shirt S');
+      expect(s.text()).toContain('TEE-S');
+      expect(s.text()).not.toContain('Variants');
+      expect(s.text()).not.toContain(BARCODE_1.barcode);
+      const edit = Array.from(s.el().querySelectorAll('a')).find(
+        (a) => a.textContent?.trim() === 'Edit product',
+      );
+      expect(edit?.getAttribute('href')?.endsWith('/PRO3/edit')).toBe(true);
+      const add = Array.from(s.el().querySelectorAll('a')).find(
+        (a) => a.textContent?.trim() === 'Add barcode',
+      );
+      expect(add?.getAttribute('href')).toContain('/products/PRO3/barcodes/new');
     });
 
     it('shows the load failure with Retry, and the permission text for a 403', async () => {

@@ -3,15 +3,15 @@ import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { ListParams, Product, Unit, UnitConversionCreate } from '@flexipos/shared';
 import { EntityPicker, PickerOption } from '../../crud/entity-picker';
+import { isGreaterThanZero } from '../../crud/decimal';
 import { FieldError } from '../../crud/field-error';
 import { FormErrorSummary } from '../../crud/form-error-summary';
-import { mapServerErrors } from '../../crud/form-errors';
+import { FormErrors } from '../../crud/form-errors';
 import { SubmitState } from '../../crud/submit-state';
 import { CatalogApi } from '../catalog-api';
 
 const FIELDS = ['from_unit_id', 'to_unit_id', 'factor', 'product_id'] as const;
 const LIST_URL = '/catalog/units';
-const POSITIVE_DECIMAL = /^\+?(\d+(\.\d*)?|\.\d+)$/;
 
 /**
  * Create one unit conversion (T-036 AC-37). Only the self-contained rules run here: both units
@@ -86,13 +86,9 @@ export class UnitConversionFormPage {
     product_id: new FormControl<string | null>(null),
   });
 
-  private readonly clientErrors = signal<Record<string, string>>({});
-  private readonly serverErrors = signal<Record<string, string>>({});
-  protected readonly summary = signal<string[]>([]);
-  protected readonly errors = computed<Record<string, string>>(() => ({
-    ...this.serverErrors(),
-    ...this.clientErrors(),
-  }));
+  private readonly formErrors = FormErrors.forPage(FIELDS);
+  protected readonly errors = this.formErrors.fields;
+  protected readonly summary = this.formErrors.summary;
 
   protected readonly searchUnits = (params: ListParams) => this.api.units.list(params);
   protected readonly searchProducts = (params: ListParams) => this.api.products.list(params);
@@ -106,8 +102,7 @@ export class UnitConversionFormPage {
   });
 
   protected save(): void {
-    this.serverErrors.set({});
-    this.summary.set([]);
+    this.formErrors.startSave();
     const v = this.form.getRawValue();
     const factor = v.factor.trim();
     const problems: Record<string, string> = {};
@@ -121,11 +116,10 @@ export class UnitConversionFormPage {
     }
     if (factor === '') {
       problems['factor'] = 'Factor is required.';
-    } else if (!POSITIVE_DECIMAL.test(factor) || Number(factor) <= 0) {
+    } else if (!isGreaterThanZero(factor)) {
       problems['factor'] = 'Factor must be greater than 0.';
     }
-    this.clientErrors.set(problems);
-    if (Object.keys(problems).length > 0) {
+    if (this.formErrors.blockWith(problems)) {
       return;
     }
     const body: UnitConversionCreate = {
@@ -137,9 +131,7 @@ export class UnitConversionFormPage {
     this.state.run(this.api.unitConversions.create(body), {
       next: () => void this.router.navigateByUrl(LIST_URL),
       error: (err) => {
-        const mapped = mapServerErrors(err, FIELDS);
-        this.serverErrors.set(mapped.fields);
-        this.summary.set(mapped.summary);
+        this.formErrors.refuse(err);
       },
     });
   }

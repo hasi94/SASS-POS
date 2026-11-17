@@ -21,9 +21,10 @@ import {
 import { Observable } from 'rxjs';
 import { ApiErrorPanel } from '../../crud/api-error-panel';
 import { EntityPicker, PickerOption } from '../../crud/entity-picker';
+import { isGreaterThanZero } from '../../crud/decimal';
 import { FieldError } from '../../crud/field-error';
 import { FormErrorSummary } from '../../crud/form-error-summary';
-import { mapServerErrors } from '../../crud/form-errors';
+import { FormErrors } from '../../crud/form-errors';
 import { SubmitState } from '../../crud/submit-state';
 import { CatalogApi } from '../catalog-api';
 
@@ -150,13 +151,9 @@ export class BarcodeFormPage implements OnInit {
     return dimension ? (u: Unit) => u.dimension === dimension : null;
   });
 
-  private readonly clientErrors = signal<Record<string, string>>({});
-  private readonly serverErrors = signal<Record<string, string>>({});
-  protected readonly summary = signal<string[]>([]);
-  protected readonly errors = computed<Record<string, string>>(() => ({
-    ...this.serverErrors(),
-    ...this.clientErrors(),
-  }));
+  private readonly formErrors = FormErrors.forPage(FIELDS);
+  protected readonly errors = this.formErrors.fields;
+  protected readonly summary = this.formErrors.summary;
 
   protected readonly searchUnits = (p: ListParams): Observable<ApiResult<Unit[]>> =>
     this.api.units.list(p);
@@ -221,8 +218,7 @@ export class BarcodeFormPage implements OnInit {
     if (this.readOnly()) {
       return;
     }
-    this.serverErrors.set({});
-    this.summary.set([]);
+    this.formErrors.startSave();
     const v = this.form.getRawValue();
     const problems: Record<string, string> = {};
     const value = v.barcode.trim();
@@ -234,11 +230,10 @@ export class BarcodeFormPage implements OnInit {
       }
     }
     const quantity = v.quantity.trim();
-    if (quantity === '' || !Number.isFinite(Number(quantity)) || Number(quantity) <= 0) {
+    if (!isGreaterThanZero(quantity)) {
       problems['quantity'] = 'Quantity must be a number greater than 0.';
     }
-    this.clientErrors.set(problems);
-    if (Object.keys(problems).length > 0) {
+    if (this.formErrors.blockWith(problems)) {
       return;
     }
     const rest = { unit_id: v.unit_id, quantity, is_primary: v.is_primary };
@@ -248,9 +243,7 @@ export class BarcodeFormPage implements OnInit {
     this.state.run(barcodeId ? api.update(barcodeId, rest) : api.create(body), {
       next: () => void this.router.navigateByUrl(this.productUrl()),
       error: (err) => {
-        const mapped = mapServerErrors(err, FIELDS);
-        this.serverErrors.set(mapped.fields);
-        this.summary.set(mapped.summary);
+        this.formErrors.refuse(err);
       },
     });
   }

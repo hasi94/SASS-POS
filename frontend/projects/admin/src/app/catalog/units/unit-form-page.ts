@@ -21,15 +21,15 @@ import {
 } from '@flexipos/shared';
 import { ApiErrorPanel } from '../../crud/api-error-panel';
 import { EntityPicker, PickerOption } from '../../crud/entity-picker';
+import { isGreaterThanZero } from '../../crud/decimal';
 import { FieldError } from '../../crud/field-error';
 import { FormErrorSummary } from '../../crud/form-error-summary';
-import { mapServerErrors } from '../../crud/form-errors';
+import { FormErrors } from '../../crud/form-errors';
 import { SubmitState } from '../../crud/submit-state';
 import { CatalogApi } from '../catalog-api';
 
 const FIELDS = ['code', 'name', 'dimension', 'precision', 'base_unit_id', 'factor'] as const;
 const LIST_URL = '/catalog/units';
-const POSITIVE_DECIMAL = /^\+?(\d+(\.\d*)?|\.\d+)$/;
 
 /**
  * Create or edit one unit (T-036 AC-34 to AC-36). Client checks mirror only the rules that need
@@ -166,13 +166,9 @@ export class UnitFormPage implements OnInit {
   protected readonly loading = signal(false);
   protected readonly loadError = signal<ApiError | null>(null);
 
-  private readonly clientErrors = signal<Record<string, string>>({});
-  private readonly serverErrors = signal<Record<string, string>>({});
-  protected readonly summary = signal<string[]>([]);
-  protected readonly errors = computed<Record<string, string>>(() => ({
-    ...this.serverErrors(),
-    ...this.clientErrors(),
-  }));
+  private readonly formErrors = FormErrors.forPage(FIELDS);
+  protected readonly errors = this.formErrors.fields;
+  protected readonly summary = this.formErrors.summary;
 
   protected readonly searchUnits = (params: ListParams) => this.api.units.list(params);
   protected readonly optionOf = (u: Unit): PickerOption => ({
@@ -218,8 +214,7 @@ export class UnitFormPage implements OnInit {
   }
 
   protected save(): void {
-    this.serverErrors.set({});
-    this.summary.set([]);
+    this.formErrors.startSave();
     const v = this.form.getRawValue();
     const factor = v.factor.trim();
     const problems: Record<string, string> = {};
@@ -235,11 +230,10 @@ export class UnitFormPage implements OnInit {
     }
     if ((v.base_unit_id === null) !== (factor === '')) {
       problems['factor'] = 'Base unit and factor go together.';
-    } else if (factor !== '' && (!POSITIVE_DECIMAL.test(factor) || Number(factor) <= 0)) {
+    } else if (factor !== '' && !isGreaterThanZero(factor)) {
       problems['factor'] = 'Factor must be greater than 0.';
     }
-    this.clientErrors.set(problems);
-    if (Object.keys(problems).length > 0) {
+    if (this.formErrors.blockWith(problems)) {
       return;
     }
     const common: UnitUpdate = {
@@ -256,9 +250,7 @@ export class UnitFormPage implements OnInit {
     this.state.run(call, {
       next: () => void this.router.navigateByUrl(LIST_URL),
       error: (err) => {
-        const mapped = mapServerErrors(err, FIELDS);
-        this.serverErrors.set(mapped.fields);
-        this.summary.set(mapped.summary);
+        this.formErrors.refuse(err);
       },
     });
   }

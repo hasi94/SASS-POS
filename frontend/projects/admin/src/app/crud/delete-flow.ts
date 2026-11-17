@@ -1,22 +1,23 @@
 import { signal } from '@angular/core';
+import { ApiError } from '@flexipos/shared';
 import { Observable } from 'rxjs';
-import { ApiErrorView, describeApiError } from './describe-api-error';
 import { SubmitState } from './submit-state';
 
 /**
  * The delete interaction of one list (T-036 AC-19, AC-20): ask, then confirm or cancel.
  * `confirm()` sends the delete once (a second click while it is in flight does nothing) and
  * reloads the list on success. A refusal keeps the row, closes the question and shows the
- * server's message, which names the blocking reference.
+ * server's message, which names the blocking reference: `error` holds the raw failure for
+ * `<adm-api-error-panel [error]="flow.error()" [retryable]="false">`, which does the wording.
  */
 export class DeleteFlow<T> {
   private readonly pendingRow = signal<T | null>(null);
-  private readonly failure = signal<ApiErrorView | null>(null);
+  private readonly failure = signal<ApiError | null>(null);
   private readonly submit = new SubmitState();
 
   /** The row being asked about, or null when no question is open. */
   readonly pending = this.pendingRow.asReadonly();
-  /** The last refusal, until the next question is opened. */
+  /** The last refusal as it arrived (null when none), until the next question is opened. */
   readonly error = this.failure.asReadonly();
   readonly busy = this.submit.busy;
 
@@ -42,7 +43,7 @@ export class DeleteFlow<T> {
       },
       error: (err) => {
         this.pendingRow.set(null);
-        this.failure.set(describeApiError(err));
+        this.failure.set(err);
       },
     });
   }

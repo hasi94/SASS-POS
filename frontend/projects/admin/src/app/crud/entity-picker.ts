@@ -13,6 +13,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 import { ApiResult, DEFAULT_PER_PAGE, ListParams } from '@flexipos/shared';
 import { Observable, Subject, Subscription, debounceTime, distinctUntilChanged, map } from 'rxjs';
+import { ApiErrorView, describeApiError } from './describe-api-error';
 import { SEARCH_DEBOUNCE_MS } from './list-view';
 
 export interface PickerOption {
@@ -44,14 +45,14 @@ let nextPickerId = 0;
         type="search"
         [id]="searchId"
         [disabled]="disabled()"
-        [attr.aria-describedby]="describedBy()"
+        [attr.aria-describedby]="describedByWithLookup()"
         (input)="typed($any($event.target).value)"
       />
       <label [for]="selectId">{{ label() }}</label>
       <select
         [id]="selectId"
         [disabled]="disabled()"
-        [attr.aria-describedby]="describedBy()"
+        [attr.aria-describedby]="describedByWithLookup()"
         [attr.aria-invalid]="invalid() ? 'true' : null"
         (change)="choose($any($event.target).value)"
         (blur)="onTouched()"
@@ -65,6 +66,9 @@ let nextPickerId = 0;
           <option [value]="o.id" [selected]="o.id === value()">{{ o.label }}</option>
         }
       </select>
+      <p class="fp-error adm-live" role="status" [id]="lookupErrorId">
+        {{ lookupError()?.message ?? '' }}
+      </p>
     </div>
   `,
 })
@@ -81,10 +85,18 @@ export class EntityPicker<T> implements ControlValueAccessor, OnInit {
   readonly invalid = input(false);
 
   protected readonly searchId = `adm-picker-search-${nextPickerId}`;
-  protected readonly selectId = `adm-picker-select-${nextPickerId++}`;
+  protected readonly selectId = `adm-picker-select-${nextPickerId}`;
+  protected readonly lookupErrorId = `adm-picker-lookup-error-${nextPickerId++}`;
   protected readonly value = signal<string | null>(null);
   protected readonly disabled = signal(false);
   private readonly rows = signal<T[]>([]);
+  /** Why the lookup failed (a 403 for a person without the list's view key), shown under the select. */
+  protected readonly lookupError = signal<ApiErrorView | null>(null);
+  protected readonly describedByWithLookup = computed(() => {
+    const ids = [this.describedBy(), this.lookupError() ? this.lookupErrorId : null];
+    const joined = ids.filter((id): id is string => !!id).join(' ');
+    return joined === '' ? null : joined;
+  });
 
   /** The matches (after `filter`), plus the current value when they do not include it. */
   protected readonly options = computed<PickerOption[]>(() => {
@@ -153,8 +165,14 @@ export class EntityPicker<T> implements ControlValueAccessor, OnInit {
       params.search = term;
     }
     this.request = this.search()(params).subscribe({
-      next: (result) => this.rows.set(result.data),
-      error: () => this.rows.set([]),
+      next: (result) => {
+        this.lookupError.set(null);
+        this.rows.set(result.data);
+      },
+      error: (err: unknown) => {
+        this.rows.set([]);
+        this.lookupError.set(describeApiError(err));
+      },
     });
   }
 }

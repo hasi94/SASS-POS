@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { CATALOG_PERMISSIONS, PermissionService, UnitConversion } from '@flexipos/shared';
+import { ApiErrorPanel } from '../../crud/api-error-panel';
 import { ConfirmDialog } from '../../crud/confirm-dialog';
 import { DeleteFlow } from '../../crud/delete-flow';
 import { createListController } from '../../crud/list-controller';
@@ -14,7 +15,7 @@ import { CatalogApi } from '../catalog-api';
  */
 @Component({
   selector: 'adm-unit-conversions-section',
-  imports: [ConfirmDialog, ListView, RouterLink, RowActions],
+  imports: [ApiErrorPanel, ConfirmDialog, ListView, RouterLink, RowActions],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section aria-labelledby="unit-conversions-heading">
@@ -23,12 +24,7 @@ import { CatalogApi } from '../catalog-api';
         <p><a routerLink="/catalog/units/conversions/new">New conversion</a></p>
       }
       @if (flow.error(); as failure) {
-        <div class="adm-error-panel" role="alert">
-          <p class="adm-error-message">{{ failure.message }}</p>
-          @if (failure.requestId; as id) {
-            <p class="fp-muted">Request id: {{ id }}</p>
-          }
-        </div>
+        <adm-api-error-panel [error]="failure" [retryable]="false" />
       }
       <adm-list-view
         [controller]="list"

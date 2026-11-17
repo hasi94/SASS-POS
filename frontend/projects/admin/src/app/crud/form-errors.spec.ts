@@ -1,7 +1,13 @@
 import { FormControl, Validators } from '@angular/forms';
 import { ApiError } from '@flexipos/shared';
 import { FORBIDDEN_MESSAGE } from './describe-api-error';
-import { clientErrorFor, mapServerErrors, notBlank } from './form-errors';
+import {
+  FormErrors,
+  clientErrorFor,
+  focusFirstProblem,
+  mapServerErrors,
+  notBlank,
+} from './form-errors';
 
 const KNOWN = ['code', 'name', 'parent_id'];
 
@@ -80,5 +86,87 @@ describe('clientErrorFor and notBlank', () => {
 
   it('is null for a valid control', () => {
     expect(clientErrorFor(new FormControl('ok', [notBlank]), 'Code')).toBeNull();
+  });
+});
+
+describe('FormErrors (T-036 review W-1, W-8)', () => {
+  const refusal = new ApiError(422, 'Invalid.', [
+    { code: 'catalog.duplicate', field: 'code', detail: 'Code is used.' },
+    { code: 'x', field: 'mystery', detail: 'Something odd.' },
+  ]);
+
+  it('blockWith shows the messages, asks for focus, and says it blocked', () => {
+    const focus = vi.fn();
+    const errors = new FormErrors(KNOWN, focus);
+    expect(errors.blockWith({ name: 'Name is required.' })).toBe(true);
+    expect(errors.fields()).toEqual({ name: 'Name is required.' });
+    expect(focus).toHaveBeenCalledTimes(1);
+  });
+
+  it('blockWith with no problems clears the old ones, asks for no focus, and does not block', () => {
+    const focus = vi.fn();
+    const errors = new FormErrors(KNOWN, focus);
+    errors.blockWith({ name: 'Name is required.' });
+    focus.mockClear();
+    expect(errors.blockWith({})).toBe(false);
+    expect(errors.fields()).toEqual({});
+    expect(focus).not.toHaveBeenCalled();
+  });
+
+  it('refuse puts known fields on their field and the rest in the summary', () => {
+    const errors = new FormErrors(KNOWN);
+    errors.refuse(refusal);
+    expect(errors.fields()).toEqual({ code: 'Code is used.' });
+    expect(errors.summary()).toEqual(['Something odd.']);
+  });
+
+  it('startSave drops the server messages but keeps what the page found itself', () => {
+    const errors = new FormErrors(KNOWN);
+    errors.refuse(refusal);
+    errors.blockWith({ name: 'Name is required.' });
+    errors.startSave();
+    expect(errors.fields()).toEqual({ name: 'Name is required.' });
+    expect(errors.summary()).toEqual([]);
+  });
+
+  it('a client message wins over a server one for the same field', () => {
+    const errors = new FormErrors(KNOWN);
+    errors.refuse(refusal);
+    errors.blockWith({ code: 'Code is required.' });
+    expect(errors.fields()['code']).toBe('Code is required.');
+  });
+
+  it('clearAll forgets both kinds', () => {
+    const errors = new FormErrors(KNOWN);
+    errors.refuse(refusal);
+    errors.blockWith({ name: 'Name is required.' });
+    errors.clearAll();
+    expect(errors.fields()).toEqual({});
+    expect(errors.summary()).toEqual([]);
+  });
+});
+
+describe('focusFirstProblem (T-036 review W-8)', () => {
+  function root(html: string): HTMLElement {
+    const el = document.createElement('div');
+    el.innerHTML = html;
+    document.body.appendChild(el);
+    return el;
+  }
+
+  it('focuses the first invalid control', () => {
+    const el = root(
+      '<div class="adm-form-summary" tabindex="-1"></div><input id="a"><input id="b" aria-invalid="true"><input id="c" aria-invalid="true">',
+    );
+    focusFirstProblem(el);
+    expect(document.activeElement?.id).toBe('b');
+    el.remove();
+  });
+
+  it('falls back to the summary when no control is marked invalid', () => {
+    const el = root('<div class="adm-form-summary" tabindex="-1"></div><input id="a">');
+    focusFirstProblem(el);
+    expect(document.activeElement).toBe(el.querySelector('.adm-form-summary'));
+    el.remove();
   });
 });

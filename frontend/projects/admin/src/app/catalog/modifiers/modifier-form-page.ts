@@ -23,9 +23,10 @@ import {
 import { Observable, catchError, map, of, switchMap, tap } from 'rxjs';
 import { ApiErrorPanel } from '../../crud/api-error-panel';
 import { EntityPicker, PickerOption } from '../../crud/entity-picker';
+import { SIGNED_DECIMAL, isGreaterThanZero } from '../../crud/decimal';
 import { FieldError } from '../../crud/field-error';
 import { FormErrorSummary } from '../../crud/form-error-summary';
-import { mapServerErrors } from '../../crud/form-errors';
+import { FormErrors } from '../../crud/form-errors';
 import { SubmitState } from '../../crud/submit-state';
 import { CatalogApi } from '../catalog-api';
 
@@ -37,8 +38,6 @@ const FIELDS = [
   'linked_quantity',
   'linked_unit_id',
 ] as const;
-const SIGNED_DECIMAL = /^[+-]?(\d+(\.\d*)?|\.\d+)$/;
-const POSITIVE_DECIMAL = /^\+?(\d+(\.\d*)?|\.\d+)$/;
 
 /**
  * Create or edit one modifier (T-036 AC-53, AC-54). Choosing a linked product makes the linked
@@ -175,13 +174,9 @@ export class ModifierFormPage implements OnInit {
   protected readonly loading = signal(false);
   protected readonly loadError = signal<ApiError | null>(null);
 
-  private readonly clientErrors = signal<Record<string, string>>({});
-  private readonly serverErrors = signal<Record<string, string>>({});
-  protected readonly summary = signal<string[]>([]);
-  protected readonly errors = computed<Record<string, string>>(() => ({
-    ...this.serverErrors(),
-    ...this.clientErrors(),
-  }));
+  private readonly formErrors = FormErrors.forPage(FIELDS);
+  protected readonly errors = this.formErrors.fields;
+  protected readonly summary = this.formErrors.summary;
 
   private readonly seenProducts = new Map<string, Product>();
   protected readonly searchProducts = (params: ListParams) =>
@@ -268,8 +263,7 @@ export class ModifierFormPage implements OnInit {
   }
 
   protected save(): void {
-    this.serverErrors.set({});
-    this.summary.set([]);
+    this.formErrors.startSave();
     const v = this.form.getRawValue();
     const price = v.price_delta.trim();
     const cost = v.cost_delta.trim();
@@ -291,32 +285,34 @@ export class ModifierFormPage implements OnInit {
     if (v.linked_product_id !== null) {
       if (quantity === '') {
         problems['linked_quantity'] = 'Linked quantity is required.';
-      } else if (!POSITIVE_DECIMAL.test(quantity) || Number(quantity) <= 0) {
+      } else if (!isGreaterThanZero(quantity)) {
         problems['linked_quantity'] = 'Linked quantity must be greater than 0.';
       }
       if (v.linked_unit_id === null) {
         problems['linked_unit_id'] = 'Linked unit is required.';
       }
     }
-    this.clientErrors.set(problems);
-    if (Object.keys(problems).length > 0) {
+    if (this.formErrors.blockWith(problems)) {
       return;
     }
     const body: ModifierWrite = { name: v.name.trim(), price_delta: price, cost_delta: cost };
+    const id = this.id();
     if (v.linked_product_id !== null && v.linked_unit_id !== null) {
       body.linked_product_id = v.linked_product_id;
       body.linked_quantity = quantity;
       body.linked_unit_id = v.linked_unit_id;
+    } else if (id) {
+      // An absent key means "unchanged" on an update, so unlinking says it with null (W-2).
+      body.linked_product_id = null;
+      body.linked_quantity = null;
+      body.linked_unit_id = null;
     }
     const groupId = this.groupId();
-    const id = this.id();
     const resource = this.api.modifiers(groupId);
     this.state.run(id ? resource.update(id, body) : resource.create(body), {
       next: () => void this.router.navigateByUrl(this.backUrl()),
       error: (err) => {
-        const mapped = mapServerErrors(err, FIELDS);
-        this.serverErrors.set(mapped.fields);
-        this.summary.set(mapped.summary);
+        this.formErrors.refuse(err);
       },
     });
   }

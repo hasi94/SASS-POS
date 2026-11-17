@@ -8,10 +8,10 @@ import {
   signal,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { CATALOG_PERMISSIONS, PermissionService, ProductBarcode } from '@flexipos/shared';
+import { ApiError, CATALOG_PERMISSIONS, PermissionService, ProductBarcode } from '@flexipos/shared';
+import { ApiErrorPanel } from '../../crud/api-error-panel';
 import { ConfirmDialog } from '../../crud/confirm-dialog';
 import { DeleteFlow } from '../../crud/delete-flow';
-import { ApiErrorView, describeApiError } from '../../crud/describe-api-error';
 import { createListController } from '../../crud/list-controller';
 import { ListColumn, ListView, RowActions } from '../../crud/list-view';
 import { SubmitState } from '../../crud/submit-state';
@@ -25,7 +25,7 @@ import { CatalogApi } from '../catalog-api';
  */
 @Component({
   selector: 'adm-product-barcodes-section',
-  imports: [ConfirmDialog, ListView, RouterLink, RowActions],
+  imports: [ApiErrorPanel, ConfirmDialog, ListView, RouterLink, RowActions],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section aria-labelledby="product-barcodes-heading">
@@ -36,12 +36,7 @@ import { CatalogApi } from '../catalog-api';
         </p>
       }
       @if (failure(); as f) {
-        <div class="adm-error-panel" role="alert">
-          <p class="adm-error-message">{{ f.message }}</p>
-          @if (f.requestId; as id) {
-            <p class="fp-muted">Request id: {{ id }}</p>
-          }
-        </div>
+        <adm-api-error-panel [error]="f" [retryable]="false" />
       }
       <adm-list-view
         [controller]="list"
@@ -95,7 +90,7 @@ export class ProductBarcodesSection implements OnInit {
   private readonly api = inject(CatalogApi);
   private readonly permissions = inject(PermissionService);
   protected readonly primary = new SubmitState();
-  private readonly primaryFailure = signal<ApiErrorView | null>(null);
+  private readonly primaryFailure = signal<ApiError | null>(null);
 
   protected readonly canChange = computed(
     () => !this.deleted() && this.permissions.has(CATALOG_PERMISSIONS.barcodes.manage),
@@ -130,7 +125,7 @@ export class ProductBarcodesSection implements OnInit {
       }),
       {
         next: () => this.list.load(),
-        error: (err) => this.primaryFailure.set(describeApiError(err)),
+        error: (err) => this.primaryFailure.set(err),
       },
     );
   }

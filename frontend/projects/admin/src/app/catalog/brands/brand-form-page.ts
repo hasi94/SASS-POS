@@ -13,7 +13,7 @@ import { ApiError, Brand, BrandWrite } from '@flexipos/shared';
 import { ApiErrorPanel } from '../../crud/api-error-panel';
 import { FieldError } from '../../crud/field-error';
 import { FormErrorSummary } from '../../crud/form-error-summary';
-import { mapServerErrors } from '../../crud/form-errors';
+import { FormErrors } from '../../crud/form-errors';
 import { SubmitState } from '../../crud/submit-state';
 import { CatalogApi } from '../catalog-api';
 
@@ -87,13 +87,9 @@ export class BrandFormPage implements OnInit {
   protected readonly loadError = signal<ApiError | null>(null);
   protected readonly readOnly = computed(() => !!this.brand()?.deleted_at);
 
-  private readonly clientErrors = signal<Record<string, string>>({});
-  private readonly serverErrors = signal<Record<string, string>>({});
-  protected readonly summary = signal<string[]>([]);
-  protected readonly errors = computed<Record<string, string>>(() => ({
-    ...this.serverErrors(),
-    ...this.clientErrors(),
-  }));
+  private readonly formErrors = FormErrors.forPage(FIELDS);
+  protected readonly errors = this.formErrors.fields;
+  protected readonly summary = this.formErrors.summary;
 
   ngOnInit(): void {
     this.load();
@@ -126,8 +122,7 @@ export class BrandFormPage implements OnInit {
     if (this.readOnly()) {
       return;
     }
-    this.serverErrors.set({});
-    this.summary.set([]);
+    this.formErrors.startSave();
     const v = this.form.getRawValue();
     const problems: Record<string, string> = {};
     if (v.code.trim() === '') {
@@ -136,8 +131,7 @@ export class BrandFormPage implements OnInit {
     if (v.name.trim() === '') {
       problems['name'] = 'Name is required.';
     }
-    this.clientErrors.set(problems);
-    if (Object.keys(problems).length > 0) {
+    if (this.formErrors.blockWith(problems)) {
       return;
     }
     const body: BrandWrite = { code: v.code.trim(), name: v.name.trim() };
@@ -145,9 +139,7 @@ export class BrandFormPage implements OnInit {
     this.state.run(id ? this.api.brands.update(id, body) : this.api.brands.create(body), {
       next: () => void this.router.navigateByUrl(LIST_URL),
       error: (err) => {
-        const mapped = mapServerErrors(err, FIELDS);
-        this.serverErrors.set(mapped.fields);
-        this.summary.set(mapped.summary);
+        this.formErrors.refuse(err);
       },
     });
   }

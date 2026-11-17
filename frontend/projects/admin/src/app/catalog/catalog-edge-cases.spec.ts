@@ -11,11 +11,9 @@ import { Brand, CATALOG_PERMISSIONS } from '@flexipos/shared';
 import { pageEnvelope, refusal, seedSession } from '../crud/testing/crud-testing';
 
 /**
- * QA edge cases for T-036 beyond the developers' specs (AC-8, AC-17, AC-19, AC-20).
- *
- * Cases marked `it.fails` document a DEFECT that is reported in docs/qa/. They pass today
- * because the behaviour is wrong; when the defect is fixed they go red, and the `.fails`
- * must then be removed so the case becomes an ordinary guard.
+ * QA edge cases for T-036 beyond the developers' specs (AC-8, AC-17, AC-19, AC-20). The BUG-3,
+ * BUG-4 and BUG-5 cases were written as expected failures (QA round 1); the fixes landed in
+ * the fix round and they are ordinary guards now.
  */
 
 const API = '/api/v1/catalog/brands';
@@ -156,7 +154,7 @@ describe('catalog edge cases (T-036, QA)', () => {
     // BUG-4 (minor, AC-19): after a SUCCESSFUL delete the list reloads, the row and its Delete
     // button are replaced, the dialog's saved trigger is no longer in the document, and focus
     // falls to <body>, so a keyboard user loses their place.
-    it.fails('BUG-4: keeps focus inside the page after a confirmed delete', async () => {
+    it('BUG-4: keeps focus inside the page after a confirmed delete', async () => {
       await openBrandList();
       const trigger = deleteButton('Acme');
       trigger.focus();
@@ -184,40 +182,37 @@ describe('catalog edge cases (T-036, QA)', () => {
     // BUG-5 (minor, AC-14): deleting the only row of the last page reloads that same page
     // number; the server answers an empty page and the list says "Nothing here yet" with a
     // pager reading "Page 2 of 1" although 25 rows exist on page 1.
-    it.fails(
-      'BUG-5: goes back to the last page that exists after deleting the last row of a page',
-      async () => {
-        await open('/catalog/brands', [B.view, B.manage]);
-        one(brandLists()).flush(pageEnvelope(many, { page: 1, per_page: 25, total: 26 }));
-        await settle();
-        const next = Array.from(el().querySelectorAll('nav[aria-label="Pages"] button')).find(
-          (b) => b.textContent?.trim() === 'Next',
-        ) as HTMLButtonElement;
-        next.click();
-        harness.detectChanges();
-        const page2 = one(brandLists());
-        expect(page2.request.params.get('page')).toBe('2');
-        page2.flush(pageEnvelope([ZED], { page: 2, per_page: 25, total: 26 }));
-        await settle();
-        deleteButton('Zed').click();
-        harness.detectChanges();
-        dialogButton('Delete').click();
-        http
-          .expectOne(`${API}/BRD2`)
-          .flush({ success: true, data: null, message: '', errors: [], meta: { request_id: 'r' } });
-        await settle();
-        // The reload names page 2, which no longer exists, and the server answers it empty.
-        one(brandLists()).flush(pageEnvelope([], { page: 2, per_page: 25, total: 25 }));
-        await settle();
-        // Correct behaviour: the screen asks for page 1 by itself, or never shows the empty state.
-        const retry = brandLists();
-        const askedPage1 = retry.some((r) => r.request.params.get('page') === '1');
-        expect(askedPage1 || !text().includes('Nothing here yet')).toBe(true);
-        for (const r of retry) {
-          r.flush(pageEnvelope(many, { page: 1, per_page: 25, total: 25 }));
-        }
-      },
-    );
+    it('BUG-5: goes back to the last page that exists after deleting the last row of a page', async () => {
+      await open('/catalog/brands', [B.view, B.manage]);
+      one(brandLists()).flush(pageEnvelope(many, { page: 1, per_page: 25, total: 26 }));
+      await settle();
+      const next = Array.from(el().querySelectorAll('nav[aria-label="Pages"] button')).find(
+        (b) => b.textContent?.trim() === 'Next',
+      ) as HTMLButtonElement;
+      next.click();
+      harness.detectChanges();
+      const page2 = one(brandLists());
+      expect(page2.request.params.get('page')).toBe('2');
+      page2.flush(pageEnvelope([ZED], { page: 2, per_page: 25, total: 26 }));
+      await settle();
+      deleteButton('Zed').click();
+      harness.detectChanges();
+      dialogButton('Delete').click();
+      http
+        .expectOne(`${API}/BRD2`)
+        .flush({ success: true, data: null, message: '', errors: [], meta: { request_id: 'r' } });
+      await settle();
+      // The reload names page 2, which no longer exists, and the server answers it empty.
+      one(brandLists()).flush(pageEnvelope([], { page: 2, per_page: 25, total: 25 }));
+      await settle();
+      // Correct behaviour: the screen asks for page 1 by itself, or never shows the empty state.
+      const retry = brandLists();
+      const askedPage1 = retry.some((r) => r.request.params.get('page') === '1');
+      expect(askedPage1 || !text().includes('Nothing here yet')).toBe(true);
+      for (const r of retry) {
+        r.flush(pageEnvelope(many, { page: 1, per_page: 25, total: 25 }));
+      }
+    });
   });
 
   describe('server text is rendered as text (NFR security, AC-17)', () => {
@@ -261,7 +256,7 @@ describe('catalog edge cases (T-036, QA)', () => {
     // categories, brands and units lists. A person who holds the products keys but not the
     // categories keys gets a 403 there; the picker swallows the error and shows an empty
     // select, so the form cannot be completed and nothing says why.
-    it.fails('BUG-3: tells the person when a picker lookup is refused with 403', async () => {
+    it('BUG-3: tells the person when a picker lookup is refused with 403', async () => {
       await open('/catalog/products/new', [PR.view, PR.manage]);
       await settle();
       for (const r of http.match(() => true)) {

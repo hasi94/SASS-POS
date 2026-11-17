@@ -6,7 +6,8 @@ import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { ApiClient, ListParams, Unit } from '@flexipos/shared';
 import { EntityPicker, PickerOption } from './entity-picker';
 import { SEARCH_DEBOUNCE_MS } from './list-view';
-import { pageEnvelope } from './testing/crud-testing';
+import { FORBIDDEN_MESSAGE } from './describe-api-error';
+import { pageEnvelope, refusal } from './testing/crud-testing';
 
 type UnitRow = Pick<Unit, 'id' | 'code' | 'dimension'>;
 
@@ -29,6 +30,7 @@ const UNITS: UnitRow[] = [
       [filter]="filter"
       [initialLabel]="initialLabel"
       [noneLabel]="noneLabel"
+      [describedBy]="describedBy"
     />
   `,
 })
@@ -40,6 +42,7 @@ class Host {
   filter: ((u: UnitRow) => boolean) | null = null;
   initialLabel: string | null = null;
   noneLabel: string | null = null;
+  describedBy: string | null = null;
 }
 
 describe('EntityPicker (T-036 plan 1.6; AC-36, AC-43)', () => {
@@ -157,5 +160,57 @@ describe('EntityPicker (T-036 plan 1.6; AC-36, AC-43)', () => {
     fixture.detectChanges();
     expect(select(el).disabled).toBe(true);
     expect((el.querySelector('input[type="search"]') as HTMLInputElement).disabled).toBe(true);
+  });
+
+  describe('a refused lookup (review W-3, QA BUG-3)', () => {
+    const lookupText = (el: HTMLElement) => {
+      const id = select(el).getAttribute('aria-describedby') ?? '';
+      return id === '' ? null : el.querySelector(`#${id.split(' ').pop()}`)?.textContent?.trim();
+    };
+
+    it('shows the permission message under the select, tied to it, for a 403', () => {
+      const fixture = TestBed.createComponent(Host);
+      fixture.detectChanges();
+      http
+        .expectOne((r) => r.url === '/api/v1/catalog/units')
+        .flush(...refusal(403, 'kernel.forbidden'));
+      fixture.detectChanges();
+      const el = fixture.nativeElement as HTMLElement;
+      expect(optionLabels(el)).toEqual(['Select…']);
+      expect(lookupText(el)).toBe(FORBIDDEN_MESSAGE);
+    });
+
+    it('shows the server text for another failure, and clears it when a later search works', () => {
+      const fixture = TestBed.createComponent(Host);
+      fixture.detectChanges();
+      http
+        .expectOne((r) => r.url === '/api/v1/catalog/units')
+        .flush(...refusal(500, 'kernel.error', undefined, undefined, 'Lookup broke.'));
+      fixture.detectChanges();
+      const el = fixture.nativeElement as HTMLElement;
+      expect(lookupText(el)).toBe('Lookup broke.');
+
+      const input = el.querySelector('input[type="search"]') as HTMLInputElement;
+      input.value = 'kg';
+      input.dispatchEvent(new Event('input'));
+      vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
+      http.expectOne((r) => r.url === '/api/v1/catalog/units').flush(pageEnvelope([UNITS[1]]));
+      fixture.detectChanges();
+      expect(el.querySelector('.fp-error')?.textContent?.trim()).toBe('');
+      expect(select(el).getAttribute('aria-describedby')).toBeNull();
+    });
+
+    it('keeps the form field message and the lookup message both in aria-describedby', () => {
+      const fixture = TestBed.createComponent(Host);
+      fixture.componentInstance.describedBy = 'field-error';
+      fixture.detectChanges();
+      http
+        .expectOne((r) => r.url === '/api/v1/catalog/units')
+        .flush(...refusal(403, 'kernel.forbidden'));
+      fixture.detectChanges();
+      const ids = (select(fixture.nativeElement).getAttribute('aria-describedby') ?? '').split(' ');
+      expect(ids).toHaveLength(2);
+      expect(ids[0]).toBe('field-error');
+    });
   });
 });

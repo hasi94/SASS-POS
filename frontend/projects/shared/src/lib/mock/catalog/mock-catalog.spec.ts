@@ -1007,11 +1007,26 @@ describe('the catalog mock (T-036 AC-24, AC-25)', () => {
         }),
       );
       expect(linked).toMatchObject({ linked_unit_code: 'G', linked_quantity: '2.0000' });
+      const unchanged = await firstValueFrom(
+        api.put<Modifier>(CATALOG_ENDPOINTS.modifier('GRP0001', made.id), {
+          name: 'Plain',
+          price_delta: '1',
+          cost_delta: '0',
+        }),
+      );
+      expect(unchanged).toMatchObject({
+        linked_product_id: 'PRO0005',
+        linked_quantity: '2.0000',
+        linked_unit_id: 'UNI0004',
+      });
       const cleared = await firstValueFrom(
         api.put<Modifier>(CATALOG_ENDPOINTS.modifier('GRP0001', made.id), {
           name: 'Plain',
           price_delta: '1',
           cost_delta: '0',
+          linked_product_id: null,
+          linked_quantity: null,
+          linked_unit_id: null,
         }),
       );
       expect(cleared).toMatchObject({

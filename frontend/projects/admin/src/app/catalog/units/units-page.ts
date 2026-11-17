@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { CATALOG_PERMISSIONS, PermissionService, Unit } from '@flexipos/shared';
+import { ApiErrorPanel } from '../../crud/api-error-panel';
 import { ConfirmDialog } from '../../crud/confirm-dialog';
 import { DeleteFlow } from '../../crud/delete-flow';
 import { createListController } from '../../crud/list-controller';
@@ -11,7 +12,7 @@ import { UnitConversionsSection } from './unit-conversions-section';
 /** The units list, with the unit conversions section below it (T-036 AC-34, AC-37). */
 @Component({
   selector: 'adm-units-page',
-  imports: [ConfirmDialog, ListView, RouterLink, RowActions, UnitConversionsSection],
+  imports: [ApiErrorPanel, ConfirmDialog, ListView, RouterLink, RowActions, UnitConversionsSection],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <h1>Units</h1>
@@ -19,12 +20,7 @@ import { UnitConversionsSection } from './unit-conversions-section';
       <p><a routerLink="/catalog/units/new">New unit</a></p>
     }
     @if (flow.error(); as failure) {
-      <div class="adm-error-panel" role="alert">
-        <p class="adm-error-message">{{ failure.message }}</p>
-        @if (failure.requestId; as id) {
-          <p class="fp-muted">Request id: {{ id }}</p>
-        }
-      </div>
+      <adm-api-error-panel [error]="failure" [retryable]="false" />
     }
     <adm-list-view
       [controller]="list"

@@ -13,7 +13,7 @@ import { ApiError, ModifierGroup, ModifierGroupWrite } from '@flexipos/shared';
 import { ApiErrorPanel } from '../../crud/api-error-panel';
 import { FieldError } from '../../crud/field-error';
 import { FormErrorSummary } from '../../crud/form-error-summary';
-import { mapServerErrors } from '../../crud/form-errors';
+import { FormErrors } from '../../crud/form-errors';
 import { SubmitState } from '../../crud/submit-state';
 import { CatalogApi } from '../catalog-api';
 
@@ -111,13 +111,9 @@ export class ModifierGroupFormPage implements OnInit {
   protected readonly loadError = signal<ApiError | null>(null);
   protected readonly readOnly = computed(() => !!this.group()?.deleted_at);
 
-  private readonly clientErrors = signal<Record<string, string>>({});
-  private readonly serverErrors = signal<Record<string, string>>({});
-  protected readonly summary = signal<string[]>([]);
-  protected readonly errors = computed<Record<string, string>>(() => ({
-    ...this.serverErrors(),
-    ...this.clientErrors(),
-  }));
+  private readonly formErrors = FormErrors.forPage(FIELDS);
+  protected readonly errors = this.formErrors.fields;
+  protected readonly summary = this.formErrors.summary;
 
   ngOnInit(): void {
     this.load();
@@ -150,8 +146,7 @@ export class ModifierGroupFormPage implements OnInit {
     if (this.readOnly()) {
       return;
     }
-    this.serverErrors.set({});
-    this.summary.set([]);
+    this.formErrors.startSave();
     const v = this.form.getRawValue();
     const problems: Record<string, string> = {};
     if (v.name.trim() === '') {
@@ -165,8 +160,7 @@ export class ModifierGroupFormPage implements OnInit {
     } else if (isCount(v.min_select) && v.max_select !== null && v.min_select > v.max_select) {
       problems['max_select'] = 'Maximum cannot be smaller than the minimum.';
     }
-    this.clientErrors.set(problems);
-    if (Object.keys(problems).length > 0) {
+    if (this.formErrors.blockWith(problems)) {
       return;
     }
     const body: ModifierGroupWrite = {
@@ -180,9 +174,7 @@ export class ModifierGroupFormPage implements OnInit {
       {
         next: () => void this.router.navigateByUrl(LIST_URL),
         error: (err) => {
-          const mapped = mapServerErrors(err, FIELDS);
-          this.serverErrors.set(mapped.fields);
-          this.summary.set(mapped.summary);
+          this.formErrors.refuse(err);
         },
       },
     );

@@ -117,6 +117,25 @@ describe('brands screens (T-036 AC-7, AC-20, AC-33)', () => {
     http.expectNone(() => true);
   });
 
+  it('moves focus to the first invalid control when a blocked submit shows its messages (W-8)', async () => {
+    await openCreate();
+    submit();
+    await settle();
+    const first = el().querySelector('input[formcontrolname="code"]');
+    expect(first?.getAttribute('aria-invalid')).toBe('true');
+    expect(document.activeElement).toBe(first);
+  });
+
+  it('keeps one live region for form messages in the page before any message exists (W-8)', async () => {
+    await openCreate();
+    const region = el().querySelector('.adm-form-summary');
+    expect(region?.getAttribute('role')).toBe('status');
+    expect(region?.textContent?.trim()).toBe('');
+    submit();
+    await settle();
+    expect(el().querySelector('.adm-form-summary')).toBe(region);
+  });
+
   it('sends code and name, then returns to a fresh list', async () => {
     await openCreate();
     type('input[formcontrolname="code"]', 'NEW');

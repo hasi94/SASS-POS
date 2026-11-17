@@ -643,12 +643,12 @@ products and barcodes, AC-20 for products, and AC-38 to AC-51.
 
 Closes AC-27, AC-58 to AC-61 and AC-63 (documented), and re-checks AC-1.
 
-- [ ] **4.1 Integration specs.** Add two cases in `app.routes.spec.ts`:
+- [x] **4.1 Integration specs.** Add two cases in `app.routes.spec.ts`:
   - demo user end to end against the real mock interceptors: sign in, select a tenant, select a
     branch, open `/catalog/categories`, and see the seeded rows;
   - limited user: the menu shows only Products, `/catalog/brands` goes to `/forbidden`, and an
     injected 403 on products shows the permission message (AC-8 end to end).
-- [ ] **4.2 README (AC-61).** Add a catalog area section covering:
+- [x] **4.2 README (AC-61).** Add a catalog area section covering:
   - the folder map;
   - the permission constants file;
   - how the mock grants keys (demo has all of them; limited has the products view key only);
@@ -659,7 +659,7 @@ Closes AC-27, AC-58 to AC-61 and AC-63 (documented), and re-checks AC-1.
   - known gaps: the out-of-scope list and Spec vs code items 1 to 4.
 
   Update the "Not built yet" list.
-- [ ] **4.3 Full gate (AC-27, AC-58 to AC-60).**
+- [x] **4.3 Full gate (AC-27, AC-58 to AC-60).**
   - Run `npm test` (zero failures, and no `skip` or `todo`; check with
     `grep -rn "\.skip\|\.todo\|xit(" projects`).
   - Run `npx ng build admin` and `npx ng build pos` and check for no budget warnings.

@@ -86,12 +86,16 @@ export interface ModifierGroupWrite {
   max_select: number | null;
 }
 
-/** The three linked fields are all present or all absent (T-027 AC-37). */
+/**
+ * The three linked fields are all set or all empty (T-027 AC-37). On an update an absent key
+ * means "unchanged"; an explicit `null` clears the link, so unlinking sends all three as
+ * `null` (T-036 review W-2).
+ */
 export interface ModifierWrite {
   name: string;
   price_delta: CatalogDecimal;
   cost_delta: CatalogDecimal;
-  linked_product_id?: CatalogId;
-  linked_quantity?: CatalogDecimal;
-  linked_unit_id?: CatalogId;
+  linked_product_id?: CatalogId | null;
+  linked_quantity?: CatalogDecimal | null;
+  linked_unit_id?: CatalogId | null;
 }

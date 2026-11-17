@@ -1,9 +1,25 @@
-import { provideHttpClient } from '@angular/common/http';
+import {
+  HttpErrorResponse,
+  HttpInterceptorFn,
+  provideHttpClient,
+  withInterceptors,
+} from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { Router, provideRouter, withComponentInputBinding } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { CATALOG_PERMISSIONS } from '@flexipos/shared';
+import {
+  AuthService,
+  CATALOG_PERMISSIONS,
+  MOCK_LIMITED_USER,
+  MOCK_PASSWORD,
+  MOCK_USER,
+  authInterceptor,
+  mockBackendInterceptor,
+  mockCatalogInterceptor,
+  resetMockCatalog,
+} from '@flexipos/shared';
+import { firstValueFrom, throwError } from 'rxjs';
 import { routes } from './app.routes';
 import { pageEnvelope, seedSession } from './crud/testing/crud-testing';
 
@@ -111,5 +127,108 @@ describe('admin routing (T-036 AC-6, AC-9, AC-56)', () => {
     expect(typeof catalog?.loadChildren).toBe('function');
     expect(catalog?.component).toBeUndefined();
     expect(catalog?.loadComponent).toBeUndefined();
+  });
+});
+
+describe('admin end to end against the mock backend (T-036 plan 4.1, AC-8, AC-26)', () => {
+  /** Refuses the products list the way the server would for a person without the key. */
+  const refuseProducts: HttpInterceptorFn = (req, next) =>
+    req.method === 'GET' && req.url.endsWith('/catalog/products')
+      ? throwError(
+          () =>
+            new HttpErrorResponse({
+              url: req.url,
+              status: 403,
+              error: {
+                success: false,
+                data: null,
+                message: 'You do not have permission to do that.',
+                errors: [{ code: 'kernel.forbidden' }],
+                meta: { request_id: 'req-injected' },
+              },
+            }),
+        )
+      : next(req);
+
+  /** The real interceptors, in the order an app wires them; the sign-in goes through them too. */
+  async function signIn(email: string, injected: HttpInterceptorFn[] = []) {
+    sessionStorage.clear();
+    resetMockCatalog();
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter(routes, withComponentInputBinding()),
+        provideHttpClient(
+          withInterceptors([
+            authInterceptor,
+            ...injected,
+            mockCatalogInterceptor,
+            mockBackendInterceptor,
+          ]),
+        ),
+      ],
+    });
+    const auth = TestBed.inject(AuthService);
+    await firstValueFrom(auth.login(email, MOCK_PASSWORD));
+    await firstValueFrom(auth.selectTenant('abc-pharmacy'));
+    auth.selectBranch('BR001');
+    return TestBed.inject(Router);
+  }
+
+  async function show(url: string) {
+    const harness = await RouterTestingHarness.create();
+    await harness.navigateByUrl(url);
+    const root = harness.routeNativeElement as HTMLElement;
+    const shell = harness.fixture.nativeElement as HTMLElement;
+    const until = (check: () => boolean) =>
+      vi.waitFor(() => {
+        harness.detectChanges();
+        expect(check()).toBe(true);
+      });
+    return { harness, root, shell, until };
+  }
+
+  afterEach(() => sessionStorage.clear());
+
+  it('the demo user signs in, picks company and branch, and sees the seeded categories', async () => {
+    const router = await signIn(MOCK_USER.email);
+    const { root, until } = await show('/catalog/categories');
+    expect(router.url).toBe('/catalog/categories');
+    await until(() => root.querySelectorAll('tbody tr').length === 3);
+    const rows = Array.from(root.querySelectorAll('tbody tr')).map((r) => r.textContent ?? '');
+    for (const name of ['Food', 'Drinks', 'Retail']) {
+      expect(
+        rows.some((r) => r.includes(name)),
+        name,
+      ).toBe(true);
+    }
+  });
+
+  it('the limited user sees only Products in the menu, and /catalog/brands goes to /forbidden', async () => {
+    const router = await signIn(MOCK_LIMITED_USER.email);
+    const { shell, harness, until } = await show('/dashboard');
+    const links = () =>
+      Array.from(shell.querySelectorAll('nav a')).map((a) => a.textContent?.trim());
+    expect(links()).toEqual(['Dashboard', 'Products']);
+
+    await harness.navigateByUrl('/catalog/brands');
+    expect(router.url).toBe('/forbidden');
+    await until(() => (shell.textContent ?? '').includes('You do not have permission'));
+  });
+
+  it('a 403 on the products list shows the permission message end to end', async () => {
+    const router = await signIn(MOCK_LIMITED_USER.email, [refuseProducts]);
+    const { root, until } = await show('/catalog/products');
+    await until(() =>
+      (root.textContent ?? '').includes('You do not have permission to see or change this.'),
+    );
+    expect(router.url).toBe('/catalog/products');
+    expect(root.querySelector('[role="alert"]')).not.toBeNull();
+  });
+
+  it('the limited user can read products from the mock without the injected refusal', async () => {
+    await signIn(MOCK_LIMITED_USER.email);
+    const { root, until } = await show('/catalog/products');
+    await until(() => root.querySelectorAll('tbody tr').length > 0);
+    expect(root.textContent ?? '').not.toContain('You do not have permission');
   });
 });

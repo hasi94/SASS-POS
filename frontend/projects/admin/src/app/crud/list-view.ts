@@ -3,10 +3,16 @@ import {
   ChangeDetectionStrategy,
   Component,
   Directive,
+  ElementRef,
+  Injector,
   TemplateRef,
+  afterNextRender,
   contentChild,
+  effect,
   inject,
   input,
+  untracked,
+  viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subject, debounceTime, distinctUntilChanged, map } from 'rxjs';
@@ -55,6 +61,7 @@ export const SEARCH_DEBOUNCE_MS = 300;
   selector: 'adm-list-view',
   imports: [ApiErrorPanel, NgTemplateOutlet],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { '(focusin)': 'rememberFocus($event)' },
   template: `
     @if (searchable()) {
       <label class="adm-search">
@@ -67,14 +74,12 @@ export const SEARCH_DEBOUNCE_MS = 300;
       </label>
     }
 
-    @if (controller().loading()) {
-      <p class="fp-muted" role="status">Loading…</p>
-    }
+    <p class="fp-muted adm-live" role="status">{{ controller().loading() ? 'Loading…' : '' }}</p>
 
     @if (controller().error(); as err) {
       <adm-api-error-panel [error]="err" (retry)="controller().retry()" />
     } @else {
-      <table class="adm-table">
+      <table #table class="adm-table" tabindex="-1">
         <caption>
           {{
             caption()
@@ -91,7 +96,7 @@ export const SEARCH_DEBOUNCE_MS = 300;
           </tr>
         </thead>
         <tbody>
-          @for (row of controller().rows(); track row) {
+          @for (row of controller().rows(); track key(row)) {
             <tr>
               @for (col of columns(); track col.header) {
                 <td [style.padding-left.rem]="col.indent ? 0.75 + col.indent(row) * 1.25 : null">
@@ -138,9 +143,24 @@ export class ListView<T> {
   readonly searchLabel = input('Search');
 
   protected readonly actions = contentChild(RowActions);
+  private readonly table = viewChild<ElementRef<HTMLElement>>('table');
   private readonly typedText = new Subject<string>();
+  private readonly injector = inject(Injector);
+  private focused: EventTarget | null = null;
+  private wasLoading = false;
 
   constructor() {
+    // When a reload removes the element that had focus (the Delete button of a deleted row),
+    // focus goes to the table, not to <body> (QA BUG-4, review S-1).
+    effect(() => {
+      const loading = this.controller().loading();
+      untracked(() => {
+        if (this.wasLoading && !loading) {
+          afterNextRender(() => this.restoreFocus(), { injector: this.injector });
+        }
+        this.wasLoading = loading;
+      });
+    });
     this.typedText
       .pipe(
         map((text) => text.trim()),
@@ -149,6 +169,29 @@ export class ListView<T> {
         takeUntilDestroyed(),
       )
       .subscribe((text) => this.controller().setSearch(text));
+  }
+
+  /** Rows are keyed by `id` when they have one, so a reload keeps the rows that remain. */
+  protected key(row: T): unknown {
+    const id = (row as { id?: unknown } | null)?.id;
+    return id ?? row;
+  }
+
+  protected rememberFocus(event: Event): void {
+    this.focused = event.target;
+  }
+
+  private restoreFocus(): void {
+    const gone = this.focused;
+    this.focused = null;
+    if (gone instanceof Node && !gone.isConnected && !this.hasFocus()) {
+      this.table()?.nativeElement.focus();
+    }
+  }
+
+  private hasFocus(): boolean {
+    const active = document.activeElement;
+    return active !== null && active !== document.body;
   }
 
   protected typed(text: string): void {

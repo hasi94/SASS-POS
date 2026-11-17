@@ -84,10 +84,15 @@ function saveModifier(
   const s = catalogState();
   const body = req.body;
   const name = has(body, 'name') || !existing ? text(body, 'name') : existing.name;
-  // An update replaces the linked trio: absent keys mean "no link" (T-036 AC-54).
-  const productId = idOrNull(body, 'linked_product_id');
-  const unitId = idOrNull(body, 'linked_unit_id');
-  const rawQuantity = body['linked_quantity'];
+  // An absent linked key means "unchanged" on an update; an explicit null clears it (T-036 W-2).
+  const keep = (key: string): boolean => existing !== null && !has(body, key);
+  const productId = keep('linked_product_id')
+    ? (existing?.linked_product_id ?? null)
+    : idOrNull(body, 'linked_product_id');
+  const unitId = keep('linked_unit_id')
+    ? (existing?.linked_unit_id ?? null)
+    : idOrNull(body, 'linked_unit_id');
+  const rawQuantity = keep('linked_quantity') ? existing?.linked_quantity : body['linked_quantity'];
   const hasQuantity = rawQuantity !== undefined && rawQuantity !== null && rawQuantity !== '';
   const price = numberOf(
     has(body, 'price_delta') || !existing ? (body['price_delta'] ?? 0) : existing.price_delta,

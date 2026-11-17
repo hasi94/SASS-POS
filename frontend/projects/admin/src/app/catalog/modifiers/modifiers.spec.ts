@@ -604,7 +604,28 @@ describe('modifier screens (T-036 AC-7, AC-20, AC-52 to AC-55)', () => {
       await drainDetail();
     });
 
-    it('edits a plain modifier and can drop nothing it never had', async () => {
+    it('unlinks on edit by sending the three linked keys as explicit null (W-2)', async () => {
+      await open('/catalog/modifiers/GRP1/modifiers/MOD2/edit', [P.view, P.manage]);
+      await drain();
+      choose(productSelect, '');
+      await drain();
+      submit();
+      const put = http.expectOne(`${MODS}/MOD2`);
+      expect(put.request.method).toBe('PUT');
+      expect(put.request.body).toEqual({
+        name: 'Extra shot',
+        price_delta: '1.5000',
+        cost_delta: '0.4000',
+        linked_product_id: null,
+        linked_quantity: null,
+        linked_unit_id: null,
+      });
+      put.flush(envelope(PLAIN));
+      await settle();
+      await drainDetail();
+    });
+
+    it('edits a plain modifier and sends the linked keys as null, never omitted', async () => {
       await open('/catalog/modifiers/GRP1/modifiers/MOD1/edit', [P.view, P.manage]);
       await drain();
       submit();
@@ -613,6 +634,9 @@ describe('modifier screens (T-036 AC-7, AC-20, AC-52 to AC-55)', () => {
         'name',
         'price_delta',
         'cost_delta',
+        'linked_product_id',
+        'linked_quantity',
+        'linked_unit_id',
       ]);
       put.flush(envelope(PLAIN));
       await settle();

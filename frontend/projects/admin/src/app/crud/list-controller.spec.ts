@@ -74,6 +74,27 @@ describe('createListController (T-036 AC-15, AC-16)', () => {
     expect(fetch.mock.calls[2][0]).toEqual({ page: 1, per_page: 25 });
   });
 
+  it('steps back to the last page that exists when a page past the end comes back empty (BUG-5)', () => {
+    // Page 2 existed when the pager was drawn; now the server says there are 25 rows in all.
+    const tall = createListController(
+      vi.fn((p: ListParams) => of(p.page === 2 ? result([], 25, 2) : result(['x'], 26, 1))),
+    );
+    tall.load();
+    tall.goTo(2);
+    expect(tall.page()).toBe(1);
+    expect(tall.rows()).toEqual(['x']);
+    expect(tall.loading()).toBe(false);
+  });
+
+  it('does not loop when page 1 itself is empty', () => {
+    const fetch = vi.fn((_p: ListParams) => of(result([], 0)));
+    const c = createListController(fetch);
+    c.load();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(c.rows()).toEqual([]);
+    expect(c.loading()).toBe(false);
+  });
+
   it('adds filters to every request', () => {
     const fetch = vi.fn((_p: ListParams) => of(result([])));
     const c = createListController(fetch, () => ({ type: 'variant' }));

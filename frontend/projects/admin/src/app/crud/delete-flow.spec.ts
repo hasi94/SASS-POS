@@ -1,9 +1,9 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { ApiClient } from '@flexipos/shared';
+import { ApiClient, ApiError } from '@flexipos/shared';
 import { DeleteFlow } from './delete-flow';
-import { FORBIDDEN_MESSAGE } from './describe-api-error';
+import { FORBIDDEN_MESSAGE, describeApiError } from './describe-api-error';
 import { envelope, refusal } from './testing/crud-testing';
 
 interface Row {
@@ -83,8 +83,11 @@ describe('DeleteFlow (T-036 AC-19, AC-20)', () => {
         ),
       );
     expect(reloads).toBe(0);
-    expect(flow.error()?.message).toContain('WATER-500');
-    expect(flow.error()?.requestId).toBe('req-refused');
+    // The raw refusal is held; the error panel words it.
+    expect(flow.error()).toBeInstanceOf(ApiError);
+    expect(flow.error()?.status).toBe(409);
+    expect(describeApiError(flow.error()).message).toContain('WATER-500');
+    expect(describeApiError(flow.error()).requestId).toBe('req-refused');
     expect(flow.pending()).toBeNull();
     expect(flow.busy()).toBe(false);
 
@@ -99,6 +102,7 @@ describe('DeleteFlow (T-036 AC-19, AC-20)', () => {
     flow.ask(ROW);
     flow.confirm();
     http.expectOne('/api/v1/things/C1').flush(...refusal(403, 'kernel.forbidden'));
-    expect(flow.error()?.message).toBe(FORBIDDEN_MESSAGE);
+    expect(flow.error()?.status).toBe(403);
+    expect(describeApiError(flow.error()).message).toBe(FORBIDDEN_MESSAGE);
   });
 });

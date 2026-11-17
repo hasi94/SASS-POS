@@ -1,3 +1,4 @@
+import { ElementRef, Injector, afterNextRender, computed, inject, signal } from '@angular/core';
 import { AbstractControl, ValidationErrors } from '@angular/forms';
 import { ApiError } from '@flexipos/shared';
 import { FORBIDDEN_MESSAGE } from './describe-api-error';
@@ -66,4 +67,81 @@ export function clientErrorFor(control: AbstractControl, label: string): string 
   }
   const custom = Object.values(errors).find((v): v is string => typeof v === 'string');
   return custom ?? `${label} is not valid.`;
+}
+
+/**
+ * Moves focus to the first invalid control inside `root`, else to the error summary. A person
+ * who submits a form that is blocked lands on the problem instead of staying on the button.
+ */
+export function focusFirstProblem(root: HTMLElement): void {
+  const target =
+    root.querySelector<HTMLElement>('[aria-invalid="true"]') ??
+    root.querySelector<HTMLElement>('.adm-form-summary');
+  target?.focus();
+}
+
+/**
+ * The error state of one form page (T-036 review W-1, W-8): messages found by the page's own
+ * checks (`blockWith`), messages from a server refusal (`refuse`), and the summary for what no
+ * field can take. A client message wins over a server one for the same field.
+ */
+export class FormErrors {
+  private readonly client = signal<Record<string, string>>({});
+  private readonly server = signal<Record<string, string>>({});
+  private readonly summaryMessages = signal<string[]>([]);
+
+  /** Message by field name, for the field components. */
+  readonly fields = computed<Record<string, string>>(() => ({
+    ...this.server(),
+    ...this.client(),
+  }));
+  /** The refusals no field took. */
+  readonly summary = this.summaryMessages.asReadonly();
+
+  constructor(
+    private readonly knownFields: readonly string[],
+    private readonly focusProblem: () => void = () => {},
+  ) {}
+
+  /**
+   * For a page component, in a field initialiser: focus after a blocked submit goes to the
+   * first `[aria-invalid="true"]` control of the page, else to the summary, once the new
+   * messages are in the DOM.
+   */
+  static forPage(knownFields: readonly string[]): FormErrors {
+    const host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+    const injector = inject(Injector);
+    return new FormErrors(knownFields, () =>
+      afterNextRender(() => focusFirstProblem(host), { injector }),
+    );
+  }
+
+  /** Forgets the last server refusal; call at the start of a save. */
+  startSave(): void {
+    this.server.set({});
+    this.summaryMessages.set([]);
+  }
+
+  /** Forgets everything, for a form that was reset. */
+  clearAll(): void {
+    this.startSave();
+    this.client.set({});
+  }
+
+  /** Shows these client-side messages. Returns true (and moves focus) when any exist. */
+  blockWith(problems: Record<string, string>): boolean {
+    this.client.set(problems);
+    const blocked = Object.keys(problems).length > 0;
+    if (blocked) {
+      this.focusProblem();
+    }
+    return blocked;
+  }
+
+  /** Places a server refusal on its fields, and the rest in the summary. */
+  refuse(err: ApiError): void {
+    const mapped = mapServerErrors(err, this.knownFields);
+    this.server.set(mapped.fields);
+    this.summaryMessages.set(mapped.summary);
+  }
 }

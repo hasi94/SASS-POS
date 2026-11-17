@@ -72,6 +72,56 @@ describe('catalog routes (T-036 AC-6, AC-7 routing half, AC-56)', () => {
     }
   });
 
+  it('puts the same view guard in canMatch, so a forbidden person never downloads the area (W-7)', () => {
+    for (const area of CATALOG_AREAS) {
+      TestBed.resetTestingModule();
+      setup([area.view]);
+      const guards = areaRoute(area.path).canMatch ?? [];
+      expect(guards, area.path).toHaveLength(1);
+      expect(run(guards[0] as CanActivateFn), area.path).toBe(true);
+
+      TestBed.resetTestingModule();
+      setup([CATALOG_PERMISSIONS.barcodes.view]);
+      const denied = run((areaRoute(area.path).canMatch ?? [])[0] as CanActivateFn);
+      expect(router.serializeUrl(denied as UrlTree), area.path).toBe('/forbidden');
+    }
+  });
+
+  describe('the lazy chunk (W-7)', () => {
+    const loaded = vi.fn(() => Promise.resolve([{ path: '', children: [] }] as Route[]));
+
+    function setupLazy(permissions: readonly string[]): void {
+      sessionStorage.clear();
+      seedSession(permissions);
+      loaded.mockClear();
+      const lazy = catalogRoutes.map((r) => (r.loadChildren ? { ...r, loadChildren: loaded } : r));
+      TestBed.configureTestingModule({
+        providers: [
+          provideRouter([
+            { path: 'catalog', children: lazy },
+            { path: 'forbidden', children: [] },
+          ]),
+          provideHttpClient(),
+          provideHttpClientTesting(),
+        ],
+      });
+      router = TestBed.inject(Router);
+    }
+
+    it('is not requested for a person without the view key, who lands on /forbidden', async () => {
+      setupLazy([CATALOG_PERMISSIONS.barcodes.view]);
+      await router.navigateByUrl('/catalog/brands');
+      expect(router.url).toBe('/forbidden');
+      expect(loaded).not.toHaveBeenCalled();
+    });
+
+    it('is requested for a holder of the view key', async () => {
+      setupLazy([CATALOG_PERMISSIONS.brands.view]);
+      await router.navigateByUrl('/catalog/brands');
+      expect(loaded).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('does not let manage without view into an area', () => {
     setup([CATALOG_PERMISSIONS.brands.manage]);
     const guard = areaRoute('brands').canActivate?.[0] as CanActivateFn;

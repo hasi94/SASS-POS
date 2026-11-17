@@ -1,13 +1,16 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  OnInit,
+  DestroyRef,
   computed,
+  effect,
   inject,
   input,
   signal,
+  untracked,
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { Subscription } from 'rxjs';
 import { ApiError, CATALOG_PERMISSIONS, PermissionService, Product } from '@flexipos/shared';
 import { ApiErrorPanel } from '../../crud/api-error-panel';
 import { createListController } from '../../crud/list-controller';
@@ -25,7 +28,7 @@ import { ProductBarcodesSection } from './product-barcodes-section';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (loadError(); as err) {
-      <adm-api-error-panel [error]="err" (retry)="load()" />
+      <adm-api-error-panel [error]="err" (retry)="load(id())" />
     } @else if (product(); as p) {
       <h1>{{ p.name }}</h1>
       @if (p.deleted_at) {
@@ -96,7 +99,7 @@ import { ProductBarcodesSection } from './product-barcodes-section';
     }
   `,
 })
-export class ProductDetailPage implements OnInit {
+export class ProductDetailPage {
   readonly id = input.required<string>();
 
   private readonly api = inject(CatalogApi);
@@ -120,13 +123,24 @@ export class ProductDetailPage implements OnInit {
     { header: 'Active', cell: (p) => (p.is_active ? 'Yes' : 'No') },
   ];
 
-  ngOnInit(): void {
-    this.load();
+  private request: Subscription | null = null;
+
+  constructor() {
+    // The router reuses this component when only `:id` changes (parent to variant), so the
+    // load follows the id instead of running once (T-036 review R-1).
+    effect(() => {
+      const id = this.id();
+      untracked(() => this.load(id));
+    });
+    inject(DestroyRef).onDestroy(() => this.request?.unsubscribe());
   }
 
-  protected load(): void {
+  /** Forgets the previous product, then reads this one; a late reply of an old id is dropped. */
+  protected load(id: string): void {
+    this.request?.unsubscribe();
+    this.product.set(null);
     this.loadError.set(null);
-    this.api.products.get(this.id()).subscribe({
+    this.request = this.api.products.get(id).subscribe({
       next: (p) => {
         this.product.set(p);
         if (p.type === 'variant_parent') {

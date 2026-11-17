@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { Brand, CATALOG_PERMISSIONS, PermissionService } from '@flexipos/shared';
+import { ApiErrorPanel } from '../../crud/api-error-panel';
 import { ConfirmDialog } from '../../crud/confirm-dialog';
 import { DeleteFlow } from '../../crud/delete-flow';
 import { createListController } from '../../crud/list-controller';
@@ -10,7 +11,7 @@ import { CatalogApi } from '../catalog-api';
 /** The brands list with create, edit and delete for holders of the manage key (T-036 AC-33). */
 @Component({
   selector: 'adm-brands-page',
-  imports: [ConfirmDialog, ListView, RouterLink, RowActions],
+  imports: [ApiErrorPanel, ConfirmDialog, ListView, RouterLink, RowActions],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <h1>Brands</h1>
@@ -18,12 +19,7 @@ import { CatalogApi } from '../catalog-api';
       <p><a routerLink="/catalog/brands/new">New brand</a></p>
     }
     @if (flow.error(); as failure) {
-      <div class="adm-error-panel" role="alert">
-        <p class="adm-error-message">{{ failure.message }}</p>
-        @if (failure.requestId; as id) {
-          <p class="fp-muted">Request id: {{ id }}</p>
-        }
-      </div>
+      <adm-api-error-panel [error]="failure" [retryable]="false" />
     }
     <adm-list-view
       [controller]="list"

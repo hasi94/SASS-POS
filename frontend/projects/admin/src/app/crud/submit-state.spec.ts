@@ -1,3 +1,4 @@
+import { DestroyRef } from '@angular/core';
 import { ApiError } from '@flexipos/shared';
 import { Observable, Subject, throwError } from 'rxjs';
 import { SubmitState } from './submit-state';
@@ -37,5 +38,18 @@ describe('SubmitState (T-036 AC-18)', () => {
     expect(state.busy()).toBe(false);
     expect((got as ApiError | null)?.message).toBe('Nope.');
     expect(state.run(new Subject())).toBe(true);
+  });
+
+  it('runs no handler once its owner is destroyed (review S-3)', () => {
+    const callbacks: (() => void)[] = [];
+    const owner = { onDestroy: (cb: () => void) => (callbacks.push(cb), () => undefined) };
+    const state = new SubmitState(owner as DestroyRef);
+    const late = new Subject<number>();
+    const seen: number[] = [];
+    state.run(late, { next: (v) => seen.push(v) });
+    callbacks.forEach((cb) => cb());
+    late.next(1);
+    expect(seen).toEqual([]);
+    expect(state.busy()).toBe(false);
   });
 });

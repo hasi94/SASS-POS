@@ -25,32 +25,38 @@ export const catalogLandingGuard: CanActivateFn = () => {
 /**
  * Each area loads lazily from its own routes file, so two developers never edit the same
  * file and no screen is in the initial bundle (AC-56). The view guard runs before anything
- * of the area renders and before any catalog request is sent (AC-6, AC-7).
+ * of the area renders and before any catalog request is sent (AC-6, AC-7). It sits in
+ * `canMatch` too, so a person without the key does not even download the area's chunk.
  */
 export const catalogRoutes: Routes = [
   { path: '', pathMatch: 'full', canActivate: [catalogLandingGuard], children: [] },
   {
     path: 'categories',
+    canMatch: [requirePermissions([CATALOG_PERMISSIONS.categories.view])],
     canActivate: [requirePermissions([CATALOG_PERMISSIONS.categories.view])],
     loadChildren: () => import('./categories/categories.routes'),
   },
   {
     path: 'brands',
+    canMatch: [requirePermissions([CATALOG_PERMISSIONS.brands.view])],
     canActivate: [requirePermissions([CATALOG_PERMISSIONS.brands.view])],
     loadChildren: () => import('./brands/brands.routes'),
   },
   {
     path: 'units',
+    canMatch: [requirePermissions([CATALOG_PERMISSIONS.units.view])],
     canActivate: [requirePermissions([CATALOG_PERMISSIONS.units.view])],
     loadChildren: () => import('./units/units.routes'),
   },
   {
     path: 'products',
+    canMatch: [requirePermissions([CATALOG_PERMISSIONS.products.view])],
     canActivate: [requirePermissions([CATALOG_PERMISSIONS.products.view])],
     loadChildren: () => import('./products/products.routes'),
   },
   {
     path: 'modifiers',
+    canMatch: [requirePermissions([CATALOG_PERMISSIONS.modifiers.view])],
     canActivate: [requirePermissions([CATALOG_PERMISSIONS.modifiers.view])],
     loadChildren: () => import('./modifiers/modifiers.routes'),
   },

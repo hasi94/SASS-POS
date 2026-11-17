@@ -41,18 +41,27 @@ export function createListController<T>(
 
   let last: ListParams | null = null;
   let inflight: Subscription | null = null;
+  let latest = 0;
 
   function send(params: ListParams): void {
     last = params;
     inflight?.unsubscribe();
+    const ticket = (latest += 1);
     loading.set(true);
     error.set(null);
-    inflight = fetch(params).subscribe({
+    const subscription = fetch(params).subscribe({
       next: (result) => {
         rows.set(result.data);
         const p = result.meta.pagination;
         total.set(p?.total ?? result.data.length);
         perPage.set(p?.per_page ?? DEFAULT_PER_PAGE);
+        // An empty page past the end (the last row of the last page was just deleted) steps
+        // back to the last page that exists instead of showing "Nothing here yet" (BUG-5).
+        if (result.data.length === 0 && page() > pageCount()) {
+          page.set(pageCount());
+          load();
+          return;
+        }
         loading.set(false);
       },
       error: (err: ApiError) => {
@@ -61,6 +70,9 @@ export function createListController<T>(
         loading.set(false);
       },
     });
+    if (ticket === latest) {
+      inflight = subscription;
+    }
   }
 
   function load(): void {

@@ -131,12 +131,13 @@ describe('ListView (T-036 AC-14, AC-16)', () => {
     const c = createListController<Row>(() => pending);
     c.load();
     const { el, settle } = await render(c);
-    expect(el.querySelector('[role="status"]')).not.toBeNull();
+    expect(el.querySelector('[role="status"]')?.textContent?.trim()).toBe('Loading…');
     expect(el.textContent).not.toContain('Nothing here yet');
     pending.next(ok(rows(1), 1));
     pending.complete();
     await settle();
-    expect(el.querySelector('[role="status"]')).toBeNull();
+    // The live region stays in the page and only its text changes (W-8).
+    expect(el.querySelector('[role="status"]')?.textContent?.trim()).toBe('');
     expect(el.querySelectorAll('tbody tr')).toHaveLength(1);
   });
 
