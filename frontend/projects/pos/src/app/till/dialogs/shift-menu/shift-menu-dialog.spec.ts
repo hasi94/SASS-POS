@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { ApiError, SalesApi, asQuantity, branchState } from '@flexipos/shared';
-import { throwError } from 'rxjs';
+import { Observable, throwError } from 'rxjs';
+import { DialogHost } from '../../state/dialog-host';
 import { SaleStore } from '../../state/sale-store';
 import { ShiftStore } from '../../state/shift-store';
 import {
@@ -219,6 +220,31 @@ describe('ShiftMenuDialog: closing (AC-13, AC-14)', () => {
     await clickId(h, 'sale-void');
     expect(h.query('[role="dialog"] h2')?.textContent?.trim()).toBe('Void a sale');
     expect(storeOf(h, SaleStore).lineCount()).toBe(1);
+  });
+
+  it('opens no payment or void dialog on top of another dialog that took the screen meanwhile (W-8)', async () => {
+    for (const action of ['sale-complete', 'sale-void']) {
+      const h = await setupTill({ given: ['shift_open', 'draft_sale_with_line'] });
+      await tryToClose(h);
+      const api = TestBed.inject(SalesApi);
+      const real = api.getSale.bind(api);
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      vi.spyOn(api, 'getSale').mockImplementationOnce(
+        (id) =>
+          new Observable((sub) => {
+            void gate.then(() => real(id).subscribe(sub));
+          }),
+      );
+      const dialogs = storeOf(h, DialogHost);
+      void clickId(h, action);
+      void dialogs.open('help', undefined, null);
+      release();
+      await h.settle();
+      const kinds = dialogs.dialogs().map((d) => d.kind);
+      expect(kinds).not.toContain('payment');
+      expect(kinds).not.toContain('void');
+    }
   });
 
   it('holds a listed sale on the server, refreshes the list and names its reference', async () => {

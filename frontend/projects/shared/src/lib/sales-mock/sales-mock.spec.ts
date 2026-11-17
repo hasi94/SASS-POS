@@ -19,7 +19,12 @@ import {
 import { ApprovalBinding, checkApproval } from './handlers/approvals';
 import { SALES_MOCK_LATENCY_MS, SALES_MOCK_STATE, MockState, branchState } from './mock-state';
 import { seedId } from './mock-seed';
-import { SCENARIO_REFUND_ID, SCENARIO_REFUND_TENDER_ID, applyGiven } from './scenarios';
+import {
+  SCENARIO_IDS,
+  SCENARIO_REFUND_ID,
+  SCENARIO_REFUND_TENDER_ID,
+  applyGiven,
+} from './scenarios';
 import { salesMockInterceptor } from './sales-mock.interceptor';
 
 /**
@@ -131,6 +136,18 @@ describe('sales mock: scenario ids written as literals', () => {
   it('match what seedId makes, since scenarios.ts holds no top-level call', () => {
     expect(SCENARIO_REFUND_ID).toBe(seedId('Z', 1));
     expect(SCENARIO_REFUND_TENDER_ID).toBe(seedId('Y', 1));
+    expect(SCENARIO_IDS).toEqual({
+      RICE: seedId('P', 1),
+      POSTER: seedId('P', 5),
+      SOAP: seedId('P', 6),
+      EACH: seedId('N', 1),
+      SACHET: seedId('P', 4),
+      CASH_METHOD: seedId('M', 1),
+      CREDIT_METHOD: seedId('M', 3),
+      CUSTOMER_WITH_CREDIT: seedId('K', 1),
+      CUSTOMER_WITHOUT_CREDIT: seedId('K', 2),
+      USED_UP_DISCOUNT: seedId('D', 4),
+    });
   });
 });
 

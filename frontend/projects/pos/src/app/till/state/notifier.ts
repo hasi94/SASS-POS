@@ -17,6 +17,9 @@ const MAX_WAITING = 10;
  * arriving while a note is on screen replaces it at once: a plain note can be dropped before
  * {@link MIN_SHOWN_MS} (the minimum protects a refusal only).
  *
+ * At most {@link MAX_WAITING} messages wait; on overflow the oldest waiting one is dropped, even
+ * if it is a refusal.
+ *
  * Each message is also written to a live region: refusals to the assertive one, the rest to the
  * polite one, so a screen reader announces it.
  */

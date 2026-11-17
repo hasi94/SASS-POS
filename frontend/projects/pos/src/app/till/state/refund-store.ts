@@ -149,9 +149,16 @@ export class RefundStore {
   /**
    * Set whenever the answer to a refund is unknown (AC-49, D-11): the original is read back before
    * anything of another shape is sent. `key` is the shape that was lost, `before` what the original
-   * showed as refundable when it was sent.
+   * showed as refundable when it was sent. `refundId` and `tenderIds` are the ids the lost call
+   * carried: a later `prepare()` of the same shape reuses them, so a re-send is a replay, never a
+   * second payout, even after the form was changed and changed back.
    */
-  private pendingCheck: { key: string; before: string } | null = null;
+  private pendingCheck: {
+    key: string;
+    before: string;
+    refundId: string;
+    tenderIds: string[];
+  } | null = null;
   private nextKey = 1;
 
   readonly mode = signal<RefundMode>('referenced');
@@ -437,7 +444,11 @@ export class RefundStore {
       tenders.map((t) => [t.payment_method_id, t.amount, t.reference]),
     ]);
     if (this.attempt?.key !== key) {
-      this.attempt = { key, refundId: ulid(), tenderIds: tenders.map(() => ulid()) };
+      const lost = this.pendingCheck;
+      this.attempt =
+        lost !== null && lost.key === key
+          ? { key, refundId: lost.refundId, tenderIds: lost.tenderIds }
+          : { key, refundId: ulid(), tenderIds: tenders.map(() => ulid()) };
     }
     const ids = this.attempt.tenderIds;
     tenders.forEach((t, i) => {
@@ -488,6 +499,7 @@ export class RefundStore {
    * refund is on the sale, in which case the form is cleared so the cashier prices it afresh.
    */
   private async readBack(pending: { key: string; before: string }): Promise<boolean> {
+    // `before` was captured in act() ahead of any reload; a reload here must never feed it.
     if (this.sale() === null) {
       this.problem.set(
         'The answer to the last refund never came. Send it again unchanged, or close and check the sales list',
@@ -508,9 +520,7 @@ export class RefundStore {
     this.attempt = null;
     this.entries.set({});
     this.invalidate();
-    this.problem.set(
-      'The earlier refund was recorded. Choose the lines and price the refund again',
-    );
+    this.problem.set('The sale changed since the last try; check it and price the refund again');
     return false;
   }
 
@@ -537,6 +547,7 @@ export class RefundStore {
     }
     const act = async (approvalId: string): Promise<RefundResult> => {
       this.held = { key: attempt.key, approvalId };
+      // `before` must be captured here, before any reload (send() may reload the original).
       const before = refundableOf(this.sale());
       try {
         return await this.send({
@@ -548,7 +559,12 @@ export class RefundStore {
         });
       } catch (err) {
         if (answerLost(err)) {
-          this.pendingCheck = { key: attempt.key, before };
+          this.pendingCheck = {
+            key: attempt.key,
+            before,
+            refundId: attempt.refundId,
+            tenderIds: attempt.tenderIds,
+          };
         } else {
           // A definite answer: the approval is spent or refused for good, never reused.
           this.held = null;

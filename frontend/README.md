@@ -257,6 +257,12 @@ Everything is fictional; the employee codes and PINs are made up for the mock.
 - **While offline** the banner shows and the write controls are disabled; a void, refund,
   supervisor or shift dialog already open keeps its text but its submit button is disabled until
   the till is back (it re-probes every 5 seconds; "Retry now" asks at once).
+- **A timeout counts as a lost answer.** Status 0 also covers a client timeout, so a read-back
+  can say "not recorded" while the first request is still running on the server. Re-sending with
+  the same ids is safe (the server replays); the exposure is a send of a changed shape right after
+  a timeout. The till cannot tell the two apart.
+- **An approval approved after the cashier cancelled** stays on the server, single-use and bound
+  to its sale or refund, and is simply never used.
 - **Not checkable in jsdom:** the 44 by 44 px targets, the focus ring, WCAG contrast and the
   1024 by 768 layout. They are reviewed in the SCSS (`min-height: 44px`, tokens from
   `base.scss`) and need a browser check.

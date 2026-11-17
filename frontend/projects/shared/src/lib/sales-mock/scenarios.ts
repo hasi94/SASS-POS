@@ -47,6 +47,21 @@ const USED_UP_DISCOUNT = '01JMCKD0000000000000000004';
 /** The ids the refund steps use, so a fixture can replay the very request a step made. */
 export const SCENARIO_REFUND_ID = '01JMCKZ0000000000000000001';
 export const SCENARIO_REFUND_TENDER_ID = '01JMCKY0000000000000000001';
+
+/** The seeded ids the scenarios name, exported so a spec can pin each against `seedId`. */
+export const SCENARIO_IDS = {
+  RICE,
+  POSTER,
+  SOAP,
+  EACH,
+  SACHET,
+  CASH_METHOD,
+  CREDIT_METHOD,
+  CUSTOMER_WITH_CREDIT,
+  CUSTOMER_WITHOUT_CREDIT,
+  USED_UP_DISCOUNT,
+} as const;
+
 const OTHER_TERMINAL = 'TRM-OTHER';
 
 function requireOpenShift(ctx: ScenarioContext): void {

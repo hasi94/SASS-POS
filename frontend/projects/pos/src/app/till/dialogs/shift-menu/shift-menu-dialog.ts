@@ -424,6 +424,10 @@ export class ShiftMenuDialog {
   protected async completeSale(summary: SaleSummary): Promise<void> {
     const mine = this.dialogs.currentId();
     if (await this.bringToCart(summary)) {
+      if (this.dialogs.currentId() !== mine) {
+        // Another dialog took the screen while the sale was loading: open nothing on top of it.
+        return;
+      }
       this.dialogs.closeIf(mine);
       void this.dialogs.open('payment', undefined, null);
     }
@@ -432,6 +436,10 @@ export class ShiftMenuDialog {
   protected async voidSale(summary: SaleSummary): Promise<void> {
     const mine = this.dialogs.currentId();
     if (await this.bringToCart(summary)) {
+      if (this.dialogs.currentId() !== mine) {
+        // Another dialog took the screen while the sale was loading: open nothing on top of it.
+        return;
+      }
       this.dialogs.closeIf(mine);
       void this.dialogs.open('void', undefined, null);
     }
