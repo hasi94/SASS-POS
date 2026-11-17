@@ -14,11 +14,11 @@ use Flexipos\Contracts\Finance\PeriodCloseBlockers;
 use Flexipos\Contracts\Finance\PeriodGate;
 use Flexipos\Contracts\Finance\PostingService;
 use Flexipos\Finance\Accounts\DatabaseChartOfAccounts;
-use Flexipos\Finance\Accounts\NoAccountUsage;
 use Flexipos\Finance\Journal\DatabasePostingService;
+use Flexipos\Finance\Journal\Ports\JournalAccountUsage;
+use Flexipos\Finance\Journal\Ports\JournalFiscalYearUsage;
+use Flexipos\Finance\Journal\Ports\JournalPeriodCloseBlockers;
 use Flexipos\Finance\Periods\DatabasePeriodGate;
-use Flexipos\Finance\Periods\NoFiscalYearUsage;
-use Flexipos\Finance\Periods\NoPeriodCloseBlockers;
 use Flexipos\Finance\Registry\FinanceAuditActions;
 use Flexipos\Finance\Registry\FinancePermissions;
 use Illuminate\Support\ServiceProvider;
@@ -33,11 +33,11 @@ use Illuminate\Support\ServiceProvider;
  * handlers, so a Finance that could be left out of `MODULES` would leave an
  * unbound interface behind every product update.
  *
- * **The three usage ports are bound to defaults that report "none"** (D-7,
- * AC-25): nothing posts yet, so no account has postings, no year has entries
- * and nothing blocks a close. FP-261 rebinds them. Bound with `bind`, not
- * `singleton`, because a default is stateless and a test double replaces it
- * by rebinding the interface.
+ * **The three usage ports answer from the journal** (T-033 AC-62): T-032 bound
+ * them to defaults that reported "none" (`NoAccountUsage`, `NoFiscalYearUsage`,
+ * `NoPeriodCloseBlockers`, D-7) while nothing posted; those classes stay for
+ * tests that need the old answer. Bound with `bind`, not `singleton`, because a
+ * port is stateless and a test double replaces it by rebinding the interface.
  *
  * It declares no route, no command and no job.
  */
@@ -48,9 +48,9 @@ final class FinanceServiceProvider extends ServiceProvider implements DeclaresAu
         $this->app->bind(ChartOfAccounts::class, DatabaseChartOfAccounts::class);
         $this->app->bind(PeriodGate::class, DatabasePeriodGate::class);
         $this->app->bind(PostingService::class, DatabasePostingService::class);
-        $this->app->bind(AccountUsage::class, NoAccountUsage::class);
-        $this->app->bind(FiscalYearUsage::class, NoFiscalYearUsage::class);
-        $this->app->bind(PeriodCloseBlockers::class, NoPeriodCloseBlockers::class);
+        $this->app->bind(AccountUsage::class, JournalAccountUsage::class);
+        $this->app->bind(FiscalYearUsage::class, JournalFiscalYearUsage::class);
+        $this->app->bind(PeriodCloseBlockers::class, JournalPeriodCloseBlockers::class);
     }
 
     /**
@@ -64,7 +64,7 @@ final class FinanceServiceProvider extends ServiceProvider implements DeclaresAu
     }
 
     /**
-     * This package's seven keys (AC-64, D-24).
+     * This package's ten keys (T-032 AC-64, D-24; T-033 AC-72).
      *
      * @return list<PermissionDeclaration>
      */

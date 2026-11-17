@@ -26,6 +26,18 @@ use Illuminate\Database\Query\Builder;
  */
 class JournalRows
 {
+    /**
+     * The columns a summary row carries: every stored column but the payload
+     * fingerprint and the generated key column, which are internal.
+     *
+     * @var list<string>
+     */
+    public const SUMMARY_COLUMNS = [
+        'id', 'number', 'entry_date', 'period_id', 'branch_id', 'source_type', 'source_id', 'source_purpose', 'status',
+        'total_debit', 'total_credit', 'description', 'reversal_of_id', 'reversed_by_id', 'posted_at', 'posted_by',
+        'is_auto', 'created_by', 'created_at', 'updated_at',
+    ];
+
     public function __construct(private readonly TenantConnection $tenant) {}
 
     // -- Plain reads --------------------------------------------------------
@@ -57,6 +69,63 @@ class JournalRows
     public function linesOfEntryUnlocked(string $entryId): array
     {
         return array_values($this->lines()->where('entry_id', $entryId)->orderBy('line_no')->get()->all());
+    }
+
+    /**
+     * One keyset page of entry summaries (T-033 AC-69), newest first: `entry_date`
+     * descending, then `number` descending (string order, D-36), then `id`
+     * descending. Never reads a line's amounts, only whether a line names an
+     * account (`account_id` filter). `$limit` is the page size plus one, so the
+     * handler can tell whether another page exists.
+     *
+     * The filters arrive already validated, in final form; the cursor is all
+     * three parts or none.
+     *
+     * @param  array<string, string>  $filters  `from`, `to`, `status`, `source_type`, `period_id`, `account_id`, `branch_id`
+     * @return list<object>
+     */
+    public function entriesPageUnlocked(array $filters, int $limit, ?string $afterDate, ?string $afterNumber, ?string $afterId): array
+    {
+        $query = $this->entries()->select(self::SUMMARY_COLUMNS);
+
+        foreach (['status', 'source_type', 'period_id', 'branch_id'] as $column) {
+            if (isset($filters[$column])) {
+                $query->where($column, $filters[$column]);
+            }
+        }
+
+        if (isset($filters['from'])) {
+            $query->where('entry_date', '>=', $filters['from']);
+        }
+
+        if (isset($filters['to'])) {
+            $query->where('entry_date', '<=', $filters['to']);
+        }
+
+        if (isset($filters['account_id'])) {
+            $accountId = $filters['account_id'];
+
+            $query->whereExists(
+                fn (Builder $lines): Builder => $lines->from('journal_lines')
+                    ->selectRaw('1')
+                    ->whereColumn('journal_lines.entry_id', 'journal_entries.id')
+                    ->where('journal_lines.account_id', $accountId),
+            );
+        }
+
+        if ($afterDate !== null && $afterNumber !== null && $afterId !== null) {
+            $query->where(function (Builder $page) use ($afterDate, $afterNumber, $afterId): void {
+                $page->where('entry_date', '<', $afterDate)
+                    ->orWhere(function (Builder $same) use ($afterDate, $afterNumber, $afterId): void {
+                        $same->where('entry_date', $afterDate)->where(function (Builder $tie) use ($afterNumber, $afterId): void {
+                            $tie->where('number', '<', $afterNumber)
+                                ->orWhere(fn (Builder $last) => $last->where('number', $afterNumber)->where('id', '<', $afterId));
+                        });
+                    });
+            });
+        }
+
+        return array_values($query->orderByDesc('entry_date')->orderByDesc('number')->orderByDesc('id')->limit($limit)->get()->all());
     }
 
     // -- Locking reads ------------------------------------------------------

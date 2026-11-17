@@ -95,4 +95,12 @@ enum FinanceRefusal: string
     case CloseBlocked = 'close_blocked';
     case ReasonRequired = 'reason_required';
     case PeriodsNotClosed = 'periods_not_closed';
+
+    // The journal's read slices (T-033 AC-68, D-37).
+
+    /**
+     * No journal entry has the id or the source key asked for (AC-68). The same string as
+     * `PostingRefusal::EntryNotFound`, so a caller switches on one code whichever door it came through.
+     */
+    case EntryNotFound = 'entry_not_found';
 }

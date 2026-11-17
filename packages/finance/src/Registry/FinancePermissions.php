@@ -7,10 +7,10 @@ namespace Flexipos\Finance\Registry;
 use Flexipos\Contracts\Access\PermissionDeclaration;
 
 /**
- * The seven permission keys this package owns (T-032 AC-64, D-24, plan
- * Ruling 5).
+ * The permission keys this package owns: seven from T-032 (AC-64, D-24, plan
+ * Ruling 5) and three journal keys from T-033 (AC-72).
  *
- * **All seven are `is_branch_scoped = false`.** The chart and the calendar
+ * **All of them are `is_branch_scoped = false`.** The chart and the calendar
  * belong to the tenant, not to a branch, and every handler asks the resolver
  * at a null scope, so a branch-scoped key would refuse every request.
  *
@@ -38,6 +38,12 @@ final class FinancePermissions
 
     public const PERIODS_POST_ADJUSTMENT = 'finance.periods.post_adjustment';
 
+    public const JOURNAL_VIEW = 'finance.journal.view';
+
+    public const JOURNAL_POST_MANUAL = 'finance.journal.post_manual';
+
+    public const JOURNAL_REVERSE = 'finance.journal.reverse';
+
     /** The module name every declaration here carries. */
     public const MODULE = 'finance';
 
@@ -54,6 +60,9 @@ final class FinancePermissions
         self::PERIODS_CLOSE,
         self::PERIODS_REOPEN,
         self::PERIODS_POST_ADJUSTMENT,
+        self::JOURNAL_VIEW,
+        self::JOURNAL_POST_MANUAL,
+        self::JOURNAL_REVERSE,
     ];
 
     /**
@@ -69,6 +78,9 @@ final class FinancePermissions
             new PermissionDeclaration(self::PERIODS_CLOSE, self::MODULE, 'periods', 'Soft-close and close fiscal periods, and close a fiscal year.', false),
             new PermissionDeclaration(self::PERIODS_REOPEN, self::MODULE, 'periods', 'Reopen closed fiscal periods and fiscal years.', false),
             new PermissionDeclaration(self::PERIODS_POST_ADJUSTMENT, self::MODULE, 'periods', 'Post an adjustment into a soft-closed period.', false),
+            new PermissionDeclaration(self::JOURNAL_VIEW, self::MODULE, 'journal', 'List and read journal entries.', false),
+            new PermissionDeclaration(self::JOURNAL_POST_MANUAL, self::MODULE, 'journal', 'Post a manual journal entry.', false),
+            new PermissionDeclaration(self::JOURNAL_REVERSE, self::MODULE, 'journal', 'Reverse a posted journal entry.', false),
         ];
     }
 

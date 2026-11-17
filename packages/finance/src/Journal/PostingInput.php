@@ -31,7 +31,7 @@ use Flexipos\Finance\Support\Limits;
  */
 final class PostingInput
 {
-    private const PURPOSE = '/\A[a-z][a-z0-9_]{0,29}\z/';
+    public const PURPOSE = '/\A[a-z][a-z0-9_]{0,29}\z/';
 
     private function __construct() {}
 

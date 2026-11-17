@@ -41,11 +41,15 @@ const QA_FINANCE_WRITE_SLICES = [
     'CreateAccount', 'UpdateAccount', 'ReparentAccount', 'DeactivateAccount', 'ReactivateAccount', 'DeleteAccount',
     'CreateFiscalYear', 'RenameFiscalYear', 'DeleteFiscalYear', 'RenameFiscalPeriod',
     'TransitionFiscalPeriod', 'CloseFiscalYear', 'ReopenFiscalYear',
+    // T-033 (Ruling 12): the two human write paths into the journal.
+    'PostManualJournalEntry', 'ReverseJournalEntry',
 ];
 
 /** Every Finance slice that only reads (plan Ruling 9, Ruling 10). */
 const QA_FINANCE_READ_SLICES = [
     'ListAccounts', 'GetAccount', 'GetAccountTree', 'ListFiscalYears', 'ListFiscalPeriods', 'FindPeriodByDate',
+    // T-033 (Ruling 12): the journal's two reads.
+    'GetJournalEntry', 'ListJournalEntries',
 ];
 
 /**
@@ -73,6 +77,9 @@ const QA_FINANCE_UNLOCKED_CALLERS = [
     // shared-lock look-up of a missing key takes a gap lock and two first posts would deadlock); the original's lines are
     // immutable, read before the original is locked so that the account locks come first (Ruling 9).
     'Journal/DatabasePostingService.php' => ['byKeyUnlocked', 'entryByIdUnlocked', 'linesOfEntryUnlocked'],
+    // T-033 step D2 (Ruling 12, Ruling 15): the two read slices answer from plain reads, like every read slice before them.
+    'Features/GetJournalEntry/GetJournalEntryHandler.php' => ['entryByIdUnlocked', 'byKeyUnlocked', 'linesOfEntryUnlocked'],
+    'Features/ListJournalEntries/ListJournalEntriesHandler.php' => ['entriesPageUnlocked'],
 ];
 
 /**

@@ -11,12 +11,12 @@ use Flexipos\Contracts\Finance\AccountReferrer;
 use Flexipos\Contracts\Finance\AccountUsage;
 use Flexipos\Contracts\Finance\FiscalYearUsage;
 use Flexipos\Contracts\Finance\PeriodCloseBlockers;
-use Flexipos\Finance\Accounts\NoAccountUsage;
 use Flexipos\Finance\Accounts\ReferrerCensus;
 use Flexipos\Finance\Exceptions\FinanceRefusal;
 use Flexipos\Finance\FinanceServiceProvider;
-use Flexipos\Finance\Periods\NoFiscalYearUsage;
-use Flexipos\Finance\Periods\NoPeriodCloseBlockers;
+use Flexipos\Finance\Journal\Ports\JournalAccountUsage;
+use Flexipos\Finance\Journal\Ports\JournalFiscalYearUsage;
+use Flexipos\Finance\Journal\Ports\JournalPeriodCloseBlockers;
 use Flexipos\Finance\Registry\FinancePermissions;
 use Flexipos\Finance\Support\Authorize;
 use Illuminate\Support\Str;
@@ -45,7 +45,7 @@ afterAll(function () {
     AccessTenantFixture::deleteRoot();
 });
 
-it('declares exactly the seven keys, none branch-scoped, all in the finance module', function () {
+it('declares exactly the ten keys, none branch-scoped, all in the finance module', function () {
     $declarations = FinancePermissions::declarations();
 
     expect(array_map(static fn (PermissionDeclaration $d): string => $d->key, $declarations))->toBe([
@@ -56,6 +56,9 @@ it('declares exactly the seven keys, none branch-scoped, all in the finance modu
         'finance.periods.close',
         'finance.periods.reopen',
         'finance.periods.post_adjustment',
+        'finance.journal.view',
+        'finance.journal.post_manual',
+        'finance.journal.reverse',
     ])->and(FinancePermissions::KEYS)->toBe(array_map(static fn (PermissionDeclaration $d): string => $d->key, $declarations));
 
     foreach ($declarations as $declaration) {
@@ -72,12 +75,35 @@ it('is found by the registry sweep through the booted provider', function () {
         ->and($registry->keysByProvider()[FinanceServiceProvider::class])->toBe([
             'finance.accounts.manage',
             'finance.accounts.view',
+            'finance.journal.post_manual',
+            'finance.journal.reverse',
+            'finance.journal.view',
             'finance.periods.close',
             'finance.periods.manage',
             'finance.periods.post_adjustment',
             'finance.periods.reopen',
             'finance.periods.view',
         ]);
+});
+
+it('declares the three journal keys under the journal group and seeds them into no role (T-033 AC-72)', function () {
+    $journal = array_values(array_filter(
+        FinancePermissions::declarations(),
+        static fn (PermissionDeclaration $d): bool => str_starts_with($d->key, 'finance.journal.'),
+    ));
+
+    expect(array_map(static fn (PermissionDeclaration $d): string => $d->key, $journal))->toBe([
+        FinancePermissions::JOURNAL_VIEW,
+        FinancePermissions::JOURNAL_POST_MANUAL,
+        FinancePermissions::JOURNAL_REVERSE,
+    ]);
+
+    foreach ($journal as $declaration) {
+        expect($declaration->group)->toBe('journal')->and($declaration->module)->toBe('finance');
+    }
+
+    // No role seed here (the roles task grants them): a fresh tenant holds no journal key in any role.
+    expect(FinanceSeed::connection()->table('role_permissions')->where('permission_key', 'like', 'finance.journal.%')->count())->toBe(0);
 });
 
 it('allows a holder of the key and refuses everyone else not_permitted', function () {
@@ -138,10 +164,10 @@ it('keeps the two view keys apart (D-24)', function () {
     FinanceRefusals::expect(FinanceRefusal::NotPermitted, fn () => $authorize->require($periods, FinancePermissions::ACCOUNTS_VIEW));
 });
 
-it('binds the three usage ports to their defaults, which report nothing', function () {
-    expect(app(AccountUsage::class))->toBeInstanceOf(NoAccountUsage::class)
-        ->and(app(FiscalYearUsage::class))->toBeInstanceOf(NoFiscalYearUsage::class)
-        ->and(app(PeriodCloseBlockers::class))->toBeInstanceOf(NoPeriodCloseBlockers::class);
+it('binds the three usage ports to the journal classes (T-033 AC-62), and an empty journal reports nothing', function () {
+    expect(app(AccountUsage::class))->toBeInstanceOf(JournalAccountUsage::class)
+        ->and(app(FiscalYearUsage::class))->toBeInstanceOf(JournalFiscalYearUsage::class)
+        ->and(app(PeriodCloseBlockers::class))->toBeInstanceOf(JournalPeriodCloseBlockers::class);
 
     $id = (string) Str::ulid();
 
