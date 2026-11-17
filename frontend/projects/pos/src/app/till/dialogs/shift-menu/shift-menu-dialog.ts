@@ -403,10 +403,17 @@ export class ShiftMenuDialog {
     }
   }
 
-  /** Puts the sale in the cart and closes this dialog. */
-  private async bringToCart(summary: SaleSummary): Promise<boolean> {
+  /**
+   * Puts the sale in the cart. `mine` is this dialog's id: when another dialog has the screen once
+   * the sale has been read, the cart is left alone and nothing is done (false).
+   */
+  private async bringToCart(summary: SaleSummary, mine: number | undefined): Promise<boolean> {
     try {
-      this.sale.load(await firstValueFrom(this.connectivity.track(this.api.getSale(summary.id))));
+      const sale = await firstValueFrom(this.connectivity.track(this.api.getSale(summary.id)));
+      if (this.dialogs.currentId() !== mine) {
+        return false;
+      }
+      this.sale.load(sale);
       return true;
     } catch (err) {
       this.notifier.fail(err);
@@ -416,14 +423,14 @@ export class ShiftMenuDialog {
 
   protected async openSale(summary: SaleSummary): Promise<void> {
     const mine = this.dialogs.currentId();
-    if (await this.bringToCart(summary)) {
+    if (await this.bringToCart(summary, mine)) {
       this.dialogs.closeIf(mine);
     }
   }
 
   protected async completeSale(summary: SaleSummary): Promise<void> {
     const mine = this.dialogs.currentId();
-    if (await this.bringToCart(summary)) {
+    if (await this.bringToCart(summary, mine)) {
       if (this.dialogs.currentId() !== mine) {
         // Another dialog took the screen while the sale was loading: open nothing on top of it.
         return;
@@ -435,7 +442,7 @@ export class ShiftMenuDialog {
 
   protected async voidSale(summary: SaleSummary): Promise<void> {
     const mine = this.dialogs.currentId();
-    if (await this.bringToCart(summary)) {
+    if (await this.bringToCart(summary, mine)) {
       if (this.dialogs.currentId() !== mine) {
         // Another dialog took the screen while the sale was loading: open nothing on top of it.
         return;

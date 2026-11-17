@@ -247,6 +247,30 @@ describe('ShiftMenuDialog: closing (AC-13, AC-14)', () => {
     }
   });
 
+  it('leaves the cart alone when another dialog took the screen before the listed sale arrived (S-2)', async () => {
+    for (const action of ['sale-open', 'sale-complete', 'sale-void']) {
+      const h = await setupTill({ given: ['shift_open', 'draft_sale_with_line'] });
+      await tryToClose(h);
+      const cart = storeOf(h, SaleStore);
+      const load = vi.spyOn(cart, 'load');
+      const api = TestBed.inject(SalesApi);
+      const real = api.getSale.bind(api);
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      vi.spyOn(api, 'getSale').mockImplementationOnce(
+        (id) =>
+          new Observable((sub) => {
+            void gate.then(() => real(id).subscribe(sub));
+          }),
+      );
+      void clickId(h, action);
+      void storeOf(h, DialogHost).open('help', undefined, null);
+      release();
+      await h.settle();
+      expect(load).not.toHaveBeenCalled();
+    }
+  });
+
   it('holds a listed sale on the server, refreshes the list and names its reference', async () => {
     const h = await setupTill({ given: ['shift_open', 'draft_sale_with_line'] });
     const stored = branchOf(h).sales[0]!;

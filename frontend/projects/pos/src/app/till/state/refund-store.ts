@@ -44,6 +44,10 @@ export const SALE_NOT_FOUND = 'Sale not found at this branch';
 /** A refund payout above what is owed (`exceeds_balance`); no change is given on a refund (AC-64). */
 export const OWED_BACK_EXCEEDED = 'More than is owed back';
 
+/** Shown, and the reason a switch of mode or sale is refused, while a refund's fate is unknown. */
+export const REFUND_WAITING =
+  'A refund is waiting for its answer; send it again unchanged or close this dialog';
+
 /** The choice made on one line of the loaded sale. */
 export interface LineEntry {
   selected: boolean;
@@ -119,6 +123,14 @@ interface Attempt {
   tenderIds: string[];
 }
 
+/** A refund whose answer never came: see `RefundStore.pendingCheck`. */
+interface PendingCheck {
+  key: string;
+  before: string;
+  refundId: string;
+  tenderIds: string[];
+}
+
 /** What a submission is made of, once the form has been checked. */
 interface Prepared {
   saleId: string | null;
@@ -152,13 +164,10 @@ export class RefundStore {
    * showed as refundable when it was sent. `refundId` and `tenderIds` are the ids the lost call
    * carried: a later `prepare()` of the same shape reuses them, so a re-send is a replay, never a
    * second payout, even after the form was changed and changed back.
+   * While it is set the dialog may not switch mode or sale, and `before` is never re-read.
    */
-  private pendingCheck: {
-    key: string;
-    before: string;
-    refundId: string;
-    tenderIds: string[];
-  } | null = null;
+  private pendingCheck: PendingCheck | null = null;
+  private readonly waiting = signal(false);
   private nextKey = 1;
 
   readonly mode = signal<RefundMode>('referenced');
@@ -177,6 +186,8 @@ export class RefundStore {
   /** Set once the cashier has tried to go on, so the form shows what is missing. */
   readonly showProblems = signal(false);
   readonly busy = signal(false);
+  /** True while a refund's answer is unknown: the dialog may not move to another mode or sale. */
+  readonly awaitingAnswer = this.waiting.asReadonly();
 
   /** Refund methods only (`allows_refund`): the cashier is never offered another (AC-64). */
   readonly refundMethods = computed(() => this.methods().filter((m) => m.allows_refund));
@@ -229,6 +240,11 @@ export class RefundStore {
 
   setMode(mode: RefundMode): void {
     if (mode !== this.mode()) {
+      if (this.pendingCheck !== null) {
+        // A goodwill refund has no original to read back: leaving would forget its ids.
+        this.problem.set(REFUND_WAITING);
+        return;
+      }
       this.reset();
       this.mode.set(mode);
     }
@@ -237,6 +253,10 @@ export class RefundStore {
   /** Looks a sale up by its number among this branch's sales. */
   async findByNumber(typed: string): Promise<void> {
     const number = typed.trim();
+    if (this.pendingCheck !== null) {
+      this.problem.set(REFUND_WAITING);
+      return;
+    }
     if (number === '') {
       this.problem.set('Enter a sale number');
       return;
@@ -270,6 +290,11 @@ export class RefundStore {
 
   /** Loads the original sale from the server and lists its lines (AC-59). */
   async loadSale(saleId: string): Promise<void> {
+    if (this.pendingCheck !== null && this.sale()?.id !== saleId) {
+      // Another sale would forget the ids of the refund still waiting for its answer.
+      this.problem.set(REFUND_WAITING);
+      return;
+    }
     this.problem.set('');
     this.held = null;
     try {
@@ -277,9 +302,6 @@ export class RefundStore {
       if (sale.type !== 'sale' || !REFUNDABLE_LOOKUP.some((s) => s === sale.status)) {
         this.problem.set(SALE_NOT_FOUND);
         return;
-      }
-      if (this.sale()?.id !== sale.id) {
-        this.pendingCheck = null;
       }
       this.sale.set(sale);
       this.entries.set({});
@@ -513,10 +535,10 @@ export class RefundStore {
       return false;
     }
     if (refundableOf(this.sale()) === pending.before) {
-      this.pendingCheck = null;
+      this.setPending(null);
       return true;
     }
-    this.pendingCheck = null;
+    this.setPending(null);
     this.attempt = null;
     this.entries.set({});
     this.invalidate();
@@ -548,7 +570,12 @@ export class RefundStore {
     const act = async (approvalId: string): Promise<RefundResult> => {
       this.held = { key: attempt.key, approvalId };
       // `before` must be captured here, before any reload (send() may reload the original).
-      const before = refundableOf(this.sale());
+      // While the fate of this very shape is unknown, the FIRST baseline stays: send() reloads the
+      // original after a lost answer, so a fresh read here would already include the refund.
+      const before =
+        this.pendingCheck?.key === attempt.key
+          ? this.pendingCheck.before
+          : refundableOf(this.sale());
       try {
         return await this.send({
           id: attempt.refundId,
@@ -559,17 +586,17 @@ export class RefundStore {
         });
       } catch (err) {
         if (answerLost(err)) {
-          this.pendingCheck = {
+          this.setPending({
             key: attempt.key,
             before,
             refundId: attempt.refundId,
             tenderIds: attempt.tenderIds,
-          };
+          });
         } else {
           // A definite answer: the approval is spent or refused for good, never reused.
           this.held = null;
           if (this.pendingCheck?.key === attempt.key) {
-            this.pendingCheck = null;
+            this.setPending(null);
           }
         }
         throw err;
@@ -614,7 +641,7 @@ export class RefundStore {
         result = outcome.value;
       }
       this.held = null;
-      this.pendingCheck = null;
+      this.setPending(null);
       this.attempt = null;
       this.result.set(result);
     } catch (err) {
@@ -622,6 +649,11 @@ export class RefundStore {
     } finally {
       this.busy.set(false);
     }
+  }
+
+  private setPending(value: PendingCheck | null): void {
+    this.pendingCheck = value;
+    this.waiting.set(value !== null);
   }
 
   /** A change to what is being refunded makes the quote and the checks stale. */
@@ -634,7 +666,7 @@ export class RefundStore {
   private reset(): void {
     this.attempt = null;
     this.held = null;
-    this.pendingCheck = null;
+    this.setPending(null);
     this.mode.set('referenced');
     this.sale.set(null);
     this.entries.set({});

@@ -69,7 +69,8 @@ export class PaymentStore {
   /**
    * Set whenever any tender's answer is unknown (AC-49, D-11), whatever the cashier types next:
    * while set, the sale is read back before anything is sent, and a tender already on it is shown
-   * instead of sending another.
+   * instead of sending another. It holds only the latest lost tender because each read-back
+   * settles the previous one before anything newer is sent.
    */
   private pendingCheck: { saleId: string; tenderId: string } | null = null;
 

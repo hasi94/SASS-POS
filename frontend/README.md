@@ -262,7 +262,17 @@ Everything is fictional; the employee codes and PINs are made up for the mock.
   the same ids is safe (the server replays); the exposure is a send of a changed shape right after
   a timeout. The till cannot tell the two apart.
 - **An approval approved after the cashier cancelled** stays on the server, single-use and bound
-  to its sale or refund, and is simply never used.
+  to its sale, or to goodwill refunds, and is simply never used.
+- **Closing the dialog forgets a lost refund.** While a refund's answer is unknown the dialog
+  will not switch mode or sale ("A refund is waiting for its answer; send it again unchanged or
+  close this dialog"), but its ids live only in the open dialog: closing it forgets them, and a
+  refund made again afterwards gets new ids. A goodwill refund has no original sale to read back,
+  so the cashier checks the sales list before making it again.
+- **Backend follow-up: replay before validation.** The till relies on `POST /refunds` answering a
+  replay (same refund id) with the stored refund before it validates the approval or the
+  quantities, because the approval is spent and the sale's refundable quantities have moved by then.
+  The mock does this; the real backend must check replay first. Not verified against the real
+  backend.
 - **Not checkable in jsdom:** the 44 by 44 px targets, the focus ring, WCAG contrast and the
   1024 by 768 layout. They are reviewed in the SCSS (`min-height: 44px`, tokens from
   `base.scss`) and need a browser check.

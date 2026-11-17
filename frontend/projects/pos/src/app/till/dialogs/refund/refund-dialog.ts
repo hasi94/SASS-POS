@@ -4,7 +4,12 @@ import { MoneyPipe } from '../../format/money.pipe';
 import { ProductSearch } from '../../panels/product-search/product-search';
 import { Connectivity } from '../../state/connectivity';
 import { DialogHost } from '../../state/dialog-host';
-import { RefundOpenData, RefundStore, isFullyRefunded } from '../../state/refund-store';
+import {
+  REFUND_WAITING,
+  RefundOpenData,
+  RefundStore,
+  isFullyRefunded,
+} from '../../state/refund-store';
 import { FindSaleDialogData } from '../../state/void-actions';
 import { DialogFrame } from '../../ui/dialog-frame';
 
@@ -57,7 +62,7 @@ import { DialogFrame } from '../../ui/dialog-frame';
             type="button"
             data-testid="mode-referenced"
             [attr.aria-pressed]="store.mode() === 'referenced'"
-            [disabled]="store.busy()"
+            [disabled]="store.busy() || store.awaitingAnswer()"
             (click)="store.setMode('referenced')"
           >
             Refund a sale
@@ -66,12 +71,15 @@ import { DialogFrame } from '../../ui/dialog-frame';
             type="button"
             data-testid="mode-goodwill"
             [attr.aria-pressed]="store.mode() === 'goodwill'"
-            [disabled]="store.busy()"
+            [disabled]="store.busy() || store.awaitingAnswer()"
             (click)="store.setMode('goodwill')"
           >
             Goodwill refund
           </button>
         </div>
+        @if (store.awaitingAnswer()) {
+          <p class="fp-muted" data-testid="refund-waiting" role="status">{{ waitingText }}</p>
+        }
 
         @if (store.mode() === 'goodwill') {
           <p class="fp-muted">Pick the products to refund. A supervisor approves the refund.</p>
@@ -82,8 +90,12 @@ import { DialogFrame } from '../../ui/dialog-frame';
               Sale number
               <input name="number" type="text" autocomplete="off" data-autofocus />
             </label>
-            <button type="submit" [disabled]="store.busy()">Find</button>
-            <button type="button" [disabled]="store.busy()" (click)="pickFromShift()">
+            <button type="submit" [disabled]="store.busy() || store.awaitingAnswer()">Find</button>
+            <button
+              type="button"
+              [disabled]="store.busy() || store.awaitingAnswer()"
+              (click)="pickFromShift()"
+            >
               Pick from this shift
             </button>
           </form>
@@ -358,6 +370,8 @@ export class RefundDialog implements OnInit {
 
   /** What the opener passed to `DialogHost.open`: optionally the sale to refund, or the mode. */
   readonly data = input<unknown>();
+
+  protected readonly waitingText = REFUND_WAITING;
 
   ngOnInit(): void {
     void this.store.start(this.data() as RefundOpenData | undefined);

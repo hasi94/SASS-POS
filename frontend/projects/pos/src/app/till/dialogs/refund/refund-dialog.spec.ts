@@ -526,13 +526,48 @@ describe('the refund dialog', () => {
       await recover();
       set(inRefund<HTMLInputElement>(h, 'refund-amount'), original);
       await go(h);
-      if (h.query('pos-supervisor-dialog')) {
-        await approve(h);
-      }
+      // The approval of the lost try is still held for this very shape: nobody is asked again.
+      expect(h.query('pos-supervisor-dialog')).toBeNull();
       expect(calls).toHaveLength(2);
       expect(calls[1]?.id).toBe(calls[0]?.id);
       expect(calls[1]?.tenders[0]?.id).toBe(calls[0]?.tenders[0]?.id);
       expect(refunds(h)).toHaveLength(1);
+    });
+
+    it('keeps the first baseline while the same shape is unknown, so a changed shape cannot pay out twice (R-1)', async () => {
+      const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
+      const { calls } = spyCreate();
+      const recover = async (): Promise<void> => {
+        h.query<HTMLButtonElement>('[data-testid="network-banner"] button')?.click();
+        await settleAll(h);
+      };
+      await openRefund(h);
+      await findFirstSale(h);
+      await selectLine(h, 0, '1');
+      await go(h);
+      // Try 1 and its automatic retry are both lost; the reload between them succeeds and shows A.
+      h.state.faults.dropAnswerOf.push('refunds.create', 'refunds.create');
+      await go(h);
+      await approve(h);
+      expect(calls).toHaveLength(2);
+      expect(refunds(h)).toHaveLength(1);
+      await recover();
+
+      // The same refund again, unchanged: lost twice more.
+      h.state.faults.dropAnswerOf.push('refunds.create', 'refunds.create');
+      await go(h);
+      expect(h.query('pos-supervisor-dialog')).toBeNull();
+      expect(calls).toHaveLength(4);
+      await recover();
+
+      // Another shape: the sale shows A, which the first baseline did not, so nothing goes out.
+      set(inRefund<HTMLInputElement>(h, 'refund-amount'), '100.0000');
+      await go(h);
+      expect(h.query('pos-supervisor-dialog')).toBeNull();
+      expect(calls).toHaveLength(4);
+      expect(new Set(calls.map((c) => c.id)).size).toBe(1);
+      expect(refunds(h)).toHaveLength(1);
+      expect(refundText(h, 'refund-problem')).toContain('The sale changed since the last try');
     });
 
     it('makes new ids when the cashier changes what is refunded', async () => {
@@ -640,13 +675,88 @@ describe('the refund dialog', () => {
       await settleAll(h);
       await go(h);
       await go(h);
-      if (h.query('pos-supervisor-dialog')) {
-        await approve(h);
-      }
+      // Changing the quantity dropped the held approval: the goodwill refund is approved afresh.
+      expect(topHeading(h)).toBe('Supervisor approval');
+      await approve(h);
       expect(calls).toHaveLength(2);
       expect(calls[1]?.id).toBe(calls[0]?.id);
       expect(calls[1]?.tenders[0]?.id).toBe(calls[0]?.tenders[0]?.id);
       expect(refunds(h)).toHaveLength(1);
+    });
+
+    it('does not let a lost goodwill refund be forgotten by switching modes (W-1)', async () => {
+      const h = await setupTill({ given: ['shift_open'] });
+      const { calls } = spyCreate();
+      await openRefund(h);
+      clickButton(h, 'Goodwill refund');
+      await settleAll(h);
+      vi.useFakeTimers();
+      set(inRefund<HTMLInputElement>(h, 'search-field'), 'rice');
+      await vi.advanceTimersByTimeAsync(300);
+      vi.useRealTimers();
+      await settleAll(h);
+      inRefund(h, 'result')?.click();
+      await settleAll(h);
+      set(inRefund<HTMLInputElement>(h, 'goodwill-qty-0'), '2');
+      await settleAll(h);
+      await go(h);
+      expect(inRefund(h, 'refund-waiting')).toBeNull();
+      expect(inRefund<HTMLButtonElement>(h, 'mode-referenced')?.disabled).toBe(false);
+
+      h.state.faults.dropAnswerOf.push('refunds.create', 'refunds.create');
+      await go(h);
+      await approve(h);
+      expect(calls).toHaveLength(2);
+
+      const waiting =
+        'A refund is waiting for its answer; send it again unchanged or close this dialog';
+      expect(refundText(h, 'refund-waiting')).toBe(waiting);
+      expect(inRefund<HTMLButtonElement>(h, 'mode-referenced')?.disabled).toBe(true);
+      expect(inRefund<HTMLButtonElement>(h, 'mode-goodwill')?.disabled).toBe(true);
+
+      // The store holds the line even when something other than the buttons asks for a switch.
+      const store = storeOf(h, RefundStore);
+      store.setMode('referenced');
+      expect(store.mode()).toBe('goodwill');
+      expect(store.goodwillLines()).toHaveLength(1);
+      await store.loadSale('another-sale');
+      expect(store.sale()).toBeNull();
+      expect(store.problem()).toBe(waiting);
+
+      h.query<HTMLButtonElement>('[data-testid="network-banner"] button')?.click();
+      await settleAll(h);
+      await go(h);
+      expect(h.query('pos-supervisor-dialog')).toBeNull();
+      expect(calls).toHaveLength(3);
+      expect(calls[2]?.id).toBe(calls[0]?.id);
+      expect(calls[2]?.tenders[0]?.id).toBe(calls[0]?.tenders[0]?.id);
+      expect(refunds(h)).toHaveLength(1);
+      expect(refundText(h, 'refund-number')).not.toBe('');
+    });
+
+    it('does not load another sale while a referenced refund waits for its answer (W-1)', async () => {
+      const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
+      const api = TestBed.inject(SalesApi);
+      await openRefund(h);
+      await findFirstSale(h);
+      await selectLine(h, 0, '1');
+      await go(h);
+      h.state.faults.dropAnswerOf.push('refunds.create', 'refunds.create');
+      await go(h);
+      await approve(h);
+      expect(inRefund(h, 'refund-waiting')).not.toBeNull();
+
+      const store = storeOf(h, RefundStore);
+      const id = store.sale()?.id;
+      const read = vi.spyOn(api, 'getSale');
+      await store.loadSale('another-sale');
+      expect(read).not.toHaveBeenCalled();
+      expect(store.sale()?.id).toBe(id);
+      store.setMode('goodwill');
+      expect(store.mode()).toBe('referenced');
+      // The same sale may be read again: that is how the till looks at it.
+      await store.loadSale(id ?? 'none');
+      expect(store.sale()?.id).toBe(id);
     });
 
     it('rejects an empty or zero goodwill quantity in the form', async () => {
