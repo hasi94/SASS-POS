@@ -429,9 +429,9 @@ Order is fixed; each step ends with its targeted files green before the next sta
 
 ### Chunk F: approval, amendment, receipt, events
 
-- [ ] **Step 19a: `SubmitPurchaseOrder`, `SyncOrderApproval`.** *(AC-54 to AC-59, AC-97.)* Including the rejected + `stop` → `cancelled` row with the Q-B1 audit action and **no** cancel event (never approved).
-- [ ] **Step 19b: amendment, `ReopenPurchaseOrder`, `CancelPurchaseOrder`, `ClosePurchaseOrder`.** *(AC-60 to AC-67, AC-97.)* Field x status dataset; reopen and cancel refused `already_received` with any application row, even one reversed to zero (D-45).
-- [ ] **Step 19c: `ApplyReceivedQuantity`.** *(AC-68 to AC-80, AC-96.)* AC-75 per D-44; AC-77 per D-47 (zero quantity delta with non-zero base delta accepted; opposite signs refused).
+- [x] **Step 19a: `SubmitPurchaseOrder`, `SyncOrderApproval`.** *(AC-54 to AC-59, AC-97.)* Including the rejected + `stop` → `cancelled` row with the Q-B1 audit action and **no** cancel event (never approved).
+- [x] **Step 19b: amendment, `ReopenPurchaseOrder`, `CancelPurchaseOrder`, `ClosePurchaseOrder`.** *(AC-60 to AC-67, AC-97.)* Field x status dataset; reopen and cancel refused `already_received` with any application row, even one reversed to zero (D-45).
+- [x] **Step 19c: `ApplyReceivedQuantity`.** *(AC-68 to AC-80, AC-96.)* AC-75 per D-44; AC-77 per D-47 (zero quantity delta with non-zero base delta accepted; opposite signs refused).
   - **Mutations:** A1 line locked before header; A2 delta below zero accepted; A3 event on replay. **Gate: `lead`.**
 
 ### Chunk G: sweeps, scans, engine, documents

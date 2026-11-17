@@ -308,6 +308,30 @@ final class PurchasingSeed
     }
 
     /**
+     * A receipt-application row written directly, as if a receipt had been applied
+     * and its line columns already moved (or, with zero deltas on the line, been
+     * reversed back to nothing).
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    public static function receiptApplication(string $orderId, string $lineId, string $baseDelta = '1.0000', string $quantityDelta = '1.0000', array $overrides = []): string
+    {
+        $id = (string) Str::ulid();
+
+        self::connection()->table('purchase_order_receipt_applications')->insert(array_merge([
+            'id' => $id,
+            'order_id' => $orderId,
+            'order_item_id' => $lineId,
+            'received_base_delta' => $baseDelta,
+            'received_quantity_delta' => $quantityDelta,
+            'created_by' => null,
+            'created_at' => self::NOW,
+        ], $overrides));
+
+        return $id;
+    }
+
+    /**
      * A one-step workflow definition for a document type, written directly: it
      * matches an amount of at least `$minAmount`, is approved by any holder of
      * `$roleId` (never the requester), and on rejection does `$onReject`
