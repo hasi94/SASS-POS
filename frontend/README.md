@@ -267,7 +267,10 @@ Everything is fictional; the employee codes and PINs are made up for the mock.
   no mode or sale can be chosen, and the till never reads the sale back to decide. "Send again"
   re-sends the exact request with the same refund and tender ids, without checking the form again,
   using the held approval if it is unspent and asking a supervisor afresh if it went stale; it
-  stays waiting until a definite answer (a refusal returns to the editable form). A cancelled
+  stays waiting until a definite answer: only a 4xx that carries one of our refusal codes (other
+  than `replay_conflict`) returns to the editable form. No answer, a 5xx, a reply that is not an
+  API envelope and a `replay_conflict` all leave it waiting, on a first send as much as on a
+  resend. "Send again" is off while the till is offline. A cancelled
   supervisor dialog keeps it waiting. Closing the dialog forgets a lost refund (a refund made
   again afterwards gets new ids), so the cashier checks the sales list first.
 - **A late answer after close is ignored.** An answer that arrives after its dialog was closed
@@ -277,7 +280,8 @@ Everything is fictional; the employee codes and PINs are made up for the mock.
   replay (same refund id) with the stored refund before it validates the approval or the
   quantities, because the approval is spent and the sale's refundable quantities have moved by then.
   The mock does this; the real backend must check replay first. Not verified against the real
-  backend.
+  backend. Named follow-up: `B-T037-replay` - refunds.create and sales tenders must replay by
+  client id before validating approvals and quantities.
 - **Not checkable in jsdom:** the 44 by 44 px targets, the focus ring, WCAG contrast and the
   1024 by 768 layout. They are reviewed in the SCSS (`min-height: 44px`, tokens from
   `base.scss`) and need a browser check.

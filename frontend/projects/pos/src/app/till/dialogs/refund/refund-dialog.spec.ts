@@ -1,8 +1,12 @@
 import { TestBed } from '@angular/core/testing';
 import { ApiError, RefundRequest, RefundResult, SalesApi, branchState } from '@flexipos/shared';
 import { Observable, Subject, switchMap, throwError } from 'rxjs';
+import { NETWORK_MESSAGE } from '../../errors/refusal-catalogue';
+import { Connectivity } from '../../state/connectivity';
+import { Notifier } from '../../state/notifier';
 import { RefundStore } from '../../state/refund-store';
 import { SUPERVISOR, clickButton, typeCredentials } from '../../testing/approval-helpers';
+import { lost } from '../../testing/payment-helpers';
 import { HARNESS_TENANT_ID, TillHarness, setupTill } from '../../testing/till-harness';
 import {
   dialogsOf,
@@ -386,13 +390,15 @@ describe('the refund dialog', () => {
   describe('a lost answer (AC-61, AC-64)', () => {
     afterEach(() => vi.useRealTimers());
 
-    const sendAgain = async (h: TillHarness): Promise<void> => {
-      inRefund<HTMLButtonElement>(h, 'refund-send-again')?.click();
-      await settleAll(h);
-      await settleAll(h);
-    };
     const recover = async (h: TillHarness): Promise<void> => {
       h.query<HTMLButtonElement>('[data-testid="network-banner"] button')?.click();
+      await settleAll(h);
+    };
+    /** Presses Send again; a lost answer leaves the till offline, so "Retry now" comes first (W-1). */
+    const sendAgain = async (h: TillHarness): Promise<void> => {
+      await recover(h);
+      inRefund<HTMLButtonElement>(h, 'refund-send-again')?.click();
+      await settleAll(h);
       await settleAll(h);
     };
     const lose = (h: TillHarness, times = 1): void => {
@@ -677,6 +683,193 @@ describe('the refund dialog', () => {
       expect(inRefund(h, 'refund-qty-0')).not.toBeNull();
       expect(inRefund<HTMLButtonElement>(h, 'mode-goodwill')?.disabled).toBe(false);
       expect(storeOf(h, RefundStore).pending()).toBeNull();
+    });
+
+    /** createRefund throws `errors[n - 1]` on call n (null: the real server), then the real server. */
+    function scripted(errors: (ApiError | null)[]): { calls: RefundRequest[] } {
+      const api = TestBed.inject(SalesApi);
+      const real = api.createRefund.bind(api);
+      const calls: RefundRequest[] = [];
+      vi.spyOn(api, 'createRefund').mockImplementation((body): Observable<RefundResult> => {
+        calls.push(JSON.parse(JSON.stringify(body)) as RefundRequest);
+        const fault = errors[calls.length - 1] ?? null;
+        return fault === null ? real(body) : throwError(() => fault);
+      });
+      return { calls };
+    }
+
+    const coded = (status: number, code: string): ApiError =>
+      new ApiError(status, 'refused', [{ code, field: null }], 'r-1');
+
+    it('stays pending with the same ids when Send again is answered 500 and then 504 (R-1)', async () => {
+      const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
+      const { calls } = scripted([null, new ApiError(500, 'boom'), new ApiError(504, 'timeout')]);
+      await priced(h, '1');
+      lose(h);
+      await sendPriced(h);
+      const store = storeOf(h, RefundStore);
+
+      await sendAgain(h);
+      expect(store.pending()).not.toBeNull();
+      expect(inRefund(h, 'refund-waiting')).not.toBeNull();
+      expect(refundText(h, 'refund-pending-problem')).not.toBe('');
+      await sendAgain(h);
+      expect(store.pending()).not.toBeNull();
+      expect(inRefund(h, 'refund-send-again')).not.toBeNull();
+      expect(inRefund(h, 'mode-goodwill')).toBeNull();
+
+      await sendAgain(h);
+      expect(calls).toHaveLength(4);
+      expect(new Set(calls.map((c) => c.id)).size).toBe(1);
+      expect(new Set(calls.map((c) => c.tenders[0]?.id)).size).toBe(1);
+      expect(refunds(h)).toHaveLength(1);
+      expect(refundText(h, 'refund-number')).toBe(refunds(h)[0]?.data.number ?? 'missing');
+    });
+
+    it('freezes a first send that is answered 503, and Send again replays it under the same ids (R-1)', async () => {
+      const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
+      const { calls } = scripted([new ApiError(503, 'unavailable')]);
+      await priced(h, '1');
+      await sendPriced(h);
+      const store = storeOf(h, RefundStore);
+      expect(store.pending()).not.toBeNull();
+      expect(inRefund(h, 'refund-waiting')).not.toBeNull();
+      expect(inRefund(h, 'refund-go')).toBeNull();
+      expect(refundText(h, 'refund-pending-problem')).not.toBe('');
+
+      await sendAgain(h);
+      expect(h.query('pos-supervisor-dialog')).toBeNull();
+      expect(calls).toHaveLength(2);
+      expect(calls[1]).toEqual(calls[0]);
+      expect(refunds(h)).toHaveLength(1);
+      expect(approvals(h)).toHaveLength(1);
+      expect(refundText(h, 'refund-number')).toBe(refunds(h)[0]?.data.number ?? 'missing');
+    });
+
+    it.each([
+      ['a replay_conflict', () => coded(403, 'sales.replay_conflict')],
+      ['a reply that is not an API envelope', () => new ApiError(200, 'not an API envelope')],
+      ['a 502 with no envelope', () => new ApiError(502, 'Bad gateway')],
+      ['a 5xx that carries a known code', () => coded(503, 'sales.exceeds_balance')],
+    ])(
+      'stays pending, with the same ids, when Send again is answered with %s (R-1)',
+      async (_n, make) => {
+        const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
+        const { calls } = scripted([null, make()]);
+        await priced(h, '1');
+        lose(h);
+        await sendPriced(h);
+        await sendAgain(h);
+        const store = storeOf(h, RefundStore);
+        expect(store.pending()).not.toBeNull();
+        expect(inRefund(h, 'refund-waiting')).not.toBeNull();
+        expect(inRefund(h, 'refund-qty-0')).toBeNull();
+        expect(inRefund<HTMLButtonElement>(h, 'refund-send-again')?.disabled).toBe(false);
+
+        await sendAgain(h);
+        expect(calls).toHaveLength(3);
+        expect(calls[2]).toEqual(calls[0]);
+        expect(refunds(h)).toHaveLength(1);
+      },
+    );
+
+    it('returns to the form when the first send is refused 422 exceeds_balance (R-1)', async () => {
+      const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
+      scripted([coded(422, 'sales.exceeds_balance')]);
+      await priced(h, '1');
+      await sendPriced(h);
+      expect(storeOf(h, RefundStore).pending()).toBeNull();
+      expect(refundText(h, 'refund-problem')).toBe('More than is owed back');
+      expect(inRefund(h, 'refund-qty-0')).not.toBeNull();
+    });
+
+    it('does nothing when the dialog is closed with Send again in flight and the answer is stale (R-2)', async () => {
+      const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
+      const api = TestBed.inject(SalesApi);
+      const real = api.createRefund.bind(api);
+      const gate = new Subject<void>();
+      let n = 0;
+      const create = vi
+        .spyOn(api, 'createRefund')
+        .mockImplementation((body): Observable<RefundResult> => {
+          n += 1;
+          return n === 2 ? gate.pipe(switchMap(() => real(body))) : real(body);
+        });
+      await priced(h, '1');
+      lose(h);
+      await sendPriced(h);
+      const store = storeOf(h, RefundStore);
+      const frozenId = store.pending()?.request.id;
+      // The held approval goes stale while the replay is on its way.
+      const spent = approvals(h)[0];
+      if (spent) {
+        spent.data.consumed_at = new Date().toISOString();
+      }
+      await recover(h);
+      inRefund<HTMLButtonElement>(h, 'refund-send-again')?.click();
+      await settleAll(h);
+      expect(store.busy()).toBe(true);
+      expect(create).toHaveBeenCalledTimes(2);
+
+      clickButton(h, 'Close');
+      await settleAll(h);
+      expect(h.query('[role="dialog"]')).toBeNull();
+      expect(store.busy()).toBe(false);
+
+      gate.next();
+      await settleAll(h);
+      await settleAll(h);
+      expect(h.query('pos-supervisor-dialog')).toBeNull();
+      expect(h.query('[role="dialog"]')).toBeNull();
+      expect(create).toHaveBeenCalledTimes(2);
+      expect(store.pending()?.request.id).toBe(frozenId);
+      expect(store.result()).toBeNull();
+      expect(storeOf(h, Notifier).current()).toBeNull();
+      expect(approvals(h)).toHaveLength(1);
+    });
+
+    it('turns Send again off while the till is offline, and sends nothing (W-1, AC-74)', async () => {
+      const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
+      const { calls } = spyCreate();
+      await priced(h, '1');
+      lose(h);
+      await sendPriced(h);
+      expect(calls).toHaveLength(1);
+
+      storeOf(h, Connectivity).reportFailure(lost());
+      await settleAll(h);
+      expect(inRefund<HTMLButtonElement>(h, 'refund-send-again')?.disabled).toBe(true);
+
+      await storeOf(h, RefundStore).sendAgain();
+      await settleAll(h);
+      expect(calls).toHaveLength(1);
+      expect(refundText(h, 'refund-pending-problem')).toBe(NETWORK_MESSAGE);
+      expect(storeOf(h, RefundStore).pending()).not.toBeNull();
+    });
+
+    it('says the refund is still waiting when the approval is rejected on Send again (W-2)', async () => {
+      const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
+      const { calls } = unreachableAfterFirst(h);
+      await priced(h, '1');
+      await sendPriced(h);
+      const spent = approvals(h)[0];
+      if (spent) {
+        spent.data.consumed_at = new Date().toISOString();
+      }
+      h.state.faults.unreachable = false;
+      await recover(h);
+      await sendAgain(h);
+      expect(topHeading(h)).toBe('Supervisor approval');
+      typeCredentials(h, SUPERVISOR.code, SUPERVISOR.pin);
+      clickButton(h, 'Reject');
+      await settleAll(h);
+      await settleAll(h);
+
+      expect(refundText(h, 'refund-pending-problem')).toBe(
+        'Approval rejected; the refund is still waiting for its answer',
+      );
+      expect(storeOf(h, RefundStore).pending()).not.toBeNull();
+      expect(calls).toHaveLength(2);
     });
 
     it('ignores the late answer of a closed dialog: it does not touch the next session', async () => {

@@ -12,6 +12,7 @@ import {
 } from '@flexipos/shared';
 import { firstValueFrom } from 'rxjs';
 import { Connectivity } from './connectivity';
+import { definitelyRefused } from './definite-refusal';
 import { DialogHost } from './dialog-host';
 import { Notifier } from './notifier';
 import { SaleStore } from './sale-store';
@@ -163,8 +164,9 @@ export class PaymentStore {
         this.changeGiven.set(changeOf(response.tender));
         return { kind: 'done', sale: response.sale };
       } catch (err) {
-        // Only an answer in our own words settles it: anything else may have been recorded.
-        if (!(err instanceof ApiError) || refusalOf(err) === null) {
+        // Only a definite refusal settles it: anything else (no answer, a 5xx, a reply that is
+        // not an envelope, a replay_conflict) may have been recorded.
+        if (!definitelyRefused(err)) {
           this.pendingCheck = { saleId: sale.id, tenderId: attempt.id };
         } else {
           this.attempt = null;
@@ -211,7 +213,7 @@ export class PaymentStore {
       const done = await firstValueFrom(this.connectivity.track(this.api.completeSale(sale.id)));
       return this.finish(done);
     } catch (err) {
-      if (err instanceof ApiError && refusalOf(err) === null) {
+      if (err instanceof ApiError && !definitelyRefused(err)) {
         // The answer may have been lost after the sale was completed: look before reporting.
         const fresh = await this.read(sale.id);
         if (fresh.kind === 'done' && fresh.sale.status === 'completed') {

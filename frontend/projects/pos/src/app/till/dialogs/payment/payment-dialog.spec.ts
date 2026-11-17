@@ -415,6 +415,31 @@ describe('the payment dialog (AC-41 to AC-46)', () => {
       expect(serverSale(h).tenders).toHaveLength(1);
     });
 
+    it.each([
+      ['a 502 with no envelope', () => new ApiError(502, 'Bad gateway')],
+      ['a 200 that is not an API envelope', () => new ApiError(200, 'not an API envelope')],
+      [
+        'a 503 that carries one of our codes',
+        () => new ApiError(503, 'down', [{ code: 'sales.exceeds_balance', field: null }]),
+      ],
+      ['a replay_conflict', () => refusal('replay_conflict')],
+    ])(
+      'treats %s as an unknown answer: the same id again, after a read-back',
+      async (_name, make) => {
+        const h = await setupTill({ given: ['shift_open', 'draft_sale_with_line'] });
+        await openPayment(h);
+        const add = vi.spyOn(api(), 'addTender');
+        add.mockImplementationOnce(() => throwError(make));
+        await payCash(h, '100');
+        const read = vi.spyOn(api(), 'getSale');
+        await submitPayment(h);
+        expect(read).toHaveBeenCalledTimes(1);
+        expect(add).toHaveBeenCalledTimes(2);
+        expect(add.mock.calls[1]?.[1].id).toBe(add.mock.calls[0]?.[1].id);
+        expect(serverSale(h).tenders).toHaveLength(1);
+      },
+    );
+
     it('does not reuse the id after a refusal, which recorded nothing', async () => {
       const h = await setupTill({ given: ['shift_open', 'draft_sale_with_line'] });
       await openPayment(h);
@@ -518,6 +543,31 @@ describe('completing the sale from the dialog (AC-47, AC-48)', () => {
     vi.spyOn(api(), 'completeSale').mockImplementation(applyThenLose(real));
     await clickId(h, 'pay-complete');
     await settleFully(h);
+    expect(serverSale(h).status).toBe('completed');
+    expect(h.query('[role="dialog"]')).toBeNull();
+    expect(h.text('completion-number')).toContain('INV-000001');
+  });
+
+  it.each([
+    ['a 502 with no envelope', () => new ApiError(502, 'Bad gateway')],
+    ['a 200 that is not an API envelope', () => new ApiError(200, 'not an API envelope')],
+    [
+      'a 503 that carries one of our codes',
+      () => new ApiError(503, 'down', [{ code: 'sales.numbering_refused', field: null }]),
+    ],
+    ['a replay_conflict', () => refusal('replay_conflict')],
+  ])('reads the sale back after %s before saying anything', async (_name, make) => {
+    const h = await setupTill({ given: ['shift_open', 'paid_sale'] });
+    await openPayment(h);
+    const real = api().completeSale.bind(api());
+    vi.spyOn(api(), 'completeSale').mockImplementation((id) => {
+      void real(id).subscribe();
+      return throwError(make);
+    });
+    const read = vi.spyOn(api(), 'getSale');
+    await clickId(h, 'pay-complete');
+    await settleFully(h);
+    expect(read).toHaveBeenCalled();
     expect(serverSale(h).status).toBe('completed');
     expect(h.query('[role="dialog"]')).toBeNull();
     expect(h.text('completion-number')).toContain('INV-000001');

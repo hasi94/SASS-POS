@@ -21,9 +21,10 @@ import {
   ulid,
 } from '@flexipos/shared';
 import { firstValueFrom } from 'rxjs';
-import { TillMessage, describeError } from '../errors/refusal-catalogue';
+import { NETWORK_MESSAGE, TillMessage, describeError } from '../errors/refusal-catalogue';
 import { ApprovalAsk, ApprovalFlow, isStaleApproval, withApproval } from './approval-flow';
 import { Connectivity } from './connectivity';
+import { definitelyRefused } from './definite-refusal';
 import { Notifier } from './notifier';
 
 /** A refund of a sale the till loaded, or a goodwill refund of products with no original sale. */
@@ -106,10 +107,13 @@ export function describeRefundError(err: unknown): TillMessage {
   return describeError(err);
 }
 
-/** True when the call never got an answer (status 0): the refund may or may not be recorded. */
-function answerLost(err: unknown): boolean {
-  return err instanceof ApiError && err.status === 0;
-}
+/** Shown when the server answered, but not in a way that says whether the refund was recorded. */
+export const REFUND_ANSWER_UNKNOWN =
+  'The server gave no usable answer; the refund may be recorded. Send it again or close this dialog';
+
+/** Shown when an approval is rejected on Send again: the frozen refund is still waiting. */
+export const REFUND_REJECTED_WAITING =
+  'Approval rejected; the refund is still waiting for its answer';
 
 /** The ids a submission of one exact refund sends, kept so a retry of it cannot refund twice. */
 interface Attempt {
@@ -142,11 +146,6 @@ export interface PendingRefund extends Frozen {
 
 /** Thrown inside the approval loop once the dialog's session is over, to stop asking anyone. */
 class SessionEnded extends Error {}
-
-/** What a submission is made of, once the form has been checked. */
-interface Prepared {
-  frozen: Frozen;
-}
 
 /**
  * Referenced and goodwill refunds (T-037 AC-59 to AC-64). The till never prices a refund line:
@@ -189,8 +188,6 @@ export class RefundStore {
   readonly busy = signal(false);
   /** The refund whose answer never came, if any: the dialog shows only this until it is settled. */
   readonly pending = this.frozen.asReadonly();
-  /** True while a refund's answer is unknown: the dialog may not move to another mode or sale. */
-  readonly awaitingAnswer = computed(() => this.frozen() !== null);
 
   /** Refund methods only (`allows_refund`): the cashier is never offered another (AC-64). */
   readonly refundMethods = computed(() => this.methods().filter((m) => m.allows_refund));
@@ -427,7 +424,7 @@ export class RefundStore {
   }
 
   /** Checks the payout and the lines once more and builds what will be sent. */
-  private prepare(): Prepared | null {
+  private prepare(): Frozen | null {
     const quote = this.quote();
     const lines = this.requestLines();
     if (quote === null || lines === null) {
@@ -474,19 +471,17 @@ export class RefundStore {
       t.id = ids[i] ?? t.id;
     });
     return {
-      frozen: {
-        request: {
-          id: this.attempt.refundId,
-          reference_sale_id: saleId,
-          lines,
-          tenders,
-        },
-        approval: this.approvalFor(saleId, quote),
-        view: {
-          saleLabel: this.sale()?.number ?? this.sale()?.reference ?? null,
-          quote,
-          methodName: tenders.length > 0 ? (this.method()?.name ?? null) : null,
-        },
+      request: {
+        id: this.attempt.refundId,
+        reference_sale_id: saleId,
+        lines,
+        tenders,
+      },
+      approval: this.approvalFor(saleId, quote),
+      view: {
+        saleLabel: this.sale()?.number ?? this.sale()?.reference ?? null,
+        quote,
+        methodName: tenders.length > 0 ? (this.method()?.name ?? null) : null,
       },
     };
   }
@@ -521,10 +516,12 @@ export class RefundStore {
       );
     } catch (err) {
       if (this.session === mine) {
-        if (answerLost(err)) {
-          this.frozen.set({ ...frozen, approvalId });
-        } else if (isStaleApproval(err)) {
+        if (isStaleApproval(err)) {
           this.frozen.update((p) => (p === null ? p : { ...p, approvalId: null }));
+        } else if (!definitelyRefused(err)) {
+          // No answer, a 5xx, a reply that is not an envelope or a replay_conflict: the refund may
+          // be recorded, so it is frozen, on a first send as much as on a resend.
+          this.frozen.set({ ...frozen, approvalId });
         }
       }
       throw err;
@@ -572,7 +569,11 @@ export class RefundStore {
           return;
         }
         if (outcome.kind === 'rejected') {
-          this.problem.set('Approval rejected: nothing was refunded');
+          this.problem.set(
+            this.frozen() === null
+              ? 'Approval rejected: nothing was refunded'
+              : REFUND_REJECTED_WAITING,
+          );
           return;
         }
         if (outcome.kind === 'cancelled') {
@@ -590,11 +591,17 @@ export class RefundStore {
       if (!live()) {
         return;
       }
-      if (!answerLost(err)) {
-        // A definite refusal: nothing was recorded, so the form is editable again.
+      if (definitelyRefused(err)) {
+        // The server said in its own words that nothing was recorded: the form is editable again.
         this.frozen.set(null);
+        this.problem.set(describeRefundError(err).text);
+      } else {
+        this.problem.set(
+          err instanceof ApiError && err.status === 0
+            ? describeError(err).text
+            : REFUND_ANSWER_UNKNOWN,
+        );
       }
-      this.problem.set(describeRefundError(err).text);
     } finally {
       if (live()) {
         this.busy.set(false);
@@ -612,7 +619,7 @@ export class RefundStore {
     if (prepared === null) {
       return;
     }
-    await this.drive(this.session, prepared.frozen, null);
+    await this.drive(this.session, prepared, null);
   }
 
   /**
@@ -624,8 +631,23 @@ export class RefundStore {
     if (this.busy() || waiting === null) {
       return;
     }
+    if (!this.connectivity.online()) {
+      // Nothing is written while the server cannot be reached (AC-74).
+      this.problem.set(NETWORK_MESSAGE);
+      return;
+    }
     this.problem.set('');
     await this.drive(this.session, waiting, waiting.approvalId);
+  }
+
+  /**
+   * Ends the dialog's session (the dialog is closing, or the till is signing out): an answer still
+   * on its way is ignored from here on, and no supervisor is asked for it. `pending` stays as it is
+   * until the next `start()`.
+   */
+  end(): void {
+    this.session += 1;
+    this.busy.set(false);
   }
 
   /** A change to what is being refunded makes the quote and the checks stale. */

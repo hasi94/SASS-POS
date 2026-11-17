@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, input } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnDestroy,
+  OnInit,
+  inject,
+  input,
+} from '@angular/core';
 import { SaleLine, SaleSummary, formatQuantity } from '@flexipos/shared';
 import { MoneyPipe } from '../../format/money.pipe';
 import { ProductSearch } from '../../panels/product-search/product-search';
@@ -93,7 +100,7 @@ import { DialogFrame } from '../../ui/dialog-frame';
               class="primary"
               data-autofocus
               data-testid="refund-send-again"
-              [disabled]="store.busy()"
+              [disabled]="store.busy() || !online()"
               (click)="store.sendAgain()"
             >
               Send again
@@ -402,7 +409,7 @@ import { DialogFrame } from '../../ui/dialog-frame';
     }
   `,
 })
-export class RefundDialog implements OnInit {
+export class RefundDialog implements OnInit, OnDestroy {
   protected readonly store = inject(RefundStore);
   protected readonly online = inject(Connectivity).online;
   protected readonly dialogs = inject(DialogHost);
@@ -414,6 +421,11 @@ export class RefundDialog implements OnInit {
 
   ngOnInit(): void {
     void this.store.start(this.data() as RefundOpenData | undefined);
+  }
+
+  /** Closing the dialog (also by `closeAll` on sign-out or a branch switch) ends its session. */
+  ngOnDestroy(): void {
+    this.store.end();
   }
 
   protected qty(text: string): string {
