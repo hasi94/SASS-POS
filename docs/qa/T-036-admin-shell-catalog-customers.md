@@ -2,7 +2,9 @@
 
 Tip tested: `c9e0250` (Chunks 1, 2, 3 merged; Chunk 4 not yet merged). Spec AC-1 to AC-63, decisions D-1 to D-18.
 
-## Verdict: FAIL
+## Verdict: PASS (Round 2; Round 1 was FAIL, history at the bottom)
+
+See "Round 2" at the end for the current evidence. Everything below it is the Round 1 record, kept for history.
 
 Reasons, in order of weight:
 1. AC-61 (README) is not delivered: `frontend/README.md` is untouched since the plan commit (Chunk 4 outstanding). Also the "README documents the grep command" half of AC-27.
@@ -166,3 +168,47 @@ Survivors: none. Note: the QA matrix cascades (one real failure turns many later
 - `double-submit.spec.ts` (14 tests): AC-18 on 7 forms plus resubmit after refusal.
 
 History: Run 1: FAIL (BUG-1 pending Chunk 4; BUG-3, BUG-4, BUG-5 minor; BUG-2 note).
+
+## Round 2 (tip 42bb3e0 plus one QA spec)
+
+### Verdict: PASS (0 open defects; BUG-2 stays a documented contract note)
+
+| Item | Check | Result |
+|------|-------|--------|
+| BUG-1 / AC-61 / AC-27 README half | `frontend/README.md` now has "Admin shell and the catalog area (T-036)": where things live, the 12 permission keys with the stray-literal grep, how the mock grants keys (demo all 12, limited `products.view` only), contracts provisional pending B-1, the sentinels (`fp-mock-catalog-a7f3`, `demo@flexipos.test`, `limited@flexipos.test`, `mock-tenant-access`, `flexipos-sales-mock`) with the grep command and the dev-build positive control, a Known gaps list (stale version, refusals carry no field, missing handlers, modifier unlink, permission source, jsdom-only), and "Not built yet". Read in full; every item the Round 1 expected-list named is present | PASS |
+| BUG-2 | README "Known gaps" first bullet states `UpdateProductHandler::FIELDS` has no `version`, `Fields::only()` refuses it, B-1 must strip it or add a real 409 check | PASS (documented) |
+| BUG-3 | `catalog-edge-cases.spec.ts` BUG-3 is a plain `it`; plus 3 new `entity-picker.spec.ts` cases. Mutation M23 (swallow the lookup error again) turns 4 tests red | PASS |
+| BUG-4 | plain `it`; M22 (no focus restore to the table) turns it red | PASS |
+| BUG-5 | plain `it` plus a unit case in `list-controller.spec.ts`; M21 (step-back disabled) turns both red | PASS |
+
+No `it.fails`, `.skip`, `.only`, `xit`, `fit`, `.todo` anywhere under `frontend/projects` (grep: 0 hits).
+
+### Run summary
+- `cd frontend && npm test`: exit 0. pos 2/2, admin 655/655 (29 files; includes my new spec), shared 161/161. Total 818 passed, 0 failed, 0 skipped, 0 todo. (Developer's tip: 654 admin; round 1 baseline 597 incl. 3 expected-fail.)
+- `npx ng build admin`: exit 0, no warnings. `npx ng build pos`: exit 0, no warnings.
+- Sentinel grep (`demo@flexipos.test`, `fp-mock-catalog-a7f3`, `limited@flexipos.test`, `mock-tenant-access`, `flexipos-sales-mock`) over `dist/admin/browser/*.js dist/pos/browser/*.js`: prints nothing. Positive control, development admin build: 1 file each for the first four. `frontend/dist` deleted afterwards.
+- Note: `flexipos-sales-mock` exists nowhere under `frontend/projects` (grep: 0 files) and so is 0 in the development build too. The README and the task list it as a sentinel, but it cannot fail today; harmless extra, not a defect. Either drop it from the README grep or point it at a real string.
+
+### Fix-round behaviours: coverage and mutations (production file restored after each, `git diff` clean)
+| # | Mutation | Result |
+|---|----------|--------|
+| M20 | detail page reads `id` untracked (loads once, R-1 returns) | killed (products.spec R-1 reload) |
+| M21 | list-controller step-back off (BUG-5) | killed (2 tests) |
+| M22 | list-view does not restore focus to the table (BUG-4) | killed |
+| M23 | entity-picker swallows the lookup error (BUG-3) | killed (4 tests) |
+| M24 | `canMatch` removed from the products route (W-7) | killed |
+| M25 | modifier unlink omits the three keys instead of explicit null (W-2) | killed (2 tests) |
+| M26 | `SubmitState` ignores destroy (DestroyRef cancel, S-3) | killed |
+| M27 | detail page no longer cancels the in-flight request of the old id | **SURVIVED** the developer suite (654 green); killed after my new spec |
+| M28 | detail page keeps the old product while the new one loads | killed (R-1 spec and my new spec) |
+
+Coverage gap found and closed: nothing asserted that a late reply for an old product id is dropped (the "cancel the previous request" half of R-1 and the DestroyRef cancel on the detail page). Added `frontend/projects/admin/src/app/catalog/products/detail-race.spec.ts` (1 test: old product gone while the new one loads; the in-flight request is `cancelled` on the next navigation). Prettier clean. One mutation (M27) cascades to many later failures through the shared `afterEach` verify, as the Round 1 note warned; read it as "killed".
+
+The `canMatch` spec checks the lazy chunk through a `loadChildren` spy (not requested for a forbidden person, requested for a holder) and the guard being present in `canMatch`; both were verified by M24. I did not mutate `canMatch` on the other four areas: the spec iterates the route table, so they share the assertion.
+
+### Notes
+- Environment: no timeouts under load this round; all runs were sequential.
+- Still NOT VERIFIABLE (fenced by the spec): AC-21, AC-62, AC-63.
+- Developer memory files and `docs/reviews/T-036-*.md` show as modified/untracked in git; not mine and not touched.
+
+History: Run 1: FAIL (BUG-1, BUG-3, BUG-4, BUG-5; BUG-2 note). Run 2: FAIL -> PASS (all five closed or documented; 1 new QA spec for an M27 survivor).

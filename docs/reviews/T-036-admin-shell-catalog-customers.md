@@ -36,3 +36,13 @@ Default-deny `PermissionService`, cleared on login, clearContext and logout; `vi
 
 ### NOT VERIFIED
 AC-27 (sentinel absent from production bundles), AC-58 and AC-59 (green suite, budgets), whether any spec passes, the chunk split for AC-56, AC-61 (README) and the Chunk 4 specs, real-browser or screen-reader behaviour (AC-63).
+
+## Fix round 1 - R-1, W-1, W-2, W-3, W-4, W-7, W-8, S-1, S-3 (partly), QA BUG-3/4/5, Chunk 4 (developer `dev65`, commit `42bb3e0`)
+`npm test` 817 passed, 0 failed, no `it.fails`; `ng build admin` and `pos` clean; sentinel grep empty.
+
+## Round 2 - tip `42bb3e0` - APPROVE, no Critical, no Warning
+Re-check by `reviewer36b`, reading only. R-1 fixed at the root (effect on the id, product reset, barcode and variant sections rebuilt, new spec). W-1 to W-4, W-7, W-8 and BUG-3/4/5 resolved; the page step-back strictly decreases and cannot loop; `requirePermissions` behaviour unchanged for existing callers; README W-5/W-6 notes accurate.
+
+Suggestions (not blocking): S-a the variants list controller keeps its page when the id changes (reset to page 1 in `load(id)`); S-b modifier edit sends the three nulls even when never linked (record a decision when B-1 defines `UpdateModifier`); S-c README line 138 should say `requirePermissions` is canActivate and canMatch, `requireAnyPermission` canActivate only; S-d README grep includes `flexipos-sales-mock` which exists only after the T-037 merge (add a note); S-e list `load()` subscriptions not tied to `DestroyRef`. Also not done: round-1 S-4, S-5, S-6.
+
+NOT VERIFIED by the reviewer: test and build results, AC-27 bundle grep, real-browser and screen-reader behaviour, `afterNextRender` timing under Angular 21, the 4.1 integration specs' assertions, merge conflicts with T-035/T-037 README edits.
