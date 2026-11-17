@@ -290,7 +290,7 @@ describe('a zero-total sale takes the ordinary path (AC-14A, D-74)', function ()
             ->and($result->changeDue)->toBe('0.0000')
             ->and(SalesSeed::row('sales', $sale))->toMatchArray(['status' => 'completed', 'number' => 'S000001', 'paid_total' => '0.0000', 'change_due' => '0.0000', 'balance_due' => '0.0000', 'stock_applied' => 0])
             ->and(SalesSeed::row('discounts', $free)['used_count'])->toEqual(1)
-            ->and((int) SalesSeed::connection()->table('number_sequences')->value('next_number'))->toBe(2)
+            ->and((int) SalesSeed::connection()->table('number_sequences')->where('document_type', 'sale')->value('next_number'))->toBe(2)
             // No tender rows, no ledger rows, no customers audit row; the whole of these tables is as it was.
             ->and($after['tenders'])->toBe($before['tenders'])
             ->and($after['ledger'])->toBe($before['ledger'])
@@ -372,7 +372,8 @@ describe('credit tenders (F-2, F-3, F-4; AC-48, AC-49; R-4, R-20)', function () 
         expect($refused->cause)->toBe(CreditRefusal::OverLimit)
             ->and(csState())->toBe($before)
             ->and(SalesSeed::connection()->table('customer_ledger')->count())->toBe(0)
-            ->and(SalesSeed::connection()->table('number_sequences')->count())->toBe(0);
+            // Scoped to the sales document types: T-033's seed migration puts a journal_entry row in every tenant.
+            ->and(SalesSeed::connection()->table('number_sequences')->whereIn('document_type', ['sale', 'refund', 'cash_shift'])->count())->toBe(0);
     });
 
     it('refuses a customer with no currency, or another one, as credit_refused carrying the ledger\'s cause (AC-49)', function (?string $currency, CreditRefusal $cause) {
@@ -559,7 +560,7 @@ describe('the deadlock retry (NOT VERIFIED on a real engine)', function () {
 
         expect($wrapper->calls)->toBe(2)
             ->and($result->number)->toBe('S000001')
-            ->and((int) SalesSeed::connection()->table('number_sequences')->value('next_number'))->toBe(2)
+            ->and((int) SalesSeed::connection()->table('number_sequences')->where('document_type', 'sale')->value('next_number'))->toBe(2)
             // Consumed once, not once per attempt.
             ->and(SalesSeed::row('discounts', $discount)['used_count'])->toEqual(1)
             // One credit_sale per credit tender, one customers audit row per posting, one sales audit row.

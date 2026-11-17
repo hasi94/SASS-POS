@@ -65,6 +65,7 @@ final class DatabaseDocumentNumbers implements DocumentNumbers
         'sale' => 'S',
         'refund' => 'R',
         'cash_shift' => 'SH',
+        'journal_entry' => 'JE-',
     ];
 
     public function __construct(

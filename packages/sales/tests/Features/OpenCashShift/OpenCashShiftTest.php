@@ -137,7 +137,7 @@ it('refuses a second open shift on the terminal, and writes nothing for it', fun
     expect(SalesSeed::connection()->table('cash_shifts')->count())->toBe(1)
         ->and(count(SalesSeed::audit()))->toBe($audits)
         // The refused attempt took no number.
-        ->and((int) SalesSeed::connection()->table('number_sequences')->value('next_number'))->toBe(2);
+        ->and((int) SalesSeed::connection()->table('number_sequences')->where('document_type', 'cash_shift')->value('next_number'))->toBe(2);
 });
 
 it('refuses the second open shift before it touches the number sequence, so the hot lock is never taken for it', function () {
@@ -256,7 +256,8 @@ it('needs a live cashier, and writes nothing without one', function () {
     SalesRefusals::expect(SalesRefusal::NotFound, fn () => openCashShift(shiftInput($w), '01HZZZZZZZZZZZZZZZZZZZZZZZ'));
 
     expect(SalesSeed::connection()->table('cash_shifts')->count())->toBe(0)
-        ->and(SalesSeed::connection()->table('number_sequences')->count())->toBe(0);
+        // Scoped to the sales document types: T-033's seed migration puts a journal_entry row in every tenant.
+        ->and(SalesSeed::connection()->table('number_sequences')->whereIn('document_type', ['sale', 'refund', 'cash_shift'])->count())->toBe(0);
 });
 
 it('takes the terminal row FOR UPDATE first, and allocates its number last (Ruling 7, row 7)', function () {
@@ -336,7 +337,7 @@ it('retries the whole transaction once when the numbering deadlocks, and the sec
         ->and($result->number)->toBe('SH000001')
         // One shift, one number consumed, one audit row: the first attempt left nothing behind.
         ->and(SalesSeed::connection()->table('cash_shifts')->count())->toBe(1)
-        ->and((int) SalesSeed::connection()->table('number_sequences')->value('next_number'))->toBe(2)
+        ->and((int) SalesSeed::connection()->table('number_sequences')->where('document_type', 'cash_shift')->value('next_number'))->toBe(2)
         ->and(SalesSeed::audit())->toHaveCount(1);
 });
 

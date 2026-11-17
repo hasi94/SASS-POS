@@ -113,6 +113,8 @@ it('is the catalogue top entry, phase expand, version 43', function () {
         true
     );
 
+    // T-033 step A3 puts the retained-earnings key, a contract step, on top (84 becomes 85).
+    // T-033 step A2 put the journal seed backfill on top (81 became 84).
     // T-032 step 17 puts the owed-account contract file on top (77 becomes 81).
     // T-032 step 16 put the seed backfill on top (76 became 77).
     // T-030 steps 6 and 7 republished the catalogue with its own ten
@@ -121,7 +123,7 @@ it('is the catalogue top entry, phase expand, version 43', function () {
     // alone for the reason the notes above give.
     $top = end($catalogue);
 
-    expect($top['version'])->toBe(81)
-        ->and($top['migration'])->toBe('2026_11_15_003208_add_owed_account_foreign_keys')
+    expect($top['version'])->toBe(85)
+        ->and($top['migration'])->toBe('2026_11_16_003304_add_retained_earnings_entry_foreign_key')
         ->and($top['phase'])->toBe('contract');
 });

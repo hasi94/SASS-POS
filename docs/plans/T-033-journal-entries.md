@@ -305,11 +305,11 @@ Working rules (from T-032): red-first by fixture or omission, never by stubbing 
 
 ### Chunk A: base, schema, static instruments
 
-- [ ] **Step A0: baseline read** (`dev` reads only). *(No AC.)*
+- [x] **Step A0: baseline read** (`dev` reads only). *(No AC.)*
   - `git log -1` is `5a6b8a0` or a descendant with no change under `packages/finance/src`, `packages/organization/src/Numbering`, `packages/kernel/src/Schema/Support`, `modules/host/database` since; otherwise re-read the affected rows of section 0.2.
   - Record V0 = the catalogue top (81 expected) and `.env.example`'s value (81 expected).
   - Re-grep `table('number_sequences')` in every `tests/` directory; any absolute count or unscoped `value(`/`first(` not in section 8 is added before A2.
-- [ ] **Step A1: plumbing.** *(Groundwork; AC-33b.)*
+- [x] **Step A1: plumbing.** *(Groundwork; AC-33b.)*
   1. `packages/finance/composer.json`: `"brick/math": "^0.14"`; from `modules/host`: `"/e/xampp/php/php.exe" "/c/ProgramData/ComposerSetup/bin/composer.phar" update flexipos/finance`, then `validate --no-check-publish` in `packages/finance`.
   2. `Limits.php`: the six constants.
   3. `CheckConstraint.php`: `balanced()` (engine-only, literal verb, `assertIdentifier` on all three) and `balancedStatement()`.
@@ -317,7 +317,7 @@ Working rules (from T-032): red-first by fixture or omission, never by stubbing 
   5. `DatabaseDocumentNumbers.php`: `'journal_entry' => 'JE-'`.
   6. `DocumentNumbersTest.php`: new case "a missing `journal_entry` row is created as `JE-` / 6 / `never` and yields `JE-000001`" (deletes any `journal_entry` row first, so it holds before and after A2).
   - Targeted: `../../packages/kernel/tests/Schema/Support/CheckConstraintTest.php`, `../../packages/organization/tests/Numbering/DocumentNumbersTest.php`, `tests/Feature/QaToolchainRegistryCoverageTest.php` (expected green, no edit).
-- [ ] **Step A2: expand and seed migrations, schema and width tests, pinned lists.** *(Schema halves of AC-32, AC-39, AC-41 to AC-45, AC-75, AC-78 to AC-80.)*
+- [x] **Step A2: expand and seed migrations, schema and width tests, pinned lists.** *(Schema halves of AC-32, AC-39, AC-41 to AC-45, AC-75, AC-78 to AC-80.)*
   1. `003301_create_journal_entries_table.php`: section "Data / API changes"; docblock states the `'-'` sentinel and why AC-8 makes it safe (`docs/database.md:132`), and that keys are declared with the new table (D-24); `CheckConstraint::balanced` after `Schema::create`.
   2. `003302_create_journal_lines_table.php`: `CheckConstraint::oneSided('journal_lines', 'debit', 'credit')`.
   3. `003303_seed_journal_entry_number_sequence.php`: `@phase backfill`; one transaction; insert only when no row has `branch_id` null and `document_type = journal_entry`; `Str::ulid()` id, `RunnerClock` timestamps (the `003204` imports); no audit row; docblock "two homes" note pointing at the test that compares it with the allocator default.
@@ -337,7 +337,7 @@ Working rules (from T-032): red-first by fixture or omission, never by stubbing 
   9. Pinned host tests (section 8 rows marked A2): `tests/Helpers.php` `tenantTreeTables()`; `MigrationTreeDisciplineTest` (69 → 71); `TenantBaselineBuildsTest` (FK list +13, `branches` list +`journal_entries`, `journal_lines`, sequence count 3 → 4); `TenantDecimalPrecisionTest` (two map entries); `IdempotencyKeysSchemaTest` (top `003303`, backfill, measured version); `QaAccessCloseOutSweepsTest`, `QaAccessSchemaShapeTest` (`$t033`).
   10. `number_sequences` reads (section 8 rows A2): scope each to the document types the test owns.
   - Targeted: `../../packages/finance/tests/Schema/JournalTenantSchemaTest.php`, `../../packages/finance/tests/Schema/JournalWidthsTest.php`, `../../packages/finance/tests/Schema/FinanceTenantSchemaTest.php`, `../../packages/finance/tests/Seed/SeedChartTest.php`, `tests/Feature/MigrationTreeDisciplineTest.php`, `tests/Feature/TenantBaselineBuildsTest.php`, `tests/Feature/TenantDecimalPrecisionTest.php`, `tests/Feature/IdempotencyKeysSchemaTest.php`, `tests/Feature/QaAccessCloseOutSweepsTest.php`, `tests/Feature/QaAccessSchemaShapeTest.php`, `tests/Feature/SchemaCataloguePublishTest.php`, `tests/Feature/MigrationHelperAndImportRulesTest.php`, `tests/Feature/OwedAccountColumnsMigrationsTest.php`, `../../packages/organization/tests/Numbering/DocumentNumbersTest.php`, `../../packages/sales/tests/Features/CompleteSale/CompleteSaleTest.php`, `../../packages/sales/tests/Features/OpenCashShift/OpenCashShiftTest.php`, `../../packages/kernel/tests/Schema/Features/PlanMigrationRun/ShippedTenantTreeTest.php`.
-- [ ] **Step A3: contract `003304`, with `JournalMigrationsTest`.** *(AC-75 to AC-78, AC-81.)*
+- [x] **Step A3: contract `003304`, with `JournalMigrationsTest`.** *(AC-75 to AC-78, AC-81.)*
   1. `003304_add_retained_earnings_entry_foreign_key.php`: `@phase contract`, the `003208` shape (Ruling 10).
   2. `schema:publish --write-fixture`; `.env.example` = the new top (V0 + 4); `IdempotencyKeysSchemaTest` top `003304`, contract, measured version; `TenantBaselineBuildsTest` FK list +1.
   3. `modules/host/tests/Feature/JournalMigrationsTest.php`:

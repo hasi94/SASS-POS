@@ -6,6 +6,7 @@
     "license": "proprietary",
     "require": {
         "php": "^8.2",
+        "brick/math": "^0.14",
         "flexipos/contracts": "*"
     },
     "autoload": {

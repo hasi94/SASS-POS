@@ -87,9 +87,15 @@ function dnRow(string $documentType, ?string $branchId = null): ?array
     return $row === null ? null : (array) $row;
 }
 
+/**
+ * The rows this file's own cases created. The `journal_entry` row is seeded by
+ * the T-033 migration `003303` into every tenant, so it is not one of them
+ * (T-033 plan section 8, row 5): counting it would tie these cases to a
+ * document type they do not exercise.
+ */
 function dnRowCount(): int
 {
-    return OrganizationSeed::connection()->table('number_sequences')->count();
+    return OrganizationSeed::connection()->table('number_sequences')->where('document_type', '!=', 'journal_entry')->count();
 }
 
 /**
@@ -266,6 +272,22 @@ it('survives a lost first-use race: the loser retries with a locking read and ta
         // Two reads (the empty one and the retry), and the retry is a locking read (R-27).
         ->and(count($reads))->toBeGreaterThanOrEqual(2)
         ->and(array_filter($reads, static fn (string $sql): bool => ! str_contains($sql, LockMarkingGrammar::FOR_UPDATE)))->toBe([]);
+});
+
+it('creates a missing journal_entry row as JE- / 6 / never and yields JE-000001 (T-033 AC-33b)', function () {
+    // Holds before and after the seed migration: any seeded row goes first.
+    OrganizationSeed::connection()->table('number_sequences')->where('document_type', 'journal_entry')->delete();
+
+    expect(dnNumbers()->next('journal_entry', null))->toBe('JE-000001');
+
+    $row = dnRow('journal_entry');
+
+    expect($row)->not->toBeNull()
+        ->and($row['prefix'])->toBe('JE-')
+        ->and((int) $row['padding'])->toBe(6)
+        ->and($row['reset_period'])->toBe('never')
+        ->and((int) $row['next_number'])->toBe(2)
+        ->and($row['branch_id'])->toBeNull();
 });
 
 it('writes reset_period never and padding 6 explicitly on the default row', function () {

@@ -151,6 +151,9 @@ it('matches T-027s own exact column map: quantities/money (18,4), factor columns
         // T-032 step 3: the one decimal the finance tables declare. It is
         // never written (D-9, AC-66); this pins its precision all the same.
         '2026_11_15_003201_create_accounts_table.php' => [['opening_balance', 18, 4]],
+        // T-033 step A2: the two journal tables' four decimals, all (18, 4).
+        '2026_11_16_003301_create_journal_entries_table.php' => [['total_debit', 18, 4], ['total_credit', 18, 4]],
+        '2026_11_16_003302_create_journal_lines_table.php' => [['debit', 18, 4], ['credit', 18, 4]],
     ];
 
     foreach ($expected as $file => $columns) {

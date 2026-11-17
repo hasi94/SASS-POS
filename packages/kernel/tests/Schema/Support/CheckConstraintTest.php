@@ -67,3 +67,32 @@ it('refuses a table or column name for the one-sided constraint that is not [a-z
         ->and(fn () => CheckConstraint::oneSidedStatement('customer_ledger', 'de-bit', 'credit'))->toThrow(InvalidArgumentException::class)
         ->and(fn () => CheckConstraint::oneSidedStatement('customer_ledger', 'debit', 'credit; drop table customer_ledger'))->toThrow(InvalidArgumentException::class);
 });
+
+/**
+ * T-033 plan step A1: `balanced()`, ahead of its first caller
+ * (`journal_entries`, D-24).
+ */
+it('builds the exact balanced statement text, named after the table and the two columns', function () {
+    expect(CheckConstraint::balancedStatement('journal_entries', 'total_debit', 'total_credit'))
+        ->toBe('ALTER TABLE `journal_entries` ADD CONSTRAINT `journal_entries_total_debit_total_credit_balanced`'
+            .' CHECK (`total_debit` = `total_credit`)');
+});
+
+it('issues nothing on SQLite for the balanced constraint', function () {
+    expect(Schema::getConnection()->getDriverName())->toBe('sqlite');
+
+    $issued = [];
+    Schema::getConnection()->listen(function ($query) use (&$issued) {
+        $issued[] = $query->sql;
+    });
+
+    CheckConstraint::balanced('journal_entries', 'total_debit', 'total_credit');
+
+    expect($issued)->toBe([]);
+});
+
+it('refuses a table or column name for the balanced constraint that is not [a-z_]+', function () {
+    expect(fn () => CheckConstraint::balancedStatement('journal_entries', 'Total_Debit', 'total_credit'))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => CheckConstraint::balancedStatement('Journal_Entries', 'total_debit', 'total_credit'))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => CheckConstraint::balancedStatement('journal_entries', 'total_debit', 'total_credit; drop table journal_entries'))->toThrow(InvalidArgumentException::class);
+});

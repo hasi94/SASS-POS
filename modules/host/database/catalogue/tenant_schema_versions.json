@@ -646,5 +646,37 @@
         "checksum": "6159c186186838582d0f6ae17b4fc435d63d8a8f8ebb952bd5a8d049c51ee9bd",
         "is_destructive": false,
         "requires_offline": false
+    },
+    {
+        "version": 82,
+        "migration": "2026_11_16_003301_create_journal_entries_table",
+        "phase": "expand",
+        "checksum": "71b49e17c0f7236af4f39abe529a64b015506ad50a1253a9a995369882a4c9ca",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 83,
+        "migration": "2026_11_16_003302_create_journal_lines_table",
+        "phase": "expand",
+        "checksum": "8e1d654f46e77c99db3d9a98fb3be5eadba90d59d5f83af5c4c92d3c26039419",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 84,
+        "migration": "2026_11_16_003303_seed_journal_entry_number_sequence",
+        "phase": "backfill",
+        "checksum": "c2b6ca86942c6490ef11bd7f2a5e534b79fd825d9089bba43142c0669909a22d",
+        "is_destructive": false,
+        "requires_offline": false
+    },
+    {
+        "version": 85,
+        "migration": "2026_11_16_003304_add_retained_earnings_entry_foreign_key",
+        "phase": "contract",
+        "checksum": "f12552169ac1145de76e7ac2c76bbc7c01bcd55fa71788e87c443dbc2b9de2b8",
+        "is_destructive": false,
+        "requires_offline": false
     }
 ]

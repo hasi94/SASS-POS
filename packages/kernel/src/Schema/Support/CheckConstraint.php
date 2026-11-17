@@ -114,6 +114,47 @@ final class CheckConstraint
     }
 
     /**
+     * The `journal_entries`-shape `CHECK (total_debit = total_credit)`, named
+     * after the table and the two columns (T-033 plan Ruling 10, D-24): a
+     * posted entry's two totals are equal, so the ledger balances by
+     * construction as well as by the service's check.
+     *
+     * The same engine-only guard as `between()` and `oneSided()`: this issues
+     * nothing on SQLite, the suite's own driver. The enforcement is
+     * `[ENGINE]`, proven only once `ENGINE_HOLD` clears (G-1).
+     */
+    public static function balanced(string $table, string $debit, string $credit): void
+    {
+        if (! in_array(Schema::getConnection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            return;
+        }
+
+        self::assertIdentifier($table);
+        self::assertIdentifier($debit);
+        self::assertIdentifier($credit);
+
+        // Built inline, the same shape `oneSided()` uses: the statement's
+        // verb has to be a literal a source scan can read (AC-33(c)).
+        // `balancedStatement()` below is kept in step with this by
+        // `CheckConstraintTest`'s exact text assertion.
+        DB::statement('ALTER TABLE `'.$table.'` ADD CONSTRAINT `'.$table.'_'.$debit.'_'.$credit.'_balanced`'
+            .' CHECK (`'.$debit.'` = `'.$credit.'`)');
+    }
+
+    /**
+     * The exact statement `balanced()` issues, pure - no connection needed.
+     */
+    public static function balancedStatement(string $table, string $debit, string $credit): string
+    {
+        self::assertIdentifier($table);
+        self::assertIdentifier($debit);
+        self::assertIdentifier($credit);
+
+        return 'ALTER TABLE `'.$table.'` ADD CONSTRAINT `'.$table.'_'.$debit.'_'.$credit.'_balanced`'
+            .' CHECK (`'.$debit.'` = `'.$credit.'`)';
+    }
+
+    /**
      * The one shape a table or column name here may take: lower-case ASCII
      * letters and underscores, matching every identifier this codebase
      * already writes.

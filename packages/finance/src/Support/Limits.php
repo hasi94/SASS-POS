@@ -47,5 +47,23 @@ final class Limits
     /** The longest `q` search term an account list accepts (AC-61). Not a column width. */
     public const SEARCH = 100;
 
+    /** `journal_lines.memo` (T-033 AC-14). */
+    public const MEMO = 255;
+
+    /** A reversal's reason, stored as the reversal entry's description (T-033 AC-53). */
+    public const REASON = 500;
+
+    /** `journal_entries.number`: the allocator's own width (T-033 AC-32). */
+    public const NUMBER = 30;
+
+    /** `journal_entries.payload_fingerprint`: lower-case hex SHA-256 (T-033 AC-35). */
+    public const FINGERPRINT = 64;
+
+    /** The fewest lines an entry may carry (T-033 AC-12). */
+    public const MIN_LINES = 2;
+
+    /** The most lines an entry may carry (T-033 AC-12). */
+    public const MAX_LINES = 200;
+
     private function __construct() {}
 }

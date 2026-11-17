@@ -599,6 +599,10 @@ function tenantTreeTables(): array
         'accounts',
         'fiscal_years',
         'fiscal_periods',
+        // T-033 step A2: the two journal tables (docs/database.md section
+        // 6.10).
+        'journal_entries',
+        'journal_lines',
     ]);
 
     sort($tables);

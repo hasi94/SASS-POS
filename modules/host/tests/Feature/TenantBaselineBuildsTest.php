@@ -265,7 +265,9 @@ it('refuses a second company-wide sequence for one document type', function () {
     expect(fn () => DB::connection(tenantStandIn())->table('number_sequences')->insert($row('seq5', $branch, 'sale')))
         ->toThrow(QueryException::class, 'branch_id_key');
 
-    expect(DB::connection(tenantStandIn())->table('number_sequences')->count())->toBe(3);
+    // Four: this case's three rows and the `journal_entry` row T-033's seed
+    // migration (`003303`) puts in every tenant.
+    expect(DB::connection(tenantStandIn())->table('number_sequences')->count())->toBe(4);
 });
 
 /*
@@ -388,6 +390,23 @@ it('holds exactly the declared foreign keys, and the branch keys of T-014 (AC-3,
         'fiscal_periods.closed_by -> employees.id',
         'fiscal_periods.fiscal_year_id -> fiscal_years.id',
         'fiscal_years.closed_by -> employees.id',
+        // T-033 step A3: the key the year-end entry column owed, sorted in
+        // with the finance rows above.
+        'fiscal_years.retained_earnings_entry_id -> journal_entries.id',
+        // T-033 step A2: the two journal tables' thirteen foreign keys.
+        'journal_entries.branch_id -> branches.id',
+        'journal_entries.created_by -> employees.id',
+        'journal_entries.period_id -> fiscal_periods.id',
+        'journal_entries.posted_by -> employees.id',
+        'journal_entries.reversal_of_id -> journal_entries.id',
+        'journal_entries.reversed_by_id -> journal_entries.id',
+        'journal_lines.account_id -> accounts.id',
+        'journal_lines.branch_id -> branches.id',
+        'journal_lines.customer_id -> customers.id',
+        'journal_lines.employee_id -> employees.id',
+        'journal_lines.entry_id -> journal_entries.id',
+        'journal_lines.location_id -> locations.id',
+        'journal_lines.product_id -> products.id',
         'locations.branch_id -> branches.id',
         'locations.created_by -> employees.id',
         'locations.manager_employee_id -> employees.id',
@@ -507,7 +526,10 @@ it('holds exactly the declared foreign keys, and the branch keys of T-014 (AC-3,
         // T-028 step 3: customer_ledger.branch_id joins the list of tables
         // with a key to branches.
         'customer_ledger',
-        'employee_branches', 'employee_permissions', 'employee_roles', 'locations', 'number_sequences',
+        'employee_branches', 'employee_permissions', 'employee_roles',
+        // T-033 step A2: journal_entries.branch_id and journal_lines.branch_id.
+        'journal_entries', 'journal_lines',
+        'locations', 'number_sequences',
         // T-027 step 3: product_branches.branch_id joins the list of tables
         // with a key to branches.
         'product_branches',

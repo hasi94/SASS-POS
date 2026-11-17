@@ -747,9 +747,10 @@
             "dist": {
                 "type": "path",
                 "url": "../../packages/finance",
-                "reference": "bdd65fa3c31c15b83b78038fba0a006be176d622"
+                "reference": "997606d37a5e16eb7ae41a1df4851e251da94fd1"
             },
             "require": {
+                "brick/math": "^0.14",
                 "flexipos/contracts": "*",
                 "php": "^8.2"
             },

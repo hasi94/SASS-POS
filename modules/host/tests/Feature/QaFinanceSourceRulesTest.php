@@ -82,6 +82,13 @@ const QA_FINANCE_OWNING_MIGRATIONS = [
     '2026_11_15_003204_seed_chart_of_accounts_and_first_fiscal_year.php',
 ];
 
+/**
+ * T-033's contract file for `fiscal_years.retained_earnings_entry_id` (T-033 D-42, F-24). It counts orphans with a
+ * literal `table('fiscal_years')`, so the one-writer scan reports it, and it is exempted here by name, visibly, rather
+ * than passing table names through variables to get past the scan.
+ */
+const QA_FINANCE_T033_CONTRACT_MIGRATION = '2026_11_16_003304_add_retained_earnings_entry_foreign_key.php';
+
 const QA_FINANCE_TERMINAL_READ = '/->\s*(?:first|get|exists|count|value|pluck|find|sole|max|min)\s*\(/';
 const QA_FINANCE_LOCK_CALL = '/->\s*(?:lockForUpdate|sharedLock)\s*\(/';
 
@@ -608,18 +615,19 @@ function qaFinanceNonFinanceProductionFiles(): array
     return $files;
 }
 
-it('AC-60: outside packages/finance/src and the one seed migration, no production code or migration names table() on accounts, fiscal_years or fiscal_periods', function () {
+it('AC-60: outside packages/finance/src and the seed and T-033 contract migrations, no production code or migration names table() on accounts, fiscal_years or fiscal_periods', function () {
     $files = qaFinanceNonFinanceProductionFiles();
 
     expect(count($files))->toBeGreaterThan(500)
         ->and(array_keys($files))->toContain('packages/catalog/src/Finance/CatalogAccountReferrers.php')
         ->and(array_keys($files))->toContain('modules/host/database/migrations-tenant/2026_11_15_003208_add_owed_account_foreign_keys.php')
-        ->and(qaFinanceWriterOffenders($files, [QA_FINANCE_OWNING_MIGRATIONS[3]]))->toBe([]);
+        ->and(array_keys($files))->toContain('modules/host/database/migrations-tenant/'.QA_FINANCE_T033_CONTRACT_MIGRATION)
+        ->and(qaFinanceWriterOffenders($files, [QA_FINANCE_OWNING_MIGRATIONS[3], QA_FINANCE_T033_CONTRACT_MIGRATION]))->toBe([]);
 
-    // The exemption is real and exact: without it the seed migration is reported (the create-table files use Schema::create and the foreign-key file only reads), and nothing else is.
+    // The exemption is real and exact: without it the seed migration and T-033's contract migration are reported (the create-table files use Schema::create and the owed-account foreign-key file reads through variables), and nothing else is.
     $unexempted = qaFinanceWriterOffenders($files, []);
 
-    expect(array_map('basename', $unexempted))->toEqualCanonicalizing([QA_FINANCE_OWNING_MIGRATIONS[3]]);
+    expect(array_map('basename', $unexempted))->toEqualCanonicalizing([QA_FINANCE_OWNING_MIGRATIONS[3], QA_FINANCE_T033_CONTRACT_MIGRATION]);
 });
 
 it('AC-60 control: a planted table() on each of the three tables is reported, a prose mention and an unrelated table are not', function () {

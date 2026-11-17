@@ -259,7 +259,7 @@ it('holds fiscal_periods.start_date unique, which is the overlap backstop, and (
     expect(DB::connection(financeSchemaConnection())->table('fiscal_periods')->count())->toBe(2);
 });
 
-it('holds exactly the six documented foreign keys', function () {
+it('holds exactly the seven documented foreign keys', function () {
     financeApplyTenantTree();
 
     $keys = [];
@@ -280,10 +280,12 @@ it('holds exactly the six documented foreign keys', function () {
         'fiscal_periods.closed_by -> employees.id',
         'fiscal_periods.fiscal_year_id -> fiscal_years.id',
         'fiscal_years.closed_by -> employees.id',
+        // T-033 step A3: the key the column owed until `journal_entries` existed (F-14).
+        'fiscal_years.retained_earnings_entry_id -> journal_entries.id',
     ]);
 });
 
-it('builds fiscal_years.retained_earnings_entry_id with no foreign key (F-14)', function () {
+it('builds fiscal_years.retained_earnings_entry_id with its foreign key onto journal_entries, since T-033 (F-14)', function () {
     financeApplyTenantTree();
 
     $from = array_map(
@@ -291,10 +293,13 @@ it('builds fiscal_years.retained_earnings_entry_id with no foreign key (F-14)', 
         DB::connection(financeSchemaConnection())->select('pragma foreign_key_list("fiscal_years")')
     );
 
-    // The column exists (so the absence below is not an absent table), and it
-    // is not a key.
+    // The column exists, and since T-033's contract step (`003304`) it is a
+    // key: the absence T-032 pinned here was the stated state until
+    // `journal_entries` existed.
+    sort($from);
+
     expect(financeColumns('fiscal_years'))->toContain('retained_earnings_entry_id')
-        ->and($from)->toBe(['closed_by']);
+        ->and($from)->toBe(['closed_by', 'retained_earnings_entry_id']);
 });
 
 it('cascades the delete of a fiscal year to its periods, and nothing else (AC-37)', function () {
