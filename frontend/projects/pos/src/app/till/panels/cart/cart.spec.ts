@@ -334,7 +334,7 @@ describe('Cart (AC-29 to AC-33, AC-36 to AC-38)', () => {
         quantity: asQuantity('1'),
       });
       await settleFully(h);
-      expect(outcome).toEqual({ ok: false, code: 'unresolvable_price' });
+      expect(outcome).toMatchObject({ ok: false, code: 'unresolvable_price' });
       expect(h.text('message-bar')).toContain('No price for this product');
       expect(storeOf(h, SaleStore).current()).toEqual(before);
       expect(serverSale(h).lines).toHaveLength(1);

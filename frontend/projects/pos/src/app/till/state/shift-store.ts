@@ -198,19 +198,6 @@ export class ShiftStore {
     }
   }
 
-  /** Holds one of the open sales of the shift, then reads the list again. */
-  async holdOpenSale(saleId: string): Promise<boolean> {
-    try {
-      await firstValueFrom(this.connectivity.track(this.api.holdSale(saleId)));
-    } catch (err) {
-      this.noteRefusal(err);
-      this.notifier.fail(err);
-      return false;
-    }
-    await this.loadOpenSales();
-    return true;
-  }
-
   /**
    * Any store that sees a refusal calls this with it. `no_open_shift` and `shift_not_open` mean
    * the shift is gone, so the till goes back to the shift prompt (AC-15). The cart is not touched.

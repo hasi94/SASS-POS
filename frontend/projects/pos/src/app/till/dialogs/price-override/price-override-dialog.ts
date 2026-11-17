@@ -9,7 +9,12 @@ import {
   viewChild,
 } from '@angular/core';
 import { SaleLine, asMoney } from '@flexipos/shared';
-import { ApprovalFlow } from '../../state/approval-flow';
+import {
+  ApprovalFlow,
+  STALE_APPROVAL_CODES,
+  isStaleApproval,
+  withApproval,
+} from '../../state/approval-flow';
 import { checkDecimalInput } from '../../state/decimal-input';
 import { DialogHost } from '../../state/dialog-host';
 import { Notifier } from '../../state/notifier';
@@ -136,29 +141,38 @@ export class PriceOverrideDialog {
     const unitPrice = asMoney(text);
     this.busy.set(true);
     try {
-      const outcome = await this.approvals.requestAndDecide(
-        {
-          type: 'price_override',
-          reference_type: 'sale',
-          reference_id: sale.id,
-          payload: { product_id: line.product_id, unit_id: line.unit_id, unit_price: unitPrice },
+      const result = await withApproval(
+        this.approvals,
+        () => ({
+          request: {
+            type: 'price_override',
+            reference_type: 'sale',
+            reference_id: sale.id,
+            payload: { product_id: line.product_id, unit_id: line.unit_id, unit_price: unitPrice },
+          },
+          summary: {
+            title: 'Price override',
+            lines: [line.product_name, `New unit price ${text}`],
+          },
+        }),
+        async (approvalId) => {
+          const outcome = await this.store.updateLine(
+            line.id,
+            { unit_price: unitPrice, approval_id: approvalId },
+            STALE_APPROVAL_CODES,
+          );
+          if (!outcome.ok && isStaleApproval(outcome.error)) {
+            throw outcome.error;
+          }
+          return outcome;
         },
-        {
-          title: 'Price override',
-          lines: [line.product_name, `New unit price ${text}`],
-        },
+        (err) => this.notifier.fail(err),
       );
-      if (outcome.kind === 'rejected') {
+      if (result.kind === 'rejected') {
         this.notifier.info('Approval rejected');
         this.dialogs.close();
-      } else if (outcome.kind === 'approved') {
-        const result = await this.store.updateLine(line.id, {
-          unit_price: unitPrice,
-          approval_id: outcome.approvalId,
-        });
-        if (result.ok) {
-          this.dialogs.close();
-        }
+      } else if (result.kind === 'done' && result.value.ok) {
+        this.dialogs.close();
       }
     } finally {
       this.busy.set(false);

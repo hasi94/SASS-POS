@@ -46,6 +46,11 @@ const OFFLINE = 'Cannot reach the server: sale actions are paused';
             Sale {{ current.reference }} ({{ statusLabel() }})
           </p>
         }
+        @if (current.customer; as customer) {
+          <p class="fp-muted" data-testid="cart-customer">
+            Customer {{ customer.name }} ({{ customer.code }})
+          </p>
+        }
       }
       @if (sale.lineCount() === 0 && scans.pending().length === 0) {
         <p class="fp-muted" data-testid="cart-empty">Scan or choose a product</p>

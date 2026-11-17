@@ -10,11 +10,16 @@ import {
 } from '@angular/core';
 import { ApplicableDiscount, SaleLine, SalesApi } from '@flexipos/shared';
 import { describeError } from '../../errors/refusal-catalogue';
-import { ApprovalFlow } from '../../state/approval-flow';
+import {
+  ApprovalFlow,
+  STALE_APPROVAL_CODES,
+  isStaleApproval,
+  withApproval,
+} from '../../state/approval-flow';
 import { Connectivity } from '../../state/connectivity';
 import { DialogHost } from '../../state/dialog-host';
 import { Notifier } from '../../state/notifier';
-import { SaleStore } from '../../state/sale-store';
+import { LineOutcome, SaleStore } from '../../state/sale-store';
 import { DialogFrame } from '../../ui/dialog-frame';
 import { isLineDialogData } from '../line-edit/line-edit-dialog';
 
@@ -198,33 +203,21 @@ export class DiscountPickerDialog {
     }
     this.busy.set(true);
     try {
-      let approvalId: string | undefined;
+      let outcome: LineOutcome | null;
       if (needsApproval && discountId !== null) {
-        approvalId = await this.approve(line, discountId, name);
-        if (approvalId === undefined) {
-          return;
+        outcome = await this.approved(line, discountId, name);
+      } else {
+        outcome = await this.store.updateLine(
+          line.id,
+          { discount_id: discountId },
+          discountId !== null ? ['approval_required'] : [],
+        );
+        if (!outcome.ok && outcome.code === 'approval_required' && discountId !== null) {
+          // The list did not say this discount needed approval, but the server does: ask once.
+          outcome = await this.approved(line, discountId, name);
         }
       }
-      let outcome = await this.store.updateLine(
-        line.id,
-        {
-          discount_id: discountId,
-          ...(approvalId !== undefined ? { approval_id: approvalId } : {}),
-        },
-        approvalId === undefined && discountId !== null ? ['approval_required'] : [],
-      );
-      if (!outcome.ok && outcome.code === 'approval_required' && discountId !== null) {
-        // The list did not say this discount needed approval, but the server does: ask once.
-        approvalId = await this.approve(line, discountId, name);
-        if (approvalId === undefined) {
-          return;
-        }
-        outcome = await this.store.updateLine(line.id, {
-          discount_id: discountId,
-          approval_id: approvalId,
-        });
-      }
-      if (outcome.ok) {
+      if (outcome?.ok) {
         this.dialogs.close();
       }
     } finally {
@@ -232,29 +225,47 @@ export class DiscountPickerDialog {
     }
   }
 
-  /** The id of an approval for this discount on this sale, or undefined when none was granted. */
-  private async approve(
+  /**
+   * Puts the discount on the line with a supervisor's approval bound to it. A stale approval
+   * starts the request again (AC-70); null means nothing was applied (rejected or cancelled).
+   */
+  private async approved(
     line: SaleLine,
     discountId: string,
     name: string,
-  ): Promise<string | undefined> {
+  ): Promise<LineOutcome | null> {
     const sale = this.store.current();
     if (!sale) {
-      return undefined;
+      return null;
     }
-    const outcome = await this.approvals.requestAndDecide(
-      {
-        type: 'discount',
-        reference_type: 'sale',
-        reference_id: sale.id,
-        payload: { discount_id: discountId },
+    const result = await withApproval(
+      this.approvals,
+      () => ({
+        request: {
+          type: 'discount',
+          reference_type: 'sale',
+          reference_id: sale.id,
+          payload: { discount_id: discountId },
+        },
+        summary: { title: 'Discount', lines: [line.product_name, name] },
+      }),
+      async (approvalId) => {
+        const outcome = await this.store.updateLine(
+          line.id,
+          { discount_id: discountId, approval_id: approvalId },
+          STALE_APPROVAL_CODES,
+        );
+        if (!outcome.ok && isStaleApproval(outcome.error)) {
+          throw outcome.error;
+        }
+        return outcome;
       },
-      { title: 'Discount', lines: [line.product_name, name] },
+      (err) => this.notifier.fail(err),
     );
-    if (outcome.kind === 'rejected') {
+    if (result.kind === 'rejected') {
       this.notifier.info('Approval rejected');
       this.dialogs.close();
     }
-    return outcome.kind === 'approved' ? outcome.approvalId : undefined;
+    return result.kind === 'done' ? result.value : null;
   }
 }

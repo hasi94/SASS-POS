@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { SalesApi, branchState } from '@flexipos/shared';
 import { firstValueFrom } from 'rxjs';
 import type { MockInstance } from 'vitest';
-import { ApprovalFlow, ApprovalOutcome } from '../../state/approval-flow';
+import { ApprovalFlow, ApprovalOutcome, MAX_APPROVAL_ATTEMPTS } from '../../state/approval-flow';
 import { SaleStore } from '../../state/sale-store';
 import {
   byId,
@@ -151,9 +151,22 @@ describe('PriceOverrideDialog (AC-34)', () => {
     expect(storeOf(h, SaleStore).lines()[0]?.price_overridden).toBe(false);
   });
 
-  it('shows a used approval as needing a new one, and a later submit asks again', async () => {
+  it('asks again at once when the approval it got is stale, and applies the price with the new one (AC-70)', async () => {
+    const { h, ask } = await openOverride({ kind: 'approved', approvalId: 'not-an-approval' });
+    const good = branchState(h.state, HARNESS_TENANT_ID, 'BR001').approvals[0]!.data.id;
+    ask
+      .mockResolvedValueOnce({ kind: 'approved', approvalId: 'not-an-approval' })
+      .mockResolvedValueOnce({ kind: 'approved', approvalId: good });
+    await submitPrice(h, '1200.0000');
+    expect(ask).toHaveBeenCalledTimes(2);
+    expect(storeOf(h, SaleStore).lines()[0]?.unit_price).toBe('1200.0000');
+    expect(h.query('[role="dialog"]')).toBeNull();
+  });
+
+  it('gives up after three stale approvals, says a new one is needed, and a later submit asks again', async () => {
     const { h, ask } = await openOverride({ kind: 'approved', approvalId: 'not-an-approval' });
     await submitPrice(h, '1200.0000');
+    expect(ask).toHaveBeenCalledTimes(MAX_APPROVAL_ATTEMPTS);
     expect(h.text('message-bar')).toContain('a new approval is needed');
     expect(h.query('[role="dialog"]')).not.toBeNull();
     expect(storeOf(h, SaleStore).lines()[0]?.unit_price).toBe('1500.0000');
@@ -162,7 +175,7 @@ describe('PriceOverrideDialog (AC-34)', () => {
       approvalId: branchState(h.state, HARNESS_TENANT_ID, 'BR001').approvals[0]!.data.id,
     });
     await submitPrice(h, '1200.0000');
-    expect(ask).toHaveBeenCalledTimes(2);
+    expect(ask).toHaveBeenCalledTimes(MAX_APPROVAL_ATTEMPTS + 1);
     expect(storeOf(h, SaleStore).lines()[0]?.unit_price).toBe('1200.0000');
   });
 });

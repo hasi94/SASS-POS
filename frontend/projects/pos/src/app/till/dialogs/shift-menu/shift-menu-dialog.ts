@@ -432,11 +432,8 @@ export class ShiftMenuDialog {
   }
 
   protected async holdSale(summary: SaleSummary): Promise<void> {
-    if (await this.shift.holdOpenSale(summary.id)) {
-      if (this.sale.current()?.id === summary.id) {
-        this.sale.clear();
-      }
-      this.notifier.success('Sale held');
+    if ((await this.sale.holdSale(summary.id)).ok) {
+      await this.shift.loadOpenSales();
     }
   }
 }

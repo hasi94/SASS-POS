@@ -1,9 +1,16 @@
 import { TestBed } from '@angular/core/testing';
 import { ApiError, SalesApi, asQuantity, branchState } from '@flexipos/shared';
-import { of, throwError } from 'rxjs';
+import { throwError } from 'rxjs';
 import { SaleStore } from '../../state/sale-store';
 import { ShiftStore } from '../../state/shift-store';
-import { allById, byId, clickId, storeOf, typeInto } from '../../testing/sale-screen-helpers';
+import {
+  allById,
+  byId,
+  clearNotes,
+  clickId,
+  storeOf,
+  typeInto,
+} from '../../testing/sale-screen-helpers';
 import { HARNESS_TENANT_ID, TillHarness, setupTill } from '../../testing/till-harness';
 
 async function openMenu(h: TillHarness): Promise<void> {
@@ -214,33 +221,41 @@ describe('ShiftMenuDialog: closing (AC-13, AC-14)', () => {
     expect(storeOf(h, SaleStore).lineCount()).toBe(1);
   });
 
-  it('holds a listed sale and refreshes the list', async () => {
+  it('holds a listed sale on the server, refreshes the list and names its reference', async () => {
     const h = await setupTill({ given: ['shift_open', 'draft_sale_with_line'] });
     const stored = branchOf(h).sales[0]!;
-    const hold = vi.spyOn(TestBed.inject(SalesApi), 'holdSale').mockImplementation(() => {
-      stored.data.status = 'held';
-      stored.data.held_from_status = 'draft';
-      return of(stored.data);
-    });
+    const hold = vi.spyOn(TestBed.inject(SalesApi), 'holdSale');
     await tryToClose(h);
     expect(allById(h, 'open-sales')[0]?.querySelectorAll('li')).toHaveLength(1);
+    clearNotes(h);
     await clickId(h, 'sale-hold');
     expect(hold).toHaveBeenCalledWith(stored.data.id);
+    expect(stored.data.status).toBe('held');
+    expect(stored.data.held_from_status).toBe('draft');
     expect(h.query('[data-testid="no-open-sales"]')).not.toBeNull();
+    expect(h.text('message-bar')).toContain(`Sale ${stored.data.reference} held`);
   });
 
   it('clears the cart when the sale held from the list is the one in the cart', async () => {
     const h = await setupTill({ given: ['shift_open', 'draft_sale_with_line'] });
     const stored = branchOf(h).sales[0]!;
-    storeOf(h, SaleStore).load(stored.data);
-    vi.spyOn(TestBed.inject(SalesApi), 'holdSale').mockImplementation(() => {
-      stored.data.status = 'held';
-      stored.data.held_from_status = 'draft';
-      return of(stored.data);
-    });
+    storeOf(h, SaleStore).load(JSON.parse(JSON.stringify(stored.data)));
     await tryToClose(h);
     await clickId(h, 'sale-hold');
+    expect(stored.data.status).toBe('held');
     expect(storeOf(h, SaleStore).current()).toBeNull();
+  });
+
+  it('leaves the cart and the list alone when the server refuses the hold', async () => {
+    const h = await setupTill({ given: ['shift_open', 'draft_sale_with_line'] });
+    const stored = branchOf(h).sales[0]!;
+    storeOf(h, SaleStore).load(JSON.parse(JSON.stringify(stored.data)));
+    await tryToClose(h);
+    stored.data.status = 'voided';
+    clearNotes(h);
+    await clickId(h, 'sale-hold');
+    expect(storeOf(h, SaleStore).current()?.id).toBe(stored.data.id);
+    expect(h.text('message-bar')).toContain('That sale cannot be changed that way now');
   });
 
   it('closes once the open sales are dealt with', async () => {

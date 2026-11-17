@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { ApiError, ApplicableDiscount, SalesApi, branchState } from '@flexipos/shared';
 import { Observable, firstValueFrom, of, throwError } from 'rxjs';
 import type { MockInstance } from 'vitest';
-import { ApprovalFlow, ApprovalOutcome } from '../../state/approval-flow';
+import { ApprovalFlow, ApprovalOutcome, MAX_APPROVAL_ATTEMPTS } from '../../state/approval-flow';
 import { DialogHost } from '../../state/dialog-host';
 import { SaleStore } from '../../state/sale-store';
 import {
@@ -96,6 +96,35 @@ describe('DiscountPickerDialog (AC-35)', () => {
     });
     expect(h.text('line-discount')).toBe('Discount 50.00 LKR');
     expect(h.query('[role="dialog"]')).toBeNull();
+  });
+
+  it('asks again at once when the approval it got is stale, and applies the discount with the new one (AC-70)', async () => {
+    const { h, ask } = await openPicker(
+      ['draft_sale_with_line', 'approved_discount'],
+      'approved-from-server',
+    );
+    const good = branchState(h.state, HARNESS_TENANT_ID, 'BR001').approvals[0]!.data.id;
+    ask
+      .mockResolvedValueOnce({ kind: 'approved', approvalId: 'not-an-approval' })
+      .mockResolvedValueOnce({ kind: 'approved', approvalId: good });
+    await clickId(h, 'discount-MGR20');
+    await settleFully(h);
+    expect(ask).toHaveBeenCalledTimes(2);
+    expect(h.text('line-discount')).toBe('Discount 50.00 LKR');
+    expect(h.query('[role="dialog"]')).toBeNull();
+  });
+
+  it('stops after three stale approvals, applies nothing and keeps the dialog open (AC-70)', async () => {
+    const { h, ask } = await openPicker(['draft_sale_with_line', 'approved_discount'], {
+      kind: 'approved',
+      approvalId: 'not-an-approval',
+    });
+    await clickId(h, 'discount-MGR20');
+    await settleFully(h);
+    expect(ask).toHaveBeenCalledTimes(MAX_APPROVAL_ATTEMPTS);
+    expect(h.text('message-bar')).toContain('a new approval is needed');
+    expect(h.query('[role="dialog"]')).not.toBeNull();
+    expect(h.query('[data-testid="line-discount"]')).toBeNull();
   });
 
   it('says "Approval rejected" and changes nothing when the supervisor rejects', async () => {

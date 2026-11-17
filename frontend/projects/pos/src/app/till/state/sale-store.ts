@@ -1,6 +1,7 @@
 import { Injectable, computed, effect, inject, signal, untracked } from '@angular/core';
 import {
   ApiError,
+  CustomerId,
   LINE_PRICER,
   Quantity,
   Sale,
@@ -27,7 +28,12 @@ export interface LineOutcome {
   ok: boolean;
   /** The refusal code, when the server refused with one of ours. */
   code: SalesRefusalCode | null;
+  /** What the server (or the network) answered, so a dialog can show it in place. */
+  error?: unknown;
 }
+
+/** How many held sales the recall list asks for at a time (AC-52). */
+export const RECALL_PAGE_SIZE = 10;
 
 /** A line to add: the product, the unit, and the quantity exactly as it is to be sent. */
 export interface NewLine {
@@ -62,6 +68,7 @@ export class SaleStore {
   private readonly confirmingLine = signal<string | null>(null);
   private readonly reloadNeeded = signal(false);
   private queue: Promise<unknown> = Promise.resolve();
+  private resumeStarted = false;
 
   /** The sale in the cart, or null when the cart is empty and no sale exists yet (D-9). */
   readonly current = this.sale.asReadonly();
@@ -101,6 +108,13 @@ export class SaleStore {
     effect(() => {
       if (this.connectivity.online() && this.reloadNeeded()) {
         untracked(() => void this.recover());
+      }
+    });
+    // A till opened with an unfinished sale on the server picks it up instead of starting empty
+    // (AC-88, D-9). Once per page, as soon as a shift is open and the server can be reached.
+    effect(() => {
+      if (this.shift.shiftOpen() && this.connectivity.online() && !this.resumeStarted) {
+        untracked(() => void this.resume());
       }
     });
   }
@@ -173,9 +187,75 @@ export class SaleStore {
     }
   }
 
-  /** Step B6 holds the sale. Until then it does nothing. */
-  hold(): Promise<void> {
-    return Promise.resolve();
+  /** The Hold key (AC-51): parks the sale in the cart, empties the cart and shows its reference. */
+  async hold(): Promise<void> {
+    const id = this.sale()?.id;
+    if (id !== undefined) {
+      await this.holdSale(id);
+    }
+  }
+
+  /**
+   * Holds a sale of this shift (AC-51). When it is the sale in the cart the cart empties and the
+   * scan field takes the focus; the confirmation names the held sale's short reference.
+   */
+  holdSale(saleId: string): Promise<LineOutcome> {
+    return this.enqueue(async () => {
+      if (!(await this.ready())) {
+        return { ok: false, code: null };
+      }
+      try {
+        const held = await firstValueFrom(this.connectivity.track(this.api.holdSale(saleId)));
+        if (this.sale()?.id === saleId) {
+          this.clear();
+          if (!this.dialogs.isOpen()) {
+            this.dialogs.focusScanField();
+          }
+        }
+        this.notifier.success(held.reference ? `Sale ${held.reference} held` : 'Sale held');
+        return { ok: true, code: null };
+      } catch (err) {
+        return this.failed(err, []);
+      }
+    });
+  }
+
+  /**
+   * Brings a held sale into the cart in the status the server reports (AC-53). It never replaces
+   * a sale that has lines: the caller holds or finishes that one first (AC-54).
+   */
+  recall(saleId: string): Promise<LineOutcome> {
+    return this.enqueue(async () => {
+      if (!(await this.ready())) {
+        return { ok: false, code: null };
+      }
+      if (this.lineCount() > 0 && this.sale()?.id !== saleId) {
+        this.notifier.info('Hold or finish the sale in the cart first');
+        return { ok: false, code: null };
+      }
+      try {
+        this.load(await firstValueFrom(this.connectivity.track(this.api.recallSale(saleId))));
+        return { ok: true, code: null };
+      } catch (err) {
+        return this.failed(err, []);
+      }
+    });
+  }
+
+  /**
+   * Puts a customer on the sale (AC-39), creating the sale first when the cart has none.
+   * `not_found` (the customer is unknown, deleted or merged) is left for the caller to show.
+   */
+  attachCustomer(customerId: CustomerId): Promise<LineOutcome> {
+    return this.enqueue(() =>
+      this.write(() => {
+        const sale = this.sale();
+        const call = sale
+          ? this.api.attachCustomer(sale.id, { customer_id: customerId })
+          : this.api.createSale({ customer_id: customerId });
+        return firstValueFrom(this.connectivity.track(call));
+      }, ['not_found']),
+    );
   }
 
   /** Selects the line and asks for confirmation before it is removed. */
@@ -334,7 +414,7 @@ export class SaleStore {
   private async failed(err: unknown, handled: readonly SalesRefusalCode[]): Promise<LineOutcome> {
     if (!(err instanceof ApiError)) {
       this.notifier.fail(err);
-      return { ok: false, code: null };
+      return { ok: false, code: null, error: err };
     }
     const code = refusalOf(err);
     if (err.status === 0) {
@@ -348,7 +428,43 @@ export class SaleStore {
     if (code === 'sale_not_editable') {
       await this.reload();
     }
-    return { ok: false, code };
+    return { ok: false, code, error: err };
+  }
+
+  /** Looks for an unfinished sale of this terminal and puts it in an empty cart (AC-88). */
+  private resume(): Promise<void> {
+    this.resumeStarted = true;
+    return this.enqueue(async () => {
+      if (this.sale() !== null) {
+        return;
+      }
+      try {
+        const page = await firstValueFrom(
+          this.connectivity.track(
+            this.api.listSales({
+              scope: 'current_terminal',
+              status: ['draft', 'pending_payment'],
+              limit: 1,
+            }),
+          ),
+        );
+        const found = page.items[0];
+        if (!found) {
+          return;
+        }
+        const sale = await firstValueFrom(this.connectivity.track(this.api.getSale(found.id)));
+        // A sale started while this was on its way is the cashier's, and stays.
+        if (this.sale() === null) {
+          this.load(sale);
+        }
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 0) {
+          // Not read: try again when the till is back online.
+          this.resumeStarted = false;
+        }
+        this.notifier.fail(err);
+      }
+    });
   }
 
   private recover(): Promise<void> {

@@ -1,5 +1,11 @@
 import { Injectable, inject } from '@angular/core';
-import { ApiError, RequestApprovalRequest, SalesApi, refusalOf } from '@flexipos/shared';
+import {
+  ApiError,
+  RequestApprovalRequest,
+  SalesApi,
+  SalesRefusalCode,
+  refusalOf,
+} from '@flexipos/shared';
 import { firstValueFrom } from 'rxjs';
 import { Connectivity } from './connectivity';
 import { DialogHost } from './dialog-host';
@@ -35,7 +41,7 @@ export type ApprovalResult<T> =
   { kind: 'done'; value: T } | { kind: 'rejected' } | { kind: 'cancelled' };
 
 /** The refusals that say an approval can no longer be used for the action (AC-70). */
-const STALE_APPROVAL = [
+export const STALE_APPROVAL_CODES: readonly SalesRefusalCode[] = [
   'approval_already_used',
   'approval_not_approved',
   'approval_not_pending',
@@ -51,7 +57,7 @@ export function isStaleApproval(err: unknown): err is ApiError {
     return false;
   }
   const code = refusalOf(err);
-  return code !== null && STALE_APPROVAL.includes(code);
+  return code !== null && STALE_APPROVAL_CODES.includes(code);
 }
 
 /**
