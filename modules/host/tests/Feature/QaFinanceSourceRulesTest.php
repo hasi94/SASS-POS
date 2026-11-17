@@ -69,6 +69,10 @@ const QA_FINANCE_UNLOCKED_CALLERS = [
     'Features/ReopenFiscalYear/ReopenFiscalYearHandler.php' => ['yearByIdUnlocked'],
     'Features/ReactivateAccount/ReactivateAccountHandler.php' => ['parentIdUnlocked'],
     'Accounts/DatabaseChartOfAccounts.php' => ['byIdUnlocked', 'byCodeUnlocked', 'liveByControlTypeUnlocked'],
+    // T-033 (Ruling 7 step 2, Ruling 8 steps 4 and 7): the replay look-up and the original's read are plain by design (a
+    // shared-lock look-up of a missing key takes a gap lock and two first posts would deadlock); the original's lines are
+    // immutable, read before the original is locked so that the account locks come first (Ruling 9).
+    'Journal/DatabasePostingService.php' => ['byKeyUnlocked', 'entryByIdUnlocked', 'linesOfEntryUnlocked'],
 ];
 
 /**

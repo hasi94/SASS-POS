@@ -17,6 +17,7 @@ use Flexipos\Finance\Features\ReopenFiscalYear\ReopenFiscalYearHandler;
 use Flexipos\Finance\Features\ReparentAccount\ReparentAccountHandler;
 use Flexipos\Finance\Features\TransitionFiscalPeriod\TransitionFiscalPeriodHandler;
 use Flexipos\Finance\Features\UpdateAccount\UpdateAccountHandler;
+use Flexipos\Finance\Journal\DatabasePostingService;
 
 /**
  * The audit actions this package's handlers write through
@@ -53,6 +54,8 @@ final class FinanceAuditActions
         TransitionFiscalPeriodHandler::ACTION_REOPENED,
         CloseFiscalYearHandler::ACTION,
         ReopenFiscalYearHandler::ACTION,
+        DatabasePostingService::ACTION_POSTED,
+        DatabasePostingService::ACTION_REVERSED,
     ];
 
     private function __construct() {}
