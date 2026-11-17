@@ -96,6 +96,11 @@ it('has no down() and passes SourceRules::inspect()', function () {
 });
 
 it('is the catalogue top entry, phase expand, version 43', function () {
+    // T-029 step 3 republished the catalogue with its own twelve migrations
+    // on top (51 becomes 63), the last of which is a contract step (the two
+    // product tax group keys), so the phase asserted below is no longer
+    // expand either. This test's name is now two tasks stale - stated here
+    // rather than renamed, for the reason the T-028 note below gives.
     // T-028 step 3 republished the catalogue with its own eight migrations
     // on top (43 becomes 51), the way T-027 did the same to this very test
     // when it landed on top of this file's own idempotency_keys migration.
@@ -108,9 +113,15 @@ it('is the catalogue top entry, phase expand, version 43', function () {
         true
     );
 
+    // T-032 step 17 puts the owed-account contract file on top (77 becomes 81).
+    // T-032 step 16 put the seed backfill on top (76 became 77).
+    // T-030 steps 6 and 7 republished the catalogue with its own ten
+    // migrations on top (63 becomes 73), the last of which is a contract step
+    // (the one loyalty_transactions.sale_id key). Stale by name again, left
+    // alone for the reason the notes above give.
     $top = end($catalogue);
 
-    expect($top['version'])->toBe(54)
-        ->and($top['migration'])->toBe('2026_11_15_003203_create_fiscal_periods_table')
-        ->and($top['phase'])->toBe('expand');
+    expect($top['version'])->toBe(81)
+        ->and($top['migration'])->toBe('2026_11_15_003208_add_owed_account_foreign_keys')
+        ->and($top['phase'])->toBe('contract');
 });

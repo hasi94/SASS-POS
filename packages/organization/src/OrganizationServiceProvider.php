@@ -9,9 +9,11 @@ use Flexipos\Contracts\Access\PermissionDeclaration;
 use Flexipos\Contracts\Audit\DeclaresAuditActions;
 use Flexipos\Contracts\Organization\BranchDirectory;
 use Flexipos\Contracts\Organization\DefaultBranch;
+use Flexipos\Contracts\Organization\DocumentNumbers;
 use Flexipos\Contracts\Organization\TerminalActivation;
 use Flexipos\Contracts\Organization\TerminalAuthority;
 use Flexipos\Organization\Features\ActivateTerminal\ActivateTerminalHandler;
+use Flexipos\Organization\Numbering\DatabaseDocumentNumbers;
 use Flexipos\Organization\Registry\OrganizationAuditActions;
 use Flexipos\Organization\Registry\OrganizationPermissions;
 use Flexipos\Organization\Support\DatabaseBranchDirectory;
@@ -58,6 +60,11 @@ final class OrganizationServiceProvider extends ServiceProvider implements Decla
         // organization for a tenant's one default branch, through the
         // published contract only.
         $this->app->singleton(DefaultBranch::class, DatabaseDefaultBranch::class);
+
+        // T-030 D-31, F-6. The one allocator of gapless document numbers over
+        // `number_sequences`, callable inside the caller's own transaction. It
+        // reads and locks before it writes, so there is no permissive state.
+        $this->app->singleton(DocumentNumbers::class, DatabaseDocumentNumbers::class);
     }
 
     /**

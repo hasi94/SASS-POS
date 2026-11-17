@@ -1,0 +1,33 @@
+{
+  "name": "tax-inclusive-fixed-exceeds-gross",
+  "kind": "tax",
+  "discriminates": "Fixed taxes larger than the gross refuse by name instead of producing a negative net.",
+  "input": {
+    "members": [
+      {
+        "tax_id": "01TAXFIX000000000000000000",
+        "code": "FIX",
+        "tax_code": null,
+        "type": "fixed",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "2",
+        "rates": [
+          {
+            "rate": "0.5000",
+            "effective_from": "2020-01-01",
+            "effective_to": null
+          }
+        ]
+      }
+    ],
+    "amount": "10.0000",
+    "base_quantity": "24.0000",
+    "date": "2025-06-01",
+    "context": "sale",
+    "is_inclusive": true
+  },
+  "refusal": "inclusive_amount_too_small"
+}

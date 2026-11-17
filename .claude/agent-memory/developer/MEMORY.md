@@ -84,3 +84,11 @@
 - [T-028 BUG-1 fix (missing CustomerStatus::Inactive)](project_t028_customers_bug1_fix.md) - the second-hidden-branch pattern, and why this gate's exit code is never "0 means clean" against a known baseline.
 - [T-032 chunk A (base, plumbing, schema)](project_t032_chunk_a_base_and_schema.md) - a pest run poisons the PHPStan result cache (clear it before every gate), the migration clock seam, owner top-up, red-list artifacts.
 - [T-032 chunk B (pure core)](project_t032_chunk_b_pure_core.md) - masked regex-anchor mutation, extra helper classes, move() depth semantics, gate numbers.
+- [T-029 pricing chunk A](project_t029_pricing_chunk_a.md) - 13/31/3353 to 13/31/3387, BranchForeignKeysContractRunTest reddened by a top contract step, and isDestructive's variable-table blindness.
+- [T-029 pricing chunk B](project_t029_pricing_chunk_b.md) - pure engine + 112 fixtures: inclusive affine solve, R1 absorbed, factor-scan exemption pulled into chunk B.
+- [T-029 pricing chunk C](project_t029_pricing_chunk_c.md) - 12/31/3984, 991s; slice layout, audit catalogue literal, STANDARD default group, stan double trap.
+- [T-029 pricing chunk D](project_t029_pricing_chunk_d.md) - adapter that never orders, scans, held engine test; the 12-vs-13 failure is APP_KEY, test:fast is ~843s.
+- [T-029 fix round 1](project_t029_fix_round_1.md) - 13/41/4109 final, foreign bench_load.php slows the gate, WSL-bash and raw-string traps in scripts.
+- [T-030 sales chunk A](project_t030_sales_chunk_a.md) - 13/48/4333 at 1190s; the negated multi-needle toContain guard; LockMarkingGrammar executes a lock pin on SQLite.
+- [T-030 sales chunk C](project_t030_sales_chunk_c.md) - 13/48/4981 at 1204s; pricing_refused reason the plan lacked, SalesQueryLog nesting fix, stand-in test traps.
+- [T-030 sales chunk E](project_t030_sales_chunk_e.md) - 13/55/5133 at 1248s, test:fast 1080s, stan Pest chain traps, rate effective_to exclusive.

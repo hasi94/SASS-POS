@@ -1,0 +1,22 @@
+{
+  "name": "unit-case-of-24",
+  "kind": "unit",
+  "discriminates": "A case of 24: two cases are base 48.",
+  "input": {
+    "unit_id": "01UNITCASE000000000000000A",
+    "unit_code": "case",
+    "factor": "24.000000",
+    "factor_source": "product_conversion",
+    "line_unit_precision": "0",
+    "stock_unit_precision": "0",
+    "quantity": "2"
+  },
+  "expect": {
+    "unit_id": "01UNITCASE000000000000000A",
+    "unit_code": "case",
+    "source": "product_conversion",
+    "quantity": "2.0000",
+    "unit_factor": "24.000000",
+    "base_quantity": "48.0000"
+  }
+}

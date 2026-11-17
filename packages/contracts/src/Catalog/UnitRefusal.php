@@ -42,4 +42,11 @@ enum UnitRefusal: string
 
     /** The stock unit's `precision` is 0 and the computed `base_quantity` has a non-zero fraction (AC-12, Q-11). */
     case FractionalBaseQuantity = 'fractional_base_quantity';
+
+    /**
+     * `snapshotInherited()` was asked for a unit that is neither the referenced
+     * line's unit nor the product's stock unit (T-030 D-32, F-7). The ladder is
+     * never the way out of it.
+     */
+    case InheritedUnitMismatch = 'inherited_unit_mismatch';
 }

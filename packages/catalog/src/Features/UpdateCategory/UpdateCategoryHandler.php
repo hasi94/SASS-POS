@@ -7,11 +7,13 @@ namespace Flexipos\Catalog\Features\UpdateCategory;
 use Flexipos\Catalog\Categories\CategoryPath;
 use Flexipos\Catalog\Exceptions\CatalogRefused;
 use Flexipos\Catalog\Registry\CatalogAuditActions;
+use Flexipos\Catalog\Support\AccountFields;
 use Flexipos\Catalog\Support\Fields;
 use Flexipos\Catalog\Support\Identifier;
 use Flexipos\Catalog\Support\Lookup;
 use Flexipos\Catalog\Support\TenantConnection;
 use Flexipos\Contracts\Audit\AuditTrail;
+use Flexipos\Contracts\Finance\ChartOfAccounts;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Database\Connection;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -33,12 +35,13 @@ final class UpdateCategoryHandler
 {
     public const ACTION = 'catalog_category_updated';
 
-    public const FIELDS = ['code', 'name', 'image_path', 'colour', 'sort_order', 'is_active', 'parent_id'];
+    public const FIELDS = ['code', 'name', 'image_path', 'colour', 'sort_order', 'is_active', 'parent_id', 'income_account_id'];
 
     public function __construct(
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
         private readonly AuditTrail $audit,
+        private readonly ChartOfAccounts $chart,
     ) {}
 
     public function handle(UpdateCategory $command): void
@@ -82,14 +85,22 @@ final class UpdateCategoryHandler
         $moving = Fields::has($fields, 'parent_id');
         $newParentId = $moving ? Identifier::foldNullable($fields['parent_id'], 'parent_id') : null;
 
+        // T-032 AC-55: a malformed id is refused here, before any lock is taken.
+        $accounts = AccountFields::fold($fields, AccountFields::CATEGORY);
+
         $connection = $this->tenant->get();
 
-        $connection->transaction(function () use ($connection, $command, $categoryId, $changes, $moving, $newParentId): void {
-            $before = $connection->table('categories')->where('id', $categoryId)->lockForUpdate()->first();
+        $connection->transaction(function () use ($connection, $command, $categoryId, $changes, $moving, $newParentId, $accounts): void {
+            // F-3 (T-032 AC-58): a soft-deleted category is not found, for every field.
+            $before = $connection->table('categories')->where('id', $categoryId)->whereNull('deleted_at')->lockForUpdate()->first();
 
             if ($before === null) {
                 throw CatalogRefused::notFound("The category [{$categoryId}] does not exist.");
             }
+
+            // T-032 AC-55 to AC-57: only a value that changes to a non-null id is read, under a shared lock.
+            AccountFields::assertAssignable($this->chart, $accounts, $before);
+            $changes += $accounts;
 
             if ($moving) {
                 self::move($connection, $categoryId, (string) $before->path, (int) $before->depth, $newParentId, $changes);

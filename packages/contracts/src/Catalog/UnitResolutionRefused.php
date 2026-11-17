@@ -73,4 +73,9 @@ final class UnitResolutionRefused extends RuntimeException
     {
         return new self(UnitRefusal::FractionalBaseQuantity, $message);
     }
+
+    public static function inheritedUnitMismatch(string $message): self
+    {
+        return new self(UnitRefusal::InheritedUnitMismatch, $message);
+    }
 }

@@ -134,9 +134,11 @@ it('creates categories with exactly the documented columns', function () {
     catalogApplyTenantTree();
 
     expect(catalogColumns('categories'))->toBe([
-        'code', 'colour', 'created_at', 'deleted_at', 'depth', 'id', 'image_path', 'is_active', 'name',
-        'parent_id', 'path', 'sort_order', 'updated_at',
-    ])->and(catalogNullableColumns('categories'))->toBe(['colour', 'deleted_at', 'image_path', 'parent_id']);
+        'code', 'colour', 'created_at', 'deleted_at', 'depth', 'id', 'image_path', 'income_account_id', 'is_active',
+        'name', 'parent_id', 'path', 'sort_order', 'updated_at',
+    ])->and(catalogNullableColumns('categories'))->toBe(['colour', 'deleted_at', 'image_path', 'income_account_id', 'parent_id'])
+        // T-032 AC-52: income only; a categories cogs column is not added.
+        ->and(catalogColumns('categories'))->not->toContain('cogs_account_id');
 });
 
 it('creates brands with exactly the documented columns', function () {
@@ -147,22 +149,21 @@ it('creates brands with exactly the documented columns', function () {
     ])->and(catalogNullableColumns('brands'))->toBe(['deleted_at', 'logo_path']);
 });
 
-it('creates products with exactly the documented columns, no custom_fields and no deferred FK columns (AC-27, AC-27a)', function () {
+it('creates products with exactly the documented columns, no custom_fields and no still-deferred FK columns (AC-27, AC-27a, T-029 AC-1, AC-2)', function () {
     catalogApplyTenantTree();
 
     expect(catalogColumns('products'))->toBe([
-        'allow_discount', 'allow_price_override', 'brand_id', 'category_id', 'cost_price', 'created_at',
-        'created_by', 'deleted_at', 'description', 'dimensions', 'id', 'image_path', 'is_active',
+        'allow_discount', 'allow_price_override', 'brand_id', 'category_id', 'cogs_account_id', 'cost_price', 'created_at',
+        'created_by', 'deleted_at', 'description', 'dimensions', 'id', 'image_path', 'income_account_id',
+        'inventory_account_id', 'is_active',
         'is_purchasable', 'is_sellable', 'is_weighable', 'min_selling_price', 'msrp', 'name', 'parent_id',
-        'plu_code', 'price_mode', 'purchase_unit_id', 'sales_unit_id', 'selling_price', 'shelf_life_days',
-        'short_name', 'sku', 'sort_order', 'stock_unit_id', 'track_stock', 'tracking_mode', 'type',
+        'plu_code', 'price_mode', 'purchase_tax_group_id', 'purchase_unit_id', 'sales_unit_id', 'selling_price', 'shelf_life_days',
+        'short_name', 'sku', 'sort_order', 'stock_unit_id', 'tax_group_id', 'track_stock', 'tracking_mode', 'type',
         'updated_at', 'updated_by', 'variant_options', 'variant_values', 'version', 'weight',
     ])->and(catalogColumns('products'))->not->toContain('custom_fields')
-        ->and(catalogColumns('products'))->not->toContain('tax_group_id')
-        ->and(catalogColumns('products'))->not->toContain('purchase_tax_group_id')
-        ->and(catalogColumns('products'))->not->toContain('income_account_id')
-        ->and(catalogColumns('products'))->not->toContain('cogs_account_id')
-        ->and(catalogColumns('products'))->not->toContain('inventory_account_id')
+        // T-029 step 3 built the two tax group columns T-027 deferred, and
+        // T-032 step 17 the three account columns (present now, AC-52).
+        ->and(catalogColumns('products'))->toContain('income_account_id', 'cogs_account_id', 'inventory_account_id')
         ->and(catalogColumns('products'))->not->toContain('kitchen_station_id');
 });
 
@@ -417,7 +418,7 @@ it('holds the product_locations, product_branches, product_components and produc
     ]))->toThrow(QueryException::class);
 });
 
-it('holds exactly the 27 documented foreign keys', function () {
+it('holds exactly the 29 documented foreign keys (27 from T-027, 2 from T-029)', function () {
     catalogApplyTenantTree();
 
     $tables = [
@@ -437,6 +438,8 @@ it('holds exactly the 27 documented foreign keys', function () {
     sort($keys);
 
     expect($keys)->toBe([
+        // T-032 step 17: the five owed account keys (three here, sorted in).
+        'categories.income_account_id -> accounts.id',
         'categories.parent_id -> categories.id',
         'modifiers.group_id -> modifier_groups.id',
         'modifiers.linked_product_id -> products.id',
@@ -454,11 +457,16 @@ it('holds exactly the 27 documented foreign keys', function () {
         'product_modifier_groups.product_id -> products.id',
         'products.brand_id -> brands.id',
         'products.category_id -> categories.id',
+        'products.cogs_account_id -> accounts.id',
         'products.created_by -> employees.id',
+        'products.income_account_id -> accounts.id',
+        'products.inventory_account_id -> accounts.id',
         'products.parent_id -> products.id',
+        'products.purchase_tax_group_id -> tax_groups.id',
         'products.purchase_unit_id -> units.id',
         'products.sales_unit_id -> units.id',
         'products.stock_unit_id -> units.id',
+        'products.tax_group_id -> tax_groups.id',
         'products.updated_by -> employees.id',
         'unit_conversions.from_unit_id -> units.id',
         'unit_conversions.product_id -> products.id',

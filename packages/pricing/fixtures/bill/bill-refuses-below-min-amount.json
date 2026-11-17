@@ -1,0 +1,35 @@
+{
+  "name": "bill-refuses-below-min-amount",
+  "kind": "bill",
+  "discriminates": "A 175 base under a 200 minimum refuses.",
+  "input": {
+    "discount_id": "01BILL10000000000000000000",
+    "discounts": [
+      {
+        "id": "01BILL10000000000000000000",
+        "type": "percentage",
+        "value": "10.0000",
+        "scope": "bill",
+        "is_active": true,
+        "starts_at": null,
+        "ends_at": null,
+        "usage_limit": null,
+        "used_count": "0",
+        "min_amount": "200.0000",
+        "max_discount": null,
+        "applies_to": {
+          "products": [],
+          "categories": [],
+          "brands": []
+        }
+      }
+    ],
+    "at": "2025-06-15T09:30:00.000Z",
+    "discounted_subtotals": [
+      "100.0000",
+      "50.0000",
+      "25.0000"
+    ]
+  },
+  "refusal": "below_min_amount"
+}

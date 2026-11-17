@@ -1,0 +1,77 @@
+{
+  "name": "tax-inclusive-residue-skips-a-zero-rate-member",
+  "kind": "tax",
+  "discriminates": "The inclusive residue lands on the last member whose rate is not zero, never on a 0 % member after it (a negative residue would refuse a valid sale; a positive one would tax a 0 % line).",
+  "input": {
+    "members": [
+      {
+        "tax_id": "01TAXVAT000000000000000000",
+        "code": "VAT",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "1",
+        "rates": [
+          {
+            "rate": "15.0000",
+            "effective_from": "2020-01-01",
+            "effective_to": null
+          }
+        ]
+      },
+      {
+        "tax_id": "01TAXLEVY00000000000000000",
+        "code": "LEVY",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "2",
+        "rates": [
+          {
+            "rate": "0.0000",
+            "effective_from": "2020-01-01",
+            "effective_to": null
+          }
+        ]
+      }
+    ],
+    "amount": "9.9900",
+    "base_quantity": "1.0000",
+    "date": "2025-06-01",
+    "context": "sale",
+    "is_inclusive": true
+  },
+  "expect": {
+    "is_inclusive": true,
+    "net": "8.6870",
+    "lines": [
+      {
+        "tax_id": "01TAXVAT000000000000000000",
+        "code": "VAT",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "rate": "15.0000",
+        "base": "8.6870",
+        "amount": "1.3030"
+      },
+      {
+        "tax_id": "01TAXLEVY00000000000000000",
+        "code": "LEVY",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "rate": "0.0000",
+        "base": "8.6870",
+        "amount": "0.0000"
+      }
+    ],
+    "total": "1.3030"
+  }
+}

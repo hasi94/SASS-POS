@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Flexipos\Customers\Features\UpdateCustomer;
 
 use Flexipos\Contracts\Audit\AuditTrail;
+use Flexipos\Contracts\Finance\ChartOfAccounts;
 use Flexipos\Customers\Customers\CustomerRules;
 use Flexipos\Customers\Exceptions\CustomersRefused;
 use Flexipos\Customers\Ledger\MaintainedColumns;
 use Flexipos\Customers\Registry\CustomersAuditActions;
+use Flexipos\Customers\Support\AccountFields;
 use Flexipos\Customers\Support\Fields;
 use Flexipos\Customers\Support\Identifier;
 use Flexipos\Customers\Support\Lookup;
@@ -37,13 +39,14 @@ final class UpdateCustomerHandler
     public const FIELDS = [
         'version', 'group_id', 'code', 'name', 'phone', 'email', 'address', 'dob', 'gender', 'tax_no',
         'company_name', 'currency', 'credit_allowed', 'credit_limit', 'payment_terms_days',
-        'status', 'blocked_reason', 'possible_duplicate_of', 'notes',
+        'status', 'blocked_reason', 'possible_duplicate_of', 'notes', 'receivable_account_id',
     ];
 
     public function __construct(
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
         private readonly AuditTrail $audit,
+        private readonly ChartOfAccounts $chart,
     ) {}
 
     public function handle(UpdateCustomer $command): void
@@ -56,9 +59,12 @@ final class UpdateCustomerHandler
         $version = Fields::requiredVersion($fields);
         $customerId = Identifier::fold($command->customerId, 'customerId');
 
+        // T-032 AC-55: a malformed id is refused here, before any lock is taken.
+        $accounts = AccountFields::fold($fields);
+
         $connection = $this->tenant->get();
 
-        $connection->transaction(function () use ($connection, $command, $customerId, $fields, $version): void {
+        $connection->transaction(function () use ($connection, $command, $customerId, $fields, $version, $accounts): void {
             $before = $connection->table('customers')->where('id', $customerId)->whereNull('deleted_at')->lockForUpdate()->first();
 
             if ($before === null) {
@@ -69,7 +75,10 @@ final class UpdateCustomerHandler
                 throw CustomersRefused::stale("The customer [{$customerId}] is at version [{$before->version}], not [{$version}].");
             }
 
-            $changes = [];
+            // T-032 AC-55 to AC-57: only a value that changes to a non-null id is read, under a shared lock.
+            AccountFields::assertAssignable($this->chart, $accounts, $before);
+
+            $changes = $accounts;
 
             if (Fields::has($fields, 'group_id')) {
                 $groupId = Identifier::foldNullable($fields['group_id'], 'group_id');

@@ -1,0 +1,49 @@
+{
+  "name": "tax-inclusive-residue-on-last-member",
+  "kind": "tax",
+  "discriminates": "Net 8.6870 and a forward tax of 1.3031 overshoot 9.9900 by 0.0001; the residue comes off the last percentage member.",
+  "input": {
+    "members": [
+      {
+        "tax_id": "01TAXVAT000000000000000000",
+        "code": "VAT",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "1",
+        "rates": [
+          {
+            "rate": "15.0000",
+            "effective_from": "2020-01-01",
+            "effective_to": null
+          }
+        ]
+      }
+    ],
+    "amount": "9.9900",
+    "base_quantity": "1.0000",
+    "date": "2025-06-01",
+    "context": "sale",
+    "is_inclusive": true
+  },
+  "expect": {
+    "is_inclusive": true,
+    "net": "8.6870",
+    "lines": [
+      {
+        "tax_id": "01TAXVAT000000000000000000",
+        "code": "VAT",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "rate": "15.0000",
+        "base": "8.6870",
+        "amount": "1.3030"
+      }
+    ],
+    "total": "1.3030"
+  }
+}

@@ -137,10 +137,9 @@ it('creates customers with exactly the documented columns, no custom_fields and 
         'currency', 'deleted_at', 'device_id', 'dob', 'email', 'first_sale_at', 'gender', 'group_id', 'id',
         'last_sale_at', 'lifetime_value', 'loyalty_points', 'loyalty_tier', 'merged_into_id', 'name',
         'notes', 'opening_balance', 'origin', 'payment_terms_days', 'phone', 'possible_duplicate_of',
-        'status', 'sync_status', 'synced_at', 'tax_no', 'terminal_id', 'updated_at', 'updated_by',
-        'version',
-    ])->and(customersColumns('customers'))->not->toContain('custom_fields')
-        ->and(customersColumns('customers'))->not->toContain('receivable_account_id');
+        'receivable_account_id', 'status', 'sync_status', 'synced_at', 'tax_no', 'terminal_id', 'updated_at',
+        'updated_by', 'version',
+    ])->and(customersColumns('customers'))->not->toContain('custom_fields');
 });
 
 it('creates customer_addresses with exactly the documented columns, no [SOFT] (AC-18, D-16)', function () {
@@ -171,14 +170,17 @@ it('creates loyalty_programs with exactly the documented columns, no [SOFT] (D-2
     ])->and(customersColumns('loyalty_programs'))->not->toContain('deleted_at');
 });
 
-it('creates loyalty_transactions with exactly the documented columns, no sale_id (AC-33)', function () {
+// T-030 AC-45 INVERTS T-028's AC-33 absence assertion: `sale_id` (nullable, with its
+// unique (sale_id, type) key and, from the contract migration, its key onto `sales`) is
+// built now that `sales` exists. The rest of the column list is unchanged.
+it('creates loyalty_transactions with exactly the documented columns, sale_id included since T-030 (AC-33, inverted by T-030 AC-45)', function () {
     customersApplyTenantTree();
 
     expect(customersColumns('loyalty_transactions'))->toBe([
         'balance_after', 'client_created_at', 'client_seq', 'created_at', 'customer_id', 'device_id',
-        'employee_id', 'expires_at', 'id', 'notes', 'origin', 'points', 'program_id', 'sync_status',
+        'employee_id', 'expires_at', 'id', 'notes', 'origin', 'points', 'program_id', 'sale_id', 'sync_status',
         'synced_at', 'terminal_id', 'type', 'value',
-    ])->and(customersColumns('loyalty_transactions'))->not->toContain('sale_id')
+    ])->and(customersColumns('loyalty_transactions'))->toContain('sale_id')
         ->and(customersColumns('loyalty_transactions'))->not->toContain('updated_at');
 });
 
@@ -319,7 +321,7 @@ it('holds exactly one default billing address and one default delivery address p
     expect($connection->table('customer_addresses')->where('is_default', true)->count())->toBe(3);
 });
 
-it('holds exactly the 17 documented foreign keys', function () {
+it('holds exactly the 18 documented foreign keys (17 from T-028, 1 from T-030)', function () {
     customersApplyTenantTree();
 
     $tables = [
@@ -352,10 +354,13 @@ it('holds exactly the 17 documented foreign keys', function () {
         'customers.group_id -> customer_groups.id',
         'customers.merged_into_id -> customers.id',
         'customers.possible_duplicate_of -> customers.id',
+        // T-032 step 17: the owed receivable account key.
+        'customers.receivable_account_id -> accounts.id',
         'customers.updated_by -> employees.id',
         'loyalty_transactions.customer_id -> customers.id',
         'loyalty_transactions.employee_id -> employees.id',
         'loyalty_transactions.program_id -> loyalty_programs.id',
+        'loyalty_transactions.sale_id -> sales.id',
     ]);
 });
 

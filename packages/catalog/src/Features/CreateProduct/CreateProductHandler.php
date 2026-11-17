@@ -10,12 +10,16 @@ use Flexipos\Catalog\Products\ProductRules;
 use Flexipos\Catalog\Products\ProductType;
 use Flexipos\Catalog\Products\TrackingMode;
 use Flexipos\Catalog\Registry\CatalogAuditActions;
+use Flexipos\Catalog\Support\AccountFields;
 use Flexipos\Catalog\Support\Fields;
 use Flexipos\Catalog\Support\Identifier;
 use Flexipos\Catalog\Support\Lookup;
 use Flexipos\Catalog\Support\Money;
+use Flexipos\Catalog\Support\TaxGroups;
 use Flexipos\Catalog\Support\TenantConnection;
 use Flexipos\Contracts\Audit\AuditTrail;
+use Flexipos\Contracts\Finance\ChartOfAccounts;
+use Flexipos\Contracts\Pricing\TaxGroupDirectory;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Database\Connection;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -39,12 +43,16 @@ final class CreateProductHandler
         'min_selling_price', 'msrp', 'track_stock', 'tracking_mode', 'is_weighable', 'price_mode',
         'plu_code', 'shelf_life_days', 'is_sellable', 'is_purchasable', 'is_active', 'allow_price_override',
         'allow_discount', 'weight', 'dimensions', 'variant_options', 'variant_values', 'image_path', 'sort_order',
+        'tax_group_id', 'purchase_tax_group_id',
+        'income_account_id', 'cogs_account_id', 'inventory_account_id',
     ];
 
     public function __construct(
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
         private readonly AuditTrail $audit,
+        private readonly TaxGroupDirectory $taxGroups,
+        private readonly ChartOfAccounts $chart,
     ) {}
 
     public function handle(CreateProduct $command): CreateProductResult
@@ -87,6 +95,18 @@ final class CreateProductHandler
 
         $parentId = Identifier::foldNullable(Fields::has($fields, 'parent_id') ? $fields['parent_id'] : null, 'parent_id');
 
+        // AC-3: omitting tax_group_id means the default; naming null is refused,
+        // because the application is what keeps the column non-null (F-3).
+        if (Fields::has($fields, 'tax_group_id') && $fields['tax_group_id'] === null) {
+            throw CatalogRefused::validation('The tax_group_id may not be null; omit it to use the default tax group.');
+        }
+
+        $taxGroupId = Fields::has($fields, 'tax_group_id') ? Identifier::fold($fields['tax_group_id'], 'tax_group_id') : null;
+        $purchaseTaxGroupId = Identifier::foldNullable(Fields::has($fields, 'purchase_tax_group_id') ? $fields['purchase_tax_group_id'] : null, 'purchase_tax_group_id');
+
+        // T-032 AC-55: a malformed id is refused here, before any lock is taken.
+        $accounts = AccountFields::fold($fields, AccountFields::PRODUCT);
+
         ProductRules::checkParentage($type, $parentId);
 
         $connection = $this->tenant->get();
@@ -96,7 +116,7 @@ final class CreateProductHandler
             $stockUnitId, $purchaseUnitId, $salesUnitId, $costPrice, $sellingPrice, $minSellingPrice, $msrp,
             $trackStock, $trackingMode, $isWeighable, $priceMode, $pluCode, $shelfLifeDays, $isSellable,
             $isPurchasable, $isActive, $allowPriceOverride, $allowDiscount, $weight, $dimensions, $variantOptions,
-            $variantValues, $imagePath, $sortOrder,
+            $variantValues, $imagePath, $sortOrder, $taxGroupId, $purchaseTaxGroupId, $accounts,
         ): CreateProductResult {
             if ($connection->table('products')->whereRaw('lower(sku) = ?', [strtolower($sku)])->exists()) {
                 throw CatalogRefused::duplicate("The sku [{$sku}] is already in use.");
@@ -129,6 +149,16 @@ final class CreateProductHandler
 
                 ProductRules::checkParent($parentId, $parent !== null, $parent === null ? null : ProductType::from($parent->type));
             }
+
+            $resolvedTaxGroupId = TaxGroups::resolveForCreate($this->taxGroups, $taxGroupId);
+
+            if ($purchaseTaxGroupId !== null) {
+                TaxGroups::assertUsable($this->taxGroups, $purchaseTaxGroupId, 'purchase_tax_group_id');
+            }
+
+            // T-032 AC-55 to AC-57: Finance judges each named account under a
+            // shared lock, inside this transaction.
+            AccountFields::assertAssignable($this->chart, $accounts);
 
             $productId = (string) Str::ulid();
             $now = $this->clock->timestamp();
@@ -173,6 +203,11 @@ final class CreateProductHandler
                     'variant_values' => $variantValues,
                     'image_path' => $imagePath,
                     'sort_order' => $sortOrder,
+                    'tax_group_id' => $resolvedTaxGroupId,
+                    'purchase_tax_group_id' => $purchaseTaxGroupId,
+                    'income_account_id' => $accounts['income_account_id'] ?? null,
+                    'cogs_account_id' => $accounts['cogs_account_id'] ?? null,
+                    'inventory_account_id' => $accounts['inventory_account_id'] ?? null,
                     'version' => 1,
                 ]);
             } catch (UniqueConstraintViolationException) {

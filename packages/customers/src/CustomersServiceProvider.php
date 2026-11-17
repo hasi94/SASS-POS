@@ -7,6 +7,9 @@ namespace Flexipos\Customers;
 use Flexipos\Contracts\Audit\DeclaresAuditActions;
 use Flexipos\Contracts\Customers\CustomerCreditLedger;
 use Flexipos\Contracts\Customers\LoyaltyLedger;
+use Flexipos\Contracts\Finance\AccountReferrers;
+use Flexipos\Contracts\Finance\DeclaresAccountReferrers;
+use Flexipos\Customers\Finance\CustomerAccountReferrers;
 use Flexipos\Customers\Ledger\ContractCreditLedger;
 use Flexipos\Customers\Loyalty\ContractLoyaltyLedger;
 use Flexipos\Customers\Registry\CustomersAuditActions;
@@ -28,12 +31,24 @@ use Illuminate\Support\ServiceProvider;
  * (plan chunk C, Ruling 2/6), and **`LoyaltyLedger` to
  * `Loyalty\ContractLoyaltyLedger`** (plan chunk D).
  */
-final class CustomersServiceProvider extends ServiceProvider implements DeclaresAuditActions
+final class CustomersServiceProvider extends ServiceProvider implements DeclaresAccountReferrers, DeclaresAuditActions
 {
     public function register(): void
     {
         $this->app->singleton(CustomerCreditLedger::class, ContractCreditLedger::class);
         $this->app->singleton(LoyaltyLedger::class, ContractLoyaltyLedger::class);
+    }
+
+    /**
+     * The account referrers this package provides (T-032 AC-23, AC-24). Finance
+     * sweeps the loaded providers for this declaration, so it never names
+     * customers.
+     *
+     * @return list<class-string<AccountReferrers>>
+     */
+    public function accountReferrers(): array
+    {
+        return [CustomerAccountReferrers::class];
     }
 
     /**

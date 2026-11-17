@@ -1,0 +1,38 @@
+{
+  "name": "tax-rate-duplicate-effective-from-is-refused",
+  "kind": "tax",
+  "discriminates": "Two rate rows share an effective_from: the result must not depend on which row arrives first, so the pure resolver refuses by name.",
+  "input": {
+    "members": [
+      {
+        "tax_id": "01TAXVAT000000000000000000",
+        "code": "VAT",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "1",
+        "rates": [
+          {
+            "rate": "15.0000",
+            "effective_from": "2024-01-01",
+            "effective_to": "2024-06-01"
+          },
+          {
+            "rate": "18.0000",
+            "effective_from": "2024-01-01",
+            "effective_to": null
+          }
+        ]
+      }
+    ],
+    "amount": "100.0000",
+    "base_quantity": "1.0000",
+    "date": "2024-03-01",
+    "context": "sale",
+    "is_inclusive": false
+  },
+  "refusal": "invalid_amount"
+}

@@ -147,8 +147,10 @@ it('creates exactly the tenant tables the shipped tree declares', function () {
         // T-020 step 3 adds the five workflow-engine tables (23 becomes 28).
         // T-027 step 3 adds the twelve catalog tables (29 becomes 41).
         // T-028 step 3 adds the eight customer tables (41 becomes 49).
-        // T-032 step 2 adds the three finance tables (49 becomes 52).
-        ->and(tenantTreeTables())->toHaveCount(52)
+        // T-029 step 2 adds the nine pricing and tax tables (49 becomes 58).
+        // T-030 step 6 adds the eight Sales tables (58 becomes 66).
+        ->and(tenantTreeTables())->toHaveCount(69)
+        // T-032 step 2 adds the three finance tables (66 becomes 69).
         ->and(migrationTreeSources(MigrationTree::Tenant))->toHaveCount(tenantMigrationFileCount())
         ->and($tableless)->not->toBe([])
         ->and(tenantMigrationFileCount())->toBe(count(tenantTreeTables()) + count($tableless));

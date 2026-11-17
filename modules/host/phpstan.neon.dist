@@ -74,6 +74,12 @@ parameters:
         # lines above are here.
         - ../../packages/plugin-sdk/src
         - ../../packages/plugin-sdk/tests
+        # T-029, source and tests.
+        - ../../packages/pricing/src
+        - ../../packages/pricing/tests
+        # T-030, source and tests.
+        - ../../packages/sales/src
+        - ../../packages/sales/tests
         - ../../packages/testing/src
         # T-020, source and tests.
         - ../../packages/workflow/src

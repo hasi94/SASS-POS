@@ -1,0 +1,69 @@
+{
+  "name": "price-promotion-priority-tie-broken-by-code",
+  "kind": "price",
+  "discriminates": "Two promotions at the same priority resolve by code ascending, whatever order they arrive in.",
+  "input": {
+    "unit_id": "01UNITEACH0000000000000000",
+    "unit_factor": "1.000000",
+    "base_quantity": "1.0000",
+    "at": "2025-06-15T09:30:00.000Z",
+    "currency": "USD",
+    "customer_id": null,
+    "customer_group_id": null,
+    "branch_id": null,
+    "lists": [
+      {
+        "list_id": "01LISTPROMOB00000000000000",
+        "code": "PROMOB",
+        "type": "promotion",
+        "currency": "USD",
+        "priority": "5",
+        "starts_at": null,
+        "ends_at": null,
+        "is_active": true,
+        "is_deleted": false,
+        "assignments": [],
+        "items": [
+          {
+            "unit_id": null,
+            "min_qty": "1.0000",
+            "price": "4.0000",
+            "discount_percent": null
+          }
+        ]
+      },
+      {
+        "list_id": "01LISTPROMOA00000000000000",
+        "code": "PROMOA",
+        "type": "promotion",
+        "currency": "USD",
+        "priority": "5",
+        "starts_at": null,
+        "ends_at": null,
+        "is_active": true,
+        "is_deleted": false,
+        "assignments": [],
+        "items": [
+          {
+            "unit_id": null,
+            "min_qty": "1.0000",
+            "price": "3.0000",
+            "discount_percent": null
+          }
+        ]
+      }
+    ],
+    "branch_selling_price": null,
+    "selling_price": null
+  },
+  "expect": {
+    "list_price": "3.0000",
+    "discount_percent": null,
+    "unit_price": "3.0000",
+    "source": {
+      "step": "3",
+      "price_list_id": "01LISTPROMOA00000000000000",
+      "basis": "derived"
+    }
+  }
+}

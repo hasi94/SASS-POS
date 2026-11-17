@@ -1,0 +1,38 @@
+{
+  "name": "tax-rate-gap-between-rows-refuses",
+  "kind": "tax",
+  "discriminates": "A date that falls in a gap between two closed rows has no effective rate.",
+  "input": {
+    "members": [
+      {
+        "tax_id": "01TAXVAT000000000000000000",
+        "code": "VAT",
+        "tax_code": null,
+        "type": "percentage",
+        "is_compound": false,
+        "applies_to": "both",
+        "is_active": true,
+        "is_deleted": false,
+        "sequence": "1",
+        "rates": [
+          {
+            "rate": "15.0000",
+            "effective_from": "2020-01-01",
+            "effective_to": "2024-01-01"
+          },
+          {
+            "rate": "18.0000",
+            "effective_from": "2025-01-01",
+            "effective_to": null
+          }
+        ]
+      }
+    ],
+    "amount": "100.0000",
+    "base_quantity": "1.0000",
+    "date": "2024-06-01",
+    "context": "sale",
+    "is_inclusive": false
+  },
+  "refusal": "no_effective_rate"
+}

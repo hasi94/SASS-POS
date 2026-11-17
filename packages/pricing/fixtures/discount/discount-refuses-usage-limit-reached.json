@@ -1,0 +1,37 @@
+{
+  "name": "discount-refuses-usage-limit-reached",
+  "kind": "discount",
+  "discriminates": "used_count equal to usage_limit refuses.",
+  "input": {
+    "discount_id": "01DISC10000000000000000000",
+    "discounts": [
+      {
+        "id": "01DISC10000000000000000000",
+        "type": "percentage",
+        "value": "10.0000",
+        "scope": "item",
+        "is_active": true,
+        "starts_at": null,
+        "ends_at": null,
+        "usage_limit": "5",
+        "used_count": "5",
+        "min_amount": null,
+        "max_discount": null,
+        "applies_to": {
+          "products": [],
+          "categories": [],
+          "brands": []
+        }
+      }
+    ],
+    "at": "2025-06-15T09:30:00.000Z",
+    "product": {
+      "id": "01PRODA0000000000000000000",
+      "category_id": "01CATA00000000000000000000",
+      "brand_id": "01BRANDA000000000000000000",
+      "allow_discount": true
+    },
+    "subtotal": "179.0000"
+  },
+  "refusal": "usage_limit_reached"
+}

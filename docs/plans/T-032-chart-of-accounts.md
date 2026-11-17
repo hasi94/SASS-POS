@@ -165,7 +165,7 @@ That is 22 files. Nothing else is published.
 | Gate | period `sharedLock` only | AC-47 |
 | `assignable()` (section I) | the account `sharedLock`, inside the catalog/customers transaction, **only** when the field's value changes to a non-null id | AC-55 to 57 |
 
-**Global lock order:** `fiscal_years` before `fiscal_periods`, each ascending by `start_date`. Every Finance transaction acquires in that order, so Finance transitions cannot deadlock each other. The gate takes one shared lock at the tail. Account locks never interleave with period locks. The known engine deadlocks are re-parent against a concurrent child create, and account delete against a product update that already references the account. MySQL rolls one back (1213): data stays correct and the retry names the refusal. They are recorded in risk 3 and exercised in step 20.
+**Global lock order:** `fiscal_years` before `fiscal_periods`, each ascending by `start_date`. Every Finance transaction is designed to acquire in that order, so that Finance transitions do not form a lock cycle; that is NOT VERIFIED under ENGINE_HOLD, and any residual deadlock is recovered by the two-attempt retry (D-33). As built, a year rename locks the whole year chain ascending first, a reactivation locks the parent before the child, and the gate locks the single latest period starting on or before the date. The gate takes one shared lock at the tail. Account locks never interleave with period locks. The known engine deadlocks are re-parent against a concurrent child create, and account delete against a product update that already references the account. MySQL rolls one back (1213): data stays correct and the retry names the refusal. They are recorded in risk 3 and exercised in step 20.
 
 **Ruling 7: the period state machine** (`Periods\PeriodTransitions`, pure; AC-38 to 43).
 - `transition(PeriodStatus $from, PeriodStatus $to)`: only the four adjacent moves are allowed; anything else, including same to same, is `invalid_transition`.
@@ -465,7 +465,7 @@ Rules carried from T-027/T-028 §6, unchanged:
 
 ### Chunk C: accounts on the database
 
-- [ ] **Step 8: permissions, authorization, ports.**
+- [x] **Step 8: permissions, authorization, ports.**
   - `FinancePermissions`, which the provider declares.
   - `Authorize`; `ReferrerCensus`; the three `No*` defaults bound.
   - `FinanceSeed` gives one employee per key (seven), plus one with none.
@@ -478,7 +478,7 @@ Rules carried from T-027/T-028 §6, unchanged:
   - The registry sweep finds the seven keys through the booted provider.
   - **Mutation M11:** move `Authorize` inside the transaction after the target read, which makes the "no statement ran" assertion go red.
   - *(AC-64; AC-25 wiring.)*
-- [ ] **Step 9: `CreateAccount`.**
+- [x] **Step 9: `CreateAccount`.**
   - **AC-1:** every default, and the row appears in list and tree (after step 12; the assertion is added there).
   - **AC-3 on the stand-in:**
     - `ab1` against an existing `AB1`, live and soft-deleted, gives `code_in_use` naming the id;
@@ -489,7 +489,7 @@ Rules carried from T-027/T-028 §6, unchanged:
   - **AC-65:** one audit row, compared whole.
   - **Mutation M12:** remove the `control_account_exists` pre-check; the generated-marker backstop still refuses and the test stays green on the reason. That proves the backstop. Then remove the catch's mapping, and the reason goes red.
   - *(AC-1 to AC-12, AC-16, AC-17, AC-65.)*
-- [ ] **Step 10: `UpdateAccount`.**
+- [x] **Step 10: `UpdateAccount`.**
   - **AC-20:** unknown or soft-deleted gives `account_not_live`, nothing written.
   - **AC-21:** unsupplied fields are unchanged.
   - **AC-14:** a header with a live child changed to postable gives `has_children`. A postable leaf changed to header: accepted with no usage; refused with a bound `AccountUsage` fake (`has_postings`) or a fake referrer (`in_use`).
@@ -498,7 +498,7 @@ Rules carried from T-027/T-028 §6, unchanged:
   - **AC-19 and AC-22:** with fakes. The reasons are `control_type_locked` and `code_locked` (AC-25, D-25).
   - **F-12:** `parent_id` and `is_active` give `not_updatable_here`.
   - *(AC-14, AC-15, AC-18 to AC-22, AC-25 in part.)*
-- [ ] **Step 11: `ReparentAccount`, `DeactivateAccount`, `ReactivateAccount`, `DeleteAccount`.**
+- [x] **Step 11: `ReparentAccount`, `DeactivateAccount`, `ReactivateAccount`, `DeleteAccount`.**
   - **AC-13:** a three-level subtree moved; every descendant's `path` and `depth` are rewritten in one transaction (assert all rows); cycle; depth.
   - **AC-18:** a system account cannot be re-parented, deactivated or deleted.
   - **AC-23:**
@@ -516,7 +516,7 @@ Rules carried from T-027/T-028 §6, unchanged:
     - **M13:** skip the descendant rewrite, which makes the AC-13 assertion go red;
     - **M14:** count only live referrers on delete, which makes the deleted-referrer row go red.
   - *(AC-13, AC-18, AC-20, AC-23 to AC-25.)*
-- [ ] **Step 12: reads and the `ChartOfAccounts` implementation.**
+- [x] **Step 12: reads and the `ChartOfAccounts` implementation.**
   - **AC-61:**
     - page size 0, 201 and `"50"` give `page_size_invalid`; the default is 50;
     - 3 rows at size 2 page through `(after_code, after_id)`; a half cursor is refused;
@@ -535,7 +535,7 @@ Rules carried from T-027/T-028 §6, unchanged:
 
 ### Chunk D: fiscal years, transitions, the gate, the seed
 
-- [ ] **Step 13: years and periods CRUD** (`CreateFiscalYear`, `RenameFiscalYear`, `RenameFiscalPeriod`, `DeleteFiscalYear`, the three reads).
+- [x] **Step 13: years and periods CRUD** (`CreateFiscalYear`, `RenameFiscalYear`, `RenameFiscalPeriod`, `DeleteFiscalYear`, the three reads).
   - **AC-31:** one year plus 12 periods. Atomicity: a fault injected at period 7 (test seam) leaves **no** year.
   - **AC-33:** contiguity through the handler.
   - **AC-34:** `fy26` against `FY26`, and `'FY26 '` against `FY26`, give `name_in_use`.
@@ -551,7 +551,7 @@ Rules carried from T-027/T-028 §6, unchanged:
   - **AC-62:** list order and paging; lookup by date, and `no_fiscal_period`.
   - **Mutation M15:** drop the post-insert verification, which makes the gapped-year seam test go red.
   - *(AC-31 to AC-37, AC-62.)*
-- [ ] **Step 14: `TransitionFiscalPeriod`, `CloseFiscalYear`, `ReopenFiscalYear`.**
+- [x] **Step 14: `TransitionFiscalPeriod`, `CloseFiscalYear`, `ReopenFiscalYear`.**
   - **AC-38 to AC-43** end to end.
   - **AC-39:** a replayed close with the old `expected_status` gives `status_changed`, nothing written, and no second audit row.
   - **AC-40:** across a year boundary (P12 of 2026 against P01 of 2027).
@@ -569,7 +569,7 @@ Rules carried from T-027/T-028 §6, unchanged:
     - **M16:** skip `expected_status`, which makes the replay row go red;
     - **M17:** skip the year check, which makes the AC-46 row go red.
   - *(AC-38 to AC-46 except the `[ENGINE]` clauses.)*
-- [ ] **Step 15: `DatabasePeriodGate`.**
+- [x] **Step 15: `DatabasePeriodGate`.**
   - **AC-47:** a dataset of {open, soft_closed, closed} × {plain actor, `post_adjustment` actor, null actor}.
   - **AC-48:** every invalid date; a tenant with no year gives `no_fiscal_period` for today, so it never defaults.
   - **AC-49:** the first day, the last day and the day after.
@@ -579,7 +579,7 @@ Rules carried from T-027/T-028 §6, unchanged:
     - **M18:** let finance actors through `closed`, which makes that row go red;
     - **M19:** return "allowed" on a parse failure, which makes AC-48 go red.
   - *(AC-47 to AC-51 except the `[ENGINE]` clause.)*
-- [ ] **Step 16: the seed migration, with `SeedChartTest`.**
+- [x] **Step 16: the seed migration, with `SeedChartTest`.**
   - **AC-26 and AC-27:** the exact 20 rows (section 4); the headers; `is_system` iff control; exactly one live holder each for ar, ap, grni, payroll_payable and retained_earnings.
   - **AC-28:**
     - run twice gives no duplicates;
@@ -595,7 +595,7 @@ Rules carried from T-027/T-028 §6, unchanged:
 
 ### Chunk E: the owed account columns (section I)
 
-- [ ] **Step 17: the three expand files and the contract file, with `OwedAccountColumnsMigrationsTest`.**
+- [x] **Step 17: the three expand files and the contract file, with `OwedAccountColumnsMigrationsTest`.**
   - **Pre-check:** T-027 and T-028 tables exist (guaranteed by step 0, re-asserted). If T-029 landed since step 0, apply section 5's T-029-first branch first.
   - **AC-52:**
     - the five columns are `CHAR(26)` through `IdentifierColumn::nullable`, nullable, with no default and no key in the expand files;
@@ -613,7 +613,7 @@ Rules carried from T-027/T-028 §6, unchanged:
     - `TenantBaselineBuildsTest` +5 keys; catalogue republished; `.env.example` 55 → 59.
   - **Mutation S1:** write the contract as `->change()`, and the AC-54 assertion goes red.
   - *(AC-52 to AC-54, AC-66.)*
-- [ ] **Step 18: assignment and referrers in catalog and customers.**
+- [x] **Step 18: assignment and referrers in catalog and customers.**
   - **`DatabaseChartOfAccounts::assignable`.**
   - The field and validation edits (section 3). The account is read only when the value changes to a non-null id; null clears it; omitted leaves it unchanged.
   - **F-3:** add `whereNull('deleted_at')` to `UpdateProductHandler` and `UpdateCategoryHandler`.
@@ -637,7 +637,7 @@ Rules carried from T-027/T-028 §6, unchanged:
 
 ### Chunk F: scans, engine, documents, close-out
 
-- [ ] **Step 19: `QaFinanceSourceRulesTest` (host).** Code only, through `SourceRules::codeOnly`.
+- [x] **Step 19: `QaFinanceSourceRulesTest` (host).** Code only, through `SourceRules::codeOnly`.
   - **Locked-read construction (0.3):**
     - no file under `packages/finance/src/Features/*` whose slice is a write (Ruling 9's list, held as a literal in the test) calls `->first(`, `->get(`, `->exists(`, `->count(`, `->value(` or `->pluck(`;
     - every terminal read in `AccountRows`/`PeriodRows` outside methods named `*Unlocked` has `lockForUpdate()` or `sharedLock()` in the same chain;
@@ -654,7 +654,7 @@ Rules carried from T-027/T-028 §6, unchanged:
     - a scratch `table('accounts')` in `packages/organization/src` is reported;
     - delete all three.
   - *(AC-12, AC-21, AC-44, AC-50, AC-51, AC-57 construction halves, AC-60.)*
-- [ ] **Step 20: `FinanceSchemaEngineTest`** (database `flexipos_t8test_t032_tenant`, created and dropped by **exact name** through `EngineDatabase`, never a `LIKE` sweep).
+- [x] **Step 20: `FinanceSchemaEngineTest`** (database `flexipos_t8test_t032_tenant`, created and dropped by **exact name** through `EngineDatabase`, never a `LIKE` sweep).
   - Under the hold, only the "refuses to reach the engine" case runs.
   - Written for G-1, with rows built with explicit ids (never `insertGetId`, T-028 W-2), and with connection B calling the **real** handler or gate:
     - **AC-3:** `ab1` raw-inserted against `AB1` refused by the unique index on the real collation;
@@ -667,7 +667,7 @@ Rules carried from T-027/T-028 §6, unchanged:
     - the known deadlock (risk 3) yields a 1213 rollback and a clean retry;
     - `information_schema` decimals; generated-column uniqueness; migrating twice is a no-op.
   - *(Every `[ENGINE]` clause; they stay NOT VERIFIED under `ENGINE_HOLD`.)*
-- [ ] **Step 21: documents.** Describe, never quote retired vocabulary.
+- [x] **Step 21: documents.** Describe, never quote retired vocabulary.
   - **`docs/database.md` §6.10, "As built (T-032)":**
     - the generated control marker;
     - the period-start overlap backstop;
@@ -798,3 +798,13 @@ Anything red that is not in this table means stop and report to `architect`.
 2. **Merge order against T-029:** `architect` recommends T-029 first (section 5). `lead` decides.
 
 F-1 to F-19 are resolved in `e5c99bb` (D-20 to D-29). The open items are N-1 (a one-line AC-25 wording fix for `ba`, not blocking) and N-2 (a FP-428 annotation for `lead`).
+
+## As merged (T-030 absorbed)
+
+The T-030 tip (`c354a0e`, which holds T-029 pricing and T-030 sales) was merged into this branch after chunk C. Section 5's T-029-first branch applies from here on.
+
+- **Schema numbers.** The base now tops out at version 73 (`2026_11_10_003010_add_loyalty_sale_foreign_key`, contract). Finance's three migrations are versions **74** (`accounts`), **75** (`fiscal_years`) and **76** (`fiscal_periods`). Every "51 to 54 to 55 to 59" in this plan is base-relative: read it as 73 + the same offsets, so chunk F's contract file will be 77 and its expand additions 78 onward (record the exact numbers at step 16/17). `.env.example` `APP_REQUIRED_SCHEMA_VERSION` is 76 today. The catalogue was republished, not merged: the diff against the T-030 side is three pure additions, `is_destructive` false.
+- **Tenant tables.** `tenantTreeTables()` holds 69 names (49 base, +9 pricing, +8 sales, +3 finance); `MigrationTreeDisciplineTest` says 69.
+- **Foreign keys.** `TenantBaselineBuildsTest` keeps all three sets of keys, finance's six sorted in among the rest. Finance adds no table to the branch-key list.
+- **Chunks D-F.** Step 17 (the contract file and the `products`/`customers` column additions) must follow T-029's contract file, version 73, and re-baseline the count literals above. `CreateProduct`/`UpdateProduct` (step 18) now also carry T-029's tax-group fields in `FIELDS`: add finance's keys beside them. T-029's `ProductTaxGroupMigrationsTest` AC-29.3 is to be narrowed to T-029's own files at step 17 (F-4). `CatalogTenantSchemaTest`'s `products` list is +2 (T-029) plus +3 (finance).
+- **Instruments.** `deptrac.yaml` grants `Package_Finance` / `Package_Finance_Tests` beside `Package_Pricing*` and `Package_Sales*`; `Module_Demo` is granted none of the three. `AuditCatalogueTest` lists access, catalog, customers, finance, organization, pricing, sales (and `fixture` in its fixture variant). `QaToolchainRegistryCoverageTest` lists `finance`, `pricing` and `sales`.

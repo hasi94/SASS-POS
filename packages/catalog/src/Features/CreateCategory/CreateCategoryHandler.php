@@ -7,11 +7,13 @@ namespace Flexipos\Catalog\Features\CreateCategory;
 use Flexipos\Catalog\Categories\CategoryPath;
 use Flexipos\Catalog\Exceptions\CatalogRefused;
 use Flexipos\Catalog\Registry\CatalogAuditActions;
+use Flexipos\Catalog\Support\AccountFields;
 use Flexipos\Catalog\Support\Fields;
 use Flexipos\Catalog\Support\Identifier;
 use Flexipos\Catalog\Support\Lookup;
 use Flexipos\Catalog\Support\TenantConnection;
 use Flexipos\Contracts\Audit\AuditTrail;
+use Flexipos\Contracts\Finance\ChartOfAccounts;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Str;
@@ -27,12 +29,13 @@ final class CreateCategoryHandler
 {
     public const ACTION = 'catalog_category_created';
 
-    public const FIELDS = ['code', 'name', 'parent_id', 'image_path', 'colour', 'sort_order', 'is_active'];
+    public const FIELDS = ['code', 'name', 'parent_id', 'image_path', 'colour', 'sort_order', 'is_active', 'income_account_id'];
 
     public function __construct(
         private readonly TenantConnection $tenant,
         private readonly RunnerClock $clock,
         private readonly AuditTrail $audit,
+        private readonly ChartOfAccounts $chart,
     ) {}
 
     public function handle(CreateCategory $command): CreateCategoryResult
@@ -49,9 +52,12 @@ final class CreateCategoryHandler
         $sortOrder = Fields::integer($fields, 'sort_order', 0);
         $isActive = Fields::flag($fields, 'is_active', true);
 
+        // T-032 AC-55: a malformed id is refused here, before any lock is taken.
+        $accounts = AccountFields::fold($fields, AccountFields::CATEGORY);
+
         $connection = $this->tenant->get();
 
-        return $connection->transaction(function () use ($connection, $command, $code, $name, $parentId, $imagePath, $colour, $sortOrder, $isActive): CreateCategoryResult {
+        return $connection->transaction(function () use ($connection, $command, $code, $name, $parentId, $imagePath, $colour, $sortOrder, $isActive, $accounts): CreateCategoryResult {
             if ($connection->table('categories')->whereRaw('lower(code) = ?', [strtolower($code)])->exists()) {
                 throw CatalogRefused::duplicate("The code [{$code}] is already in use.");
             }
@@ -66,6 +72,9 @@ final class CreateCategoryHandler
                 $parentPath = (string) $parent->path;
                 $parentDepth = (int) $parent->depth;
             }
+
+            // T-032 AC-55 to AC-57: Finance judges the account under a shared lock, inside this transaction.
+            AccountFields::assertAssignable($this->chart, $accounts);
 
             $categoryId = (string) Str::ulid();
             $computed = CategoryPath::compute($parentPath, $parentDepth, $categoryId);
@@ -91,6 +100,7 @@ final class CreateCategoryHandler
                     'colour' => $colour,
                     'sort_order' => $sortOrder,
                     'is_active' => $isActive,
+                    'income_account_id' => $accounts['income_account_id'] ?? null,
                 ]);
             } catch (UniqueConstraintViolationException) {
                 throw CatalogRefused::duplicate("The code [{$code}] is already in use.");

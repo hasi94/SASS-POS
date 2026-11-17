@@ -34,6 +34,42 @@ final class CustomersSeed
     }
 
     /**
+     * A flat (root, depth 0) account for the receivable column's tests (T-032
+     * AC-55, AC-56). It is a **test row written directly**: this package's
+     * own source never names `accounts` and reaches it only through
+     * `ChartOfAccounts::assignable()`; the fixture template carries the
+     * shipped chart, so the codes used here must not be one of its twenty.
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    public static function account(string $code, string $type, ?string $subtype, array $overrides = []): string
+    {
+        $id = (string) Str::ulid();
+
+        self::connection()->table('accounts')->insert(array_merge([
+            'id' => $id,
+            'created_at' => self::NOW,
+            'updated_at' => self::NOW,
+            'deleted_at' => null,
+            'code' => $code,
+            'name' => 'Account '.$code,
+            'type' => $type,
+            'subtype' => $subtype,
+            'parent_id' => null,
+            'path' => $id,
+            'depth' => 0,
+            'normal_balance' => in_array($type, ['liability', 'equity', 'revenue'], true) ? 'credit' : 'debit',
+            'is_postable' => true,
+            'is_system' => false,
+            'control_type' => 'none',
+            'is_active' => true,
+            'sort_order' => 0,
+        ], $overrides));
+
+        return $id;
+    }
+
+    /**
      * @param  array<string, mixed>  $overrides
      */
     public static function group(string $code, array $overrides = []): string

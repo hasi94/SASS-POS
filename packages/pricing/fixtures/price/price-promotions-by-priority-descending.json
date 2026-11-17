@@ -1,0 +1,69 @@
+{
+  "name": "price-promotions-by-priority-descending",
+  "kind": "price",
+  "discriminates": "Of two unassigned promotions the higher priority wins even when it is listed second.",
+  "input": {
+    "unit_id": "01UNITEACH0000000000000000",
+    "unit_factor": "1.000000",
+    "base_quantity": "1.0000",
+    "at": "2025-06-15T09:30:00.000Z",
+    "currency": "USD",
+    "customer_id": null,
+    "customer_group_id": null,
+    "branch_id": null,
+    "lists": [
+      {
+        "list_id": "01LISTPLOW0000000000000000",
+        "code": "PLOW",
+        "type": "promotion",
+        "currency": "USD",
+        "priority": "5",
+        "starts_at": null,
+        "ends_at": null,
+        "is_active": true,
+        "is_deleted": false,
+        "assignments": [],
+        "items": [
+          {
+            "unit_id": null,
+            "min_qty": "1.0000",
+            "price": "4.0000",
+            "discount_percent": null
+          }
+        ]
+      },
+      {
+        "list_id": "01LISTPHIGH000000000000000",
+        "code": "PHIGH",
+        "type": "promotion",
+        "currency": "USD",
+        "priority": "10",
+        "starts_at": null,
+        "ends_at": null,
+        "is_active": true,
+        "is_deleted": false,
+        "assignments": [],
+        "items": [
+          {
+            "unit_id": null,
+            "min_qty": "1.0000",
+            "price": "3.0000",
+            "discount_percent": null
+          }
+        ]
+      }
+    ],
+    "branch_selling_price": null,
+    "selling_price": null
+  },
+  "expect": {
+    "list_price": "3.0000",
+    "discount_percent": null,
+    "unit_price": "3.0000",
+    "source": {
+      "step": "3",
+      "price_list_id": "01LISTPHIGH000000000000000",
+      "basis": "derived"
+    }
+  }
+}
