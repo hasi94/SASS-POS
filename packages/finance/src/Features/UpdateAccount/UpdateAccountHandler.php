@@ -125,7 +125,12 @@ final class UpdateAccountHandler
 
             AccountRules::system($isSystem, $changed);
 
-            $hasPostings = fn (): bool => $this->usage->hasPostings($id);
+            $postings = null;
+            $hasPostings = function () use ($id, &$postings): bool {
+                $postings ??= $this->usage->hasPostings($id);
+
+                return $postings;
+            };
             $referrerTotal = null;
             $hasReferrers = function () use ($id, &$referrerTotal): bool {
                 $referrerTotal ??= $this->referrers->total($id);
@@ -134,6 +139,9 @@ final class UpdateAccountHandler
             };
 
             if ($typeChanged) {
+                // The child's row is already ours (exclusive) and the parent is now taken shared: child before
+                // parent, the reverse of a deactivation of the parent. A known pair (D-33), NOT VERIFIED under
+                // ENGINE_HOLD, recovered by the transaction retry.
                 $parentType = null;
 
                 if ($row->parent_id !== null) {

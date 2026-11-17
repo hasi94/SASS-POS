@@ -26,10 +26,10 @@ use Illuminate\Support\Str;
  * Create a fiscal year (T-032 plan Ruling 6, step 13, AC-31 to AC-35).
  *
  * Order: authorize, parse (every rejection that needs no lock), then one
- * transaction: lock the latest year, check the new one starts the day after
+ * transaction: lock the whole year chain (the latest year is its last row), check the new one starts the day after
  * it ends, insert the year and its twelve periods, then **read the whole
  * chain back under a lock and verify it is contiguous**. Two simultaneous
- * creates queue behind the latest-year lock, but with no year at all there
+ * creates queue behind the chain lock, but with no year at all there
  * is nothing to lock, so the verification (and the unique indexes on
  * `fiscal_years.start_date` and `fiscal_periods.start_date`, which two
  * overlapping years always collide on) is what makes exactly one of them win
@@ -71,13 +71,15 @@ final class CreateFiscalYearHandler
         $id = strtoupper((string) Str::ulid());
 
         $this->tenant->get()->transaction(function () use ($command, $name, $start, $end, $periods, $id): void {
-            $latest = $this->rows->latestYearForUpdate();
+            // The whole chain first, ascending and locked, the one order a rename and a year reopen also
+            // take; the latest year is its last row. A descending read of the latest year before the
+            // chain would cycle with them (D-33). A name search never locks a year out of order either.
+            $chain = $this->rows->yearChainForUpdate();
+            $latest = $chain === [] ? null : $chain[array_key_last($chain)];
 
             FiscalCalendar::contiguous($latest === null ? null : (string) $latest->end_date, $start);
 
-            // The whole chain, ascending and locked (the latest year is already ours): a name search
-            // never locks a year out of order (D-33).
-            if (FiscalCalendar::nameTaken($this->rows->yearChainForUpdate(), $name)) {
+            if (FiscalCalendar::nameTaken($chain, $name)) {
                 throw $this->nameInUse();
             }
 
@@ -111,7 +113,7 @@ final class CreateFiscalYearHandler
                     ]);
                 }
             } catch (UniqueConstraintViolationException) {
-                throw $this->backstopRefusal($name, $start, $id);
+                throw $this->backstopRefusal($start, $end, $id);
             }
 
             $this->verifyChain();
@@ -149,20 +151,38 @@ final class CreateFiscalYearHandler
 
     /**
      * A unique index fired: the name index or one of the two start-date
-     * indexes. Work out which by asking, under a lock.
+     * indexes. Decided by elimination, never by comparing names here: the
+     * engine's collation folds accents and trailing spaces that
+     * `FiscalCalendar::nameTaken` does not, so a name collision the PHP check
+     * missed is still a name collision. If another year starts on that date,
+     * or another year's period starts inside the span, the cause is the span;
+     * otherwise the only index left is the name (re-read under a lock, years
+     * before periods, own rows excluded).
      */
-    private function backstopRefusal(string $name, string $start, string $ownId): FinanceRefused
+    private function backstopRefusal(string $start, string $end, string $ownId): FinanceRefused
     {
-        if (FiscalCalendar::nameTaken($this->rows->yearChainForUpdate(), $name, $ownId)) {
-            return $this->nameInUse();
+        $spanTaken = false;
+
+        foreach ($this->rows->yearChainForUpdate() as $year) {
+            if ((string) $year->id !== $ownId && (string) $year->start_date === $start) {
+                $spanTaken = true;
+            }
         }
 
-        return FinanceRefused::because(
-            FinanceRefusal::FiscalYearNotContiguous,
-            'A fiscal year or period already covers part of that span.',
-            'start_date',
-            ['start_date' => $start],
-        );
+        foreach ($this->rows->periodsBetweenForUpdate($start, $end) as $period) {
+            if ((string) $period->fiscal_year_id !== $ownId) {
+                $spanTaken = true;
+            }
+        }
+
+        return $spanTaken
+            ? FinanceRefused::because(
+                FinanceRefusal::FiscalYearNotContiguous,
+                'A fiscal year or period already covers part of that span.',
+                'start_date',
+                ['start_date' => $start],
+            )
+            : $this->nameInUse();
     }
 
     private function nameInUse(): FinanceRefused

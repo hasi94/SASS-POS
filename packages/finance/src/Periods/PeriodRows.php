@@ -112,7 +112,7 @@ class PeriodRows
      * only read (AC-47, AC-50).
      *
      * The read picks the single latest period starting on or before the date
-     * (one index entry, so one row is locked) and checks `end_date >= date`
+     * (it aims to lock a single index entry, NOT VERIFIED under ENGINE_HOLD) and checks `end_date >= date`
      * here: a range predicate on both columns could lock every row it scans.
      * A date in a gap, or past the last period, finds no cover and returns null.
      */

@@ -459,6 +459,34 @@ it('AC-35: a second year create finds the committed year by its locking read, an
     }
 })->skip(fn (): bool => EngineConnection::onHold(), 'ENGINE_HOLD: see Flexipos\Testing\Engine\EngineOnHold');
 
+it('R-2: a year name that differs only by an accent is refused name_in_use by the unique(name) backstop, not as a contiguity fault', function () {
+    $db = EngineDatabase::engine();
+    $tenantName = financeEngineTenantName();
+
+    $db->recreate($tenantName);
+
+    try {
+        $sessions = financeEngineTwoSessions();
+        ['first' => $first] = $sessions;
+
+        financeEngineCreateYear($first, $sessions['firstName'], 'FY Ano', '2031-01-01');
+
+        // The utf8mb4_unicode_ci collation treats 'FY AÃ±o' as equal to 'FY Ano'; FiscalCalendar::nameTaken does not, so
+        // the PHP pre-check passes and the unique index fires. The reason must be read off the index, by elimination.
+        $refusal = financeEngineRefusal(static fn () => financeEngineAs(
+            $sessions['secondName'],
+            static fn () => app(CreateFiscalYearHandler::class)->handle(new CreateFiscalYear(['name' => 'FY AÃ±o', 'start_date' => '2032-01-01'], financeEngineId()))
+        ));
+
+        expect($refusal)->toBe(FinanceRefusal::NameInUse)
+            ->and($first->table('fiscal_years')->count())->toBe(1)
+            ->and($first->table('fiscal_periods')->count())->toBe(12);
+    } finally {
+        DB::purge('t032_second');
+        $db->drop($tenantName);
+    }
+})->skip(fn (): bool => EngineConnection::onHold(), 'ENGINE_HOLD: see Flexipos\Testing\Engine\EngineOnHold');
+
 it('AC-44: two closes of one period give one winner and one status_changed', function () {
     $db = EngineDatabase::engine();
     $tenantName = financeEngineTenantName();

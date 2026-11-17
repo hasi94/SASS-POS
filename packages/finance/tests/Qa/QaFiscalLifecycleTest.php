@@ -277,7 +277,7 @@ it('deletes only the latest year, only with all periods open, and not when entri
         ->and(FinanceSeed::connection()->table('fiscal_periods')->count())->toBe(12);
 });
 
-it('pins as-built facts the spec disagrees with: rename is capped at 46 like create (D-31 a), period names are not unique, reopening a non-closed year is invalid_transition (AC-34, AC-46)', function () {
+it('pins as-built facts the spec disagrees with: rename cap 46 per D-31(a)', function () {
     $admin = FinanceSeed::admin();
     $a = qaCreateYear($admin, 'FY2026', '2026-01-01');
     $b = qaCreateYear($admin, 'FY2027', '2027-01-01');

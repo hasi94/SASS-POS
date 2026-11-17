@@ -157,10 +157,12 @@ class AccountRows
 
     /**
      * The `parent_id` of a row, live or not, without a lock: **only** to learn
-     * which parent to lock before the child (parent first, child second, the
-     * order every account write shares). The caller re-reads the child under
-     * its lock and compares, so a stale answer costs a late lock, never a
-     * wrong decision.
+     * which parent to lock before the child (parent first, child second),
+     * designed so the common path does not cycle. The late re-lock path (a
+     * stale peek) and a retype take the child before the parent (NOT VERIFIED
+     * under ENGINE_HOLD, recovered by the transaction retry). The caller
+     * re-reads the child under its lock and compares, so a stale answer costs
+     * a late lock, never a wrong decision.
      */
     public function parentIdUnlocked(string $id): ?string
     {

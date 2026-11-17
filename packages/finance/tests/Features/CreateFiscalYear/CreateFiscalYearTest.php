@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Flexipos\Finance\Tests\Features\CreateFiscalYear;
 
+use ArrayObject;
 use Flexipos\Access\Tests\Support\AccessTenantFixture;
 use Flexipos\Finance\Exceptions\FinanceRefusal;
 use Flexipos\Finance\Features\CreateFiscalYear\CreateFiscalYear;
@@ -14,6 +15,8 @@ use Flexipos\Finance\Support\TenantConnection;
 use Flexipos\Finance\Tests\Support\FinanceRefusals;
 use Flexipos\Finance\Tests\Support\FinanceSeed;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
+use Illuminate\Database\UniqueConstraintViolationException;
+use PDOException;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -292,4 +295,69 @@ it('refuses an actor without the manage key before reading anything (AC-64)', fu
     FinanceRefusals::expect(FinanceRefusal::NotPermitted, fn () => createFiscalYearAs(null, ['name' => 'FY', 'start_date' => '2026-01-01']));
 
     expect(calendarCounts())->toBe(['years' => 0, 'periods' => 0, 'audit' => 0]);
+});
+
+it('locks the whole year chain ascending first and never the latest year on its own (D-33, R-1)', function () {
+    $actor = FinanceSeed::admin();
+    FinanceSeed::fiscalYear('2026-01-01', 'FY26');
+
+    $calls = new ArrayObject;
+    app()->instance(PeriodRows::class, new class(app(TenantConnection::class), $calls) extends PeriodRows
+    {
+        /** @param ArrayObject<int, string> $calls */
+        public function __construct(TenantConnection $tenant, private readonly ArrayObject $calls)
+        {
+            parent::__construct($tenant);
+        }
+
+        public function latestYearForUpdate(): ?object
+        {
+            $this->calls->append('latest');
+
+            return parent::latestYearForUpdate();
+        }
+
+        public function yearChainForUpdate(): array
+        {
+            $this->calls->append('chain');
+
+            return parent::yearChainForUpdate();
+        }
+
+        public function yearForUpdate(string $id): ?object
+        {
+            $this->calls->append('year');
+
+            return parent::yearForUpdate($id);
+        }
+    });
+
+    createFiscalYearAs($actor, ['name' => 'FY27', 'start_date' => '2027-01-01']);
+
+    // The chain first (the order a rename and a reopen take), the verification re-read, the audit re-read.
+    expect($calls->getArrayCopy())->toBe(['chain', 'chain', 'year']);
+});
+
+it('names a name collision the PHP comparison cannot see as name_in_use, not as a contiguity fault (R-2)', function () {
+    $actor = FinanceSeed::admin();
+    FinanceSeed::fiscalYear('2026-01-01', 'FY Ano');
+    $before = calendarCounts();
+
+    // The engine's collation folds the accent ('FY Año' equals 'FY Ano'); the PHP pre-check does not, so the
+    // unique(name) index is what fires. Stood in for by a year insert that raises the unique violation.
+    app()->instance(PeriodRows::class, new class(app(TenantConnection::class)) extends PeriodRows
+    {
+        public function insertYear(array $row): void
+        {
+            throw new UniqueConstraintViolationException('tenant', 'insert into fiscal_years', [], new PDOException('Duplicate entry for key name'));
+        }
+    });
+
+    $refused = FinanceRefusals::expect(
+        FinanceRefusal::NameInUse,
+        fn () => createFiscalYearAs($actor, ['name' => 'FY Año', 'start_date' => '2027-01-01']),
+    );
+
+    expect($refused->field)->toBe('name')
+        ->and(calendarCounts())->toBe($before);
 });

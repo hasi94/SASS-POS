@@ -27,11 +27,13 @@ use Flexipos\Kernel\Schema\Support\RunnerClock;
  *
  * **Lock order: the parent (shared), then the child (exclusive)**, the same
  * order as a deactivation of the parent (which locks the parent, then counts
- * its children), so the pair cannot cycle (D-33). The parent id is peeked
- * without a lock to know which row to lock first, and compared with the
- * child's own `parent_id` once that is locked; a re-parent in between (rare:
- * it locks the whole chart) costs a late lock on the new parent, not a wrong
- * decision.
+ * its children), designed so the common path does not cycle (D-33). The
+ * parent id is peeked without a lock to know which row to lock first, and
+ * compared with the child's own `parent_id` once that is locked; a re-parent
+ * in between (rare: it locks the whole chart) costs a late lock on the new
+ * parent, not a wrong decision. The late re-lock path, like a retype in
+ * UpdateAccountHandler, takes the child before the parent (NOT VERIFIED under
+ * ENGINE_HOLD, recovered by the transaction retry).
  */
 final class ReactivateAccountHandler
 {
