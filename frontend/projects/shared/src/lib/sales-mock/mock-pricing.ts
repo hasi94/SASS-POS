@@ -1,7 +1,7 @@
 import { TillProduct } from '../sales/contract/catalog';
 import { Sale, SaleLine } from '../sales/contract/sale';
 import { Money, Quantity } from '../sales/decimal-string';
-import { add, cmp, mul, sub, sum, ZERO } from './mock-decimal';
+import { add, cmp, format4, mul, sub, sum, ZERO } from './mock-decimal';
 import { MockSeed, SeedDiscount, SeedProduct, SeedProductUnit } from './mock-seed';
 
 /**
@@ -126,7 +126,7 @@ export function buildLine(parts: LineParts): SaleLine {
     sku: product.sku,
     unit_id: unit.unit_id,
     unit_code: unit.unit_code,
-    quantity: parts.quantity as Quantity,
+    quantity: format4(parts.quantity) as Quantity,
     unit_factor: unit.factor,
     base_quantity: priced.base_quantity as Quantity,
     base_unit_code: baseUnitCode(product),
@@ -140,7 +140,7 @@ export function buildLine(parts: LineParts): SaleLine {
     price_overridden: parts.overridden,
     refund_of_item_id: null,
     refunded_quantity: ZERO as Quantity,
-    refundable_quantity: parts.quantity as Quantity,
+    refundable_quantity: format4(parts.quantity) as Quantity,
   };
 }
 
