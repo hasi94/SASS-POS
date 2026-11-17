@@ -1,5 +1,7 @@
 # T-033: Journal entries and lines, posted through one service
 
+**Revision 3 (addendum).** Architect points F-22 to F-24 ruled as D-40 to D-42: AC-81 allowed-edit list widened to plan section 8, the stale-key remark about `docs/database.md` section 7 withdrawn, and migration 003304 added to the AC-60 exemption list.
+
 **Revision 3.** Resolves the architect's findings F-15 to F-21 (plan section 0.5) as D-32 to D-39. Changed criteria: AC-6 (reversal refused), AC-45 (combined CHECK), AC-55 (dimensions not re-checked), AC-68 (`entry_not_found` type), AC-73a (actor check order), AC-81 (widened); the ordering note in AC-69; Assumption 2 and 6 corrected. New criterion: AC-6a.
 
 **Revision 2.** Resolves the architect's findings F-1 to F-14 (plan section 0.2) under the lead's rulings; see D-24 to D-31 in the decision file. Changed criteria: AC-14, AC-15, AC-16, AC-33b, AC-34, AC-35, AC-41, AC-45, AC-51, AC-63, AC-64, AC-65, AC-67, AC-73, AC-75, AC-76, AC-82. New criteria (suffix ids, numbering of the rest unchanged): AC-15a, AC-16a, AC-73a. Merge preconditions are in Assumption 1.
@@ -27,7 +29,7 @@ Read from this worktree (T-032's spec, decisions, plan and published contracts a
 - `packages/contracts/src/Finance` publishes `PeriodGate`, `ChartOfAccounts` (with `postable`), `AccountUsage`, `FiscalYearUsage` and `PeriodCloseBlockers`; the last three have default implementations that answer "none" (their docblocks say FP-261 rebinds them).
 - `number_sequences` exists as a table (company-wide or per branch, row-increment allocation). No journal sequence row is seeded.
 - `fiscal_years.retained_earnings_entry_id` is a plain nullable column with no key (T-032 D-28); `fiscal_periods` has no inbound key from the journal.
-- `docs/database.md` section 7 names the key `finance.post_closed_period`; T-032 built `finance.periods.post_adjustment` for that purpose and it supersedes the older name (D-10).
+- `docs/database.md` section 7 already names the soft-closed adjustment key `finance.periods.post_adjustment`, which is the key T-032 built (D-10, D-41). The older name `finance.post_closed_period` appears only in earlier drafts.
 
 ## User stories
 
@@ -138,7 +140,7 @@ Checks run in the order of D-21; the first failing field in request order (lines
 ### J. The three T-032 ports, answered from the journal
 
 - AC-59: Given an account with at least one line, in an entry of any status, When `AccountUsage::hasPostings` is asked, Then it returns true; with no line it returns false; an unknown id returns false.
-- AC-60: Given a fiscal year date range, When `FiscalYearUsage::hasEntries` is asked, Then it returns true when any entry has `entry_date` in the range inclusive (any status), false otherwise, and the first and last day of the range each count.
+- AC-60: Given a fiscal year date range, When `FiscalYearUsage::hasEntries` is asked, Then it returns true when any entry has `entry_date` in the range inclusive (any status), false otherwise, and the first and last day of the range each count. Migration 003304 reads `fiscal_years` with a literal `table('fiscal_years')` and is listed on this criterion's source-scan exemption list, visibly (D-42).
 - AC-61: Given a period range, When `PeriodCloseBlockers::blockersFor` is asked, Then it returns one `PeriodBlocker('draft_journal_entries', n)` when `n > 0` entries in status `draft` are dated in the range inclusive, and an empty list when none (D-5, D-12). A posted or reversed entry is never a blocker.
 - AC-62: Given the service container, When the application boots, Then the three interfaces resolve to the journal implementations and no longer to the "none" defaults; the defaults remain available to tests that need them. A test posts one entry, and then proves with the real bindings that T-032's guards refuse: recoding an account that has a line (`code_locked`), deleting or retyping it (`has_postings`, `type_change_refused`), deleting the year containing the entry (`fiscal_year_in_use`). The T-032 fake-bound tests stay green.
 - AC-63: Given the three ports, When called, Then each reads only journal tables and returns primitives or `PeriodBlocker` values; the module boundary check stays clean. Read as (D-31): the accounts and periods code of Finance never names a journal table, and only the journal's own port implementations answer the three ports; a source scan enforces it.
@@ -171,7 +173,7 @@ The service enforces no permission (D-10). Four thin handlers do, each checking 
 - AC-78: Given the existing tenants, When the migrations run on each, Then the tables are created empty and one sequence row is added; nothing is backfilled and no existing row changes. Running the whole set twice is a no-op the second time.
 - AC-79: Given the two new tables, When their columns are listed, Then neither has a `tenant_id` or any tenant-naming column (the database is the boundary); a test with two tenant databases posts in one and proves the other's journal, sequence and ports are unaffected.
 - AC-80: Given the identifier columns (`id`, `entry_id`, `account_id`, `period_id`, the dimensions), When the schema and collation tests run, Then every ULID column is `CHAR(26)` through the shared identifier helper, no other collation is named, and the schema catalogue lists the two tables.
-- AC-81: Given `fiscal_years.retained_earnings_entry_id` now has a key, When T-032's existing tests run, Then they still pass; the only edits to existing T-032, host and sales tests are assertions that pinned what T-033 legitimately changes (the default "none" port bindings, the exact key count, the foreign-key count, the absent key on that column, absolute `number_sequences` row counts), each listed in plan section 8. No test is deleted, skipped or loosened beyond that list (D-33).
+- AC-81: Given `fiscal_years.retained_earnings_entry_id` now has a key, When T-032's existing tests run, Then they still pass; the only edits to existing T-032, host and sales tests are exactly those listed in plan section 8: the table list and count, the catalogue top pin, the decimal map, the per-task exclusion lists, the contract-run stops, the branches key list, scoped `number_sequences` reads in Sales tests, and the exact source-scan lists and allow-lists of `QaFinanceSourceRulesTest` (plus the default "none" port bindings, key and foreign-key counts, and the absent key on that column, where plan section 8 lists them). Each edit adds rows to an exact list and none loosens one. No test is deleted or skipped (D-33, D-40).
 - AC-82: Given the engine tests for this task (uniqueness under concurrency, CHECK enforcement, lock ordering, gate versus close, number allocation, reversal race), When the gate runs under ENGINE_HOLD, Then they are written, tagged `[ENGINE]`, skipped or excluded with a stated reason and reported NOT VERIFIED; none is reported passed without an engine run. CHECK enforcement (AC-45), the engine query plan (AC-64) and the unique-key and lock proofs belong to this set.
 
 ## Out of scope
@@ -216,6 +218,6 @@ Each has a built default (see the decision file); none blocks work.
 3. Numbers come from the shared `DocumentNumbers` allocator (T-030); no second allocator is built (D-25). Verified by the architect in plan section 0.
 4. The employees, branches, locations, departments, customers and suppliers tables may not all exist when this task is built; each foreign key is added only where its target exists (D-16).
 5. bcmath (or an equivalent exact decimal facility) is available in both runtime and CI; the XAMPP table lists it. No float arithmetic is used anywhere.
-6. The soft-closed adjustment permission is T-032's built key `finance.periods.post_adjustment` (D-39); the older name `finance.post_closed_period` in `docs/database.md` section 7 is stale (D-10). The architect or lead corrects that documentation line.
+6. The soft-closed adjustment permission is T-032's built key `finance.periods.post_adjustment` (D-39); `docs/database.md` section 7 already uses it, so no documentation follow-up exists (D-10, D-41).
 7. The unique key for idempotency is a stored key built so a null purpose collides (D-6); the exact column design is the architect's. Whatever sentinel is used must not be a legal purpose value (AC-8 forbids the empty string and a leading non-letter, so a one-character `-` or empty string cannot collide).
 8. No entry-date rule beyond the period gate exists: future-dated and backdated entries are accepted if the period is open (D-22).

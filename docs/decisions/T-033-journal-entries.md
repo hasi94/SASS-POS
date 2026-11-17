@@ -82,4 +82,10 @@ D-38 | F-21: where does `invalid_actor` sit in the order? | After the balance ch
 
 D-39 | Assumptions corrected. | (a) Slices live in `packages/finance/src/Features/<Slice>/`. (b) The built soft-closed permission key is `finance.periods.post_adjustment` (D-10 stands). No behaviour changes. | Match the built T-032 code. | Reversible: yes.
 
+D-40 | F-22: how wide is the allowed set of edits to existing tests (AC-81)? | Exactly the edits listed in plan section 8: table list and count, catalogue top pin, decimal map, per-task exclusion lists, contract-run stops, the branches key list, scoped `number_sequences` reads in Sales tests, and the exact source-scan lists and allow-lists of `QaFinanceSourceRulesTest`. Each edit adds rows to an exact list; none loosens one. Amends D-33. | Architect finding; the earlier parenthetical was narrower than what the build needs. | Reversible: yes.
+
+D-41 | F-23: is `docs/database.md` section 7 stale on the permission key? | No. Section 7 already says `finance.periods.post_adjustment`. The spec sentence saying it used the old name is corrected and the follow-up to fix that line is withdrawn. Amends D-39(b) and D-10 only in that remark. | Architect finding; verified against the document. | Reversible: yes.
+
+D-42 | F-24: how does migration 003304 read `fiscal_years` under the AC-60 scan? | It reads with a literal `table('fiscal_years')` and is added to the AC-60 exemption list, visibly, rather than passing table names through variables to get past the scan. | Honest and visible beats evading the rule; the exemption is reviewable. | Reversible: yes.
+
 D-21 amendment (by D-26) | Order of validations. | The new existence check for branch and dimension ids (`unknown_reference`) runs after the account checks and before number allocation. | Keeps refusals deterministic and consumes no number. | Reversible: yes.
