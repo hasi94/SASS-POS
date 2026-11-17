@@ -150,12 +150,12 @@ Two instruments back the "no float, no clock, no network" claim, each with contr
 can fail: a static scan of the engine's own files (`source-scan.spec.ts`, which logs the files it
 scanned) and a run of every fixture with `fetch`, `XMLHttpRequest` and `Date` replaced by throwing
 stubs (`determinism.spec.ts`). The engine is tree-shakeable and `pos`/`admin` do not import it yet;
-to confirm neither ships any of it after changing either side (one marker per engine
-module and the engine's `Pricing*` class names; every command must print nothing):
+to confirm neither ships any of it after changing either side (a marker from each module with
+top-level state and the engine's `Pricing*` class names; every command must print nothing):
 
 ```bash
 npx ng build admin && npx ng build pos
-grep -lE "inclusive_amount_too_small|not a canonical decimal|99999999999999\.9999|PricingRefused|PricingInputError|UnsupportedRuleError|division by zero" dist/admin/browser/*.js dist/pos/browser/*.js
+grep -lE "inclusive_amount_too_small|not a canonical decimal|99999999999999\.9999|PricingRefused|PricingInputError|UnsupportedRuleError|division by zero|members\[\]\.applies_to" dist/admin/browser/*.js dist/pos/browser/*.js
 ```
 
 ## Not built yet

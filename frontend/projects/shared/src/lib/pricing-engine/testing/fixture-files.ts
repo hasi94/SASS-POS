@@ -60,9 +60,15 @@ export function locateRepoRoot(start?: string): string {
   const fs = nodeFs();
   const from = start ?? nodeProcess()?.cwd?.();
 
-  if (typeof from !== 'string' || from === '') {
+  if (typeof from !== 'string') {
     throw new Error(
       'pricing fixtures: process.cwd() is unavailable; cannot locate the repository root',
+    );
+  }
+
+  if (from === '') {
+    throw new Error(
+      'pricing fixtures: the start directory is an empty string; cannot locate the repository root',
     );
   }
 

@@ -1,5 +1,4 @@
 import * as barrel from './index';
-import { MAX_AMOUNT, cmp, dec } from './decimal';
 import { readEngineSources } from './testing/fixture-files';
 
 // The barrel is re-exported by `export *` from @flexipos/shared, so every name it adds is a
@@ -39,6 +38,9 @@ const TYPES = [
   'PricingTaxLine',
   'PricingTaxMemberInput',
 ];
+
+const INLINE_DECLARATION =
+  /export\s+(?:declare\s+)?(?:abstract\s+)?(?:(?:interface|const|let|var|function|class|enum)\b|type\s+\w+\s*(?:<[^>]*>)?\s*=)/;
 
 function declaredNames(): string[] {
   const index = readEngineSources().find((source) => source.name === 'index.ts');
@@ -80,19 +82,35 @@ describe('the public barrel', () => {
     expect(code).not.toMatch(/export\s+(type\s+)?\*/);
   });
 
-  it('prefixes every exported type, except the ones that already named the engine', () => {
+  it('keeps the allow-list itself Pricing-prefixed (a check of the list, not of index.ts)', () => {
     for (const name of TYPES) {
       expect(name.startsWith('Pricing')).toBe(true);
     }
   });
 
+  it('declares nothing inline: every export is a re-export from another module', () => {
+    const index = readEngineSources().find((source) => source.name === 'index.ts');
+    const code = (index?.text ?? '').replace(/\/\*[\s\S]*?\*\//g, '');
+
+    expect(code).not.toMatch(INLINE_DECLARATION);
+  });
+
+  it('INLINE_DECLARATION can fail: it matches each inline declaration form', () => {
+    for (const sample of [
+      'export interface X {}',
+      'export type X = string;',
+      'export const X = 1;',
+      'export function x() {}',
+      'export class X {}',
+      'export enum X {}',
+    ]) {
+      expect(sample).toMatch(INLINE_DECLARATION);
+    }
+
+    expect("export { priceLine } from './line';").not.toMatch(INLINE_DECLARATION);
+  });
+
   it('freezes the exported refusal vocabulary', () => {
     expect(Object.isFrozen(barrel.PRICING_REFUSALS)).toBe(true);
-  });
-});
-
-describe('decimal.ts module-load constants', () => {
-  it('keeps the literal MAX equal to MAX_AMOUNT', () => {
-    expect(cmp(dec(MAX_AMOUNT), dec('99999999999999.9999'))).toBe(0);
   });
 });

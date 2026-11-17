@@ -1,6 +1,9 @@
 /*
- * The failures of the pricing engine: three thrown types and no fourth. None extends another, so a
- * `catch` aimed at one class cannot catch another.
+ * The failures of the pricing engine: three thrown types, plus a fourth kind that valid input
+ * cannot reach. None of the three extends another, so a `catch` aimed at one class cannot catch
+ * another. The fourth kind is the plain `Error` thrown by `dec()` and `divideHalfUp()` in
+ * decimal.ts (an unparseable string, a zero divisor); it is not a PricingRefused and is not
+ * meant to be caught.
  *
  * - PricingRefused: a named business refusal, the twin of PHP's PricingRefused. `.reason` is the
  *   machine value; tests and callers read `.reason`, never `.message`.
@@ -11,7 +14,7 @@
  */
 
 /** The closed refusal vocabulary, in the order of PHP's `PricingRefusal` enum. */
-export const PRICING_REFUSALS = Object.freeze([
+export const PRICING_REFUSALS = /* @__PURE__ */ Object.freeze([
   'unknown_product',
   'unknown_tax_group',
   'no_effective_rate',

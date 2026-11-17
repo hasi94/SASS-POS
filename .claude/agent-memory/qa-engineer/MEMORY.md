@@ -35,3 +35,4 @@
 - [T-029 pricing close-out](project_t029-pricing-closeout.md) — PASS; ACs with an unpinned clause (net, tax-id tie, inactive group), equivalent mutants, mutation-driver traps.
 - [T-030 Sales close-out](project_t030-sales-closeout.md) — FAIL on an approval bypass (one approval covers unlimited new lines); seeded-approval blind spot, one-field-per-row binding tests, mutation-driver rc 255 artefact.
 - [T-030 round 2](project_t030-round2-review-fix.md) — PASS; cap/remainder mutation survivors, python CRLF trap breaking Pint, two-tax and multi-line fixtures needed.
+- [T-035 TS engine close-out](project_t035-ts-engine-closeout.md) — PASS 0 defects; clone+junction mutation technique, Fraction oracle recipe, 4 equivalent-mutant classes, engine-level test gap for byte order.
