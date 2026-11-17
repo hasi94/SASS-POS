@@ -1,0 +1,38 @@
+{
+  "call": "approvals.request",
+  "case": "success",
+  "given": ["shift_open", "completed_sale_open_shift"],
+  "request": {
+    "method": "POST",
+    "path": "approvals",
+    "body": {
+      "type": "void",
+      "reference_type": "sale",
+      "reference_id": "01JMCKS0000000000000000001",
+      "payload": null
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "success": true,
+      "data": {
+        "id": "01JMCKA0000000000000000001",
+        "type": "void",
+        "reference_type": "sale",
+        "reference_id": "01JMCKS0000000000000000001",
+        "payload": null,
+        "status": "pending",
+        "requested_by_name": "Demo Owner",
+        "decided_by_name": null,
+        "decided_at": null,
+        "consumed_at": null
+      },
+      "message": "",
+      "errors": [],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

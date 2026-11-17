@@ -1,0 +1,33 @@
+{
+  "call": "approvals.decide",
+  "case": "refused.approval_not_pending",
+  "given": ["shift_open", "completed_sale_open_shift", "approved_void_approval"],
+  "request": {
+    "method": "POST",
+    "path": "approvals/01JMCKA0000000000000000001/decide",
+    "body": {
+      "decision": "approve",
+      "method": "pin_local",
+      "employee_code": "S100",
+      "pin": "2468"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "That approval has already been decided.",
+      "errors": [
+        {
+          "code": "sales.approval_not_pending",
+          "field": null,
+          "detail": "That approval has already been decided."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

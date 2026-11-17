@@ -1,0 +1,28 @@
+{
+  "call": "sales.complete",
+  "case": "refused.credit_refused",
+  "given": ["shift_open", "credit_short_sale"],
+  "request": {
+    "method": "POST",
+    "path": "sales/01JMCKS0000000000000000001/complete",
+    "body": {}
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "The customer's store credit is not enough.",
+      "errors": [
+        {
+          "code": "sales.credit_refused",
+          "field": "cause",
+          "detail": "insufficient_credit"
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

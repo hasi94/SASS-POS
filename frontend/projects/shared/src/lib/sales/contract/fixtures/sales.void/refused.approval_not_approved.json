@@ -1,0 +1,31 @@
+{
+  "call": "sales.void",
+  "case": "refused.approval_not_approved",
+  "given": ["shift_open", "completed_sale_open_shift", "pending_void_approval"],
+  "request": {
+    "method": "POST",
+    "path": "sales/01JMCKS0000000000000000001/void",
+    "body": {
+      "reason": "Customer changed their mind",
+      "approval_id": "01JMCKA0000000000000000001"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "That approval has not been approved.",
+      "errors": [
+        {
+          "code": "sales.approval_not_approved",
+          "field": null,
+          "detail": "That approval has not been approved."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

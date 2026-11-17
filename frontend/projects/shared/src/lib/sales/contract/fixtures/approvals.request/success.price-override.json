@@ -1,0 +1,46 @@
+{
+  "call": "approvals.request",
+  "case": "success.price-override",
+  "given": ["shift_open", "draft_sale_with_poster_line"],
+  "request": {
+    "method": "POST",
+    "path": "approvals",
+    "body": {
+      "type": "price_override",
+      "reference_type": "sale",
+      "reference_id": "01JMCKS0000000000000000001",
+      "payload": {
+        "product_id": "01JMCKP0000000000000000005",
+        "unit_id": "01JMCKN0000000000000000001",
+        "unit_price": "1200.0000"
+      }
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "success": true,
+      "data": {
+        "id": "01JMCKA0000000000000000001",
+        "type": "price_override",
+        "reference_type": "sale",
+        "reference_id": "01JMCKS0000000000000000001",
+        "payload": {
+          "product_id": "01JMCKP0000000000000000005",
+          "unit_id": "01JMCKN0000000000000000001",
+          "unit_price": "1200.0000"
+        },
+        "status": "pending",
+        "requested_by_name": "Demo Owner",
+        "decided_by_name": null,
+        "decided_at": null,
+        "consumed_at": null
+      },
+      "message": "",
+      "errors": [],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "call": "refunds.create",
+  "case": "refused.validation",
+  "given": ["shift_open", "completed_sale_open_shift", "approved_refund_approval"],
+  "request": {
+    "method": "POST",
+    "path": "refunds",
+    "body": {
+      "id": "01JMCKZ0000000000000000001",
+      "reference_sale_id": "01JMCKS0000000000000000001",
+      "approval_id": "01JMCKA0000000000000000001",
+      "lines": [],
+      "tenders": [
+        {
+          "id": "01JMCKY0000000000000000001",
+          "payment_method_id": "01JMCKM0000000000000000001",
+          "amount": "500.0000"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "The given data was invalid.",
+      "errors": [
+        {
+          "code": "kernel.validation_failed",
+          "field": "lines",
+          "detail": "At least one line is required."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

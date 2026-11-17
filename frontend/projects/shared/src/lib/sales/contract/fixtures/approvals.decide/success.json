@@ -1,0 +1,38 @@
+{
+  "call": "approvals.decide",
+  "case": "success",
+  "given": ["shift_open", "completed_sale_open_shift", "pending_void_approval"],
+  "request": {
+    "method": "POST",
+    "path": "approvals/01JMCKA0000000000000000001/decide",
+    "body": {
+      "decision": "approve",
+      "method": "pin_local",
+      "employee_code": "S100",
+      "pin": "2468"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "id": "01JMCKA0000000000000000001",
+        "type": "void",
+        "reference_type": "sale",
+        "reference_id": "01JMCKS0000000000000000001",
+        "payload": null,
+        "status": "approved",
+        "requested_by_name": "Demo Owner",
+        "decided_by_name": "Supervisor Silva",
+        "decided_at": "2026-01-15T09:00:07.000Z",
+        "consumed_at": null
+      },
+      "message": "",
+      "errors": [],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

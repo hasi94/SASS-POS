@@ -1,0 +1,36 @@
+{
+  "call": "refunds.quote",
+  "case": "refused.fully_refunded",
+  "given": ["shift_open", "refunded_sale"],
+  "request": {
+    "method": "POST",
+    "path": "refunds/quote",
+    "body": {
+      "reference_sale_id": "01JMCKS0000000000000000001",
+      "lines": [
+        {
+          "refund_of_item_id": "01JMCKQ0000000000000000001",
+          "quantity": "1.0000"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "Every line of that sale is already refunded.",
+      "errors": [
+        {
+          "code": "sales.fully_refunded",
+          "field": null,
+          "detail": "Every line of that sale is already refunded."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "call": "sales.complete",
+  "case": "refused.not_found",
+  "given": ["shift_open"],
+  "request": {
+    "method": "POST",
+    "path": "sales/01JMCKS0000000000000000009/complete",
+    "body": {}
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "Sale not found.",
+      "errors": [
+        {
+          "code": "kernel.not_found",
+          "field": null,
+          "detail": "Sale not found."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

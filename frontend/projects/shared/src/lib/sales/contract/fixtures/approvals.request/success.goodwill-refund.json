@@ -1,0 +1,38 @@
+{
+  "call": "approvals.request",
+  "case": "success.goodwill-refund",
+  "given": ["shift_open"],
+  "request": {
+    "method": "POST",
+    "path": "approvals",
+    "body": {
+      "type": "refund",
+      "reference_type": "goodwill_refund",
+      "reference_id": null,
+      "payload": null
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "success": true,
+      "data": {
+        "id": "01JMCKA0000000000000000001",
+        "type": "refund",
+        "reference_type": "goodwill_refund",
+        "reference_id": null,
+        "payload": null,
+        "status": "pending",
+        "requested_by_name": "Demo Owner",
+        "decided_by_name": null,
+        "decided_at": null,
+        "consumed_at": null
+      },
+      "message": "",
+      "errors": [],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

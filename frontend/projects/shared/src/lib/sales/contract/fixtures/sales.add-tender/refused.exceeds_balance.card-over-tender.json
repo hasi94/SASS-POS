@@ -1,0 +1,33 @@
+{
+  "call": "sales.add-tender",
+  "case": "refused.exceeds_balance.card-over-tender",
+  "given": ["shift_open", "draft_sale_with_five_rice"],
+  "request": {
+    "method": "POST",
+    "path": "sales/01JMCKS0000000000000000001/tenders",
+    "body": {
+      "id": "01JMCKY0000000000000000001",
+      "payment_method_id": "01JMCKM0000000000000000002",
+      "tendered": "2000.0000",
+      "reference": "AUTH-1002"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "That is more than the balance and this method gives no change.",
+      "errors": [
+        {
+          "code": "sales.exceeds_balance",
+          "field": null,
+          "detail": "That is more than the balance and this method gives no change."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

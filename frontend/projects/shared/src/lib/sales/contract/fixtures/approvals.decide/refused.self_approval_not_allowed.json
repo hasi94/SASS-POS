@@ -1,0 +1,33 @@
+{
+  "call": "approvals.decide",
+  "case": "refused.self_approval_not_allowed",
+  "given": ["shift_open", "completed_sale_open_shift", "pending_void_approval"],
+  "request": {
+    "method": "POST",
+    "path": "approvals/01JMCKA0000000000000000001/decide",
+    "body": {
+      "decision": "approve",
+      "method": "pin_local",
+      "employee_code": "D001",
+      "pin": "1111"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "Nobody may approve their own work.",
+      "errors": [
+        {
+          "code": "sales.self_approval_not_allowed",
+          "field": null,
+          "detail": "Nobody may approve their own work."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

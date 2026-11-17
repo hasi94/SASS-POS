@@ -1,0 +1,28 @@
+{
+  "call": "sales.recall",
+  "case": "refused.no_open_shift",
+  "given": ["shift_open", "held_from_draft", "close_open_shift"],
+  "request": {
+    "method": "POST",
+    "path": "sales/01JMCKS0000000000000000001/recall",
+    "body": {}
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "This terminal has no open shift.",
+      "errors": [
+        {
+          "code": "sales.no_open_shift",
+          "field": null,
+          "detail": "This terminal has no open shift."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}

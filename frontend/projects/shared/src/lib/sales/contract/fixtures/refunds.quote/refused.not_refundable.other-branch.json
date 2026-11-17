@@ -1,0 +1,36 @@
+{
+  "call": "refunds.quote",
+  "case": "refused.not_refundable.other-branch",
+  "given": ["shift_open", "completed_sale_other_branch"],
+  "request": {
+    "method": "POST",
+    "path": "refunds/quote",
+    "body": {
+      "reference_sale_id": "01JMCKS0000000000000000001",
+      "lines": [
+        {
+          "refund_of_item_id": "01JMCKQ0000000000000000001",
+          "quantity": "1.0000"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "data": null,
+      "message": "That sale belongs to another branch.",
+      "errors": [
+        {
+          "code": "sales.not_refundable",
+          "field": null,
+          "detail": "That sale belongs to another branch."
+        }
+      ],
+      "meta": {
+        "request_id": "flexipos-sales-mock-000001"
+      }
+    }
+  }
+}
