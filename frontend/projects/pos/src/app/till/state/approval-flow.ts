@@ -115,6 +115,11 @@ export class ApprovalFlow {
     request: RequestApprovalRequest,
     summary: ApprovalSummary,
   ): Promise<ApprovalOutcome> {
+    if (!this.connectivity.online()) {
+      // Nothing is written while the server cannot be reached (AC-74): not even the request.
+      this.notifier.fail(new ApiError(0, 'Cannot reach the server.'));
+      return { kind: 'cancelled' };
+    }
     let approvalId: string;
     try {
       const approval = await firstValueFrom(

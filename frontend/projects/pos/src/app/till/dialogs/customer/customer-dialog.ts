@@ -56,7 +56,7 @@ export const CUSTOMER_NOT_FOUND = 'Customer not found';
                 type="button"
                 class="row"
                 data-testid="customer-result"
-                [disabled]="attaching()"
+                [disabled]="attaching() || !online()"
                 (click)="choose(customer)"
               >
                 <strong>{{ customer.name }}</strong>
@@ -132,6 +132,7 @@ export class CustomerDialog {
   protected readonly sale = inject(SaleStore);
   private readonly api = inject(SalesApi);
   private readonly connectivity = inject(Connectivity);
+  protected readonly online = this.connectivity.online;
   private readonly notifier = inject(Notifier);
 
   /** What the opener passed to `DialogHost.open`. */
@@ -189,11 +190,12 @@ export class CustomerDialog {
       return;
     }
     this.attaching.set(true);
+    const mine = this.dialogs.currentId();
     try {
       const outcome = await this.sale.attachCustomer(customer.id);
       if (outcome.ok) {
         this.notifier.success(`Customer ${customer.name} on the sale`);
-        this.dialogs.close(customer);
+        this.dialogs.closeIf(mine, customer);
       } else if (outcome.code === 'not_found') {
         this.results.set([]);
         this.problem.set(CUSTOMER_NOT_FOUND);

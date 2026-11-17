@@ -369,6 +369,7 @@ export class PaymentDialog {
       return;
     }
     this.problem.set('');
+    const mine = this.dialogs.currentId();
     const outcome = await this.payments.addTender({
       method,
       tendered,
@@ -380,27 +381,29 @@ export class PaymentDialog {
       this.reference.set('');
       this.focusAmount();
     } else {
-      this.showFailure(outcome);
+      this.showFailure(outcome, mine);
     }
   }
 
   protected async remove(tenderId: string): Promise<void> {
     this.problem.set('');
+    const mine = this.dialogs.currentId();
     const outcome = await this.payments.removeTender(tenderId);
     if (outcome.kind === 'done') {
       this.typedAmount.set(null);
     } else {
-      this.showFailure(outcome);
+      this.showFailure(outcome, mine);
     }
   }
 
   protected async complete(): Promise<void> {
     this.problem.set('');
+    const mine = this.dialogs.currentId();
     const outcome = await this.payments.complete();
     if (outcome.kind === 'done') {
-      this.dialogs.close();
+      this.dialogs.closeIf(mine);
     } else {
-      this.showFailure(outcome);
+      this.showFailure(outcome, mine);
     }
   }
 
@@ -409,13 +412,13 @@ export class PaymentDialog {
     await this.dialogs.open('customer');
   }
 
-  private showFailure(outcome: PaymentOutcome): void {
+  private showFailure(outcome: PaymentOutcome, mine: number | undefined): void {
     if (outcome.kind !== 'failed') {
       return;
     }
     if (!this.shift.shiftOpen()) {
       // The shift is gone: the shift prompt takes over (AC-15), the cart stays as it was.
-      this.dialogs.close();
+      this.dialogs.closeIf(mine);
       return;
     }
     this.problem.set(this.textOf(describeError(outcome.error)));

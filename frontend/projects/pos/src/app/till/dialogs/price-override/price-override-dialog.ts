@@ -15,6 +15,7 @@ import {
   isStaleApproval,
   withApproval,
 } from '../../state/approval-flow';
+import { Connectivity } from '../../state/connectivity';
 import { checkDecimalInput } from '../../state/decimal-input';
 import { DialogHost } from '../../state/dialog-host';
 import { Notifier } from '../../state/notifier';
@@ -57,7 +58,12 @@ import { isLineDialogData } from '../line-edit/line-edit-dialog';
             <p class="fp-error" role="alert" data-testid="override-error">{{ message }}</p>
           }
           <div class="actions">
-            <button type="submit" class="fp-primary" data-testid="override-ask" [disabled]="busy()">
+            <button
+              type="submit"
+              class="fp-primary"
+              data-testid="override-ask"
+              [disabled]="busy() || !online()"
+            >
               Ask a supervisor
             </button>
             <button type="button" (click)="dialogs.close()">Cancel</button>
@@ -108,6 +114,7 @@ import { isLineDialogData } from '../line-edit/line-edit-dialog';
 })
 export class PriceOverrideDialog {
   protected readonly dialogs = inject(DialogHost);
+  protected readonly online = inject(Connectivity).online;
   private readonly store = inject(SaleStore);
   private readonly approvals = inject(ApprovalFlow);
   private readonly notifier = inject(Notifier);
@@ -140,6 +147,7 @@ export class PriceOverrideDialog {
     }
     const unitPrice = asMoney(text);
     this.busy.set(true);
+    const mine = this.dialogs.currentId();
     try {
       const result = await withApproval(
         this.approvals,
@@ -170,9 +178,9 @@ export class PriceOverrideDialog {
       );
       if (result.kind === 'rejected') {
         this.notifier.info('Approval rejected');
-        this.dialogs.close();
+        this.dialogs.closeIf(mine);
       } else if (result.kind === 'done' && result.value.ok) {
-        this.dialogs.close();
+        this.dialogs.closeIf(mine);
       }
     } finally {
       this.busy.set(false);

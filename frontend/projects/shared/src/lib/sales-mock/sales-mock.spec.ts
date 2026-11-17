@@ -19,7 +19,7 @@ import {
 import { ApprovalBinding, checkApproval } from './handlers/approvals';
 import { SALES_MOCK_LATENCY_MS, SALES_MOCK_STATE, MockState, branchState } from './mock-state';
 import { seedId } from './mock-seed';
-import { applyGiven } from './scenarios';
+import { SCENARIO_REFUND_ID, SCENARIO_REFUND_TENDER_ID, applyGiven } from './scenarios';
 import { salesMockInterceptor } from './sales-mock.interceptor';
 
 /**
@@ -125,6 +125,13 @@ const cashTender = (id: string, tendered: string) => ({
   id,
   payment_method_id: M(1),
   tendered,
+});
+
+describe('sales mock: scenario ids written as literals', () => {
+  it('match what seedId makes, since scenarios.ts holds no top-level call', () => {
+    expect(SCENARIO_REFUND_ID).toBe(seedId('Z', 1));
+    expect(SCENARIO_REFUND_TENDER_ID).toBe(seedId('Y', 1));
+  });
 });
 
 describe('sales mock: the sale state machine', () => {

@@ -34,19 +34,19 @@ export interface ScenarioContext {
 export type Scenario = (ctx: ScenarioContext) => void;
 
 /** The demo products by their seeded ids, so a step reads as what it means. */
-const RICE = seedId('P', 1);
-const POSTER = seedId('P', 5);
-const SOAP = seedId('P', 6);
-const EACH = seedId('N', 1);
-const SACHET = seedId('P', 4);
-const CASH_METHOD = seedId('M', 1);
-const CREDIT_METHOD = seedId('M', 3);
-const CUSTOMER_WITH_CREDIT = seedId('K', 1);
-const CUSTOMER_WITHOUT_CREDIT = seedId('K', 2);
-const USED_UP_DISCOUNT = seedId('D', 4);
+const RICE = '01JMCKP0000000000000000001';
+const POSTER = '01JMCKP0000000000000000005';
+const SOAP = '01JMCKP0000000000000000006';
+const EACH = '01JMCKN0000000000000000001';
+const SACHET = '01JMCKP0000000000000000004';
+const CASH_METHOD = '01JMCKM0000000000000000001';
+const CREDIT_METHOD = '01JMCKM0000000000000000003';
+const CUSTOMER_WITH_CREDIT = '01JMCKK0000000000000000001';
+const CUSTOMER_WITHOUT_CREDIT = '01JMCKK0000000000000000002';
+const USED_UP_DISCOUNT = '01JMCKD0000000000000000004';
 /** The ids the refund steps use, so a fixture can replay the very request a step made. */
-export const SCENARIO_REFUND_ID = seedId('Z', 1);
-export const SCENARIO_REFUND_TENDER_ID = seedId('Y', 1);
+export const SCENARIO_REFUND_ID = '01JMCKZ0000000000000000001';
+export const SCENARIO_REFUND_TENDER_ID = '01JMCKY0000000000000000001';
 const OTHER_TERMINAL = 'TRM-OTHER';
 
 function requireOpenShift(ctx: ScenarioContext): void {

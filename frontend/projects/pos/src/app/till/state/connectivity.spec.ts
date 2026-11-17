@@ -1,7 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { ApiError } from '@flexipos/shared';
+import { ApiError, SalesApi } from '@flexipos/shared';
 import { of, throwError } from 'rxjs';
 import { Connectivity, REPROBE_MS } from './connectivity';
 
@@ -88,6 +88,16 @@ describe('Connectivity (AC-74)', () => {
       );
     await vi.advanceTimersByTimeAsync(0);
     expect(conn.online()).toBe(true);
+  });
+
+  it('does not count an error that is not an answer from the server as the server being back', async () => {
+    conn.reportFailure(unreachable());
+    vi.spyOn(TestBed.inject(SalesApi), 'currentShift').mockReturnValue(
+      throwError(() => new TypeError('boom')),
+    );
+    vi.advanceTimersByTime(REPROBE_MS);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(conn.online()).toBe(false);
   });
 
   it('retries at once on request', async () => {

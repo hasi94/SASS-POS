@@ -2,7 +2,9 @@ import { TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
 import { ApiError, Sale, SalesApi } from '@flexipos/shared';
 import { NETWORK_MESSAGE } from './errors/refusal-catalogue';
+import { ApprovalFlow } from './state/approval-flow';
 import { Connectivity, REPROBE_MS } from './state/connectivity';
+import { DialogHost } from './state/dialog-host';
 import { SaleStore } from './state/sale-store';
 import { clickButton, storedText, topDialog } from './testing/approval-helpers';
 import { byId, scan, serverSales, settleFully, storeOf } from './testing/sale-screen-helpers';
@@ -38,6 +40,13 @@ function writeSpies() {
     addTender: vi.spyOn(api, 'addTender'),
     completeSale: vi.spyOn(api, 'completeSale'),
     voidSale: vi.spyOn(api, 'voidSale'),
+    removeTender: vi.spyOn(api, 'removeTender'),
+    requestApproval: vi.spyOn(api, 'requestApproval'),
+    decideApproval: vi.spyOn(api, 'decideApproval'),
+    createRefund: vi.spyOn(api, 'createRefund'),
+    openShift: vi.spyOn(api, 'openShift'),
+    recordMovement: vi.spyOn(api, 'recordMovement'),
+    closeShift: vi.spyOn(api, 'closeShift'),
   };
 }
 
@@ -86,6 +95,45 @@ describe('The till without a network (AC-74)', () => {
     await settleFully(h);
     expectNoWrites(spies);
     expect(serverSales(h, HARNESS_TENANT_ID, 'BR001')[0]?.lines).toHaveLength(1);
+  });
+
+  it('asks no supervisor for an approval while offline, and says why (W-3)', async () => {
+    const h = await setupTill({ given: ['shift_open', 'draft_sale_with_line'] });
+    await loadSale(h);
+    const spies = writeSpies();
+    await goOffline(h);
+    const flow = h.fixture.debugElement.injector.get(ApprovalFlow);
+    const outcome = await flow.requestAndDecide(
+      { type: 'discount', reference_type: 'sale', reference_id: 'x', payload: null },
+      { title: 'Discount' },
+    );
+    expect(outcome).toEqual({ kind: 'cancelled' });
+    expect(h.query('[role="dialog"]')).toBeNull();
+    expect(spies.requestApproval).not.toHaveBeenCalled();
+    expect(spies.decideApproval).not.toHaveBeenCalled();
+  });
+
+  it('turns the line dialogs submit buttons off while offline (W-3)', async () => {
+    const h = await setupTill({ given: ['shift_open', 'draft_sale_with_line'] });
+    const sale = await loadSale(h);
+    const dialogs = storeOf(h, DialogHost);
+    for (const kind of ['price-override', 'line-edit', 'discount-picker'] as const) {
+      void dialogs.open(kind, { lineId: sale.lines[0]!.id });
+      await settleFully(h);
+      await goOffline(h);
+      const buttons = Array.from(
+        topDialog(h)?.querySelectorAll<HTMLButtonElement>('button[data-testid]') ?? [],
+      ).filter((b) => /^(override-ask|edit-save|discount-)/.test(b.dataset['testid'] ?? ''));
+      expect(buttons.length, kind).toBeGreaterThan(0);
+      expect(
+        buttons.every((b) => b.disabled),
+        kind,
+      ).toBe(true);
+      dialogs.closeAll();
+      h.state.faults.unreachable = false;
+      await storeOf(h, Connectivity).retryNow();
+      await settleFully(h);
+    }
   });
 
   it('disables the payment buttons, and the void and refund submits', async () => {

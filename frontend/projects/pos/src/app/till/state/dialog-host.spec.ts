@@ -104,6 +104,19 @@ describe('DialogHost (AC-21, AC-82)', () => {
     await expect(b).resolves.toBeUndefined();
   });
 
+  it('closeIf closes only the dialog it was given, never whatever is on top by then (W-2)', async () => {
+    const below = host.open('help', undefined, opener);
+    const mine = host.currentId();
+    const above = host.open('supervisor', undefined, opener);
+    host.closeIf(mine, 'late');
+    expect(host.dialogs()).toHaveLength(2);
+    host.close('top');
+    await expect(above).resolves.toBe('top');
+    host.closeIf(mine, 'now');
+    await expect(below).resolves.toBe('now');
+    expect(host.isOpen()).toBe(false);
+  });
+
   it('does nothing when closing with nothing open', () => {
     expect(() => host.close('x')).not.toThrow();
   });

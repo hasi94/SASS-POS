@@ -82,6 +82,22 @@ export class DialogHost {
     this.returnFocus(top);
   }
 
+  /**
+   * Closes the dialog with this id, and only that one: a dialog that closes itself after an
+   * `await` must not close whatever is on top by then (a cancelled supervisor dialog, a later
+   * opening). Take the id with {@link currentId} before the first `await`.
+   */
+  closeIf(id: number | undefined, result?: unknown): void {
+    if (this.current()?.id === id) {
+      this.close(result);
+    }
+  }
+
+  /** The id of the dialog on top now, to hand to {@link closeIf} once an `await` has passed. */
+  currentId(): number | undefined {
+    return this.current()?.id;
+  }
+
   /** Closes every dialog (sign out, switch branch), each with `undefined`. */
   closeAll(): void {
     while (this.isOpen()) {

@@ -341,6 +341,42 @@ describe('the payment dialog (AC-41 to AC-46)', () => {
       expect(h.text('tender-amount')).toBe('100.00 LKR');
     });
 
+    it('reads the sale back first even when the cashier changed the amount after a lost answer (W-1)', async () => {
+      const h = await setupTill({ given: ['shift_open', 'draft_sale_with_line'] });
+      await openPayment(h);
+      h.state.faults.dropAnswerOf.push('sales.add-tender');
+      await payCash(h, '100');
+      expect(serverSale(h).tenders).toHaveLength(1);
+      await storeOf(h, Connectivity).retryNow();
+      await settleFully(h);
+      const add = vi.spyOn(api(), 'addTender');
+      const read = vi.spyOn(api(), 'getSale');
+      typeAmount(h, '50');
+      await submitPayment(h);
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(add).not.toHaveBeenCalled();
+      expect(serverSale(h).tenders).toHaveLength(1);
+      expect(h.text('pay-balance')).toBe('150.00 LKR');
+    });
+
+    it('sends the changed amount once the read-back shows the earlier tender was not recorded (W-1)', async () => {
+      const h = await setupTill({ given: ['shift_open', 'draft_sale_with_line'] });
+      await openPayment(h);
+      h.state.faults.unreachable = true;
+      await payCash(h, '100');
+      h.state.faults.unreachable = false;
+      await storeOf(h, Connectivity).retryNow();
+      await settleFully(h);
+      const add = vi.spyOn(api(), 'addTender');
+      const read = vi.spyOn(api(), 'getSale');
+      typeAmount(h, '50');
+      await submitPayment(h);
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(add).toHaveBeenCalledTimes(1);
+      expect(serverSale(h).tenders).toHaveLength(1);
+      expect(h.text('pay-balance')).toBe('200.00 LKR');
+    });
+
     it('re-sends the same id and payload when the tender never arrived', async () => {
       const h = await setupTill({ given: ['shift_open', 'draft_sale_with_line'] });
       await openPayment(h);

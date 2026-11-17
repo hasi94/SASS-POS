@@ -69,6 +69,7 @@ const SEAM_RULES: Rule[] = [
   { id: 'mock-decimal', pattern: /mock-decimal/ },
   { id: 'mock-pricing', pattern: /mock-pricing/ },
   { id: 'salesMock', pattern: /\bsalesMock/ },
+  { id: 'mock seed and state', pattern: /\bSALES_MOCK_|\bapplyGiven\b|\bcreateMockState\b/ },
 ];
 
 const INTERCEPTOR_IMPORT: Rule = {

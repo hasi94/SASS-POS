@@ -415,21 +415,24 @@ export class ShiftMenuDialog {
   }
 
   protected async openSale(summary: SaleSummary): Promise<void> {
+    const mine = this.dialogs.currentId();
     if (await this.bringToCart(summary)) {
-      this.dialogs.close();
+      this.dialogs.closeIf(mine);
     }
   }
 
   protected async completeSale(summary: SaleSummary): Promise<void> {
+    const mine = this.dialogs.currentId();
     if (await this.bringToCart(summary)) {
-      this.dialogs.close();
+      this.dialogs.closeIf(mine);
       void this.dialogs.open('payment', undefined, null);
     }
   }
 
   protected async voidSale(summary: SaleSummary): Promise<void> {
+    const mine = this.dialogs.currentId();
     if (await this.bringToCart(summary)) {
-      this.dialogs.close();
+      this.dialogs.closeIf(mine);
       void this.dialogs.open('void', undefined, null);
     }
   }

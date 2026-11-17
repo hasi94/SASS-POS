@@ -84,7 +84,7 @@ describe('Accessible names (AC-83)', () => {
     expect(unnamed(h.host)).toEqual([]);
   });
 
-  it('names every control on the shift prompt and the product grid error', async () => {
+  it('names every control on the shift prompt', async () => {
     const h = await setupTill();
     expect(h.query('[data-testid="shift-open-prompt"]')).not.toBeNull();
     expect(unnamed(h.host)).toEqual([]);

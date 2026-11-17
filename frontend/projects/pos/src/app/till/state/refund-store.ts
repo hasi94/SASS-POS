@@ -107,6 +107,11 @@ function answerLost(err: unknown): boolean {
   return err instanceof ApiError && err.status === 0;
 }
 
+/** What is still refundable on a sale, as one comparable string; changes when a refund lands. */
+function refundableOf(sale: Sale | null): string {
+  return JSON.stringify((sale?.lines ?? []).map((l) => [l.id, l.refundable_quantity]));
+}
+
 /** The ids a submission of one exact refund sends, kept so a retry of it cannot refund twice. */
 interface Attempt {
   key: string;
@@ -139,7 +144,14 @@ export class RefundStore {
   private readonly notifier = inject(Notifier);
 
   private attempt: Attempt | null = null;
-  private heldApproval: string | null = null;
+  /** The approval a lost answer may have used, tied to the exact attempt it was granted for. */
+  private held: { key: string; approvalId: string } | null = null;
+  /**
+   * Set whenever the answer to a refund is unknown (AC-49, D-11): the original is read back before
+   * anything of another shape is sent. `key` is the shape that was lost, `before` what the original
+   * showed as refundable when it was sent.
+   */
+  private pendingCheck: { key: string; before: string } | null = null;
   private nextKey = 1;
 
   readonly mode = signal<RefundMode>('referenced');
@@ -252,11 +264,15 @@ export class RefundStore {
   /** Loads the original sale from the server and lists its lines (AC-59). */
   async loadSale(saleId: string): Promise<void> {
     this.problem.set('');
+    this.held = null;
     try {
       const sale = await firstValueFrom(this.connectivity.track(this.api.getSale(saleId)));
       if (sale.type !== 'sale' || !REFUNDABLE_LOOKUP.some((s) => s === sale.status)) {
         this.problem.set(SALE_NOT_FOUND);
         return;
+      }
+      if (this.sale()?.id !== sale.id) {
+        this.pendingCheck = null;
       }
       this.sale.set(sale);
       this.entries.set({});
@@ -465,6 +481,39 @@ export class RefundStore {
     }
   }
 
+  /**
+   * After a lost answer, before a refund of another shape goes out: reads the original again.
+   * True when nothing of the earlier refund shows on it and the new one may be sent; false when
+   * it cannot be told (goodwill has no original), the server cannot be reached, or the earlier
+   * refund is on the sale, in which case the form is cleared so the cashier prices it afresh.
+   */
+  private async readBack(pending: { key: string; before: string }): Promise<boolean> {
+    if (this.sale() === null) {
+      this.problem.set(
+        'The answer to the last refund never came. Send it again unchanged, or close and check the sales list',
+      );
+      return false;
+    }
+    try {
+      await this.reloadOriginal();
+    } catch (err) {
+      this.problem.set(describeRefundError(err).text);
+      return false;
+    }
+    if (refundableOf(this.sale()) === pending.before) {
+      this.pendingCheck = null;
+      return true;
+    }
+    this.pendingCheck = null;
+    this.attempt = null;
+    this.entries.set({});
+    this.invalidate();
+    this.problem.set(
+      'The earlier refund was recorded. Choose the lines and price the refund again',
+    );
+    return false;
+  }
+
   private async reloadOriginal(): Promise<void> {
     const id = this.sale()?.id;
     if (id) {
@@ -486,29 +535,51 @@ export class RefundStore {
     if (prepared === null || attempt === null) {
       return;
     }
-    const act = (approvalId: string): Promise<RefundResult> => {
-      this.heldApproval = approvalId;
-      return this.send({
-        id: attempt.refundId,
-        reference_sale_id: prepared.saleId,
-        approval_id: approvalId,
-        lines: prepared.lines,
-        tenders: prepared.tenders,
-      });
+    const act = async (approvalId: string): Promise<RefundResult> => {
+      this.held = { key: attempt.key, approvalId };
+      const before = refundableOf(this.sale());
+      try {
+        return await this.send({
+          id: attempt.refundId,
+          reference_sale_id: prepared.saleId,
+          approval_id: approvalId,
+          lines: prepared.lines,
+          tenders: prepared.tenders,
+        });
+      } catch (err) {
+        if (answerLost(err)) {
+          this.pendingCheck = { key: attempt.key, before };
+        } else {
+          // A definite answer: the approval is spent or refused for good, never reused.
+          this.held = null;
+          if (this.pendingCheck?.key === attempt.key) {
+            this.pendingCheck = null;
+          }
+        }
+        throw err;
+      }
     };
     this.busy.set(true);
     try {
+      if (this.pendingCheck !== null && this.pendingCheck.key !== attempt.key) {
+        if (!(await this.readBack(this.pendingCheck))) {
+          return;
+        }
+      }
       let result: RefundResult | null = null;
-      if (this.heldApproval !== null) {
-        // The answer to an earlier try never came: the approval it used may be unspent.
+      const held = this.held;
+      if (held !== null && held.key === attempt.key) {
+        // The answer to this very refund never came: the approval it used may be unspent.
         try {
-          result = await act(this.heldApproval);
+          result = await act(held.approvalId);
         } catch (err) {
           if (!isStaleApproval(err)) {
             throw err;
           }
-          this.heldApproval = null;
+          this.held = null;
         }
+      } else {
+        this.held = null;
       }
       if (result === null) {
         const outcome = await withApproval(
@@ -526,7 +597,8 @@ export class RefundStore {
         }
         result = outcome.value;
       }
-      this.heldApproval = null;
+      this.held = null;
+      this.pendingCheck = null;
       this.attempt = null;
       this.result.set(result);
     } catch (err) {
@@ -538,13 +610,15 @@ export class RefundStore {
 
   /** A change to what is being refunded makes the quote and the checks stale. */
   private invalidate(): void {
+    this.held = null;
     this.quote.set(null);
     this.problem.set('');
   }
 
   private reset(): void {
     this.attempt = null;
-    this.heldApproval = null;
+    this.held = null;
+    this.pendingCheck = null;
     this.mode.set('referenced');
     this.sale.set(null);
     this.entries.set({});

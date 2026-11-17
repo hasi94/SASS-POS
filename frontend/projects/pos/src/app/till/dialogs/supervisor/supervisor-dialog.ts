@@ -133,6 +133,8 @@ export class SupervisorDialog {
   private readonly codeField = viewChild<ElementRef<HTMLInputElement>>('code');
   private readonly pinField = viewChild<ElementRef<HTMLInputElement>>('pin');
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  /** True once the dialog is gone (cancelled or closed): a late answer must not touch the screen. */
+  private gone = false;
 
   /** What the opener passed to `DialogHost.open`: the approval and what it is for. */
   readonly data = input<unknown>();
@@ -142,6 +144,7 @@ export class SupervisorDialog {
   constructor() {
     this.armIdle();
     inject(DestroyRef).onDestroy(() => {
+      this.gone = true;
       this.stopIdle();
       this.clearPin();
     });
@@ -183,6 +186,7 @@ export class SupervisorDialog {
     this.busy.set(true);
     this.message.set('');
     this.stopIdle();
+    const mine = this.dialogs.currentId();
     try {
       await firstValueFrom(
         this.connectivity.track(
@@ -195,16 +199,18 @@ export class SupervisorDialog {
         ),
       );
       const result: SupervisorDialogResult = decision === 'approve' ? 'approved' : 'rejected';
-      this.dialogs.close(result);
+      this.dialogs.closeIf(mine, result);
     } catch (err) {
-      this.onRefused(err);
+      this.onRefused(err, mine);
     } finally {
       this.busy.set(false);
-      this.armIdle();
+      if (!this.gone) {
+        this.armIdle();
+      }
     }
   }
 
-  private onRefused(err: unknown): void {
+  private onRefused(err: unknown, mine: number | undefined): void {
     const described = describeError(err);
     switch (described.code) {
       case 'self_approval_not_allowed':
@@ -220,7 +226,7 @@ export class SupervisorDialog {
       case 'approval_mismatch':
         // This approval can no longer be decided; the action will ask for a new one.
         this.notifier.fail(err);
-        this.dialogs.close();
+        this.dialogs.closeIf(mine);
         return;
       default:
         this.message.set(described.text);

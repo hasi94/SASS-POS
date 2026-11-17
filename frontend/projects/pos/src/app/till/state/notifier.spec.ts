@@ -96,6 +96,32 @@ describe('Notifier (AC-27, AC-84)', () => {
     expect(seen).toEqual(['One', 'Two', 'Three']);
   });
 
+  it('shows refusals in the order they came, before a note that arrived between them (W-4)', () => {
+    notifier.notify(refusal('R1'));
+    notifier.success('N1');
+    notifier.notify(refusal('R2'));
+    notifier.notify(refusal('R3'));
+    const seen: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      seen.push(notifier.current()?.text ?? '');
+      vi.advanceTimersByTime(MIN_SHOWN_MS);
+    }
+    expect(seen).toEqual(['R1', 'R2', 'R3', 'N1']);
+  });
+
+  it('does not let a late refusal jump an older refusal that is still waiting (W-4)', () => {
+    notifier.success('N0');
+    notifier.notify(refusal('R1'));
+    notifier.notify(refusal('R2'));
+    notifier.success('N1');
+    notifier.notify(refusal('R3'));
+    expect(notifier.current()?.text).toBe('R1');
+    vi.advanceTimersByTime(MIN_SHOWN_MS);
+    expect(notifier.current()?.text).toBe('R2');
+    vi.advanceTimersByTime(MIN_SHOWN_MS);
+    expect(notifier.current()?.text).toBe('R3');
+  });
+
   it('keeps only the latest plain message waiting, so a run of scans builds no backlog', () => {
     notifier.notify(refusal('Busy'));
     for (let i = 1; i <= 50; i++) {

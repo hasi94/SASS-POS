@@ -82,7 +82,12 @@ export function isLineDialogData(data: unknown): data is LineDialogData {
             <p class="fp-error" role="alert" data-testid="edit-error">{{ message }}</p>
           }
           <div class="actions">
-            <button type="submit" class="fp-primary" data-testid="edit-save" [disabled]="busy()">
+            <button
+              type="submit"
+              class="fp-primary"
+              data-testid="edit-save"
+              [disabled]="busy() || !online()"
+            >
               Save
             </button>
             <button type="button" (click)="dialogs.close()">Cancel</button>
@@ -138,6 +143,7 @@ export class LineEditDialog {
   private readonly store = inject(SaleStore);
   private readonly api = inject(SalesApi);
   private readonly connectivity = inject(Connectivity);
+  protected readonly online = this.connectivity.online;
   private readonly quantity = viewChild<ElementRef<HTMLInputElement>>('quantity');
   private readonly unit = viewChild<ElementRef<HTMLSelectElement>>('unit');
   /** What the opener passed to `DialogHost.open`. */
@@ -206,10 +212,11 @@ export class LineEditDialog {
       request.unit_id = unitBox.nativeElement.value;
     }
     this.busy.set(true);
+    const mine = this.dialogs.currentId();
     try {
       const outcome = await this.store.updateLine(line.id, request);
       if (outcome.ok) {
-        this.dialogs.close();
+        this.dialogs.closeIf(mine);
       }
     } finally {
       this.busy.set(false);

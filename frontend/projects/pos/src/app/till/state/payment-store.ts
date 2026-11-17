@@ -64,8 +64,14 @@ export class PaymentStore {
   private readonly working = signal(false);
   private readonly changeGiven = signal<string | null>(null);
   private readonly finished = signal<Sale | null>(null);
-  /** The submission whose answer is not known yet, or the one being sent. */
-  private attempt: { key: string; id: string; uncertain: boolean } | null = null;
+  /** The submission being sent, or the last one whose answer is not known. */
+  private attempt: { key: string; id: string } | null = null;
+  /**
+   * Set whenever any tender's answer is unknown (AC-49, D-11), whatever the cashier types next:
+   * while set, the sale is read back before anything is sent, and a tender already on it is shown
+   * instead of sending another.
+   */
+  private pendingCheck: { saleId: string; tenderId: string } | null = null;
 
   /** The methods the till offers, as the server lists them (AC-41). */
   readonly methods = computed(() => this.methodList().filter((m) => !NOT_OFFERED.includes(m.type)));
@@ -115,23 +121,29 @@ export class PaymentStore {
     try {
       const key = JSON.stringify([sale.id, input.method.id, input.tendered, input.reference]);
       if (this.attempt?.key !== key) {
-        this.attempt = { key, id: ulid(), uncertain: false };
+        this.attempt = { key, id: ulid() };
       }
       const attempt = this.attempt;
       this.changeGiven.set(null);
-      if (attempt.uncertain) {
-        // The answer to the last try never came: look before sending again (AC-49, D-11).
+      const pending = this.pendingCheck;
+      if (pending !== null && pending.saleId === sale.id) {
+        // The answer to an earlier try never came: look before sending anything (AC-49, D-11).
         const fresh = await this.read(sale.id);
         if (fresh.kind !== 'done') {
           return fresh;
         }
         this.cart.load(fresh.sale);
-        const recorded = fresh.sale.tenders.find((t) => t.id === attempt.id);
+        const recorded = fresh.sale.tenders.find((t) => t.id === pending.tenderId);
+        this.pendingCheck = null;
         if (recorded) {
-          this.attempt = null;
+          if (this.attempt?.id === recorded.id) {
+            this.attempt = null;
+          }
           this.changeGiven.set(changeOf(recorded));
           return fresh;
         }
+      } else if (pending !== null) {
+        this.pendingCheck = null;
       }
       try {
         const response = await firstValueFrom(
@@ -145,13 +157,14 @@ export class PaymentStore {
           ),
         );
         this.attempt = null;
+        this.pendingCheck = null;
         this.cart.load(response.sale);
         this.changeGiven.set(changeOf(response.tender));
         return { kind: 'done', sale: response.sale };
       } catch (err) {
         // Only an answer in our own words settles it: anything else may have been recorded.
         if (!(err instanceof ApiError) || refusalOf(err) === null) {
-          attempt.uncertain = true;
+          this.pendingCheck = { saleId: sale.id, tenderId: attempt.id };
         } else {
           this.attempt = null;
         }
@@ -223,6 +236,7 @@ export class PaymentStore {
 
   private finish(sale: Sale): PaymentOutcome {
     this.attempt = null;
+    this.pendingCheck = null;
     this.changeGiven.set(null);
     this.cart.clear();
     this.finished.set(sale);

@@ -16,7 +16,7 @@ import { topHeading } from './testing/void-helpers';
 /**
  * Every binding of the key map (T-037 AC-80), driven the way a keyboard drives it: a
  * `KeyboardEvent` on whatever has the focus, no pointer. Each case records the action it covered,
- * and the last case fails when the key map has an action no case drove.
+ * and the suite fails (after the last case, in any order) when the key map has an action no case drove.
  */
 const covered = new Set<TillAction>();
 
@@ -221,8 +221,9 @@ describe('The keyboard map, end to end (AC-80)', () => {
     });
   });
 
-  it('has driven every action of the key map', () => {
+  // Not a test of its own: it runs after every case of this file whatever order they ran in.
+  afterAll(() => {
     const missing = KEYMAP.map((e) => e.action).filter((a) => !covered.has(a));
-    expect(missing).toEqual([]);
+    expect(missing, 'actions of the key map no case drove').toEqual([]);
   });
 });

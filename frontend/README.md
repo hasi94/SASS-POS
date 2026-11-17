@@ -248,6 +248,10 @@ Everything is fictional; the employee codes and PINs are made up for the mock.
   an over-tender on a method that gives no change, and the refund dialog words it as owed back.
   Each is pinned by its own spec (`refusal-catalogue.spec.ts`, `payment-dialog.spec.ts`,
   `refund-store.spec.ts`).
+- **A draft the till made but never used** can be left on the server: a sale is created on the
+  first scan or tile, so closing the till straight after (or a lost answer to `createSale`)
+  leaves an empty draft that shows in the shift's open sales. Follow-up: have the sale store
+  discard or reuse such an orphan draft.
 - **No sales in the mock seed** (see above): every sale a spec or a demo needs is made at the
   till or by a named `given` step.
 - **While offline** the banner shows and the write controls are disabled; a void, refund,

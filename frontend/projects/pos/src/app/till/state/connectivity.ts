@@ -74,10 +74,11 @@ export class Connectivity {
       await firstValueFrom(this.api.currentShift());
       this.reportSuccess();
     } catch (err) {
-      if (err instanceof ApiError && err.status === 0) {
-        this.goOffline();
-      } else {
+      // Only an answer from the server (an ApiError with a status) proves it is reachable.
+      if (err instanceof ApiError && err.status > 0) {
         this.reportSuccess();
+      } else {
+        this.goOffline();
       }
     }
   }

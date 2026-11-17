@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
-import { RefundRequest, RefundResult, SalesApi, branchState } from '@flexipos/shared';
-import { Observable } from 'rxjs';
+import { ApiError, RefundRequest, RefundResult, SalesApi, branchState } from '@flexipos/shared';
+import { Observable, throwError } from 'rxjs';
 import { RefundStore } from '../../state/refund-store';
 import { SUPERVISOR, clickButton, typeCredentials } from '../../testing/approval-helpers';
 import { HARNESS_TENANT_ID, TillHarness, setupTill } from '../../testing/till-harness';
@@ -333,14 +333,15 @@ describe('the refund dialog', () => {
       expect(refunds(h)).toHaveLength(0);
       expect(mockSales(h)[0]?.data.status).toBe('completed');
 
-      // The approval was not spent: correcting the amount does not ask a supervisor again.
+      // A refusal is a definite answer: the approval is not kept, so the corrected refund asks again (R-1).
       set(inRefund<HTMLInputElement>(h, 'refund-amount'), '250.0000');
       await go(h);
-      expect(h.query('pos-supervisor-dialog')).toBeNull();
+      await approve(h);
       expect(refundText(h, 'refund-number')).toBe(refunds(h)[0]?.data.number ?? 'missing');
       expect(calls).toHaveLength(2);
       expect(calls[1]?.id).not.toBe(calls[0]?.id);
-      expect(h.state.branches.values().next().value?.approvals).toHaveLength(1);
+      expect(calls[1]?.approval_id).not.toBe(calls[0]?.approval_id);
+      expect(h.state.branches.values().next().value?.approvals).toHaveLength(2);
     });
 
     it('leaves everything alone when the supervisor rejects or the cashier cancels', async () => {
@@ -442,6 +443,58 @@ describe('the refund dialog', () => {
       expect(refundText(h, 'refund-number')).not.toBe('');
     });
 
+    it('reads the original back before a refund of another shape goes out after a lost answer (W-1)', async () => {
+      const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
+      const api = TestBed.inject(SalesApi);
+      const { calls } = spyCreate();
+      await openRefund(h);
+      await findFirstSale(h);
+      await selectLine(h, 0, '1');
+      await go(h);
+      h.state.faults.dropAnswerOf.push('refunds.create');
+      vi.spyOn(api, 'getSale').mockImplementationOnce(() =>
+        throwError(() => new ApiError(0, 'Cannot reach the server.')),
+      );
+      await go(h);
+      await approve(h);
+      expect(calls).toHaveLength(1);
+      expect(refunds(h)).toHaveLength(1);
+
+      h.query<HTMLButtonElement>('[data-testid="network-banner"] button')?.click();
+      await settleAll(h);
+      set(inRefund<HTMLInputElement>(h, 'refund-amount'), '100.0000');
+      await go(h);
+      expect(h.query('pos-supervisor-dialog')).toBeNull();
+      expect(calls).toHaveLength(1);
+      expect(refunds(h)).toHaveLength(1);
+      expect(refundText(h, 'refund-problem')).toContain('earlier refund was recorded');
+    });
+
+    it('does not reuse an approval after a lost answer once the shape changes (R-1)', async () => {
+      const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
+      const api = TestBed.inject(SalesApi);
+      const real = api.createRefund.bind(api);
+      const calls: RefundRequest[] = [];
+      vi.spyOn(api, 'createRefund').mockImplementation((body) => {
+        calls.push(JSON.parse(JSON.stringify(body)) as RefundRequest);
+        h.state.faults.unreachable = true;
+        return real(body);
+      });
+      await openRefund(h);
+      await findFirstSale(h);
+      await selectLine(h, 0, '1');
+      await go(h);
+      await go(h);
+      await approve(h);
+      expect(calls).toHaveLength(1);
+      h.state.faults.unreachable = false;
+      h.query<HTMLButtonElement>('[data-testid="network-banner"] button')?.click();
+      await settleAll(h);
+      set(inRefund<HTMLInputElement>(h, 'refund-amount'), '100.0000');
+      await go(h);
+      expect(topHeading(h)).toBe('Supervisor approval');
+    });
+
     it('makes new ids when the cashier changes what is refunded', async () => {
       const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
       const { calls } = spyCreate();
@@ -454,6 +507,7 @@ describe('the refund dialog', () => {
       await approve(h);
       set(inRefund<HTMLInputElement>(h, 'refund-amount'), '250.0000');
       await go(h);
+      await approve(h);
       expect(calls).toHaveLength(2);
       expect(calls[1]?.tenders[0]?.id).not.toBe(calls[0]?.tenders[0]?.id);
     });

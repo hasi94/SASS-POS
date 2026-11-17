@@ -16,3 +16,5 @@ import { ServerBarcodeResolver } from '@flexipos/shared';
 import { mulRound } from '../sales-mock/mock-decimal';
 import { mul } from './mock-pricing';
 import { salesMockInterceptor } from '@flexipos/shared';
+const state = createMockState(SALES_MOCK_STATE);
+applyGiven(state, []);

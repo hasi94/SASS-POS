@@ -1,7 +1,7 @@
 import { DestroyRef, Injectable, inject, signal } from '@angular/core';
 import { TillMessage, describeError } from '../errors/refusal-catalogue';
 
-/** A message is never taken off the screen before it has been shown this long (AC-84). */
+/** A refusal is never taken off the screen before it has been shown this long (AC-84). */
 export const MIN_SHOWN_MS = 4000;
 /** A refusal nobody has dismissed or replaced goes after this long. */
 export const REFUSAL_LINGER_MS = 10000;
@@ -11,8 +11,11 @@ const MAX_WAITING = 10;
 /**
  * What the cashier is told, and for how long (T-037 AC-27, AC-84). One message is shown at a
  * time. A refusal stays at least {@link MIN_SHOWN_MS} even when a newer message arrives (the newer
- * one waits its turn), and `Esc` (via {@link dismiss}) removes it at any time. Plain information
- * ("Added Rice") is superseded rather than queued, so a run of scans cannot build a backlog.
+ * one waits its turn), and `Esc` (via {@link dismiss}) removes it at any time. Refusals wait in
+ * the order they came and are always shown before any waiting note. A plain note ("Added Rice")
+ * is superseded rather than queued, so a run of scans cannot build a backlog, and a refusal
+ * arriving while a note is on screen replaces it at once: a plain note can be dropped before
+ * {@link MIN_SHOWN_MS} (the minimum protects a refusal only).
  *
  * Each message is also written to a live region: refusals to the assertive one, the rest to the
  * polite one, so a screen reader announces it.
@@ -42,7 +45,8 @@ export class Notifier {
     }
     if (message.kind === 'refusal' && this.shown()?.kind !== 'refusal') {
       // A plain note ("Added Rice") never holds a refusal back: the refusal replaces it now and
-      // the notes behind it are dropped (AC-84 only protects a refusal on screen).
+      // the notes behind it are dropped (AC-84 only protects a refusal on screen). No refusal can
+      // be waiting here: a refusal waiting is always shown before any note.
       this.stopTimer();
       this.waiting = this.waiting.filter((m) => m.kind === 'refusal');
       this.show(message);
@@ -103,7 +107,9 @@ export class Notifier {
 
   private advance(): void {
     this.timer = null;
-    const next = this.waiting.shift();
+    // The oldest refusal waiting goes first, then the notes: a refusal is never reordered.
+    const at = this.waiting.findIndex((m) => m.kind === 'refusal');
+    const [next] = this.waiting.splice(at === -1 ? 0 : at, 1);
     if (next) {
       this.show(next);
     } else {

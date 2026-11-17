@@ -98,7 +98,7 @@ import { ConfirmDialogData } from '../confirm/confirm-dialog';
           type="button"
           class="primary"
           data-testid="recall-go"
-          [disabled]="busy() || rows().length === 0"
+          [disabled]="busy() || !online() || rows().length === 0"
           (click)="recallSelected()"
         >
           Recall
@@ -169,6 +169,7 @@ export class RecallDialog {
   private readonly shift = inject(ShiftStore);
   private readonly api = inject(SalesApi);
   private readonly connectivity = inject(Connectivity);
+  protected readonly online = this.connectivity.online;
   private readonly injector = inject(Injector);
   private readonly list = viewChild<ElementRef<HTMLElement>>('list');
 
@@ -260,18 +261,19 @@ export class RecallDialog {
     }
     this.busy.set(true);
     this.problem.set('');
+    const mine = this.dialogs.currentId();
     try {
       if (!(await this.clearCart())) {
         return;
       }
       const outcome = await this.cart.recall(row.id);
       if (outcome.ok) {
-        this.dialogs.close();
+        this.dialogs.closeIf(mine);
         return;
       }
       if (!this.shift.shiftOpen()) {
         // The shift is gone: the shift prompt takes over (AC-15).
-        this.dialogs.close();
+        this.dialogs.closeIf(mine);
         return;
       }
       if (outcome.error !== undefined) {

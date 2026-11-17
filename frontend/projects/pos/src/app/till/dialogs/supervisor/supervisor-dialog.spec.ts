@@ -16,7 +16,9 @@ import {
   supervisorMessage,
   typeCredentials,
 } from '../../testing/approval-helpers';
+import { gateCall } from '../../testing/payment-helpers';
 import { HARNESS_TENANT_ID, TillHarness, setupTill } from '../../testing/till-harness';
+import { dialogsOf } from '../../testing/void-helpers';
 import { SUPERVISOR_IDLE_MS } from './supervisor-dialog';
 
 const SALE_ID = '01JMCKS0000000000000000001';
@@ -164,6 +166,29 @@ describe('the supervisor dialog and the approval flow (AC-65 to AC-71)', () => {
     await h.settle();
     expect(await second).toEqual({ kind: 'cancelled' });
     expect(approvals(h)[1]?.data).toMatchObject({ status: 'pending', consumed_at: null });
+  });
+
+  it('does not close the dialog underneath when the answer comes after the cashier cancelled (W-2)', async () => {
+    const h = await setupTill({ given: GIVEN });
+    void dialogsOf(h).open('help');
+    await h.settle();
+    const sales = TestBed.inject(SalesApi);
+    const gate = gateCall(sales.decideApproval.bind(sales));
+    vi.spyOn(sales, 'decideApproval').mockImplementation(gate.wrapped);
+    const { outcome } = await ask(h);
+    typeCredentials(h, SUPERVISOR.code, SUPERVISOR.pin);
+    clickButton(h, 'Approve');
+    await h.settle();
+    expect(gate.calls()).toBe(1);
+    clickButton(h, 'Cancel');
+    await h.settle();
+    expect(await outcome).toEqual({ kind: 'cancelled' });
+    expect(h.query('pos-help-dialog')).not.toBeNull();
+    gate.release();
+    await h.settle();
+    await h.settle();
+    expect(h.query('pos-help-dialog')).not.toBeNull();
+    expect(dialogsOf(h).dialogs()).toHaveLength(1);
   });
 
   it('asks for the code and PIN before calling anything', async () => {

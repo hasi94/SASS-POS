@@ -60,7 +60,7 @@ import { isLineDialogData } from '../line-edit/line-edit-dialog';
                   class="choice"
                   [attr.data-autofocus]="first ? '' : null"
                   [attr.data-testid]="'discount-' + discount.code"
-                  [disabled]="busy()"
+                  [disabled]="busy() || !online()"
                   (click)="choose(discount)"
                 >
                   <span class="name">{{ discount.name }}</span>
@@ -77,7 +77,7 @@ import { isLineDialogData } from '../line-edit/line-edit-dialog';
               <button
                 type="button"
                 data-testid="discount-remove"
-                [disabled]="busy()"
+                [disabled]="busy() || !online()"
                 (click)="remove()"
               >
                 Remove the discount
@@ -139,6 +139,7 @@ export class DiscountPickerDialog {
   private readonly store = inject(SaleStore);
   private readonly api = inject(SalesApi);
   private readonly connectivity = inject(Connectivity);
+  protected readonly online = this.connectivity.online;
   private readonly approvals = inject(ApprovalFlow);
   private readonly notifier = inject(Notifier);
   /** What the opener passed to `DialogHost.open`. */
@@ -202,10 +203,11 @@ export class DiscountPickerDialog {
       return;
     }
     this.busy.set(true);
+    const mine = this.dialogs.currentId();
     try {
       let outcome: LineOutcome | null;
       if (needsApproval && discountId !== null) {
-        outcome = await this.approved(line, discountId, name);
+        outcome = await this.approved(line, discountId, name, mine);
       } else {
         outcome = await this.store.updateLine(
           line.id,
@@ -214,11 +216,11 @@ export class DiscountPickerDialog {
         );
         if (!outcome.ok && outcome.code === 'approval_required' && discountId !== null) {
           // The list did not say this discount needed approval, but the server does: ask once.
-          outcome = await this.approved(line, discountId, name);
+          outcome = await this.approved(line, discountId, name, mine);
         }
       }
       if (outcome?.ok) {
-        this.dialogs.close();
+        this.dialogs.closeIf(mine);
       }
     } finally {
       this.busy.set(false);
@@ -233,6 +235,7 @@ export class DiscountPickerDialog {
     line: SaleLine,
     discountId: string,
     name: string,
+    mine: number | undefined,
   ): Promise<LineOutcome | null> {
     const sale = this.store.current();
     if (!sale) {
@@ -264,7 +267,7 @@ export class DiscountPickerDialog {
     );
     if (result.kind === 'rejected') {
       this.notifier.info('Approval rejected');
-      this.dialogs.close();
+      this.dialogs.closeIf(mine);
     }
     return result.kind === 'done' ? result.value : null;
   }
