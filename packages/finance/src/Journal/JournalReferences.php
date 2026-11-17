@@ -19,9 +19,12 @@ use Flexipos\Finance\Support\TenantConnection;
  * `unknown_reference` with its field path. `department_id` and `supplier_id`
  * have no table yet and are not checked (D-16, F-13).
  *
- * **Plain reads, by design.** The foreign key guarantees the row exists, a
- * concurrent soft delete leaves a valid historical reference, and a shared lock
- * on hot catalog and customer rows would add contention to every sale.
+ * **Plain reads here, by design**: this check takes no lock of its own, and a
+ * concurrent soft delete leaves a valid historical reference. It does not
+ * avoid shared locks overall: the foreign-key check on the later
+ * `journal_lines` insert takes shared record locks on the referenced branch,
+ * location, employee, customer and product rows, after the sequence lock.
+ * [ENGINE] NOT VERIFIED (ENGINE_HOLD).
  *
  * Only `post` calls this. `reverse` copies what the original stored and never
  * does (AC-55, D-35).

@@ -172,7 +172,19 @@ it('AC-22: reads stored values back as four-decimal strings', function (mixed $s
     'a float with places' => [0.3, '0.3000'],
     'a float that is a whole number' => [10.0, '10.0000'],
     'the largest value as a string' => ['99999999999999.9999', '99999999999999.9999'],
+    'a 15-significant-digit float (R-1)' => [12345678901.2345, '12345678901.2345'],
 ]);
+
+it('R-1: reads a 15-significant-digit float without the precision ini dropping digits', function () {
+    $previous = ini_set('precision', '14');
+
+    try {
+        expect(Amounts::fromStored(12345678901.2345))->toBe('12345678901.2345')
+            ->and(Amounts::fromStored(99999999999.9999))->toBe('99999999999.9999');
+    } finally {
+        ini_set('precision', (string) $previous);
+    }
+});
 
 it('refuses to read a stored value that is not a number or needs adjusting', function () {
     expect(fn () => Amounts::fromStored(null))->toThrow(UnexpectedValueException::class)

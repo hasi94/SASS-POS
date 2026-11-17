@@ -100,6 +100,24 @@ it('returns the entry whole with its lines by line_no and every amount as a four
         ]);
 });
 
+it('R-1: reads a 15-significant-digit amount back exactly through the view', function () {
+    $world = jrnWorld();
+    $viewer = FinanceSeed::actor('viewer', FinancePermissions::JOURNAL_VIEW);
+
+    $posted = jrnPost(jrnBody($world, [
+        'lines' => [
+            ['account_id' => $world['cash'], 'debit' => '12345678901.2345'],
+            ['account_id' => $world['sales'], 'credit' => '12345678901.2345'],
+        ],
+    ]), $world['actor']);
+
+    $result = getEntryAs($viewer, $posted->id);
+
+    expect($result->entry['total_debit'])->toBe('12345678901.2345')
+        ->and($result->lines[0]['debit'])->toBe('12345678901.2345')
+        ->and($result->lines[1]['credit'])->toBe('12345678901.2345');
+});
+
 it('reads an entry by its source key, a null purpose through the key column, and tells purposes apart (AC-68)', function () {
     $world = jrnWorld();
     $viewer = FinanceSeed::actor('viewer', FinancePermissions::JOURNAL_VIEW);

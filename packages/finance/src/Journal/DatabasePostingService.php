@@ -54,7 +54,8 @@ use RuntimeException;
  *
  * **Lock order (Ruling 9)**: period shared, accounts shared ascending, [the
  * original `FOR UPDATE`], the `journal_entry` sequence row `FOR UPDATE`, then
- * the inserts. Callers must call this **after every other lock they take,
+ * the inserts. L4 also takes FK shared locks on dimension parents (innodb),
+ * NOT VERIFIED (ENGINE_HOLD). Callers must call this **after every other lock they take,
  * including their own document number**, and several calls in one transaction
  * must be in ascending `entry_date` order (the gate's rule). Every `[ENGINE]`
  * claim about these locks is NOT VERIFIED under ENGINE_HOLD.
@@ -123,13 +124,20 @@ final class DatabasePostingService implements PostingService
         try {
             return $connection->transaction(fn (): PostedEntry => $this->write($posting, $actor, $clearance, $fingerprint));
         } catch (UniqueConstraintViolationException $violation) {
+            // A savepoint rollback does not release the sequence row X lock, so a
+            // race loser holds it until the caller commits or rolls back.
             if ($posting->sourceId === null) {
+                // Deliberate rethrow: with no source id there is no idempotency key
+                // to lose a race on, so a duplicate number is an invariant failure
+                // (Ruling 7 step 7).
                 throw $violation;
             }
 
             $winner = $this->rows->byKeyForUpdate($posting->sourceType->value, $posting->sourceId, $purposeKey);
 
             if ($winner === null) {
+                // Deliberate rethrow, same reason: no winner row means the
+                // violation was not the idempotency key (Ruling 7 step 7).
                 throw $violation;
             }
 

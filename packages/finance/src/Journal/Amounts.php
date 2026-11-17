@@ -129,8 +129,11 @@ final class Amounts
      * A stored amount read back as four decimals (AC-22).
      *
      * A driver may hand a DECIMAL back as a string, an integer, or (the SQLite
-     * stand-in) a float; a float goes through its shortest string form, which
-     * is exact for every value a four-place column can hold.
+     * stand-in) a float. A float is formatted with `%.4F`, which does not depend
+     * on the `precision` ini (a plain string cast keeps only 14 digits). A double
+     * holds about 15 significant digits, so the stand-in is exact only up to
+     * that; it cannot hold the column maximum 99999999999999.9999 (17 digits).
+     * MySQL returns DECIMAL as a string and is exact at every width.
      *
      * @throws UnexpectedValueException when the value is not a number
      * @throws RoundingNecessaryException when the value has more than four places
@@ -141,7 +144,7 @@ final class Amounts
             throw new UnexpectedValueException('A stored amount must be a string, an integer or a float.');
         }
 
-        return self::format(BigDecimal::of((string) $value));
+        return self::format(BigDecimal::of(is_float($value) ? sprintf('%.4F', $value) : (string) $value));
     }
 
     /**
