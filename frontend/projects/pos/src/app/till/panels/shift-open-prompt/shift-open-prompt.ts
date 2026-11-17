@@ -7,6 +7,7 @@ import {
   signal,
   viewChild,
 } from '@angular/core';
+import { Connectivity } from '../../state/connectivity';
 import { DialogHost } from '../../state/dialog-host';
 import { checkDecimalInput } from '../../state/decimal-input';
 import { ShiftStore } from '../../state/shift-store';
@@ -46,7 +47,7 @@ import { ShiftStore } from '../../state/shift-store';
           type="submit"
           class="fp-primary"
           data-testid="opening-cash-submit"
-          [disabled]="shift.busy()"
+          [disabled]="shift.busy() || !online()"
         >
           Open shift
         </button>
@@ -89,6 +90,7 @@ import { ShiftStore } from '../../state/shift-store';
 })
 export class ShiftOpenPrompt {
   protected readonly shift = inject(ShiftStore);
+  protected readonly online = inject(Connectivity).online;
   private readonly dialogs = inject(DialogHost);
   private readonly cash = viewChild.required<ElementRef<HTMLInputElement>>('cash');
   protected readonly error = signal<string | null>(null);

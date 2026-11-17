@@ -133,7 +133,9 @@ const MOVEMENT_KINDS: readonly MovementKind[] = CASH_MOVEMENT_TYPES.map((type) =
               <p class="fp-error" role="alert" data-testid="shift-form-error">{{ message }}</p>
             }
             <div class="actions">
-              <button type="submit" class="fp-primary" [disabled]="shift.busy()">Record</button>
+              <button type="submit" class="fp-primary" [disabled]="shift.busy() || !online()">
+                Record
+              </button>
               <button type="button" (click)="go('menu')">Back</button>
             </div>
           </form>
@@ -158,7 +160,7 @@ const MOVEMENT_KINDS: readonly MovementKind[] = CASH_MOVEMENT_TYPES.map((type) =
               <p class="fp-error" role="alert" data-testid="shift-form-error">{{ message }}</p>
             }
             <div class="actions">
-              <button type="submit" class="fp-primary" [disabled]="shift.busy()">
+              <button type="submit" class="fp-primary" [disabled]="shift.busy() || !online()">
                 Close the shift
               </button>
               <button type="button" (click)="go('menu')">Back</button>
@@ -315,6 +317,7 @@ export class ShiftMenuDialog {
   private readonly sale = inject(SaleStore);
   private readonly api = inject(SalesApi);
   private readonly connectivity = inject(Connectivity);
+  protected readonly online = this.connectivity.online;
   private readonly notifier = inject(Notifier);
   private readonly injector = inject(Injector);
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);

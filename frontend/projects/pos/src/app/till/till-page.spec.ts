@@ -1,6 +1,7 @@
 import { Sale, branchState, contextGuard } from '@flexipos/shared';
 import { routes } from '../app.routes';
 import { KEYMAP } from './keyboard/keymap';
+import { DialogHost } from './state/dialog-host';
 import { SaleStore } from './state/sale-store';
 import { ShiftStore } from './state/shift-store';
 import { HARNESS_TENANT_ID, TillHarness, setupTill } from './testing/till-harness';
@@ -160,6 +161,36 @@ describe('TillPage (T-037 scaffold)', () => {
       h.query<HTMLInputElement>('[data-till-scan-field]')?.focus();
       h.press('/');
       expect(document.activeElement).toBe(search);
+    });
+
+    it('targets the till search field, never the picker inside a dialog (Z1)', async () => {
+      const h = await setupTill({ given: ['shift_open'] });
+      // A decoy field in a dialog frame, ahead of the page's own in document order.
+      const frame = document.createElement('div');
+      frame.setAttribute('role', 'dialog');
+      const decoy = document.createElement('input');
+      decoy.setAttribute('data-till-search-field', '');
+      frame.append(decoy);
+      h.host.prepend(frame);
+      const search = h.query('pos-product-search [data-till-search-field]');
+      expect(search).not.toBeNull();
+      h.press('k', { ctrl: true });
+      expect(document.activeElement).toBe(search);
+      expect(document.activeElement).not.toBe(decoy);
+    });
+
+    it('leaves the focus inside the refund dialog when Ctrl+K is pressed over its picker', async () => {
+      const h = await setupTill({ given: ['shift_open'] });
+      void storeOf(h, DialogHost).open('refund', { mode: 'goodwill' });
+      await h.settle();
+      const dialog = h.query('[role="dialog"]');
+      const picker = dialog?.querySelector<HTMLElement>('[data-till-search-field]');
+      expect(picker).not.toBeNull();
+      picker?.focus();
+      h.press('k', { ctrl: true });
+      await h.settle();
+      expect(dialog?.contains(document.activeElement)).toBe(true);
+      expect(h.text('message-bar')).toContain('Close this dialog first');
     });
 
     it('leaves `/` and `?` to the scan field once something is typed in it', async () => {

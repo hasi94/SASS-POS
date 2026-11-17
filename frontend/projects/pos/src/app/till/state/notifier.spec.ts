@@ -64,6 +64,26 @@ describe('Notifier (AC-27, AC-84)', () => {
     expect(notifier.current()?.text).toBe('Second');
   });
 
+  it('shows a refusal at once over a plain note and drops the note (T-037 Z1)', () => {
+    notifier.success('Added Rice');
+    vi.advanceTimersByTime(100);
+    notifier.success('Added Beans');
+    notifier.notify(refusal('Code not found: 9'));
+    expect(notifier.current()?.text).toBe('Code not found: 9');
+    expect(notifier.assertive()).toBe('Code not found: 9');
+    // The dropped notes never come back, and the refusal gets its full minimum.
+    vi.advanceTimersByTime(MIN_SHOWN_MS - 1);
+    expect(notifier.current()?.text).toBe('Code not found: 9');
+    vi.advanceTimersByTime(REFUSAL_LINGER_MS);
+    expect(notifier.current()).toBeNull();
+  });
+
+  it('still queues a refusal behind a refusal on screen', () => {
+    notifier.notify(refusal('First'));
+    notifier.notify(refusal('Second'));
+    expect(notifier.current()?.text).toBe('First');
+  });
+
   it('keeps every refusal waiting, in order', () => {
     notifier.notify(refusal('One'));
     notifier.notify(refusal('Two'));

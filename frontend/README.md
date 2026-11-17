@@ -236,6 +236,27 @@ Everything is fictional; the employee codes and PINs are made up for the mock.
   completed sale on an earlier, closed shift and the like exist only as named steps for specs
   (`held_sale_other_terminal`, `completed_sale_closed_shift`, ...).
 
+### Known limits and follow-ups
+
+- **A void whose answer is lost** shows "Cannot reach the server: sale actions are paused" and
+  leaves the dialog open. Unlike a line write or a tender, the till does not reload the sale by
+  itself when the network returns, so the cashier presses Void again (the server refuses a second
+  void with `invalid_transition`, which the dialog shows). Follow-up: reload the sale after a
+  lost void, as a lost line write does.
+- **Two wordings of `exceeds_balance`.** The refusal catalogue keeps the AC-76 text, "More than
+  the balance". The payment dialog shows the AC-44 text, "Amount is more than the balance", for
+  an over-tender on a method that gives no change, and the refund dialog words it as owed back.
+  Each is pinned by its own spec (`refusal-catalogue.spec.ts`, `payment-dialog.spec.ts`,
+  `refund-store.spec.ts`).
+- **No sales in the mock seed** (see above): every sale a spec or a demo needs is made at the
+  till or by a named `given` step.
+- **While offline** the banner shows and the write controls are disabled; a void, refund,
+  supervisor or shift dialog already open keeps its text but its submit button is disabled until
+  the till is back (it re-probes every 5 seconds; "Retry now" asks at once).
+- **Not checkable in jsdom:** the 44 by 44 px targets, the focus ring, WCAG contrast and the
+  1024 by 768 layout. They are reviewed in the SCSS (`min-height: 44px`, tokens from
+  `base.scss`) and need a browser check.
+
 ### Keeping the mock out of production
 
 The sales mock carries its own sentinel next to the auth mock's. Every answer it gives has

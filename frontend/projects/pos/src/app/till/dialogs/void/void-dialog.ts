@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, signal } f
 import { Sale, SaleSummary } from '@flexipos/shared';
 import { describeError } from '../../errors/refusal-catalogue';
 import { MoneyPipe } from '../../format/money.pipe';
+import { Connectivity } from '../../state/connectivity';
 import { DialogHost } from '../../state/dialog-host';
 import { SaleStore } from '../../state/sale-store';
 import {
@@ -68,7 +69,9 @@ import { DialogFrame } from '../../ui/dialog-frame';
               </p>
             }
             <div class="actions">
-              <button type="submit" class="primary" [disabled]="actions.busy()">Void sale</button>
+              <button type="submit" class="primary" [disabled]="actions.busy() || !online()">
+                Void sale
+              </button>
               <button type="button" [disabled]="actions.busy()" (click)="find()">
                 Find another sale
               </button>
@@ -129,6 +132,7 @@ import { DialogFrame } from '../../ui/dialog-frame';
 export class VoidDialog {
   protected readonly dialogs = inject(DialogHost);
   protected readonly actions = inject(VoidActions);
+  protected readonly online = inject(Connectivity).online;
   private readonly cart = inject(SaleStore);
 
   /** What the opener passed to `DialogHost.open`: optionally the sale to void. */

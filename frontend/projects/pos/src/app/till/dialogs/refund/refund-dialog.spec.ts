@@ -428,7 +428,11 @@ describe('the refund dialog', () => {
       expect(refundText(h, 'refund-problem')).toContain('Cannot reach the server');
       expect(refunds(h)).toHaveLength(0);
 
+      // Offline, the submit is disabled (AC-74): the cashier asks the till to look again first.
+      expect(h.query<HTMLButtonElement>('[data-testid="refund-go"]')?.disabled).toBe(true);
       h.state.faults.unreachable = false;
+      h.query<HTMLButtonElement>('[data-testid="network-banner"] button')?.click();
+      await settleAll(h);
       await go(h);
       expect(h.query('pos-supervisor-dialog')).toBeNull();
       expect(calls).toHaveLength(2);

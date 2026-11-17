@@ -107,16 +107,42 @@ export class TillPage {
     void this.shift.load();
   }
 
-  protected switchBranch(): void {
+  protected async switchBranch(): Promise<void> {
+    if (!(await this.confirmLeaving('Change branch'))) {
+      return;
+    }
     this.dialogs.closeAll();
     this.auth.clearContext();
     void this.router.navigate(['/context']);
   }
 
-  protected signOut(): void {
+  protected async signOut(): Promise<void> {
+    if (!(await this.confirmLeaving('Sign out'))) {
+      return;
+    }
     this.dialogs.closeAll();
     this.auth.logout();
     void this.router.navigate(['/login']);
+  }
+
+  /**
+   * A sale in the cart stays on the server when the cashier leaves, so the till says so and goes
+   * on only when told to (AC-87). With nothing in the cart there is nothing to warn about.
+   */
+  private async confirmLeaving(action: string): Promise<boolean> {
+    const status = this.sale.status();
+    if (status !== 'draft' && status !== 'pending_payment' && status !== 'held') {
+      return true;
+    }
+    const answer = await this.dialogs.open('confirm', {
+      heading: action,
+      message: `The sale in the cart stays on the server as ${
+        status === 'held' ? 'a held sale' : 'an unfinished sale'
+      }. ${action} anyway?`,
+      confirmLabel: action,
+      cancelLabel: 'Stay on the till',
+    });
+    return answer === true;
   }
 
   /** The one key handler of the page: key map in, action out, a reason when it cannot run. */
@@ -181,7 +207,13 @@ export class TillPage {
         void this.dialogs.open('help');
         break;
       case 'search':
-        this.element.nativeElement.querySelector<HTMLElement>('[data-till-search-field]')?.focus();
+        // The goodwill picker inside the refund dialog carries the same attribute: only the
+        // till's own field (outside every dialog) is the target.
+        Array.from(
+          this.element.nativeElement.querySelectorAll<HTMLElement>('[data-till-search-field]'),
+        )
+          .find((field) => field.closest('[role="dialog"]') === null)
+          ?.focus();
         break;
       case 'remove-line':
         void this.sale.removeSelectedLine();

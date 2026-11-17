@@ -113,10 +113,8 @@ describe('ScanQueue (AC-28, D-10)', () => {
         .lines()
         .map((l) => l.product_name),
     ).toEqual(['Rice 1kg', 'Laundry Soap']);
-    // The notifier shows one message at a time: the refusal waits for "Added Rice 1kg" to have
-    // been on screen for its 4 seconds, then takes its turn.
-    await vi.advanceTimersByTimeAsync(4000);
-    await settleFully(h);
+    // The refusal replaced "Added Rice 1kg" at once (a plain note never holds a refusal back), and
+    // "Added Laundry Soap" waits its turn behind it.
     expect(h.text('assertive-region')).toBe(`Code not found: ${unknown}`);
     expect(byId(h, 'message-bar').textContent).toContain('Code not found');
   });

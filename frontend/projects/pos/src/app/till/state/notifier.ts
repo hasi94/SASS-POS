@@ -40,6 +40,14 @@ export class Notifier {
       this.show(message);
       return;
     }
+    if (message.kind === 'refusal' && this.shown()?.kind !== 'refusal') {
+      // A plain note ("Added Rice") never holds a refusal back: the refusal replaces it now and
+      // the notes behind it are dropped (AC-84 only protects a refusal on screen).
+      this.stopTimer();
+      this.waiting = this.waiting.filter((m) => m.kind === 'refusal');
+      this.show(message);
+      return;
+    }
     if (message.kind !== 'refusal') {
       this.waiting = this.waiting.filter((m) => m.kind === 'refusal');
     }

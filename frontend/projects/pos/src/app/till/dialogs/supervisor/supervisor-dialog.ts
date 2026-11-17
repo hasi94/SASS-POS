@@ -70,8 +70,10 @@ const NO_SUMMARY: ApprovalSummary = { title: 'A supervisor must approve this' };
         </label>
         <p class="message" role="alert" data-testid="supervisor-message">{{ message() }}</p>
         <div class="actions">
-          <button type="submit" class="primary" [disabled]="busy()">Approve</button>
-          <button type="button" [disabled]="busy()" (click)="submit('reject')">Reject</button>
+          <button type="submit" class="primary" [disabled]="busy() || !online()">Approve</button>
+          <button type="button" [disabled]="busy() || !online()" (click)="submit('reject')">
+            Reject
+          </button>
           <button type="button" (click)="cancel()">Cancel</button>
         </div>
       </form>
@@ -125,6 +127,7 @@ const NO_SUMMARY: ApprovalSummary = { title: 'A supervisor must approve this' };
 export class SupervisorDialog {
   private readonly api = inject(SalesApi);
   private readonly connectivity = inject(Connectivity);
+  protected readonly online = this.connectivity.online;
   private readonly notifier = inject(Notifier);
   protected readonly dialogs = inject(DialogHost);
   private readonly codeField = viewChild<ElementRef<HTMLInputElement>>('code');

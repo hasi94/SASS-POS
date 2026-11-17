@@ -15,6 +15,7 @@ import {
   refusalOf,
 } from '@flexipos/shared';
 import { firstValueFrom } from 'rxjs';
+import { NETWORK_MESSAGE } from '../errors/refusal-catalogue';
 import { Connectivity } from './connectivity';
 import { DialogHost } from './dialog-host';
 import { Notifier } from './notifier';
@@ -383,6 +384,11 @@ export class SaleStore {
 
   /** Is the cart in a state to take a line action? Reloads it first when it may be stale. */
   private async ready(): Promise<boolean> {
+    if (!this.connectivity.online()) {
+      // Nothing is sent and nothing is queued while the server cannot be reached (AC-74, D-2).
+      this.notifier.notify({ kind: 'refusal', text: NETWORK_MESSAGE, code: null });
+      return false;
+    }
     if (!this.shift.shiftOpen()) {
       this.notifier.info('Open a shift first');
       return false;

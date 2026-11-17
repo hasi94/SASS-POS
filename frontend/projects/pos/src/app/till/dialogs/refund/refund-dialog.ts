@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, OnInit, inject, input } from '@angu
 import { SaleLine, SaleSummary, formatQuantity } from '@flexipos/shared';
 import { MoneyPipe } from '../../format/money.pipe';
 import { ProductSearch } from '../../panels/product-search/product-search';
+import { Connectivity } from '../../state/connectivity';
 import { DialogHost } from '../../state/dialog-host';
 import { RefundOpenData, RefundStore, isFullyRefunded } from '../../state/refund-store';
 import { FindSaleDialogData } from '../../state/void-actions';
@@ -255,7 +256,7 @@ import { DialogFrame } from '../../ui/dialog-frame';
                 type="submit"
                 class="primary"
                 data-testid="refund-go"
-                [disabled]="store.busy()"
+                [disabled]="store.busy() || !online()"
               >
                 {{ store.quote() ? 'Refund' : 'Price the refund' }}
               </button>
@@ -352,6 +353,7 @@ import { DialogFrame } from '../../ui/dialog-frame';
 })
 export class RefundDialog implements OnInit {
   protected readonly store = inject(RefundStore);
+  protected readonly online = inject(Connectivity).online;
   protected readonly dialogs = inject(DialogHost);
 
   /** What the opener passed to `DialogHost.open`: optionally the sale to refund, or the mode. */
