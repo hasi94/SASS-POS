@@ -436,11 +436,11 @@ Order is fixed; each step ends with its targeted files green before the next sta
 
 ### Chunk G: sweeps, scans, engine, documents
 
-- [ ] **Step 20: `PurchasingInvariantTest`.** A scripted day through the real slices (as revision 1); actions a subset of the 28.
-- [ ] **Step 21: `QaPurchasingSourceRulesTest`** (host). (a) No token from the D-38 list in `packages/purchasing/src` (`unit_conversions`, `base_unit_id`, `tax_rates`, `tax_group_taxes`, `price_list_items`, `is_inclusive`, `number_sequences`, `workflow_instances`, `workflow_tasks`, `workflow_events`, `customer_ledger`, `stock_levels`, `stock_movements`, `journal_`, `quantity_incoming`, `grns`); (b) no `*`, `/`, `multipliedBy(`, `dividedBy(` outside `Support/Money.php`, and `Money::product(` called only from the request-amount helper; (c) no float cast, `floatval`, float type; (d) no `routes/`, `Route::`, `Cache::`, `dispatch(`; (e) anti-vacuity. Red-first planted files. *(AC-46, AC-79, AC-93.)*
-- [ ] **Step 22: `PurchasingSchemaEngineTest`** (written, skipped under the hold). Database created and dropped by **exact name**, never `LIKE`.
-- [ ] **Step 23: cross-tenant rows on the stand-in.** One per root entity (supplier, request, order, application) (AC-88, D-46).
-- [ ] **Step 24: documents.** `docs/database.md` §6.6 "As built (T-034)", §6.1 prefixes, §6.4 `PurchaseLinePricing`; `docs/architecture.md` module table. Describe, never quote, old vocabulary.
+- [x] **Step 20: `PurchasingInvariantTest`.** A scripted day through the real slices (as revision 1); actions a subset of the 28.
+- [x] **Step 21: `QaPurchasingSourceRulesTest`** (host). (a) No token from the D-38 list in `packages/purchasing/src` (`unit_conversions`, `base_unit_id`, `tax_rates`, `tax_group_taxes`, `price_list_items`, `is_inclusive`, `number_sequences`, `workflow_instances`, `workflow_tasks`, `workflow_events`, `customer_ledger`, `stock_levels`, `stock_movements`, `journal_`, `quantity_incoming`, `grns`); (b) no `*`, `/`, `multipliedBy(`, `dividedBy(` outside `Support/Money.php`, and `Money::product(` called only from the request-amount helper; (c) no float cast, `floatval`, float type; (d) no `routes/`, `Route::`, `Cache::`, `dispatch(`; (e) anti-vacuity. Red-first planted files. *(AC-46, AC-79, AC-93.)*
+- [x] **Step 22: `PurchasingSchemaEngineTest`** (written, skipped under the hold). Database created and dropped by **exact name**, never `LIKE`.
+- [x] **Step 23: cross-tenant rows on the stand-in.** One per root entity (supplier, request, order, application) (AC-88, D-46).
+- [x] **Step 24: documents.** `docs/database.md` §6.6 "As built (T-034)", §6.1 prefixes, §6.4 `PurchaseLinePricing`; `docs/architecture.md` module table. Describe, never quote, old vocabulary.
 - [ ] **Step 25: final gate** — `lead` runs `composer check`; counts and `test` seconds compared with `lead`'s own baseline (more than 10 % on the `test` step is a stop, FP-328).
 
 ## Test strategy
