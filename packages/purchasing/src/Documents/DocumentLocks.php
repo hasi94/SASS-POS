@@ -34,6 +34,17 @@ final class DocumentLocks
     }
 
     /**
+     * The order header `FOR UPDATE`: row 1 of the lock order for every order write
+     * (and for a receipt, which never locks a line first).
+     *
+     * @throws PurchasingRefused validation (malformed id), not_found
+     */
+    public static function order(Connection $connection, mixed $orderId): object
+    {
+        return Lookup::any($connection, 'purchase_orders', $orderId, 'purchase order', true);
+    }
+
+    /**
      * A supplier a document is about to name, `FOR SHARE`, and checked live and
      * active under that lock (AC-13, AC-23): an unknown or soft-deleted supplier is
      * `unknown_supplier`, an inactive one `supplier_inactive`. The share lock

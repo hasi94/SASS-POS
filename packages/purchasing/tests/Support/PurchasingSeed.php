@@ -272,6 +272,42 @@ final class PurchasingSeed
     }
 
     /**
+     * A purchase order line written directly: one each at 1.0000, cost 10.0000,
+     * under the tax group given, nothing received. The figures are the caller's to
+     * override; nothing here prices anything.
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    public static function orderItem(string $orderId, string $productId, string $unitId, string $taxGroupId, int $lineNo = 1, array $overrides = []): string
+    {
+        $id = (string) Str::ulid();
+
+        self::connection()->table('purchase_order_items')->insert(array_merge([
+            'id' => $id,
+            'order_id' => $orderId,
+            'line_no' => $lineNo,
+            'product_id' => $productId,
+            'description' => 'Line '.$lineNo,
+            'unit_id' => $unitId,
+            'quantity' => '1.0000',
+            'unit_factor' => '1.000000',
+            'base_quantity' => '1.0000',
+            'unit_cost' => '10.0000',
+            'subtotal' => '10.0000',
+            'discount_percent' => '0.0000',
+            'discount_amount' => '0.0000',
+            'tax_group_id' => $taxGroupId,
+            'tax_amount' => '1.0000',
+            'line_total' => '11.0000',
+            'received_quantity' => '0.0000',
+            'received_base_quantity' => '0.0000',
+            'expected_date' => null,
+        ], $overrides));
+
+        return $id;
+    }
+
+    /**
      * A one-step workflow definition for a document type, written directly: it
      * matches an amount of at least `$minAmount`, is approved by any holder of
      * `$roleId` (never the requester), and on rejection does `$onReject`

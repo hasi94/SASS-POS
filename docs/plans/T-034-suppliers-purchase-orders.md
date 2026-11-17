@@ -422,10 +422,10 @@ Order is fixed; each step ends with its targeted files green before the next sta
 
 ### Chunk E: draft orders and conversion
 
-- [ ] **Step 15: `CreatePurchaseOrder`, `UpdatePurchaseOrder` (draft half).** *(AC-40, AC-41, AC-50, AC-12, AC-53.)* `order_date` branch-local; currency explicit → supplier → **branch** (D-41); `currency_required` reached only per Q-B4; `exchange_rate` 8 decimals; refusals consume no number; supplier change re-copies snapshots; replay; deadlock rows.
-- [ ] **Step 16: order lines.** *(AC-42 to AC-49, AC-51.)* As revision 1: AC-43 and twin stored and returned as strings; AC-46 JSON floats `validation`; AC-45 after each change; AC-47 header overflow refuses the line; AC-48 read unchanged after rate/group/price/factor/supplier change; AC-49 re-snapshot only when unit or quantity changes; description default; 201st line; line replay.
-- [ ] **Step 17: `ConvertRequestToOrder`.** *(AC-30 to AC-33, AC-94.)* One transaction, two audit rows, `PO` number; `snapshotInherited()` keeps the stored factor; AC-32 refusals (`supplier_mismatch`, `supplier_inactive`, `invalid_transition`, `inherited_unit_mismatch`, `unit_unresolvable`, `pricing_refused`, `unknown_tax_group`, `inactive_tax_group`) write nothing; AC-33 replay; D-48 removing a converted line clears the pointer; 50-line query count recorded.
-- [ ] **Step 18: `GetPurchaseOrder`, `ListPurchaseOrders`.** *(AC-81 to AC-85.)* **Gate: `lead`.**
+- [x] **Step 15: `CreatePurchaseOrder`, `UpdatePurchaseOrder` (draft half).** *(AC-40, AC-41, AC-50, AC-12, AC-53.)* `order_date` branch-local; currency explicit → supplier → **branch** (D-41); `currency_required` reached only per Q-B4; `exchange_rate` 8 decimals; refusals consume no number; supplier change re-copies snapshots; replay; deadlock rows.
+- [x] **Step 16: order lines.** *(AC-42 to AC-49, AC-51.)* As revision 1: AC-43 and twin stored and returned as strings; AC-46 JSON floats `validation`; AC-45 after each change; AC-47 header overflow refuses the line; AC-48 read unchanged after rate/group/price/factor/supplier change; AC-49 re-snapshot only when unit or quantity changes; description default; 201st line; line replay.
+- [x] **Step 17: `ConvertRequestToOrder`.** *(AC-30 to AC-33, AC-94.)* One transaction, two audit rows, `PO` number; `snapshotInherited()` keeps the stored factor; AC-32 refusals (`supplier_mismatch`, `supplier_inactive`, `invalid_transition`, `inherited_unit_mismatch`, `unit_unresolvable`, `pricing_refused`, `unknown_tax_group`, `inactive_tax_group`) write nothing; AC-33 replay; D-48 removing a converted line clears the pointer; 50-line query count recorded.
+- [x] **Step 18: `GetPurchaseOrder`, `ListPurchaseOrders`.** *(AC-81 to AC-85.)* **Gate: `lead`.**
 
 ### Chunk F: approval, amendment, receipt, events
 
