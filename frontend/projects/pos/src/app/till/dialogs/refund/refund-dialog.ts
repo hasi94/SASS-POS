@@ -56,13 +56,60 @@ import { DialogFrame } from '../../ui/dialog-frame';
             </button>
           </div>
         </div>
+      } @else if (store.pending(); as waiting) {
+        <div data-testid="refund-pending">
+          <p class="fp-muted" data-testid="refund-waiting" role="status">{{ waitingText }}</p>
+          <p data-testid="refund-pending-what">
+            @if (waiting.view.saleLabel; as label) {
+              Refund of sale {{ label }}
+            } @else {
+              Goodwill refund
+            }
+          </p>
+          <ul class="plain" data-testid="refund-pending-lines">
+            @for (line of waiting.view.quote.lines; track $index) {
+              <li>
+                {{ line.product_name }} &middot; {{ qty(line.quantity) }}
+                {{ line.unit_code }} &middot;
+                {{ line.line_total | money: waiting.view.quote.currency }}
+              </li>
+            }
+          </ul>
+          <p>
+            Total
+            <strong data-testid="refund-pending-total">{{
+              waiting.view.quote.total | money: waiting.view.quote.currency
+            }}</strong>
+            @if (waiting.view.methodName; as method) {
+              <span data-testid="refund-pending-method"> &middot; {{ method }}</span>
+            }
+          </p>
+          <p class="problem" role="alert" data-testid="refund-pending-problem">
+            {{ store.problem() }}
+          </p>
+          <div class="actions">
+            <button
+              type="button"
+              class="primary"
+              data-autofocus
+              data-testid="refund-send-again"
+              [disabled]="store.busy()"
+              (click)="store.sendAgain()"
+            >
+              Send again
+            </button>
+            <button type="button" data-testid="refund-pending-close" (click)="dialogs.close()">
+              Close
+            </button>
+          </div>
+        </div>
       } @else {
         <div class="modes" role="group" aria-label="Kind of refund">
           <button
             type="button"
             data-testid="mode-referenced"
             [attr.aria-pressed]="store.mode() === 'referenced'"
-            [disabled]="store.busy() || store.awaitingAnswer()"
+            [disabled]="store.busy()"
             (click)="store.setMode('referenced')"
           >
             Refund a sale
@@ -71,16 +118,12 @@ import { DialogFrame } from '../../ui/dialog-frame';
             type="button"
             data-testid="mode-goodwill"
             [attr.aria-pressed]="store.mode() === 'goodwill'"
-            [disabled]="store.busy() || store.awaitingAnswer()"
+            [disabled]="store.busy()"
             (click)="store.setMode('goodwill')"
           >
             Goodwill refund
           </button>
         </div>
-        @if (store.awaitingAnswer()) {
-          <p class="fp-muted" data-testid="refund-waiting" role="status">{{ waitingText }}</p>
-        }
-
         @if (store.mode() === 'goodwill') {
           <p class="fp-muted">Pick the products to refund. A supervisor approves the refund.</p>
           <pos-product-search mode="pick" (picked)="store.addGoodwill($event)" />
@@ -90,12 +133,8 @@ import { DialogFrame } from '../../ui/dialog-frame';
               Sale number
               <input name="number" type="text" autocomplete="off" data-autofocus />
             </label>
-            <button type="submit" [disabled]="store.busy() || store.awaitingAnswer()">Find</button>
-            <button
-              type="button"
-              [disabled]="store.busy() || store.awaitingAnswer()"
-              (click)="pickFromShift()"
-            >
+            <button type="submit" [disabled]="store.busy()">Find</button>
+            <button type="button" [disabled]="store.busy()" (click)="pickFromShift()">
               Pick from this shift
             </button>
           </form>

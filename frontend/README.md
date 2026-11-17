@@ -257,17 +257,22 @@ Everything is fictional; the employee codes and PINs are made up for the mock.
 - **While offline** the banner shows and the write controls are disabled; a void, refund,
   supervisor or shift dialog already open keeps its text but its submit button is disabled until
   the till is back (it re-probes every 5 seconds; "Retry now" asks at once).
-- **A timeout counts as a lost answer.** Status 0 also covers a client timeout, so a read-back
-  can say "not recorded" while the first request is still running on the server. Re-sending with
-  the same ids is safe (the server replays); the exposure is a send of a changed shape right after
-  a timeout. The till cannot tell the two apart.
+- **A timeout counts as a lost answer.** Status 0 also covers a client timeout, so the first
+  request may still be running on the server when the cashier presses "Send again". Sending again
+  with the same ids is safe (the server replays), which is why the dialog only ever replays.
 - **An approval approved after the cashier cancelled** stays on the server, single-use and bound
   to its sale, or to goodwill refunds, and is simply never used.
-- **Closing the dialog forgets a lost refund.** While a refund's answer is unknown the dialog
-  will not switch mode or sale ("A refund is waiting for its answer; send it again unchanged or
-  close this dialog"), but its ids live only in the open dialog: closing it forgets them, and a
-  refund made again afterwards gets new ids. A goodwill refund has no original sale to read back,
-  so the cashier checks the sales list before making it again.
+- **A lost refund answer freezes the refund.** When a refund gets no answer the dialog shows only
+  the frozen refund (lines, total, method) with "Send again" and "Close". Nothing can be edited,
+  no mode or sale can be chosen, and the till never reads the sale back to decide. "Send again"
+  re-sends the exact request with the same refund and tender ids, without checking the form again,
+  using the held approval if it is unspent and asking a supervisor afresh if it went stale; it
+  stays waiting until a definite answer (a refusal returns to the editable form). A cancelled
+  supervisor dialog keeps it waiting. Closing the dialog forgets a lost refund (a refund made
+  again afterwards gets new ids), so the cashier checks the sales list first.
+- **A late answer after close is ignored.** An answer that arrives after its dialog was closed
+  and another opened does not change the new dialog; the refund it carried is on the server, so
+  the sales list is where to look.
 - **Backend follow-up: replay before validation.** The till relies on `POST /refunds` answering a
   replay (same refund id) with the stored refund before it validates the approval or the
   quantities, because the approval is spent and the sale's refundable quantities have moved by then.

@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { ApiError, RefundRequest, RefundResult, SalesApi, branchState } from '@flexipos/shared';
-import { Observable, throwError } from 'rxjs';
+import { Observable, Subject, switchMap, throwError } from 'rxjs';
 import { RefundStore } from '../../state/refund-store';
 import { SUPERVISOR, clickButton, typeCredentials } from '../../testing/approval-helpers';
 import { HARNESS_TENANT_ID, TillHarness, setupTill } from '../../testing/till-harness';
@@ -384,32 +384,56 @@ describe('the refund dialog', () => {
   });
 
   describe('a lost answer (AC-61, AC-64)', () => {
-    it('reloads the original and re-sends the same refund and tender ids: one refund, one approval', async () => {
-      const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
-      const api = TestBed.inject(SalesApi);
-      const reload = vi.spyOn(api, 'getSale');
-      const { calls } = spyCreate();
+    afterEach(() => vi.useRealTimers());
+
+    const sendAgain = async (h: TillHarness): Promise<void> => {
+      inRefund<HTMLButtonElement>(h, 'refund-send-again')?.click();
+      await settleAll(h);
+      await settleAll(h);
+    };
+    const recover = async (h: TillHarness): Promise<void> => {
+      h.query<HTMLButtonElement>('[data-testid="network-banner"] button')?.click();
+      await settleAll(h);
+    };
+    const lose = (h: TillHarness, times = 1): void => {
+      for (let i = 0; i < times; i += 1) {
+        h.state.faults.dropAnswerOf.push('refunds.create');
+      }
+    };
+    const approvals = (h: TillHarness) => h.state.branches.values().next().value?.approvals ?? [];
+
+    /** Opens the dialog on the first sale, selects line 0 (all of it, or `quantity`) and prices it. */
+    async function priced(h: TillHarness, quantity?: string): Promise<void> {
       await openRefund(h);
       await findFirstSale(h);
-      await selectLine(h, 0, '1');
+      await selectLine(h, 0, quantity);
       await go(h);
-      h.state.faults.dropAnswerOf.push('refunds.create');
-      reload.mockClear();
+    }
+
+    /** Sends the priced refund, with the supervisor approving. */
+    async function sendPriced(h: TillHarness): Promise<void> {
       await go(h);
       await approve(h);
+    }
 
-      expect(calls).toHaveLength(2);
-      expect(calls[1]).toEqual(calls[0]);
-      expect(calls[1]?.tenders[0]?.id).toBe(calls[0]?.tenders[0]?.id);
-      expect(reload).toHaveBeenCalledWith(mockSales(h)[0]?.data.id);
-      expect(refunds(h)).toHaveLength(1);
-      expect(h.state.branches.values().next().value?.approvals).toHaveLength(1);
-      expect(refundText(h, 'refund-number')).toBe(refunds(h)[0]?.data.number ?? 'missing');
-      expect(refundText(h, 'refund-result-total')).toBe('250.00 LKR');
-    });
+    async function pickGoodwill(h: TillHarness, quantity: string): Promise<void> {
+      await openRefund(h);
+      clickButton(h, 'Goodwill refund');
+      await settleAll(h);
+      vi.useFakeTimers();
+      set(inRefund<HTMLInputElement>(h, 'search-field'), 'rice');
+      await vi.advanceTimersByTimeAsync(300);
+      vi.useRealTimers();
+      await settleAll(h);
+      inRefund(h, 'result')?.click();
+      await settleAll(h);
+      set(inRefund<HTMLInputElement>(h, 'goodwill-qty-0'), quantity);
+      await settleAll(h);
+      await go(h);
+    }
 
-    it('keeps the ids and the approval for the next try when the server is still out of reach', async () => {
-      const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
+    /** The first create goes out and then the server cannot be reached: nothing is recorded. */
+    function unreachableAfterFirst(h: TillHarness): { calls: RefundRequest[] } {
       const api = TestBed.inject(SalesApi);
       const real = api.createRefund.bind(api);
       const calls: RefundRequest[] = [];
@@ -420,163 +444,298 @@ describe('the refund dialog', () => {
         }
         return real(body);
       });
-      await openRefund(h);
-      await findFirstSale(h);
-      await selectLine(h, 0, '1');
-      await go(h);
-      await go(h);
-      await approve(h);
-      expect(refundText(h, 'refund-problem')).toContain('Cannot reach the server');
-      expect(refunds(h)).toHaveLength(0);
+      return { calls };
+    }
 
-      // Offline, the submit is disabled (AC-74): the cashier asks the till to look again first.
-      expect(h.query<HTMLButtonElement>('[data-testid="refund-go"]')?.disabled).toBe(true);
-      h.state.faults.unreachable = false;
-      h.query<HTMLButtonElement>('[data-testid="network-banner"] button')?.click();
+    it('shows only the frozen refund, and Send again replays the same ids and shows the refund number (2 of 2)', async () => {
+      const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
+      const { calls } = spyCreate();
+      await priced(h);
+      lose(h);
+      await sendPriced(h);
+
+      // Recorded by the server, answer lost: the dialog does not read the sale back.
+      expect(refunds(h)).toHaveLength(1);
+      expect(inRefund(h, 'refund-waiting')).not.toBeNull();
+      expect(refundText(h, 'refund-pending-total')).toBe('500.00 LKR');
+      expect(refundText(h, 'refund-pending-what')).toContain('INV-000001');
+      expect(refundText(h, 'refund-pending-lines')).toContain('Rice 1kg');
+      expect(inRefund(h, 'refund-number')).toBeNull();
+      for (const absent of ['mode-referenced', 'mode-goodwill', 'refund-go', 'refund-lines']) {
+        expect(inRefund(h, absent)).toBeNull();
+      }
+      expect(h.query('pos-refund-dialog input[name="number"]')).toBeNull();
+
+      await sendAgain(h);
+      expect(h.query('pos-supervisor-dialog')).toBeNull();
+      expect(calls).toHaveLength(2);
+      expect(calls[1]).toEqual(calls[0]);
+      expect(refundText(h, 'refund-number')).toBe(refunds(h)[0]?.data.number ?? 'missing');
+      expect(refundText(h, 'refund-original-status')).toContain('refunded');
+      expect(refunds(h)).toHaveLength(1);
+      expect(approvals(h)).toHaveLength(1);
+
+      clickButton(h, 'Close');
       await settleAll(h);
-      await go(h);
+      expect(h.query('[role="dialog"]')).toBeNull();
+    });
+
+    it('sends the frozen request again even when the form behind it is no longer valid', async () => {
+      const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
+      const { calls } = spyCreate();
+      await priced(h, '1');
+      lose(h);
+      await sendPriced(h);
+      expect(inRefund(h, 'refund-waiting')).not.toBeNull();
+
+      // Nothing the form holds may decide whether to send.
+      const store = storeOf(h, RefundStore);
+      store.entries.set({});
+      store.quote.set(null);
+      await sendAgain(h);
+      expect(calls).toHaveLength(2);
+      expect(calls[1]).toEqual(calls[0]);
+      expect(refundText(h, 'refund-number')).toBe(refunds(h)[0]?.data.number ?? 'missing');
+      expect(refunds(h)).toHaveLength(1);
+    });
+
+    it('keeps the same ids and one refund when Send again is lost again', async () => {
+      const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
+      const { calls } = spyCreate();
+      await priced(h, '1');
+      lose(h);
+      await sendPriced(h);
+      lose(h);
+      await sendAgain(h);
+      expect(inRefund(h, 'refund-waiting')).not.toBeNull();
+      expect(refundText(h, 'refund-pending-problem')).not.toBe('');
+      await sendAgain(h);
+
+      expect(calls).toHaveLength(3);
+      expect(new Set(calls.map((c) => c.id)).size).toBe(1);
+      expect(new Set(calls.map((c) => c.tenders[0]?.id)).size).toBe(1);
+      expect(new Set(calls.map((c) => c.approval_id)).size).toBe(1);
+      expect(refunds(h)).toHaveLength(1);
+      expect(approvals(h)).toHaveLength(1);
+      expect(refundText(h, 'refund-number')).toBe(refunds(h)[0]?.data.number ?? 'missing');
+    });
+
+    it('keeps the held approval when the server was out of reach: nobody is asked again', async () => {
+      const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
+      const { calls } = unreachableAfterFirst(h);
+      await priced(h, '1');
+      await sendPriced(h);
+      expect(refunds(h)).toHaveLength(0);
+      expect(inRefund(h, 'refund-waiting')).not.toBeNull();
+
+      h.state.faults.unreachable = false;
+      await recover(h);
+      await sendAgain(h);
       expect(h.query('pos-supervisor-dialog')).toBeNull();
       expect(calls).toHaveLength(2);
       expect(calls[1]).toEqual(calls[0]);
       expect(refunds(h)).toHaveLength(1);
-      expect(h.state.branches.values().next().value?.approvals).toHaveLength(1);
+      expect(approvals(h)).toHaveLength(1);
       expect(refundText(h, 'refund-number')).not.toBe('');
     });
 
-    it('reads the original back before a refund of another shape goes out after a lost answer (W-1)', async () => {
+    it('forgets the lost refund on Close: the same shape made again gets new ids', async () => {
       const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
-      const api = TestBed.inject(SalesApi);
       const { calls } = spyCreate();
-      await openRefund(h);
-      await findFirstSale(h);
-      await selectLine(h, 0, '1');
-      await go(h);
-      h.state.faults.dropAnswerOf.push('refunds.create');
-      vi.spyOn(api, 'getSale').mockImplementationOnce(() =>
-        throwError(() => new ApiError(0, 'Cannot reach the server.')),
-      );
-      await go(h);
-      await approve(h);
-      expect(calls).toHaveLength(1);
-      expect(refunds(h)).toHaveLength(1);
+      await priced(h, '1');
+      lose(h);
+      await sendPriced(h);
+      expect(inRefund(h, 'refund-waiting')).not.toBeNull();
 
-      h.query<HTMLButtonElement>('[data-testid="network-banner"] button')?.click();
+      clickButton(h, 'Close');
       await settleAll(h);
-      set(inRefund<HTMLInputElement>(h, 'refund-amount'), '100.0000');
-      await go(h);
-      expect(h.query('pos-supervisor-dialog')).toBeNull();
-      expect(calls).toHaveLength(1);
-      expect(refunds(h)).toHaveLength(1);
-      expect(refundText(h, 'refund-problem')).toContain('The sale changed since the last try');
+      expect(h.query('[role="dialog"]')).toBeNull();
+
+      await priced(h, '1');
+      await sendPriced(h);
+      expect(calls).toHaveLength(2);
+      expect(calls[1]?.id).not.toBe(calls[0]?.id);
+      expect(calls[1]?.tenders[0]?.id).not.toBe(calls[0]?.tenders[0]?.id);
+      expect(approvals(h)).toHaveLength(2);
     });
 
-    it('does not reuse an approval after a lost answer once the shape changes (R-1)', async () => {
+    it('asks for a new approval when the held one went stale, and keeps the same ids', async () => {
+      const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
+      const { calls } = unreachableAfterFirst(h);
+      await priced(h, '1');
+      await sendPriced(h);
+      expect(refunds(h)).toHaveLength(0);
+
+      const spent = approvals(h)[0];
+      if (spent) {
+        spent.data.consumed_at = new Date().toISOString();
+      }
+      h.state.faults.unreachable = false;
+      await recover(h);
+      await sendAgain(h);
+      // The old approval is refused; a supervisor is asked afresh and the refund keeps its ids.
+      expect(topHeading(h)).toBe('Supervisor approval');
+      expect(inRefund(h, 'refund-waiting')).not.toBeNull();
+      await approve(h);
+
+      expect(calls).toHaveLength(3);
+      expect(calls[2]?.id).toBe(calls[0]?.id);
+      expect(calls[2]?.tenders[0]?.id).toBe(calls[0]?.tenders[0]?.id);
+      expect(calls[2]?.approval_id).not.toBe(calls[0]?.approval_id);
+      expect(refunds(h)).toHaveLength(1);
+      expect(approvals(h)).toHaveLength(2);
+      expect(refundText(h, 'refund-number')).toBe(refunds(h)[0]?.data.number ?? 'missing');
+    });
+
+    it('stays pending when the supervisor dialog is cancelled, and refuses a switch of mode or sale', async () => {
+      const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
+      const { calls } = unreachableAfterFirst(h);
+      await priced(h, '1');
+      await sendPriced(h);
+      const spent = approvals(h)[0];
+      if (spent) {
+        spent.data.consumed_at = new Date().toISOString();
+      }
+      h.state.faults.unreachable = false;
+      await recover(h);
+      await sendAgain(h);
+      expect(topHeading(h)).toBe('Supervisor approval');
+      h.press('Escape');
+      await settleAll(h);
+
+      expect(topHeading(h)).toBe('Refund');
+      expect(inRefund(h, 'refund-waiting')).not.toBeNull();
+      expect(inRefund(h, 'mode-referenced')).toBeNull();
+      expect(inRefund(h, 'mode-goodwill')).toBeNull();
+      expect(refunds(h)).toHaveLength(0);
+
+      // The store holds the line even when something other than the buttons asks.
+      const store = storeOf(h, RefundStore);
+      const id = store.sale()?.id;
+      const read = vi.spyOn(TestBed.inject(SalesApi), 'getSale');
+      store.setMode('goodwill');
+      await store.loadSale('another-sale');
+      await store.findByNumber('INV-000001');
+      expect(store.mode()).toBe('referenced');
+      expect(store.sale()?.id).toBe(id);
+      expect(read).not.toHaveBeenCalled();
+
+      // Still sendable, with a fresh approval and the same ids.
+      await sendAgain(h);
+      await approve(h);
+      expect(calls[calls.length - 1]?.id).toBe(calls[0]?.id);
+      expect(refunds(h)).toHaveLength(1);
+    });
+
+    it('keeps a lost goodwill refund pending the same way, and replays it under the same ids', async () => {
+      const h = await setupTill({ given: ['shift_open'] });
+      const { calls } = spyCreate();
+      await pickGoodwill(h, '2');
+      lose(h);
+      await sendPriced(h);
+
+      expect(refundText(h, 'refund-pending-what')).toBe('Goodwill refund');
+      expect(refundText(h, 'refund-pending-total')).toBe('500.00 LKR');
+      expect(inRefund(h, 'mode-referenced')).toBeNull();
+      expect(inRefund(h, 'goodwill-qty-0')).toBeNull();
+      const store = storeOf(h, RefundStore);
+      store.setMode('referenced');
+      expect(store.mode()).toBe('goodwill');
+      expect(store.goodwillLines()).toHaveLength(1);
+
+      await sendAgain(h);
+      expect(h.query('pos-supervisor-dialog')).toBeNull();
+      expect(calls).toHaveLength(2);
+      expect(calls[1]).toEqual(calls[0]);
+      expect(refunds(h)).toHaveLength(1);
+      expect(refundText(h, 'refund-original-status')).toBe('Goodwill refund: no original sale');
+      expect(refundText(h, 'refund-number')).toBe(refunds(h)[0]?.data.number ?? 'missing');
+    });
+
+    it('returns to the editable form on a definite refusal of Send again', async () => {
       const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
       const api = TestBed.inject(SalesApi);
       const real = api.createRefund.bind(api);
-      const calls: RefundRequest[] = [];
+      let n = 0;
       vi.spyOn(api, 'createRefund').mockImplementation((body) => {
-        calls.push(JSON.parse(JSON.stringify(body)) as RefundRequest);
-        h.state.faults.unreachable = true;
+        n += 1;
+        if (n === 2) {
+          return throwError(
+            () => new ApiError(422, 'refused', [{ code: 'exceeds_balance', field: null }], 'r-1'),
+          );
+        }
         return real(body);
       });
-      await openRefund(h);
-      await findFirstSale(h);
-      await selectLine(h, 0, '1');
-      await go(h);
-      await go(h);
-      await approve(h);
-      expect(calls).toHaveLength(1);
-      h.state.faults.unreachable = false;
-      h.query<HTMLButtonElement>('[data-testid="network-banner"] button')?.click();
-      await settleAll(h);
-      set(inRefund<HTMLInputElement>(h, 'refund-amount'), '100.0000');
-      await go(h);
-      expect(topHeading(h)).toBe('Supervisor approval');
+      await priced(h, '1');
+      lose(h);
+      await sendPriced(h);
+      expect(inRefund(h, 'refund-waiting')).not.toBeNull();
+
+      await sendAgain(h);
+      expect(inRefund(h, 'refund-waiting')).toBeNull();
+      expect(refundText(h, 'refund-problem')).toBe('More than is owed back');
+      expect(inRefund(h, 'refund-qty-0')).not.toBeNull();
+      expect(inRefund<HTMLButtonElement>(h, 'mode-goodwill')?.disabled).toBe(false);
+      expect(storeOf(h, RefundStore).pending()).toBeNull();
     });
 
-    it('keeps the lost ids when the form is changed and changed back, after a failed read-back (R-2)', async () => {
+    it('ignores the late answer of a closed dialog: it does not touch the next session', async () => {
       const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
       const api = TestBed.inject(SalesApi);
-      const { calls } = spyCreate();
-      await openRefund(h);
-      await findFirstSale(h);
-      await selectLine(h, 0, '1');
-      await go(h);
-      h.state.faults.dropAnswerOf.push('refunds.create');
-      // The reload after the lost answer, and the read-back of the next shape, both fail.
-      vi.spyOn(api, 'getSale')
-        .mockImplementationOnce(() => throwError(() => new ApiError(0, 'Cannot reach the server.')))
-        .mockImplementationOnce(() =>
-          throwError(() => new ApiError(0, 'Cannot reach the server.')),
-        );
-      await go(h);
-      await approve(h);
-      expect(calls).toHaveLength(1);
+      const real = api.createRefund.bind(api);
+      const gate = new Subject<void>();
+      let n = 0;
+      vi.spyOn(api, 'createRefund').mockImplementation((body): Observable<RefundResult> => {
+        n += 1;
+        return n === 1 ? gate.pipe(switchMap(() => real(body))) : real(body);
+      });
+      await priced(h, '1');
+      await sendPriced(h);
+      const store = storeOf(h, RefundStore);
+      expect(store.busy()).toBe(true);
 
-      const recover = async (): Promise<void> => {
-        h.query<HTMLButtonElement>('[data-testid="network-banner"] button')?.click();
-        await settleAll(h);
-      };
-      await recover();
-      const original = inRefund<HTMLInputElement>(h, 'refund-amount')?.value ?? '';
-      set(inRefund<HTMLInputElement>(h, 'refund-amount'), '100.0000');
-      await go(h);
-      expect(calls).toHaveLength(1);
-      await recover();
-      set(inRefund<HTMLInputElement>(h, 'refund-amount'), original);
-      await go(h);
-      // The approval of the lost try is still held for this very shape: nobody is asked again.
-      expect(h.query('pos-supervisor-dialog')).toBeNull();
-      expect(calls).toHaveLength(2);
-      expect(calls[1]?.id).toBe(calls[0]?.id);
-      expect(calls[1]?.tenders[0]?.id).toBe(calls[0]?.tenders[0]?.id);
-      expect(refunds(h)).toHaveLength(1);
+      // Session 1 is closed with its answer still on the way; session 2 loses its own.
+      h.press('Escape');
+      await settleAll(h);
+      expect(h.query('[role="dialog"]')).toBeNull();
+      await priced(h, '1');
+      lose(h);
+      await sendPriced(h);
+      expect(store.pending()).not.toBeNull();
+      const frozenId = store.pending()?.request.id;
+
+      gate.next();
+      await settleAll(h);
+      await settleAll(h);
+      expect(refunds(h)).toHaveLength(2);
+      expect(store.result()).toBeNull();
+      expect(store.pending()?.request.id).toBe(frozenId);
+      expect(store.busy()).toBe(false);
+      expect(inRefund(h, 'refund-waiting')).not.toBeNull();
+      expect(inRefund(h, 'refund-number')).toBeNull();
     });
 
-    it('keeps the first baseline while the same shape is unknown, so a changed shape cannot pay out twice (R-1)', async () => {
+    it('makes new ids for a second refund of the same shape after the first one succeeded', async () => {
       const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
       const { calls } = spyCreate();
-      const recover = async (): Promise<void> => {
-        h.query<HTMLButtonElement>('[data-testid="network-banner"] button')?.click();
-        await settleAll(h);
-      };
-      await openRefund(h);
-      await findFirstSale(h);
-      await selectLine(h, 0, '1');
-      await go(h);
-      // Try 1 and its automatic retry are both lost; the reload between them succeeds and shows A.
-      h.state.faults.dropAnswerOf.push('refunds.create', 'refunds.create');
-      await go(h);
-      await approve(h);
+      await priced(h, '1');
+      await sendPriced(h);
+      expect(refundText(h, 'refund-number')).not.toBe('');
+      clickButton(h, 'Close');
+      await settleAll(h);
+
+      await priced(h, '1');
+      await sendPriced(h);
       expect(calls).toHaveLength(2);
-      expect(refunds(h)).toHaveLength(1);
-      await recover();
-
-      // The same refund again, unchanged: lost twice more.
-      h.state.faults.dropAnswerOf.push('refunds.create', 'refunds.create');
-      await go(h);
-      expect(h.query('pos-supervisor-dialog')).toBeNull();
-      expect(calls).toHaveLength(4);
-      await recover();
-
-      // Another shape: the sale shows A, which the first baseline did not, so nothing goes out.
-      set(inRefund<HTMLInputElement>(h, 'refund-amount'), '100.0000');
-      await go(h);
-      expect(h.query('pos-supervisor-dialog')).toBeNull();
-      expect(calls).toHaveLength(4);
-      expect(new Set(calls.map((c) => c.id)).size).toBe(1);
-      expect(refunds(h)).toHaveLength(1);
-      expect(refundText(h, 'refund-problem')).toContain('The sale changed since the last try');
+      expect(calls[1]?.id).not.toBe(calls[0]?.id);
+      expect(calls[1]?.tenders[0]?.id).not.toBe(calls[0]?.tenders[0]?.id);
+      expect(refunds(h)).toHaveLength(2);
     });
 
     it('makes new ids when the cashier changes what is refunded', async () => {
       const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
       const { calls } = spyCreate();
-      await openRefund(h);
-      await findFirstSale(h);
-      await selectLine(h, 0, '1');
-      await go(h);
+      await priced(h, '1');
       set(inRefund<HTMLInputElement>(h, 'refund-amount'), '9999.0000');
       await go(h);
       await approve(h);
@@ -630,133 +789,6 @@ describe('the refund dialog', () => {
       expect(refundText(h, 'refund-original-status')).toBe('Goodwill refund: no original sale');
       expect(refundText(h, 'refund-result-total')).toBe('500.00 LKR');
       expect(refunds(h)).toHaveLength(1);
-    });
-
-    it('re-sends the lost refund under the same id after the form is changed and changed back (R-2)', async () => {
-      const h = await setupTill({ given: ['shift_open'] });
-      const api = TestBed.inject(SalesApi);
-      const { calls } = spyCreate();
-      await openRefund(h);
-      clickButton(h, 'Goodwill refund');
-      await settleAll(h);
-      vi.useFakeTimers();
-      set(inRefund<HTMLInputElement>(h, 'search-field'), 'rice');
-      await vi.advanceTimersByTimeAsync(300);
-      vi.useRealTimers();
-      await settleAll(h);
-      inRefund(h, 'result')?.click();
-      await settleAll(h);
-      set(inRefund<HTMLInputElement>(h, 'goodwill-qty-0'), '2');
-      await settleAll(h);
-      await go(h);
-
-      h.state.faults.dropAnswerOf.push('refunds.create');
-      // A goodwill refund has no original: the reload after the lost answer reads the methods.
-      vi.spyOn(api, 'paymentMethods').mockImplementationOnce(() =>
-        throwError(() => new ApiError(0, 'Cannot reach the server.')),
-      );
-      await go(h);
-      await approve(h);
-      expect(calls).toHaveLength(1);
-
-      const recover = async (): Promise<void> => {
-        h.query<HTMLButtonElement>('[data-testid="network-banner"] button')?.click();
-        await settleAll(h);
-      };
-      await recover();
-      set(inRefund<HTMLInputElement>(h, 'goodwill-qty-0'), '3');
-      await settleAll(h);
-      await go(h);
-      await go(h);
-      expect(calls).toHaveLength(1);
-      expect(refundText(h, 'refund-problem')).toContain('Send it again unchanged');
-
-      set(inRefund<HTMLInputElement>(h, 'goodwill-qty-0'), '2');
-      await settleAll(h);
-      await go(h);
-      await go(h);
-      // Changing the quantity dropped the held approval: the goodwill refund is approved afresh.
-      expect(topHeading(h)).toBe('Supervisor approval');
-      await approve(h);
-      expect(calls).toHaveLength(2);
-      expect(calls[1]?.id).toBe(calls[0]?.id);
-      expect(calls[1]?.tenders[0]?.id).toBe(calls[0]?.tenders[0]?.id);
-      expect(refunds(h)).toHaveLength(1);
-    });
-
-    it('does not let a lost goodwill refund be forgotten by switching modes (W-1)', async () => {
-      const h = await setupTill({ given: ['shift_open'] });
-      const { calls } = spyCreate();
-      await openRefund(h);
-      clickButton(h, 'Goodwill refund');
-      await settleAll(h);
-      vi.useFakeTimers();
-      set(inRefund<HTMLInputElement>(h, 'search-field'), 'rice');
-      await vi.advanceTimersByTimeAsync(300);
-      vi.useRealTimers();
-      await settleAll(h);
-      inRefund(h, 'result')?.click();
-      await settleAll(h);
-      set(inRefund<HTMLInputElement>(h, 'goodwill-qty-0'), '2');
-      await settleAll(h);
-      await go(h);
-      expect(inRefund(h, 'refund-waiting')).toBeNull();
-      expect(inRefund<HTMLButtonElement>(h, 'mode-referenced')?.disabled).toBe(false);
-
-      h.state.faults.dropAnswerOf.push('refunds.create', 'refunds.create');
-      await go(h);
-      await approve(h);
-      expect(calls).toHaveLength(2);
-
-      const waiting =
-        'A refund is waiting for its answer; send it again unchanged or close this dialog';
-      expect(refundText(h, 'refund-waiting')).toBe(waiting);
-      expect(inRefund<HTMLButtonElement>(h, 'mode-referenced')?.disabled).toBe(true);
-      expect(inRefund<HTMLButtonElement>(h, 'mode-goodwill')?.disabled).toBe(true);
-
-      // The store holds the line even when something other than the buttons asks for a switch.
-      const store = storeOf(h, RefundStore);
-      store.setMode('referenced');
-      expect(store.mode()).toBe('goodwill');
-      expect(store.goodwillLines()).toHaveLength(1);
-      await store.loadSale('another-sale');
-      expect(store.sale()).toBeNull();
-      expect(store.problem()).toBe(waiting);
-
-      h.query<HTMLButtonElement>('[data-testid="network-banner"] button')?.click();
-      await settleAll(h);
-      await go(h);
-      expect(h.query('pos-supervisor-dialog')).toBeNull();
-      expect(calls).toHaveLength(3);
-      expect(calls[2]?.id).toBe(calls[0]?.id);
-      expect(calls[2]?.tenders[0]?.id).toBe(calls[0]?.tenders[0]?.id);
-      expect(refunds(h)).toHaveLength(1);
-      expect(refundText(h, 'refund-number')).not.toBe('');
-    });
-
-    it('does not load another sale while a referenced refund waits for its answer (W-1)', async () => {
-      const h = await setupTill({ given: ['shift_open', 'completed_sale_open_shift'] });
-      const api = TestBed.inject(SalesApi);
-      await openRefund(h);
-      await findFirstSale(h);
-      await selectLine(h, 0, '1');
-      await go(h);
-      h.state.faults.dropAnswerOf.push('refunds.create', 'refunds.create');
-      await go(h);
-      await approve(h);
-      expect(inRefund(h, 'refund-waiting')).not.toBeNull();
-
-      const store = storeOf(h, RefundStore);
-      const id = store.sale()?.id;
-      const read = vi.spyOn(api, 'getSale');
-      await store.loadSale('another-sale');
-      expect(read).not.toHaveBeenCalled();
-      expect(store.sale()?.id).toBe(id);
-      store.setMode('goodwill');
-      expect(store.mode()).toBe('referenced');
-      // The same sale may be read again: that is how the till looks at it.
-      await store.loadSale(id ?? 'none');
-      expect(store.sale()?.id).toBe(id);
     });
 
     it('rejects an empty or zero goodwill quantity in the form', async () => {

@@ -416,7 +416,9 @@ export class ShiftMenuDialog {
       this.sale.load(sale);
       return true;
     } catch (err) {
-      this.notifier.fail(err);
+      if (this.dialogs.currentId() === mine) {
+        this.notifier.fail(err);
+      }
       return false;
     }
   }

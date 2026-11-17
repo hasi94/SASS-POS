@@ -46,7 +46,7 @@ export const OWED_BACK_EXCEEDED = 'More than is owed back';
 
 /** Shown, and the reason a switch of mode or sale is refused, while a refund's fate is unknown. */
 export const REFUND_WAITING =
-  'A refund is waiting for its answer; send it again unchanged or close this dialog';
+  'A refund is waiting for its answer; send it again or close this dialog';
 
 /** The choice made on one line of the loaded sale. */
 export interface LineEntry {
@@ -111,11 +111,6 @@ function answerLost(err: unknown): boolean {
   return err instanceof ApiError && err.status === 0;
 }
 
-/** What is still refundable on a sale, as one comparable string; changes when a refund lands. */
-function refundableOf(sale: Sale | null): string {
-  return JSON.stringify((sale?.lines ?? []).map((l) => [l.id, l.refundable_quantity]));
-}
-
 /** The ids a submission of one exact refund sends, kept so a retry of it cannot refund twice. */
 interface Attempt {
   key: string;
@@ -123,29 +118,44 @@ interface Attempt {
   tenderIds: string[];
 }
 
-/** A refund whose answer never came: see `RefundStore.pendingCheck`. */
-interface PendingCheck {
-  key: string;
-  before: string;
-  refundId: string;
-  tenderIds: string[];
+/** What the waiting panel shows of a refund whose answer never came. */
+export interface PendingView {
+  saleLabel: string | null;
+  quote: RefundQuote;
+  methodName: string | null;
 }
+
+/** The exact request of one refund, frozen at the moment it was first sent. */
+interface Frozen {
+  request: Omit<RefundRequest, 'approval_id'>;
+  approval: ApprovalAsk;
+  view: PendingView;
+}
+
+/**
+ * A refund whose answer never came (status 0): the frozen request, and the approval it used while
+ * that approval may still be unspent. Nothing of it can be edited; it is only sent again or closed.
+ */
+export interface PendingRefund extends Frozen {
+  approvalId: string | null;
+}
+
+/** Thrown inside the approval loop once the dialog's session is over, to stop asking anyone. */
+class SessionEnded extends Error {}
 
 /** What a submission is made of, once the form has been checked. */
 interface Prepared {
-  saleId: string | null;
-  lines: RefundLineRequest[];
-  tenders: RefundTenderRequest[];
-  approval: ApprovalAsk;
+  frozen: Frozen;
 }
 
 /**
  * Referenced and goodwill refunds (T-037 AC-59 to AC-64). The till never prices a refund line:
  * the server's quote (`LINE_PRICER.quoteRefund`) is what is shown and what is paid out. The refund
- * `id` and the tender ids are made once per exact refund and re-sent unchanged after a lost
- * answer, so the server's idempotency (replay returns the stored refund) holds. The approval is
- * asked through `withApproval`; `refunds.create` consumes it once, so it is only kept in memory
- * for the retry of an answer that never came.
+ * `id` and the tender ids are made once per exact refund. When an answer is lost the request is
+ * frozen as `pending`: the dialog then offers only "send again" (the same request, the same ids;
+ * the server replays a refund it already recorded) or close. Nothing about the sale is read back
+ * to decide whether to send. The approval is asked through `withApproval`; `refunds.create`
+ * consumes it once, so it is only kept for the resend of an answer that never came.
  */
 @Injectable()
 export class RefundStore {
@@ -156,18 +166,9 @@ export class RefundStore {
   private readonly notifier = inject(Notifier);
 
   private attempt: Attempt | null = null;
-  /** The approval a lost answer may have used, tied to the exact attempt it was granted for. */
-  private held: { key: string; approvalId: string } | null = null;
-  /**
-   * Set whenever the answer to a refund is unknown (AC-49, D-11): the original is read back before
-   * anything of another shape is sent. `key` is the shape that was lost, `before` what the original
-   * showed as refundable when it was sent. `refundId` and `tenderIds` are the ids the lost call
-   * carried: a later `prepare()` of the same shape reuses them, so a re-send is a replay, never a
-   * second payout, even after the form was changed and changed back.
-   * While it is set the dialog may not switch mode or sale, and `before` is never re-read.
-   */
-  private pendingCheck: PendingCheck | null = null;
-  private readonly waiting = signal(false);
+  /** Counts the dialog's sessions: an answer that arrives after a newer `start()` is ignored. */
+  private session = 0;
+  private readonly frozen = signal<PendingRefund | null>(null);
   private nextKey = 1;
 
   readonly mode = signal<RefundMode>('referenced');
@@ -186,8 +187,10 @@ export class RefundStore {
   /** Set once the cashier has tried to go on, so the form shows what is missing. */
   readonly showProblems = signal(false);
   readonly busy = signal(false);
+  /** The refund whose answer never came, if any: the dialog shows only this until it is settled. */
+  readonly pending = this.frozen.asReadonly();
   /** True while a refund's answer is unknown: the dialog may not move to another mode or sale. */
-  readonly awaitingAnswer = this.waiting.asReadonly();
+  readonly awaitingAnswer = computed(() => this.frozen() !== null);
 
   /** Refund methods only (`allows_refund`): the cashier is never offered another (AC-64). */
   readonly refundMethods = computed(() => this.methods().filter((m) => m.allows_refund));
@@ -230,6 +233,7 @@ export class RefundStore {
 
   /** Opens the dialog's session: a clean slate, the refund methods, and the sale named, if any. */
   async start(data: RefundOpenData | undefined): Promise<void> {
+    this.session += 1;
     this.reset();
     this.mode.set(data?.mode ?? 'referenced');
     await this.loadMethods();
@@ -240,8 +244,7 @@ export class RefundStore {
 
   setMode(mode: RefundMode): void {
     if (mode !== this.mode()) {
-      if (this.pendingCheck !== null) {
-        // A goodwill refund has no original to read back: leaving would forget its ids.
+      if (this.frozen() !== null) {
         this.problem.set(REFUND_WAITING);
         return;
       }
@@ -253,7 +256,7 @@ export class RefundStore {
   /** Looks a sale up by its number among this branch's sales. */
   async findByNumber(typed: string): Promise<void> {
     const number = typed.trim();
-    if (this.pendingCheck !== null) {
+    if (this.frozen() !== null) {
       this.problem.set(REFUND_WAITING);
       return;
     }
@@ -290,13 +293,11 @@ export class RefundStore {
 
   /** Loads the original sale from the server and lists its lines (AC-59). */
   async loadSale(saleId: string): Promise<void> {
-    if (this.pendingCheck !== null && this.sale()?.id !== saleId) {
-      // Another sale would forget the ids of the refund still waiting for its answer.
+    if (this.frozen() !== null) {
       this.problem.set(REFUND_WAITING);
       return;
     }
     this.problem.set('');
-    this.held = null;
     try {
       const sale = await firstValueFrom(this.connectivity.track(this.api.getSale(saleId)));
       if (sale.type !== 'sale' || !REFUNDABLE_LOOKUP.some((s) => s === sale.status)) {
@@ -466,17 +467,28 @@ export class RefundStore {
       tenders.map((t) => [t.payment_method_id, t.amount, t.reference]),
     ]);
     if (this.attempt?.key !== key) {
-      const lost = this.pendingCheck;
-      this.attempt =
-        lost !== null && lost.key === key
-          ? { key, refundId: lost.refundId, tenderIds: lost.tenderIds }
-          : { key, refundId: ulid(), tenderIds: tenders.map(() => ulid()) };
+      this.attempt = { key, refundId: ulid(), tenderIds: tenders.map(() => ulid()) };
     }
     const ids = this.attempt.tenderIds;
     tenders.forEach((t, i) => {
       t.id = ids[i] ?? t.id;
     });
-    return { saleId, lines, tenders, approval: this.approvalFor(saleId, quote) };
+    return {
+      frozen: {
+        request: {
+          id: this.attempt.refundId,
+          reference_sale_id: saleId,
+          lines,
+          tenders,
+        },
+        approval: this.approvalFor(saleId, quote),
+        view: {
+          saleLabel: this.sale()?.number ?? this.sale()?.reference ?? null,
+          quote,
+          methodName: tenders.length > 0 ? (this.method()?.name ?? null) : null,
+        },
+      },
+    };
   }
 
   /** The approval to ask: `refund` bound to the original sale, or goodwill with no sale (AC-61, AC-63). */
@@ -496,141 +508,69 @@ export class RefundStore {
     };
   }
 
-  /** Sends the refund; after a lost answer, reads the original again and asks once more with the same ids. */
-  private async send(request: RefundRequest): Promise<RefundResult> {
+  /**
+   * Sends the frozen request once with this approval. A lost answer freezes it as `pending`
+   * (with the approval, which may be unspent); a stale approval is dropped from `pending`.
+   */
+  private async dispatch(mine: number, frozen: Frozen, approvalId: string): Promise<RefundResult> {
     try {
-      return await firstValueFrom(this.connectivity.track(this.api.createRefund(request)));
+      return await firstValueFrom(
+        this.connectivity.track(
+          this.api.createRefund({ ...frozen.request, approval_id: approvalId }),
+        ),
+      );
     } catch (err) {
-      if (!answerLost(err)) {
-        throw err;
+      if (this.session === mine) {
+        if (answerLost(err)) {
+          this.frozen.set({ ...frozen, approvalId });
+        } else if (isStaleApproval(err)) {
+          this.frozen.update((p) => (p === null ? p : { ...p, approvalId: null }));
+        }
       }
-      try {
-        await this.reloadOriginal();
-      } catch {
-        // Still unreachable: the first error is the one to show; the next Submit re-sends the same ids.
-        throw err;
-      }
-      return firstValueFrom(this.connectivity.track(this.api.createRefund(request)));
+      throw err;
     }
   }
 
   /**
-   * After a lost answer, before a refund of another shape goes out: reads the original again.
-   * True when nothing of the earlier refund shows on it and the new one may be sent; false when
-   * it cannot be told (goodwill has no original), the server cannot be reached, or the earlier
-   * refund is on the sale, in which case the form is cleared so the cashier prices it afresh.
+   * Runs one send of a frozen refund: the held approval first, if there is one and it is still
+   * unspent, otherwise a new approval; the ids are the same every time. Every write after an
+   * await is skipped once the dialog's session is over.
    */
-  private async readBack(pending: { key: string; before: string }): Promise<boolean> {
-    // `before` was captured in act() ahead of any reload; a reload here must never feed it.
-    if (this.sale() === null) {
-      this.problem.set(
-        'The answer to the last refund never came. Send it again unchanged, or close and check the sales list',
-      );
-      return false;
-    }
-    try {
-      await this.reloadOriginal();
-    } catch (err) {
-      this.problem.set(describeRefundError(err).text);
-      return false;
-    }
-    if (refundableOf(this.sale()) === pending.before) {
-      this.setPending(null);
-      return true;
-    }
-    this.setPending(null);
-    this.attempt = null;
-    this.entries.set({});
-    this.invalidate();
-    this.problem.set('The sale changed since the last try; check it and price the refund again');
-    return false;
-  }
-
-  private async reloadOriginal(): Promise<void> {
-    const id = this.sale()?.id;
-    if (id) {
-      this.sale.set(await firstValueFrom(this.connectivity.track(this.api.getSale(id))));
-    } else {
-      // A goodwill refund has no original: any read proves the server is back.
-      await firstValueFrom(this.connectivity.track(this.api.paymentMethods()));
-    }
-  }
-
-  /** Asks for approval and submits the refund (AC-61 to AC-64). */
-  async submit(): Promise<void> {
-    if (this.busy()) {
-      return;
-    }
-    this.problem.set('');
-    const prepared = this.prepare();
-    const attempt = this.attempt;
-    if (prepared === null || attempt === null) {
-      return;
-    }
-    const act = async (approvalId: string): Promise<RefundResult> => {
-      this.held = { key: attempt.key, approvalId };
-      // `before` must be captured here, before any reload (send() may reload the original).
-      // While the fate of this very shape is unknown, the FIRST baseline stays: send() reloads the
-      // original after a lost answer, so a fresh read here would already include the refund.
-      const before =
-        this.pendingCheck?.key === attempt.key
-          ? this.pendingCheck.before
-          : refundableOf(this.sale());
-      try {
-        return await this.send({
-          id: attempt.refundId,
-          reference_sale_id: prepared.saleId,
-          approval_id: approvalId,
-          lines: prepared.lines,
-          tenders: prepared.tenders,
-        });
-      } catch (err) {
-        if (answerLost(err)) {
-          this.setPending({
-            key: attempt.key,
-            before,
-            refundId: attempt.refundId,
-            tenderIds: attempt.tenderIds,
-          });
-        } else {
-          // A definite answer: the approval is spent or refused for good, never reused.
-          this.held = null;
-          if (this.pendingCheck?.key === attempt.key) {
-            this.setPending(null);
-          }
-        }
-        throw err;
-      }
-    };
+  private async drive(mine: number, frozen: Frozen, held: string | null): Promise<void> {
+    const live = (): boolean => this.session === mine;
+    const act = (approvalId: string): Promise<RefundResult> =>
+      this.dispatch(mine, frozen, approvalId);
     this.busy.set(true);
     try {
-      if (this.pendingCheck !== null && this.pendingCheck.key !== attempt.key) {
-        if (!(await this.readBack(this.pendingCheck))) {
-          return;
-        }
-      }
       let result: RefundResult | null = null;
-      const held = this.held;
-      if (held !== null && held.key === attempt.key) {
-        // The answer to this very refund never came: the approval it used may be unspent.
+      if (held !== null) {
         try {
-          result = await act(held.approvalId);
+          result = await act(held);
         } catch (err) {
           if (!isStaleApproval(err)) {
             throw err;
           }
-          this.held = null;
         }
-      } else {
-        this.held = null;
       }
       if (result === null) {
         const outcome = await withApproval(
           this.flow,
-          () => prepared.approval,
+          () => {
+            if (!live()) {
+              throw new SessionEnded();
+            }
+            return frozen.approval;
+          },
           act,
-          (err) => this.notifier.fail(err),
+          (err) => {
+            if (live()) {
+              this.notifier.fail(err);
+            }
+          },
         );
+        if (!live()) {
+          return;
+        }
         if (outcome.kind === 'rejected') {
           this.problem.set('Approval rejected: nothing was refunded');
           return;
@@ -640,33 +580,63 @@ export class RefundStore {
         }
         result = outcome.value;
       }
-      this.held = null;
-      this.setPending(null);
+      if (!live()) {
+        return;
+      }
       this.attempt = null;
+      this.frozen.set(null);
       this.result.set(result);
     } catch (err) {
+      if (!live()) {
+        return;
+      }
+      if (!answerLost(err)) {
+        // A definite refusal: nothing was recorded, so the form is editable again.
+        this.frozen.set(null);
+      }
       this.problem.set(describeRefundError(err).text);
     } finally {
-      this.busy.set(false);
+      if (live()) {
+        this.busy.set(false);
+      }
     }
   }
 
-  private setPending(value: PendingCheck | null): void {
-    this.pendingCheck = value;
-    this.waiting.set(value !== null);
+  /** Asks for approval and submits the refund (AC-61 to AC-64). */
+  async submit(): Promise<void> {
+    if (this.busy() || this.frozen() !== null) {
+      return;
+    }
+    this.problem.set('');
+    const prepared = this.prepare();
+    if (prepared === null) {
+      return;
+    }
+    await this.drive(this.session, prepared.frozen, null);
+  }
+
+  /**
+   * Sends a refund whose answer never came, exactly as it was: no form is read or checked again.
+   * A cancelled supervisor dialog, or a lost answer, keeps it waiting.
+   */
+  async sendAgain(): Promise<void> {
+    const waiting = this.frozen();
+    if (this.busy() || waiting === null) {
+      return;
+    }
+    this.problem.set('');
+    await this.drive(this.session, waiting, waiting.approvalId);
   }
 
   /** A change to what is being refunded makes the quote and the checks stale. */
   private invalidate(): void {
-    this.held = null;
     this.quote.set(null);
     this.problem.set('');
   }
 
   private reset(): void {
     this.attempt = null;
-    this.held = null;
-    this.setPending(null);
+    this.frozen.set(null);
     this.mode.set('referenced');
     this.sale.set(null);
     this.entries.set({});
