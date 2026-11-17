@@ -637,7 +637,7 @@ Rules carried from T-027/T-028 §6, unchanged:
 
 ### Chunk F: scans, engine, documents, close-out
 
-- [ ] **Step 19: `QaFinanceSourceRulesTest` (host).** Code only, through `SourceRules::codeOnly`.
+- [x] **Step 19: `QaFinanceSourceRulesTest` (host).** Code only, through `SourceRules::codeOnly`.
   - **Locked-read construction (0.3):**
     - no file under `packages/finance/src/Features/*` whose slice is a write (Ruling 9's list, held as a literal in the test) calls `->first(`, `->get(`, `->exists(`, `->count(`, `->value(` or `->pluck(`;
     - every terminal read in `AccountRows`/`PeriodRows` outside methods named `*Unlocked` has `lockForUpdate()` or `sharedLock()` in the same chain;
@@ -654,7 +654,7 @@ Rules carried from T-027/T-028 §6, unchanged:
     - a scratch `table('accounts')` in `packages/organization/src` is reported;
     - delete all three.
   - *(AC-12, AC-21, AC-44, AC-50, AC-51, AC-57 construction halves, AC-60.)*
-- [ ] **Step 20: `FinanceSchemaEngineTest`** (database `flexipos_t8test_t032_tenant`, created and dropped by **exact name** through `EngineDatabase`, never a `LIKE` sweep).
+- [x] **Step 20: `FinanceSchemaEngineTest`** (database `flexipos_t8test_t032_tenant`, created and dropped by **exact name** through `EngineDatabase`, never a `LIKE` sweep).
   - Under the hold, only the "refuses to reach the engine" case runs.
   - Written for G-1, with rows built with explicit ids (never `insertGetId`, T-028 W-2), and with connection B calling the **real** handler or gate:
     - **AC-3:** `ab1` raw-inserted against `AB1` refused by the unique index on the real collation;
@@ -667,7 +667,7 @@ Rules carried from T-027/T-028 §6, unchanged:
     - the known deadlock (risk 3) yields a 1213 rollback and a clean retry;
     - `information_schema` decimals; generated-column uniqueness; migrating twice is a no-op.
   - *(Every `[ENGINE]` clause; they stay NOT VERIFIED under `ENGINE_HOLD`.)*
-- [ ] **Step 21: documents.** Describe, never quote retired vocabulary.
+- [x] **Step 21: documents.** Describe, never quote retired vocabulary.
   - **`docs/database.md` §6.10, "As built (T-032)":**
     - the generated control marker;
     - the period-start overlap backstop;
