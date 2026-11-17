@@ -7,13 +7,14 @@ namespace Flexipos\Finance\Features\RenameFiscalYear;
 use Flexipos\Contracts\Audit\AuditTrail;
 use Flexipos\Finance\Exceptions\FinanceRefusal;
 use Flexipos\Finance\Exceptions\FinanceRefused;
+use Flexipos\Finance\Features\CreateFiscalYear\CreateFiscalYearHandler;
+use Flexipos\Finance\Periods\FiscalCalendar;
 use Flexipos\Finance\Periods\PeriodRows;
 use Flexipos\Finance\Registry\FinanceAuditActions;
 use Flexipos\Finance\Registry\FinancePermissions;
 use Flexipos\Finance\Support\Authorize;
 use Flexipos\Finance\Support\Fields;
 use Flexipos\Finance\Support\Input;
-use Flexipos\Finance\Support\Limits;
 use Flexipos\Finance\Support\TenantConnection;
 use Flexipos\Kernel\Schema\Support\RunnerClock;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -27,6 +28,12 @@ use Illuminate\Database\UniqueConstraintViolationException;
  * a status moves only through the transitions (AC-36). The new name is
  * compared `lower(trim())` against every other year, and the unique index is
  * the backstop. The year's periods keep the names they were given.
+ *
+ * **Lock order (D-33)**: the whole year chain is read ascending under
+ * `FOR UPDATE` first, and the year being renamed is found in it, so two
+ * renames of different years queue in the same order and cannot cycle. The
+ * name is capped at {@see CreateFiscalYearHandler::NAME_MAX} like a create
+ * (D-31 a): the periods are named `<year> P01`.
  */
 final class RenameFiscalYearHandler
 {
@@ -51,10 +58,17 @@ final class RenameFiscalYearHandler
 
         Fields::only($command->fields, ['name']);
 
-        $name = (string) Input::text($command->fields['name'] ?? null, Limits::YEAR_NAME, true, 'name');
+        $name = (string) Input::text($command->fields['name'] ?? null, CreateFiscalYearHandler::NAME_MAX, true, 'name');
 
         $this->tenant->get()->transaction(function () use ($command, $id, $name): void {
-            $before = $this->rows->yearForUpdate($id);
+            $chain = $this->rows->yearChainForUpdate();
+            $before = null;
+
+            foreach ($chain as $year) {
+                if ((string) $year->id === $id) {
+                    $before = $year;
+                }
+            }
 
             if ($before === null) {
                 throw FinanceRefused::because(
@@ -65,7 +79,7 @@ final class RenameFiscalYearHandler
                 );
             }
 
-            if ($this->rows->yearByNameSharedLock($name, $id) !== null) {
+            if (FiscalCalendar::nameTaken($chain, $name, $id)) {
                 throw $this->nameInUse();
             }
 

@@ -297,6 +297,32 @@ it('allows a type change with no obstacle, and a root or a parent of the new typ
     expect(true)->toBeTrue();
 });
 
+// ---- AC-15a: subtype change ------------------------------------------------
+
+it('names the one failing condition of a subtype change, like a retype but with no children or parent to ask (AC-15a)', function (array $facts, string $condition) {
+    $refused = financeRulesRefusal(fn () => AccountRules::resubtype(
+        $facts['system'] ?? false,
+        $facts['postings'] ?? false,
+        $facts['referrers'] ?? false,
+    ));
+
+    expect($refused->reason)->toBe(FinanceRefusal::TypeChangeRefused)
+        ->and($refused->context['condition'])->toBe($condition)
+        ->and($refused->field)->toBe('subtype');
+})->with([
+    'a system account' => [['system' => true], 'is_system'],
+    'postings' => [['postings' => true], 'has_postings'],
+    'referrers' => [['referrers' => true], 'in_use'],
+    'system before postings' => [['system' => true, 'postings' => true, 'referrers' => true], 'is_system'],
+    'postings before referrers' => [['postings' => true, 'referrers' => true], 'has_postings'],
+]);
+
+it('allows a subtype change with no obstacle', function () {
+    AccountRules::resubtype(false, false, false);
+
+    expect(true)->toBeTrue();
+});
+
 // ---- AC-14, AC-19, AC-22: the other decision tables -------------------------
 
 it('refuses a recode on a system account first, then on postings', function () {

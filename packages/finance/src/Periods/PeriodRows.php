@@ -72,21 +72,6 @@ class PeriodRows
         return array_values($this->years()->orderBy('start_date')->lockForUpdate()->get()->all());
     }
 
-    /**
-     * The year with this name, compared as `lower(trim())` (AC-34, D-26),
-     * other than `$exceptId`. The unique index behind it is exact-match only.
-     */
-    public function yearByNameSharedLock(string $name, ?string $exceptId = null): ?object
-    {
-        $query = $this->years()->whereRaw('lower(trim(name)) = ?', [mb_strtolower(trim($name))]);
-
-        if ($exceptId !== null) {
-            $query->where('id', '!=', $exceptId);
-        }
-
-        return $query->sharedLock()->first();
-    }
-
     public function yearByStartSharedLock(string $startDate): ?object
     {
         return $this->years()->where('start_date', $startDate)->sharedLock()->first();
@@ -125,11 +110,18 @@ class PeriodRows
     /**
      * The one period covering a date, under a **shared** lock: the gate's
      * only read (AC-47, AC-50).
+     *
+     * The read picks the single latest period starting on or before the date
+     * (one index entry, so one row is locked) and checks `end_date >= date`
+     * here: a range predicate on both columns could lock every row it scans.
+     * A date in a gap, or past the last period, finds no cover and returns null.
      */
     public function periodCoveringSharedLock(string $date): ?object
     {
-        return $this->periods()->where('start_date', '<=', $date)->where('end_date', '>=', $date)
-            ->sharedLock()->first();
+        $row = $this->periods()->where('start_date', '<=', $date)
+            ->orderByDesc('start_date')->limit(1)->sharedLock()->first();
+
+        return $this->coveringOrNull($row, $date);
     }
 
     // -- Writes -------------------------------------------------------------
@@ -237,7 +229,14 @@ class PeriodRows
      */
     public function periodCoveringUnlocked(string $date): ?object
     {
-        return $this->periods()->where('start_date', '<=', $date)->where('end_date', '>=', $date)->first();
+        $row = $this->periods()->where('start_date', '<=', $date)->orderByDesc('start_date')->limit(1)->first();
+
+        return $this->coveringOrNull($row, $date);
+    }
+
+    private function coveringOrNull(?object $row, string $date): ?object
+    {
+        return $row !== null && (string) $row->end_date >= $date ? $row : null;
     }
 
     private function years(): Builder

@@ -90,6 +90,28 @@ final class FiscalCalendar
     }
 
     /**
+     * Whether a year other than `$exceptId` already has this name, compared
+     * `lower(trim())` (AC-34, D-26). The unique index behind it is exact-match
+     * only, so the case and edge-space variants are caught here, over a chain
+     * the caller already holds locked in ascending order (D-33: no year is
+     * locked by a name search, so no lock can be taken out of order).
+     *
+     * @param  list<object>  $years  rows with `id` and `name`
+     */
+    public static function nameTaken(array $years, string $name, ?string $exceptId = null): bool
+    {
+        $wanted = mb_strtolower(trim($name));
+
+        foreach ($years as $year) {
+            if ((string) $year->id !== $exceptId && mb_strtolower(trim((string) $year->name)) === $wanted) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * A real strict date, the first of a month, in 2000 to 2100 (AC-32).
      */
     private static function start(string $start): DateTimeImmutable

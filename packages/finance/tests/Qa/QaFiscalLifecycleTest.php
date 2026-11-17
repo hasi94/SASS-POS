@@ -277,19 +277,24 @@ it('deletes only the latest year, only with all periods open, and not when entri
         ->and(FinanceSeed::connection()->table('fiscal_periods')->count())->toBe(12);
 });
 
-it('pins as-built facts the spec disagrees with: rename allows 50 chars, period names are not unique, reopening a non-closed year is invalid_transition (AC-34, AC-46)', function () {
+it('pins as-built facts the spec disagrees with: rename is capped at 46 like create (D-31 a), period names are not unique, reopening a non-closed year is invalid_transition (AC-34, AC-46)', function () {
     $admin = FinanceSeed::admin();
     $a = qaCreateYear($admin, 'FY2026', '2026-01-01');
     $b = qaCreateYear($admin, 'FY2027', '2027-01-01');
 
-    // Rename accepts the column width of 50 while create stops at 46 (inconsistent cap).
+    // Rename stops at 46 like create (D-31 a); 47 is refused, and so is the column width of 50.
+    foreach ([47, 50] as $len) {
+        FinanceRefusals::expect(FinanceRefusal::Validation, fn () => app(RenameFiscalYearHandler::class)
+            ->handle(new RenameFiscalYear($a, ['name' => str_repeat('R', $len)], $admin)), (string) $len);
+    }
+
     app(RenameFiscalYearHandler::class)
-        ->handle(new RenameFiscalYear($a, ['name' => str_repeat('R', 50)], $admin));
-    expect(FinanceSeed::yearRow($a)['name'])->toBe(str_repeat('R', 50));
+        ->handle(new RenameFiscalYear($a, ['name' => str_repeat('R', 46)], $admin));
+    expect(FinanceSeed::yearRow($a)['name'])->toBe(str_repeat('R', 46));
 
     // Year names stay unique case-insensitively, trimmed.
     FinanceRefusals::expect(FinanceRefusal::NameInUse, fn () => app(RenameFiscalYearHandler::class)
-        ->handle(new RenameFiscalYear($b, ['name' => '  '.strtolower(str_repeat('R', 50)).' '], $admin)));
+        ->handle(new RenameFiscalYear($b, ['name' => '  '.strtolower(str_repeat('R', 46)).' '], $admin)));
 
     // Two periods may share one name.
     $ids = qaPeriodIds($a);

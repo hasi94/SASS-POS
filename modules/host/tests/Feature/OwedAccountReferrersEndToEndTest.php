@@ -174,3 +174,24 @@ it('deletes an account no record names', function () {
 
     expect(FinanceSeed::row($seed['account'])['deleted_at'])->not->toBeNull();
 });
+
+it('refuses an update that changes the subtype of an account a live product names (AC-15a through the real referrers)', function () {
+    $actor = FinanceSeed::admin();
+    $seed = oareSeed();
+
+    CatalogSeed::product('p1', $seed['category'], $seed['unit'], ['income_account_id' => $seed['account']]);
+
+    /** @var UpdateAccountHandler $handler */
+    $handler = app(UpdateAccountHandler::class);
+
+    $refused = FinanceRefusals::capture(fn () => $handler->handle(new UpdateAccount($seed['account'], ['subtype' => 'other_income'], $actor)));
+
+    expect($refused->reason)->toBe(FinanceRefusal::TypeChangeRefused)
+        ->and($refused->context)->toBe(['condition' => 'in_use'])
+        ->and(FinanceSeed::row($seed['account'])['subtype'])->toBe('sales');
+
+    // Naming the stored subtype changes nothing, so it is not refused.
+    $handler->handle(new UpdateAccount($seed['account'], ['subtype' => 'sales', 'name' => 'Sales'], $actor));
+
+    expect(FinanceSeed::row($seed['account'])['name'])->toBe('Sales');
+});

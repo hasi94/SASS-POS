@@ -284,6 +284,36 @@ final class AccountRules
     }
 
     /**
+     * A change to a **different** subtype is guarded like a retype (AC-15a,
+     * D-32): a product pointing at a cogs account whose subtype became
+     * operating_expense would silently break the owed-account kind rules. The
+     * refusal is `type_change_refused`, naming the first failing condition;
+     * children and the parent's type do not matter to a subtype. The caller
+     * asks only when the subtype really changes, and not when the type changes
+     * with it (the retype guard has already run).
+     *
+     * @throws FinanceRefused type_change_refused
+     */
+    public static function resubtype(bool $isSystem, bool $hasPostings, bool $hasReferrers): void
+    {
+        $condition = match (true) {
+            $isSystem => 'is_system',
+            $hasPostings => 'has_postings',
+            $hasReferrers => 'in_use',
+            default => null,
+        };
+
+        if ($condition !== null) {
+            throw FinanceRefused::because(
+                FinanceRefusal::TypeChangeRefused,
+                "The subtype cannot be changed: {$condition}.",
+                'subtype',
+                ['condition' => $condition],
+            );
+        }
+    }
+
+    /**
      * A code change is refused on a system account, then once the account has
      * postings (AC-22).
      *

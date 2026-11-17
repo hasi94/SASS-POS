@@ -67,6 +67,7 @@ const QA_FINANCE_UNLOCKED_CALLERS = [
     'Features/FindPeriodByDate/FindPeriodByDateHandler.php' => ['periodCoveringUnlocked'],
     'Features/TransitionFiscalPeriod/TransitionFiscalPeriodHandler.php' => ['periodByIdUnlocked', 'previousPeriodStartUnlocked', 'nextPeriodStartUnlocked'],
     'Features/ReopenFiscalYear/ReopenFiscalYearHandler.php' => ['yearByIdUnlocked'],
+    'Features/ReactivateAccount/ReactivateAccountHandler.php' => ['parentIdUnlocked'],
     'Accounts/DatabaseChartOfAccounts.php' => ['byIdUnlocked', 'byCodeUnlocked', 'liveByControlTypeUnlocked'],
 ];
 

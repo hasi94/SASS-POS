@@ -155,6 +155,20 @@ class AccountRows
         return $this->query()->where('id', $id)->first();
     }
 
+    /**
+     * The `parent_id` of a row, live or not, without a lock: **only** to learn
+     * which parent to lock before the child (parent first, child second, the
+     * order every account write shares). The caller re-reads the child under
+     * its lock and compares, so a stale answer costs a late lock, never a
+     * wrong decision.
+     */
+    public function parentIdUnlocked(string $id): ?string
+    {
+        $value = $this->query()->where('id', $id)->value('parent_id');
+
+        return $value === null ? null : (string) $value;
+    }
+
     public function liveByIdUnlocked(string $id): ?object
     {
         return $this->query()->where('id', $id)->whereNull('deleted_at')->first();

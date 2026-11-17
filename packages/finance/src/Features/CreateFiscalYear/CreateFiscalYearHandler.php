@@ -75,7 +75,9 @@ final class CreateFiscalYearHandler
 
             FiscalCalendar::contiguous($latest === null ? null : (string) $latest->end_date, $start);
 
-            if ($this->rows->yearByNameSharedLock($name) !== null) {
+            // The whole chain, ascending and locked (the latest year is already ours): a name search
+            // never locks a year out of order (D-33).
+            if (FiscalCalendar::nameTaken($this->rows->yearChainForUpdate(), $name)) {
                 throw $this->nameInUse();
             }
 
@@ -151,7 +153,7 @@ final class CreateFiscalYearHandler
      */
     private function backstopRefusal(string $name, string $start, string $ownId): FinanceRefused
     {
-        if ($this->rows->yearByNameSharedLock($name, $ownId) !== null) {
+        if (FiscalCalendar::nameTaken($this->rows->yearChainForUpdate(), $name, $ownId)) {
             return $this->nameInUse();
         }
 

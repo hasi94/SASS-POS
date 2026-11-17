@@ -43,7 +43,8 @@ use Illuminate\Database\UniqueConstraintViolationException;
  * stored control type (AC-16), none of which the request alone can settle.
  *
  * **Check order**, fixed so a test can pin each reason: system immutability
- * (AC-18), type change (AC-15), code (AC-22, AC-3), postability (AC-14),
+ * (AC-18), type change (AC-15), subtype change (AC-15a, D-32), code (AC-22,
+ * AC-3), postability (AC-14),
  * control type lock (AC-19), subtype and normal balance (AC-6, AC-7), control
  * fit (AC-16), single holder (AC-17).
  *
@@ -125,7 +126,12 @@ final class UpdateAccountHandler
             AccountRules::system($isSystem, $changed);
 
             $hasPostings = fn (): bool => $this->usage->hasPostings($id);
-            $hasReferrers = fn (): bool => $this->referrers->total($id) > 0;
+            $referrerTotal = null;
+            $hasReferrers = function () use ($id, &$referrerTotal): bool {
+                $referrerTotal ??= $this->referrers->total($id);
+
+                return $referrerTotal > 0;
+            };
 
             if ($typeChanged) {
                 $parentType = null;
@@ -143,6 +149,10 @@ final class UpdateAccountHandler
                     $parentType,
                     $type,
                 );
+            }
+
+            if ($subtypeChanged && ! $typeChanged) {
+                AccountRules::resubtype($isSystem, $hasPostings(), $hasReferrers());
             }
 
             if ($codeChanged) {

@@ -24,6 +24,14 @@ use Flexipos\Kernel\Schema\Support\RunnerClock;
  * under a parent that cannot take it (the AC-10 versus AC-24 gap, F-11).
  * Only the two facts a reactivation depends on are checked; the parent being
  * a header of the same type was settled when the child was placed.
+ *
+ * **Lock order: the parent (shared), then the child (exclusive)**, the same
+ * order as a deactivation of the parent (which locks the parent, then counts
+ * its children), so the pair cannot cycle (D-33). The parent id is peeked
+ * without a lock to know which row to lock first, and compared with the
+ * child's own `parent_id` once that is locked; a re-parent in between (rare:
+ * it locks the whole chart) costs a late lock on the new parent, not a wrong
+ * decision.
  */
 final class ReactivateAccountHandler
 {
@@ -47,6 +55,9 @@ final class ReactivateAccountHandler
         $id = Input::id($command->accountId, 'account_id');
 
         $this->tenant->get()->transaction(function () use ($command, $id): void {
+            $peekedParentId = $this->rows->parentIdUnlocked($id);
+            $parent = $peekedParentId === null ? null : $this->rows->anySharedLock($peekedParentId);
+
             $row = $this->rows->liveForUpdate($id);
 
             if ($row === null) {
@@ -62,7 +73,9 @@ final class ReactivateAccountHandler
             }
 
             if ($row->parent_id !== null) {
-                $parent = $this->rows->anySharedLock((string) $row->parent_id);
+                if ((string) $row->parent_id !== $peekedParentId) {
+                    $parent = $this->rows->anySharedLock((string) $row->parent_id);
+                }
 
                 if ($parent === null || $parent->deleted_at !== null) {
                     throw FinanceRefused::because(

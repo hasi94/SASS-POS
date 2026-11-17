@@ -24,6 +24,10 @@ interface PeriodGate
      * and a posting started after the close both see the right status
      * (AC-50).
      *
+     * **Lock order**: call it once per transaction, or for several dates in
+     * ascending date order, so two postings never take period locks in opposite
+     * orders. Lock behaviour is not verified against a real engine.
+     *
      * @param  mixed  $date  A strict `Y-m-d` string; anything else is refused `invalid_date`
      * @param  string|null  $actorId  The posting employee; null can never hold the adjustment permission
      *

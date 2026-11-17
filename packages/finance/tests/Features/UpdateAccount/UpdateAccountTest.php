@@ -305,3 +305,57 @@ it('refuses an actor without the manage key before reading the target', function
 
     expect(FinanceSeed::row($id)['name'])->toBe('Account AB1');
 });
+
+it('refuses a change to a different subtype like a retype, naming the failing condition (AC-15a, D-32)', function (string $source, string $condition) {
+    $actor = FinanceSeed::admin();
+    FakeUsagePorts::bind();
+    $id = FinanceSeed::account('S1', ['type' => 'expense', 'subtype' => 'cogs', 'normal_balance' => 'debit']);
+
+    match ($source) {
+        'postings' => FakeUsagePorts::$postings[$id] = true,
+        'product' => FakeUsagePorts::$referrers[$id] = [new AccountReferrer('products.cogs_account_id', 1, 0)],
+        default => FakeUsagePorts::$referrers[$id] = [new AccountReferrer('customers.receivable_account_id', 0, 1)],
+    };
+
+    $before = FinanceSeed::snapshot();
+
+    $refused = FinanceRefusals::expect(FinanceRefusal::TypeChangeRefused, fn () => updateAccountAs($actor, $id, ['subtype' => 'operating_expense']));
+
+    expect($refused->context)->toBe(['condition' => $condition])
+        ->and($refused->field)->toBe('subtype')
+        ->and(FinanceSeed::snapshot())->toBe($before)
+        ->and(FinanceSeed::audit())->toBe([]);
+})->with([
+    'postings' => ['postings', 'has_postings'],
+    'a product names it' => ['product', 'in_use'],
+    'a customer names it' => ['customer', 'in_use'],
+]);
+
+it('lets the same subtype through untouched, and a subtype change on an unused account (AC-15a)', function () {
+    $actor = FinanceSeed::admin();
+    FakeUsagePorts::bind();
+    $used = FinanceSeed::account('S1', ['type' => 'expense', 'subtype' => 'cogs', 'normal_balance' => 'debit']);
+    $free = FinanceSeed::account('S2', ['type' => 'expense', 'subtype' => 'cogs', 'normal_balance' => 'debit']);
+    FakeUsagePorts::$postings[$used] = true;
+    FakeUsagePorts::$referrers[$used] = [new AccountReferrer('products.cogs_account_id', 1, 0)];
+
+    // Naming the stored subtype is not a change, however used the account is.
+    updateAccountAs($actor, $used, ['subtype' => 'cogs', 'name' => 'Still used']);
+
+    expect(FinanceSeed::row($used))->toMatchArray(['subtype' => 'cogs', 'name' => 'Still used']);
+
+    updateAccountAs($actor, $free, ['subtype' => 'operating_expense']);
+
+    expect(FinanceSeed::row($free)['subtype'])->toBe('operating_expense');
+});
+
+it('asks the referrers port once per update however many rules want the answer (S-3)', function () {
+    $actor = FinanceSeed::admin();
+    FakeUsagePorts::bind();
+    $id = FinanceSeed::account('S1', ['type' => 'expense', 'subtype' => 'cogs', 'normal_balance' => 'debit', 'control_type' => 'none']);
+
+    // A header turn and a subtype change both want "any referrers?".
+    updateAccountAs($actor, $id, ['subtype' => 'operating_expense', 'is_postable' => false]);
+
+    expect(FakeUsagePorts::$referrerAsks)->toBe(1);
+});

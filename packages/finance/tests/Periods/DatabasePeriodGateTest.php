@@ -153,6 +153,52 @@ it('resolves the first day, the last day and the day after (AC-49)', function ()
         ->and(gateOutcome('2025-12-31', $actor)[0])->toBe(PeriodRefusal::NoFiscalPeriod);
 });
 
+it('answers no_fiscal_period for a date in a gap between two periods, and for a date past the last one (W-1)', function () {
+    $first = FinanceSeed::fiscalYear('2026-01-01');
+    FinanceSeed::fiscalYear('2028-01-01'); // 2027 is missing: written directly, the stand-in has no chain check
+    $actor = FinanceSeed::admin();
+
+    expect(gateClear('2026-12-31', $actor)->periodId)->toBe($first['periods'][12])
+        ->and(gateOutcome('2027-01-01', $actor)[0])->toBe(PeriodRefusal::NoFiscalPeriod)
+        ->and(gateOutcome('2027-06-15', $actor)[0])->toBe(PeriodRefusal::NoFiscalPeriod)
+        ->and(gateOutcome('2027-12-31', $actor)[0])->toBe(PeriodRefusal::NoFiscalPeriod)
+        ->and(gateOutcome('2028-01-01', $actor)[1]?->status)->toBe(PeriodStatus::Open)
+        ->and(gateOutcome('2029-01-01', $actor)[0])->toBe(PeriodRefusal::NoFiscalPeriod);
+
+    $rows = app(PeriodRows::class);
+
+    expect($rows->periodCoveringUnlocked('2027-06-15'))->toBeNull();
+    expect($rows->periodCoveringUnlocked('2029-01-01'))->toBeNull();
+    $covering = $rows->periodCoveringUnlocked('2026-03-31');
+    expect((string) $covering?->id)->toBe($first['periods'][3]);
+});
+
+it('reads the single latest period starting on or before the date, and keeps the locked and plain reads identical (W-1)', function () {
+    FinanceSeed::fiscalYear('2026-01-01');
+
+    $statements = [];
+    FinanceSeed::connection()->listen(static function ($query) use (&$statements): void {
+        $statements[] = $query->sql;
+    });
+
+    $rows = app(PeriodRows::class);
+    FinanceSeed::connection()->transaction(static function () use ($rows): void {
+        $rows->periodCoveringSharedLock('2026-02-10');
+        $rows->periodCoveringUnlocked('2026-02-10');
+    });
+
+    $reads = array_values(array_filter($statements, static fn (string $sql): bool => str_contains($sql, 'from "fiscal_periods"') || str_contains($sql, 'from `fiscal_periods`')));
+
+    expect($reads)->toHaveCount(2);
+
+    foreach ($reads as $sql) {
+        expect($sql)->toContain('"start_date" <= ?');
+        expect($sql)->toContain('order by "start_date" desc');
+        expect($sql)->toContain('limit 1');
+        expect($sql)->not->toContain('end_date');
+    }
+});
+
 it('throws when called outside a transaction, and never reads (AC-50)', function () {
     FinanceSeed::fiscalYear('2026-01-01');
 
@@ -219,7 +265,5 @@ it('exposes only published types: the contract and its implementation answer in 
 
     expect(array_values(array_unique($thrown[1])))->toEqualCanonicalizing(['LogicException', 'PeriodGateRefused']);
 
-    foreach (['LogicException' => LogicException::class, 'PeriodGateRefused' => PeriodGateRefused::class] as $short => $full) {
-        expect($short === 'LogicException' || str_starts_with($full, $published))->toBeTrue();
-    }
+    expect(PeriodGateRefused::class)->toStartWith($published);
 });

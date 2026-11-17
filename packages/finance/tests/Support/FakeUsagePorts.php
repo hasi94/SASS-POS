@@ -35,6 +35,9 @@ final class FakeUsagePorts implements AccountReferrers, AccountUsage, FiscalYear
     /** @var array<string, true> */
     public static array $yearEntries = [];
 
+    /** How many times `referrersOf()` was asked since the last reset. */
+    public static int $referrerAsks = 0;
+
     /** @var array<string, list<PeriodBlocker>> */
     public static array $blockers = [];
 
@@ -44,6 +47,7 @@ final class FakeUsagePorts implements AccountReferrers, AccountUsage, FiscalYear
         self::$referrers = [];
         self::$yearEntries = [];
         self::$blockers = [];
+        self::$referrerAsks = 0;
     }
 
     /**
@@ -75,6 +79,8 @@ final class FakeUsagePorts implements AccountReferrers, AccountUsage, FiscalYear
 
     public function referrersOf(string $accountId): array
     {
+        self::$referrerAsks++;
+
         return self::$referrers[$accountId] ?? [];
     }
 
