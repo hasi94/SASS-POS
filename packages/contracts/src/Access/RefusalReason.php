@@ -103,4 +103,12 @@ enum RefusalReason: string
      * refused with it (D-6).
      */
     case BranchInactive = 'branch_inactive';
+
+    /**
+     * The employee is still the head of a live department or the manager of a
+     * live profile, so they may not be soft-deleted (T-038 AC-85, D-43).
+     * Rendered as 403 with the reason alone; the kinds of dependent travel
+     * only on the in-process refusal.
+     */
+    case HasDependents = 'has_dependents';
 }

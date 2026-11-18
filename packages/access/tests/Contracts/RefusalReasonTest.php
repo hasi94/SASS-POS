@@ -41,7 +41,7 @@ use Tests\TestCase;
 
 uses(TestCase::class);
 
-it('publishes exactly the seventeen reasons of D-26 and T-014, as a closed set', function () {
+it('publishes exactly the eighteen reasons of D-26, T-014 and T-038, as a closed set', function () {
     $values = array_map(
         static fn (RefusalReason $reason): string => $reason->value,
         RefusalReason::cases()
@@ -54,6 +54,7 @@ it('publishes exactly the seventeen reasons of D-26 and T-014, as a closed set',
         'branch_inactive',
         'branch_required',
         'employee_unavailable',
+        'has_dependents',
         'has_scoped_grants',
         'last_owner',
         'no_escalation',
@@ -67,7 +68,7 @@ it('publishes exactly the seventeen reasons of D-26 and T-014, as a closed set',
         'unknown_branch',
         'unknown_permission',
         'validation',
-    ])->and($values)->toHaveCount(17);
+    ])->and($values)->toHaveCount(18);
 });
 
 it('keeps the three finer causes out of the caller-facing vocabulary', function () {

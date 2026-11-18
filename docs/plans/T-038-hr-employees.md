@@ -368,13 +368,13 @@ Rules carried from T-032 §6:
 
 ### Chunk B: contracts and the pure core
 
-- [ ] **Step 4: contracts** (section 3's contracts table, kernel `Files` excluded).
+- [x] **Step 4: contracts** (section 3's contracts table, kernel `Files` excluded).
   - `HrContractShapesTest`: `DirectReports`, `HrReferrer` and `EmployeeIdentity` accept good values and refuse malformed ones.
   - **`NoOrgChartTest`** (`packages/hr/tests/Contracts/`, D-52): one case per question of AC-82 (null, null, null, null, empty `DirectReports` with `truncated = false`, `false`, `false`).
   - The contracts import nothing outside contracts or PHP core.
   - `RefusalReason` gains `has_dependents`; `RefusalReasonTest` gains the value in its list and 17 → 18 (D-43, AC-9).
   - *(AC-84; AC-9 `RefusalReasonTest`; groundwork for AC-82, AC-85, AC-86.)*
-- [ ] **Step 5: `Support\Input`, `Fields`, `Cursor`, `PageSize`, `HrRefusal`** (pure datasets).
+- [x] **Step 5: `Support\Input`, `Fields`, `Cursor`, `PageSize`, `HrRefusal`** (pure datasets).
   - **Code (AC-17, D-41: after upper-casing, `\A[0-9A-Z][0-9A-Z.-]{0,19}\z`):**
     - `fin-01` → `FIN-01`;
     - refused `validation`: `FIN 01`, `' FIN'`, `"FIN\n"`, a tab, NUL, `.AB`, `-AB`, a non-ASCII letter (`É`, a full-width `Ａ`), 21 characters;
@@ -390,7 +390,7 @@ Rules carried from T-032 §6:
   - `HrRefusalTest` pins the 27 codes.
   - **Mutations:** M1 `^…$` for `\A…\z` (the newline row goes red); M2 trim the code (the `' FIN'` row goes red); M2b drop the first-character class (the `.AB` row goes red).
   - *(AC-16, AC-17, AC-26 and AC-38 paging rules, AC-42, AC-104 unit half.)*
-- [ ] **Step 6: `DepartmentRules`, `NameKey`** (pure).
+- [x] **Step 6: `DepartmentRules`, `NameKey`** (pure).
   - **AC-19 order:** each failure alone, and two at once reports the first.
   - Exactly 10 levels accepted and an 11th refused.
   - `cycle` for itself, a child and a grandchild.
@@ -398,7 +398,7 @@ Rules carried from T-032 §6:
   - **AC-18 / AC-33:** `Sales` against `sales `, case-insensitive; the same name under another parent or in another designation group is accepted.
   - **Mutation M3:** check the depth of the moved node only (the subtree row goes red).
   - *(AC-18, AC-19, AC-23, AC-33 logic.)*
-- [ ] **Step 7: `ProfileFields`, `DateRules`, `ShapeRules`, `EmploymentType`, `ProfileInput`** (pure).
+- [x] **Step 7: `ProfileFields`, `DateRules`, `ShapeRules`, `EmploymentType`, `ProfileInput`** (pure).
   - **AC-41:** `2025-02-30` refused, `2024-02-29` accepted; employment type outside the six refused.
   - **AC-46:** every pair; equal accepted; one day earlier is `date_order` naming the pair; the merged-update case; `dob` tomorrow (clock) refused.
   - **AC-47:** emails; each shape's valid example; unknown key, nested value, non-string leaf, missing `name`/`phone`; 100/101 and 150/151 lengths.
@@ -406,7 +406,7 @@ Rules carried from T-032 §6:
   - **AC-56 (pure half, D-45):** `SENSITIVE` equals the spec's sixteen (printed); `INTERNAL` equals the four; `SENSITIVE`, `DIRECTORY` and `INTERNAL` are pairwise disjoint.
   - **Mutation M4:** check dates on the request only, not the merged result.
   - *(AC-41, AC-46, AC-47, AC-51 validation half, AC-56 pure half.)*
-- [ ] **Step 8: `FileRules`, `DocumentType`, `DocumentInput`, `StagedFile`, `StagedFileReader`, kernel `Files`** (pure plus temp-dir).
+- [x] **Step 8: `FileRules`, `DocumentType`, `DocumentInput`, `StagedFile`, `StagedFileReader`, kernel `Files`** (pure plus temp-dir).
   - **`FileRules`** (one list in one place: detected type → allowed extensions `pdf`; `jpg`, `jpeg`; `png`):
     - a real PDF, PNG and JPEG are accepted;
     - a PDF renamed `.png`, an executable (MZ header) renamed `.pdf`, `.svg`/`.html` all give `file_type_not_allowed`;

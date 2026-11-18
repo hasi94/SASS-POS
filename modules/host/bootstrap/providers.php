@@ -10,6 +10,7 @@ use Flexipos\Eventbus\EventbusServiceProvider;
 use Flexipos\Finance\FinanceServiceProvider;
 use Flexipos\Hr\HrServiceProvider;
 use Flexipos\Kernel\Api\ApiServiceProvider;
+use Flexipos\Kernel\Files\FilesServiceProvider;
 use Flexipos\Kernel\Schema\SchemaServiceProvider;
 use Flexipos\Kernel\Tenancy\TenancyServiceProvider;
 use Flexipos\Organization\OrganizationServiceProvider;
@@ -25,6 +26,7 @@ return [
     TenancyServiceProvider::class,
     SchemaServiceProvider::class,
     ApiServiceProvider::class,
+    FilesServiceProvider::class,
     AuthServiceProvider::class,
     AccessServiceProvider::class,
     OrganizationServiceProvider::class,
